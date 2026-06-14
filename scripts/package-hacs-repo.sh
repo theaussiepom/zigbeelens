@@ -18,7 +18,8 @@ cp "${ROOT}/CHANGELOG.md" "${DIST}/"
 cat > "${DIST}/hacs.json" <<EOF
 {
   "name": "ZigbeeLens",
-  "content_in_root": true,
+  "content_in_root": false,
+  "filename": "zigbeelens",
   "render_readme": true,
   "homeassistant": "2025.1.0"
 }
