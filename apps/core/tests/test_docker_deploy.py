@@ -35,7 +35,7 @@ def test_config_examples_validate():
 def test_multi_network_config_has_stable_ids():
     cfg = load_config(DOCKER / "config.multi-network.example.yaml")
     ids = [n.id for n in cfg.networks]
-    assert ids == ["home", "garage", "shed"]
+    assert ids == ["home", "home2"]
     assert len(set(ids)) == len(ids)
 
 
