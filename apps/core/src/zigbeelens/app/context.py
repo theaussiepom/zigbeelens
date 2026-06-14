@@ -109,12 +109,12 @@ def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -
         _on_health_update(ctx, broadcaster, event_type)
 
     health = HealthDiagnosticService(cfg, repo, on_update=health_callback)
+    ctx.health = health
+    ctx.incidents = incidents
     if repo.has_collected_data():
         health.recalculate_all()
         incidents.correlate_and_sync(health)
 
-    ctx.health = health
-    ctx.incidents = incidents
     ctx.data = DataService(cfg, repo, health, incidents)
     ctx.collector = start_collector(ctx, broadcaster)
     ctx.discovery = start_discovery(ctx)
