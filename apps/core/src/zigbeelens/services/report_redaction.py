@@ -58,6 +58,27 @@ _SECRET_SUFFIX = (
 
 _USERNAME_KEYS = {"username", "user"}
 
+# Categorical / enum string fields must not pass through free-text scrubbing.
+# Friendly names like "Router" or "Battery" would otherwise corrupt values such
+# as device_type or power_source when those tokens appear as substrings.
+_STRUCTURED_STRING_KEYS = frozenset(
+    {
+        "device_type",
+        "power_source",
+        "availability",
+        "interview_state",
+        "bridge_state",
+        "primary",
+        "severity",
+        "confidence",
+        "classification",
+        "overall_state",
+        "overall_severity",
+        "health_state",
+        "state",
+    }
+)
+
 _IPV4_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 _IPV6_RE = re.compile(r"\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b")
 
@@ -324,6 +345,8 @@ class Redactor:
             return self._net_name_map[value]
         if lk == "friendly_name" and isinstance(value, str):
             return self._friendly(value)
+        if lk in _STRUCTURED_STRING_KEYS and isinstance(value, str):
+            return value
         if lk in ("server", "mqtt_server") and isinstance(value, str):
             return self._redact_server(value)
         if lk in ("storage_path", "path") and isinstance(value, str) and self.resolved.redact_hostnames:

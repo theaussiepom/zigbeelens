@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from zigbeelens.config.models import AppConfig, ReportingConfig
 from zigbeelens.config.redaction import REDACTED
 from zigbeelens.db.connection import Database
-from zigbeelens.schemas import RedactionOptions, RedactionProfile, ReportRequest
+from zigbeelens.schemas import RedactionOptions, RedactionProfile, ReportRequest, ReportScope
 from zigbeelens.services.data_service import DataService
 from zigbeelens.services.report_redaction import (
     Redactor,
@@ -216,6 +216,35 @@ def test_secret_key_detection():
         assert is_secret_key(key), key
     for key in ("linkquality", "key_press", "keyboard", "battery", "extended_pan_id", "name"):
         assert not is_secret_key(key), key
+
+
+def test_public_safe_preserves_device_type_when_friendly_name_collides():
+    """Friendly-name scrubbing must not corrupt enum fields like device_type."""
+    resolved = resolve_redaction(RedactionOptions(profile=RedactionProfile.public_safe))
+    redactor = Redactor(resolved)
+    out = redactor.redact(
+        {
+            "networks": [],
+            "devices": [
+                {
+                    "friendly_name": "Router",
+                    "device_type": "Router",
+                    "power_source": "Mains",
+                    "ieee_address": "0x00158d0001a2b3c4",
+                },
+                {
+                    "friendly_name": "Battery sensor",
+                    "device_type": "EndDevice",
+                    "power_source": "Battery",
+                    "ieee_address": "0x00158d0005d6e7f8",
+                },
+            ],
+        }
+    )
+    assert out["devices"][0]["friendly_name"].startswith("device_")
+    assert out["devices"][0]["device_type"] == "Router"
+    assert out["devices"][1]["device_type"] == "EndDevice"
+    assert out["devices"][1]["power_source"] == "Battery"
 
 
 def test_redactor_redacts_secret_keys_keeps_linkquality():

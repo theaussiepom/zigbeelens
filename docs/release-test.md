@@ -17,9 +17,8 @@ Before you start, confirm:
 
 - [ ] Docker is running locally
 - [ ] You can reach your MQTT broker from the Docker host (host IP, not `localhost` inside container unless broker is on host network)
-- [ ] Zigbee2MQTT is running and publishing for both base topics:
-  - `zigbee2mqtt`
-  - `zigbee2mqtt-home2`
+- [ ] Zigbee2MQTT is running and publishing for both configured base topics
+- [ ] Base topics in config match your broker (defaults below are common; yours may differ — e.g. `home` / `home2` instead of `zigbee2mqtt` / `zigbee2mqtt-home2`). Verify with `mosquitto_sub -t '# -v'` or your broker UI before configuring networks.
 - [ ] You have MQTT credentials ready (do **not** commit them)
 - [ ] Port **8377** is free on the Docker host
 - [ ] GHCR image is public: `docker pull ghcr.io/theaussiepom/zigbeelens:edge`
@@ -125,6 +124,22 @@ curl -s http://localhost:8377/api/dashboard | python3 -m json.tool | head -40
 curl -s http://localhost:8377/api/networks | python3 -m json.tool
 ```
 
+Generate a redacted report (JSON):
+
+```bash
+curl -s -X POST http://localhost:8377/api/reports \
+  -H "Content-Type: application/json" \
+  -d '{"scope":"full","format":"json","redaction":{"profile":"public_safe"}}' \
+  | python3 -m json.tool
+```
+
+Download the stored report (replace `<report-id>`):
+
+```bash
+curl -s "http://localhost:8377/api/reports/<report-id>/download" -o report.json
+grep -iE 'password|network_key|secret' report.json || echo "No obvious secret keys in report"
+```
+
 Open the dashboard: **http://localhost:8377**
 
 ---
@@ -146,7 +161,7 @@ Open the dashboard: **http://localhost:8377**
 - [ ] Reports page generates **JSON**
 - [ ] Reports page generates **YAML**
 - [ ] Reports page generates **Markdown**
-- [ ] `public_safe` report redacts names/IEEE/host/IP as expected
+- [ ] `public_safe` report redacts names/IEEE/host/IP as expected (API example below)
 - [ ] No MQTT password in downloaded report
 - [ ] No `network_key` in downloaded report
 - [ ] Container logs do not show MQTT password (`docker logs zigbeelens`)

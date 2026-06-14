@@ -22,6 +22,8 @@ mqtt:
     reject_unauthorized: true
 
 networks:
+  # base_topic must match your Zigbee2MQTT configuration (check bridge/state on the broker).
+  # Common defaults: zigbee2mqtt / zigbee2mqtt-home2 — some installs use home / home2 instead.
   - id: home
     name: Home
     base_topic: zigbee2mqtt
