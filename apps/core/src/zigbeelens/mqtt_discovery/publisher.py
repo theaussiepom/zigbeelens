@@ -9,9 +9,9 @@ import threading
 from dataclasses import dataclass, field
 from typing import Callable
 
-from zigbeelens.config.models import AppConfig, MqttConfig
+from zigbeelens.config.models import AppConfig
 from zigbeelens.mqtt.client import parse_mqtt_server
-from zigbeelens.mqtt_discovery.topics import UnsafeMqttTopicError, validate_publish_topic
+from zigbeelens.mqtt_discovery.topics import validate_publish_topic
 
 logger = logging.getLogger(__name__)
 

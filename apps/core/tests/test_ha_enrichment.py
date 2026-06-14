@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from zigbeelens.config.models import AppConfig, NetworkConfig, StorageConfig
+from zigbeelens.config.models import NetworkConfig
 from zigbeelens.db.connection import Database
 from zigbeelens.enrichment.ha import apply_ha_enrichment, area_cluster_for_devices, clear_ha_enrichment
 from zigbeelens.storage.repository import Repository

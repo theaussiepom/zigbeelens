@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from zigbeelens.mqtt_discovery.models import DiscoveryDevice, DiscoveryEntity, PublishedEntityState
-from zigbeelens.mqtt_discovery.topics import availability_topic, discovery_config_topic, sanitize_object_id, state_topic
+from zigbeelens.mqtt_discovery.topics import discovery_config_topic, sanitize_object_id, state_topic
 from zigbeelens.schemas import DashboardPayload, Severity
 
 

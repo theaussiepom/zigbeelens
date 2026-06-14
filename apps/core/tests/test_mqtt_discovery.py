@@ -21,7 +21,6 @@ from zigbeelens.mqtt_discovery.payloads import (
     build_discovery_device,
     build_states_from_dashboard,
     discovery_config_payload,
-    discovery_topic_for_entity,
     entity_catalog,
     state_payload,
 )

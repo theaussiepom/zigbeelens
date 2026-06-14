@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 
 from zigbeelens.config.models import AppConfig
 from zigbeelens.mqtt.client import parse_mqtt_server
-from zigbeelens.topology.topics import UnsafeTopologyTopicError, validate_topology_request_topic
+from zigbeelens.topology.topics import validate_topology_request_topic
 
 logger = logging.getLogger(__name__)
 

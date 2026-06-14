@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Callable
 
-from zigbeelens.config.models import AppConfig, NetworkConfig
-from zigbeelens.mqtt.client import FakeMqttClient, MqttClientBase, PahoMqttClient
+from zigbeelens.config.models import AppConfig
+from zigbeelens.mqtt.client import MqttClientBase, PahoMqttClient
 from zigbeelens.mqtt.ingestion import MqttIngestionService
 from zigbeelens.mqtt.models import MqttCollectorStatus, NetworkSubscriptionStatus, RawMqttMessage
 from zigbeelens.mqtt.normalizer import normalize_message

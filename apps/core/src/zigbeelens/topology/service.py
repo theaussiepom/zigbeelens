@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import uuid
@@ -11,9 +10,8 @@ from typing import TYPE_CHECKING, Protocol
 
 from zigbeelens.config.models import AppConfig
 from zigbeelens.mqtt.models import RawMqttMessage
-from zigbeelens.storage.repository import utc_now_iso
 from zigbeelens.topology.parser import parse_networkmap_payload
-from zigbeelens.topology.publisher import FakeTopologyRequestPublisher, TopologyRequestPublisher
+from zigbeelens.topology.publisher import TopologyRequestPublisher
 from zigbeelens.topology.topics import (
     CAPTURE_WARNING,
     is_networkmap_response_topic,

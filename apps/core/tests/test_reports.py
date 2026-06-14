@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from zigbeelens.config.models import AppConfig, ReportingConfig
 from zigbeelens.config.redaction import REDACTED
 from zigbeelens.db.connection import Database
-from zigbeelens.schemas import RedactionOptions, RedactionProfile, ReportRequest, ReportScope
+from zigbeelens.schemas import RedactionOptions, RedactionProfile, ReportRequest
 from zigbeelens.services.data_service import DataService
 from zigbeelens.services.report_redaction import (
     Redactor,

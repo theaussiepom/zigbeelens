@@ -1,7 +1,6 @@
 """Logging configuration tests."""
 
 import logging
-import os
 
 from zigbeelens.logging_config import configure_logging
 

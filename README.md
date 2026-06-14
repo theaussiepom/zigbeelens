@@ -60,11 +60,11 @@ See [docs/safety-audit.md](docs/safety-audit.md) for the full safety audit.
 
 ## Install
 
-| Path | Best for |
-|------|----------|
-| [Home Assistant OS add-on](docs/addon-dev.md) | HAOS users — Ingress, no Docker knowledge |
-| [Docker / Compose](docs/docker.md) | Standalone hosts, reverse proxy, multi-network |
-| [HACS integration](docs/hacs.md) | Native HA entities, panel, diagnostics, repairs |
+| Path | Repo |
+|------|------|
+| [Home Assistant OS add-on](docs/addon-dev.md) | [theaussiepom/zigbeelens-addons](https://github.com/theaussiepom/zigbeelens-addons) |
+| [Docker / Compose](docs/docker.md) | `ghcr.io/theaussiepom/zigbeelens` |
+| [HACS integration](docs/hacs.md) | [theaussiepom/zigbeelens-hacs](https://github.com/theaussiepom/zigbeelens-hacs) |
 | [MQTT Discovery](docs/mqtt-discovery.md) | Optional summary HA entities without HACS |
 | [Topology](docs/topology.md) | Optional mesh enrichment — disabled by default |
 
