@@ -12,7 +12,6 @@ mkdir -p "${DIST}/custom_components"
 
 cp -R "${SRC}/custom_components/zigbeelens" "${DIST}/custom_components/"
 find "${DIST}" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-cp "${SRC}/icon.png" "${SRC}/logo.png" "${DIST}/"
 cp "${ROOT}/LICENSE" "${DIST}/"
 cp "${ROOT}/CHANGELOG.md" "${DIST}/"
 

@@ -90,13 +90,11 @@ def main() -> None:
     BRAND.mkdir(parents=True, exist_ok=True)
     icon = render_icon(256)
     logo = render_icon(512)
-    icon.save(HA / "icon.png")
-    logo.save(HA / "logo.png")
     icon.save(BRAND / "icon.png")
     icon.save(BRAND / "icon@2x.png")
     logo.save(BRAND / "logo.png")
     logo.save(BRAND / "logo@2x.png")
-    print(f"Wrote brand assets under {HA}")
+    print(f"Wrote brand assets under {BRAND}")
 
 
 if __name__ == "__main__":

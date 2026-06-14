@@ -17,11 +17,9 @@ def test_manifest_parses_and_has_expected_fields() -> None:
     assert manifest["iot_class"] == "local_polling"
 
 
-def test_hacs_branding_assets_exist() -> None:
-    # Repo root icons are for GitHub/HACS listing; HA serves inline brand assets
-    # from custom_components/zigbeelens/brand/ (HA 2026.3+ brands proxy).
-    assert (REPO_ROOT / "icon.png").is_file()
-    assert (REPO_ROOT / "logo.png").is_file()
+def test_ha_branding_assets_exist() -> None:
+    # Inline brand assets for HA Settings (2026.3+ brands proxy). HACS downloads
+    # uses its own integration placeholder; root repo icons are not packaged.
     assert (INTEGRATION_DIR / "brand" / "icon.png").is_file()
     assert (INTEGRATION_DIR / "brand" / "logo.png").is_file()
     assert (INTEGRATION_DIR / "brand" / "icon@2x.png").is_file()
