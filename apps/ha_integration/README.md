@@ -106,7 +106,7 @@ Detailed diagnostics remain in the ZigbeeLens Core dashboard.
 
 ## Companion panel
 
-When enabled, **ZigbeeLens** appears in the sidebar as a native companion panel. It renders a redacted status summary supplied by the integration over the Home Assistant websocket — the browser never fetches Core directly, so the panel loads reliably whether Core is HTTP or HTTPS.
+When enabled, **ZigbeeLens** appears in the Home Assistant sidebar as a native companion panel. Use the **menu button** (☰) at the top of the panel to reopen Home Assistant's main navigation if it slides away.
 
 The panel shows:
 
