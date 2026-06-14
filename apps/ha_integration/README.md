@@ -106,7 +106,7 @@ Detailed diagnostics remain in the ZigbeeLens Core dashboard.
 
 ## Companion panel
 
-When enabled, **ZigbeeLens** appears in the Home Assistant sidebar as a native companion panel. Use the **menu button** (☰) at the top of the panel to reopen Home Assistant's main navigation if it slides away.
+When enabled, **ZigbeeLens** appears in the Home Assistant sidebar. When HA and Core use the same protocol (both HTTP or both HTTPS), the **full Core dashboard** loads automatically. Use the **menu button** (☰) to reopen Home Assistant's main navigation. Mixed content (HTTPS HA + HTTP Core) falls back to the native summary plus **Open Full Dashboard**.
 
 The panel shows:
 

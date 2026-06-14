@@ -90,7 +90,7 @@ def test_panel_frontend_asset_default_summary_with_optional_embed():
     assert 'customElements.define("zigbeelens-panel"' in source
     assert "Try Embedded View" in source
     assert "Back to Summary" not in source
-    assert 'this._view = "summary"' in source
+    assert 'this._view = "embedded"' in source
     assert 'target="_blank"' in source
     assert 'rel="noopener noreferrer"' in source
     assert "zigbeelens/panel_summary" in source
