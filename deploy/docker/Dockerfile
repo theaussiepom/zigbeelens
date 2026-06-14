@@ -39,8 +39,7 @@ COPY deploy/docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh \
     && chown -R zigbeelens:zigbeelens /app /data /config
 
-ENV PYTHONPATH=/app/apps/core/src \
-    ZIGBEELENS_STATIC_DIR=/app/static \
+ENV ZIGBEELENS_STATIC_DIR=/app/static \
     ZIGBEELENS_CONFIG=/config/config.yaml \
     ZIGBEELENS_LOG_LEVEL=INFO \
     ZIGBEELENS_PORT=8377 \
