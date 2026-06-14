@@ -35,7 +35,7 @@ async def test_panel_registered_as_native_custom_panel():
     assert kwargs["config"] == {"core_url": "http://192.168.100.5:8377"}
     ws_register.assert_called_once()
     hass.http.async_register_static_paths.assert_awaited_once()
-    assert hass.data["zigbeelens"]["entry1"]["panel_registered"] is True
+    assert hass.data["zigbeelens"]["_panel_state"]["panel_registered"] is True
 
 
 @pytest.mark.asyncio
@@ -44,32 +44,31 @@ async def test_panel_not_registered_twice():
 
     hass = MagicMock()
     hass.data = {
-        "zigbeelens": {"entry1": {"panel_registered": True}},
+        "zigbeelens": {"_panel_state": {"panel_registered": True}},
         frontend.DATA_PANELS: {"zigbeelens": {"config": {"core_url": "http://old"}}},
     }
     hass.http.async_register_static_paths = AsyncMock()
-    with patch(
-        "zigbeelens.panel.panel_custom.async_register_panel", new=AsyncMock()
-    ) as register:
+    with (
+        patch("zigbeelens.panel.frontend.async_remove_panel") as remove,
+        patch("zigbeelens.panel.panel_custom.async_register_panel", new=AsyncMock()) as register,
+    ):
         await async_register_panel(hass, "entry1", "http://localhost:8377")
-        register.assert_not_awaited()
-    assert (
-        hass.data[frontend.DATA_PANELS]["zigbeelens"]["config"]["core_url"]
-        == "http://localhost:8377"
-    )
+        remove.assert_called_once()
+        register.assert_awaited_once()
+    assert hass.data["zigbeelens"]["_panel_state"]["panel_registered"] is True
 
 
 @pytest.mark.asyncio
 async def test_panel_removed_on_unload():
     hass = MagicMock()
     hass.data = {
-        "zigbeelens": {"entry1": {"panel_registered": True}},
+        "zigbeelens": {"_panel_state": {"panel_registered": True}},
         "frontend_panels": {"zigbeelens": object()},
     }
     with patch("zigbeelens.panel.frontend.async_remove_panel") as remove:
         await async_unregister_panel(hass, "entry1")
         remove.assert_called_once()
-        assert hass.data["zigbeelens"]["entry1"]["panel_registered"] is False
+        assert hass.data["zigbeelens"]["_panel_state"]["panel_registered"] is False
 
 
 def test_ws_panel_summary_returns_connected_payload(mock_coordinator):

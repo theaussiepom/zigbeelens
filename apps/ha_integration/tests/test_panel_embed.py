@@ -35,7 +35,6 @@ def test_invalid_core_url_cannot_embed():
 def test_panel_asset_has_embed_flow():
     source = PANEL_JS.read_text(encoding="utf-8")
     assert "Try Embedded View" in source
-    assert "Back to Summary" in source
     assert "embed_blocked" in source
     assert "canEmbedDashboard" in source
     assert 'target="_blank"' in source
@@ -43,6 +42,7 @@ def test_panel_asset_has_embed_flow():
     assert 'title="ZigbeeLens full dashboard"' in source
     assert "loading=\"lazy\"" in source
     assert "referrerpolicy=\"no-referrer\"" in source
+    assert "Back to Summary" not in source
 
 
 def test_panel_auto_embeds_when_same_protocol():
