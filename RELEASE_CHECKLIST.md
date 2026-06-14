@@ -29,8 +29,10 @@ Use this checklist before tagging a release. See [docs/release.md](docs/release.
 - [ ] HACS integration installed from custom repo (`theaussiepom/zigbeelens-hacs`)
 - [ ] Config flow accepts Core URL reachable from Home Assistant
 - [ ] Native companion panel loads (cards, not raw JSON)
-- [ ] Panel does **not** iframe Core
 - [ ] **Open Full Dashboard** button opens Core in a new tab (e.g. `http://192.168.100.5:8377`)
+- [ ] **Try Embedded View** button appears
+- [ ] If HA is HTTPS and Core is HTTP, Try Embedded View shows blocked explanation (no broken iframe)
+- [ ] Back to Summary works from embedded/blocked views
 - [ ] Copy Core URL works
 - [ ] HACS entities appear (overall health, active incident, device counts, per-network)
 - [ ] Stop Core → panel shows calm disconnected state + Core unreachable repair

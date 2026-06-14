@@ -2,9 +2,9 @@
 
 Home Assistant bridge to **ZigbeeLens Core** — summary entities, a native companion panel, diagnostics, and repairs.
 
-The HACS sidebar provides a **native companion panel** with an **Open Full Dashboard** button. This works for normal Docker installs without a reverse proxy. The full ZigbeeLens dashboard is served by Core and opens separately.
+The HACS sidebar provides a **native companion panel** by default, with an **Open Full Dashboard** button (new tab) and an optional **Try Embedded View** button. This works for normal Docker installs without a reverse proxy. The full ZigbeeLens dashboard is served by Core.
 
-> The HACS panel does not iframe Core. Browsers block HTTP dashboards inside HTTPS Home Assistant sessions, so the companion panel renders status over the HA websocket and opens the full dashboard in a new tab instead.
+> The default view does not iframe Core. **Try Embedded View** only works when browser security allows it (for example HTTPS Core, or HTTP Home Assistant with HTTP Core). If Home Assistant uses HTTPS and Core uses HTTP, the panel shows a friendly blocked explanation — not a broken iframe.
 
 The Core dashboard is **canonical**. HACS does not collect MQTT or replace the dashboard.
 
@@ -41,7 +41,7 @@ The companion panel renders status from the integration (over the HA websocket) 
 2. Install the HACS integration.
 3. Add the integration with your Core URL.
 4. Use the sidebar **companion panel** for status.
-5. Click **Open Full Dashboard** for the complete UI (opens in a new tab).
+5. Click **Open Full Dashboard** for the complete UI (opens in a new tab), or **Try Embedded View** when browser security allows embedding.
 
 No reverse proxy is required for a good sidebar experience.
 

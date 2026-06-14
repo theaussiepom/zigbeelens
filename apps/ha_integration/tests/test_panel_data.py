@@ -84,11 +84,17 @@ def test_summary_disconnected_is_calm():
     assert summary["device_count"] == 0
 
 
-def test_panel_frontend_asset_has_no_iframe_and_opens_new_tab():
+def test_panel_frontend_asset_default_summary_with_optional_embed():
     source = PANEL_JS.read_text(encoding="utf-8")
     assert PANEL_JS.exists()
-    assert "<iframe" not in source.lower()
     assert 'customElements.define("zigbeelens-panel"' in source
+    assert "Try Embedded View" in source
+    assert "Back to Summary" in source
+    assert 'this._view = "summary"' in source
     assert 'target="_blank"' in source
     assert 'rel="noopener noreferrer"' in source
     assert "zigbeelens/panel_summary" in source
+    assert "canEmbedDashboard" in source
+    # Iframe exists only for optional embedded view, not on initial summary load.
+    assert "<iframe" in source.lower()
+    assert "embed_blocked" in source

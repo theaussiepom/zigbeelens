@@ -101,9 +101,11 @@ The panel shows:
 - Stats: incidents, networks, devices, unavailable, router risks
 - Per-network summaries (device count, bridge state)
 - Integration health: Core URL, collector status, last update
-- A prominent **Open Full ZigbeeLens dashboard** button (opens Core in a new tab) plus **Copy Core URL** and **Reload status**
+- A prominent **Open full ZigbeeLens dashboard** button (opens Core in a new tab — primary, always reliable)
+- **Try Embedded View** (secondary) — optional full-dashboard iframe when browser security allows it
+- **Copy Core URL** and **Reload status**
 
-The full dashboard is hosted by Core and opens separately. The HACS panel does not iframe Core — it renders status over the HA websocket and opens the full dashboard in a new tab. No reverse proxy is required for a good sidebar experience.
+The default view is the native summary panel. **Open Full Dashboard** opens Core in a new tab and works even when Home Assistant is HTTPS and Core is HTTP. **Try Embedded View** only embeds when safe (for example HTTPS Core, or HTTP HA with HTTP Core); otherwise the panel shows a calm blocked explanation — never a broken iframe. No reverse proxy is required for normal use.
 
 ## Troubleshooting
 
