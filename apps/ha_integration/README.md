@@ -116,11 +116,10 @@ The panel shows:
 - Per-network summaries (device count, bridge state)
 - Integration health: Core URL, collector status, last update
 - A prominent **Open full ZigbeeLens dashboard** button (opens Core in a new tab — primary, always reliable)
-- **Auto-embedded full dashboard** when Home Assistant and Core use the same scheme (HTTP+HTTP or HTTPS+HTTPS)
-- **Try Embedded View** / **Back to Summary** when mixed content blocks auto-embed or you prefer the summary
+- **Try Embedded View** (optional manual iframe — not used on load)
 - **Copy Core URL** and **Reload status**
 
-The default view is the native summary panel when Home Assistant and Core use different schemes (for example HTTPS HA + HTTP Core). When both use the same scheme (HTTP+HTTP or HTTPS+HTTPS), the panel **auto-opens the embedded Core dashboard** on load. **Open Full Dashboard** always opens Core in a new tab. **Try Embedded View** / **Back to Summary** remain available when auto-embed is blocked or you prefer the summary. No reverse proxy is required for normal use.
+The default view is always the **native summary panel** — it does not iframe Core and works the same whether Core is HTTP or HTTPS. **Open Full Dashboard** opens Core in a new tab. **Try Embedded View** is optional and only loads when you click it. No reverse proxy is required for normal use.
 
 To enable embedded view when Home Assistant is HTTPS, put Core behind an HTTPS reverse proxy and update the **Core URL**. See **[HACS embedded view — optional HTTPS reverse proxy](../../docs/hacs-embedded-view.md)** (includes a Caddy Compose example).
 

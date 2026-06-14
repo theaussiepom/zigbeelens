@@ -48,14 +48,15 @@ async def test_panel_not_registered_twice():
         frontend.DATA_PANELS: {"zigbeelens": {"config": {"core_url": "http://old"}}},
     }
     hass.http.async_register_static_paths = AsyncMock()
-    with (
-        patch("zigbeelens.panel.frontend.async_remove_panel") as remove,
-        patch("zigbeelens.panel.panel_custom.async_register_panel", new=AsyncMock()) as register,
-    ):
+    with patch(
+        "zigbeelens.panel.panel_custom.async_register_panel", new=AsyncMock()
+    ) as register:
         await async_register_panel(hass, "entry1", "http://localhost:8377")
-        remove.assert_called_once()
-        register.assert_awaited_once()
-    assert hass.data["zigbeelens"]["_panel_state"]["panel_registered"] is True
+        register.assert_not_awaited()
+    assert (
+        hass.data[frontend.DATA_PANELS]["zigbeelens"]["config"]["core_url"]
+        == "http://localhost:8377"
+    )
 
 
 @pytest.mark.asyncio

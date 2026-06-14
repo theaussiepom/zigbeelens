@@ -47,5 +47,5 @@ def test_panel_asset_has_embed_flow():
 
 def test_panel_auto_embeds_when_same_protocol():
     source = PANEL_JS.read_text(encoding="utf-8")
-    assert 'this._view = "embedded"' in source
     assert "canEmbedDashboard" in source
+    assert 'this._view = "embedded"' not in source.split("_loadSummary")[1].split("_coreUrl")[0]
