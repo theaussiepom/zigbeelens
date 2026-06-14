@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { api } from "@/lib/api";
+import { scenariosEnabled } from "@/lib/flags";
 import type { ZigbeeLensConfigStatus } from "@zigbeelens/shared";
 
 interface ScenarioContextValue {
@@ -45,6 +46,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
   }, [scenario]);
 
   useEffect(() => {
+    if (!scenariosEnabled()) return;
     api.scenarios().then(setScenarios).catch(console.error);
   }, []);
 

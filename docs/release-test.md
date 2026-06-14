@@ -224,6 +224,9 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 - [ ] `/api/health` shows subscribe-only collector (no publish to Zigbee2MQTT topics)
 - [ ] Reports redacted before download
 - [ ] No permit join / remove / reset controls in UI
+- [ ] **No Scenario selector** in the header (it is dev-only; the published image builds without `VITE_ENABLE_SCENARIOS`)
+
+> The Scenario (mock fixture) selector appears only on the Vite dev server, or in a build explicitly opted in with `VITE_ENABLE_SCENARIOS=true pnpm --filter @zigbeelens/ui build`. The published image never sets it.
 
 ---
 

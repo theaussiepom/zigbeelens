@@ -56,18 +56,10 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
     app.include_router(router)
 
-    if not mount_static_ui(app):
-
-        @app.get("/")
-        def root() -> dict[str, str]:
-            ctx = get_context()
-            return {
-                "name": "ZigbeeLens Core",
-                "version": __version__,
-                "data_mode": "mock" if ctx.config.mode.mock else "live",
-                "docs": "/docs",
-            }
-
+    # NOTE: this SSE route must be registered BEFORE mount_static_ui(), whose
+    # catch-all `/{full_path:path}` would otherwise shadow it and 404 the
+    # event stream (only reproducible when static UI is mounted, i.e. in the
+    # built image), leaving the UI permanently "reconnecting".
     @app.get("/api/events/stream")
     async def events_stream() -> EventSourceResponse:
         async def generator():
@@ -97,6 +89,18 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 }
 
         return EventSourceResponse(generator())
+
+    if not mount_static_ui(app):
+
+        @app.get("/")
+        def root() -> dict[str, str]:
+            ctx = get_context()
+            return {
+                "name": "ZigbeeLens Core",
+                "version": __version__,
+                "data_mode": "mock" if ctx.config.mode.mock else "live",
+                "docs": "/docs",
+            }
 
     return app
 

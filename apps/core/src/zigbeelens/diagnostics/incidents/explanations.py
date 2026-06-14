@@ -45,8 +45,9 @@ def explanation_for(incident_type: IncidentType) -> str:
             "reliable operation."
         ),
         IncidentType.unknown_pattern: (
-            "ZigbeeLens sees health signals but does not yet have enough evidence to classify "
-            "the scope."
+            "ZigbeeLens can see these devices in the network but has not yet observed any "
+            "telemetry from them, so it cannot assess their health. This is common shortly "
+            "after startup or for devices that have not reported recently."
         ),
     }
     return snippets.get(
@@ -91,7 +92,8 @@ def standard_limitations(incident_type: IncidentType) -> list[str]:
             "Interview state depends on latest Zigbee2MQTT inventory data",
         ],
         IncidentType.unknown_pattern: [
-            "ZigbeeLens needs more history to classify this pattern",
+            "ZigbeeLens needs at least one payload from a device before it can assess its health",
+            "This usually clears on its own once the devices report",
         ],
     }
     return list(common.get(incident_type, ["ZigbeeLens cannot prove root cause from MQTT data alone"]))

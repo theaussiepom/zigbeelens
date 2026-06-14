@@ -494,12 +494,15 @@ class IncidentCorrelationEngine:
                 scope=IncidentScope.unknown,
                 severity=Severity.watch,
                 confidence=Confidence.low,
-                title=f"Unclassified signals on {ctx.network_name}",
-                summary="Health signals are present but scope cannot be classified confidently.",
+                title=f"Devices not reporting yet on {ctx.network_name}",
+                summary=(
+                    "These devices appear in the Zigbee2MQTT network, but ZigbeeLens has not "
+                    "received any data from them yet, so their health is unknown."
+                ),
                 explanation=explanation_for(IncidentType.unknown_pattern),
                 evidence=[
-                    "Health signals are present",
-                    "Insufficient timing or inventory data is available",
+                    "Devices appear in the Zigbee2MQTT device list",
+                    "No telemetry or payloads observed from them yet",
                 ],
                 limitations=standard_limitations(IncidentType.unknown_pattern),
                 affected_devices=[AffectedDevice(ctx.network_id, d.ieee_address) for d in ambiguous[:5]],

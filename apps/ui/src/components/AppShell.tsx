@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useScenario } from "@/context/ScenarioContext";
 import { useConnection } from "@/hooks/useConnection";
+import { scenariosEnabled } from "@/lib/flags";
 
 const nav = [
   { to: "/", label: "Overview", end: true },
@@ -106,22 +107,24 @@ export function AppShell() {
             </h1>
             <ConnectionDot />
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <span className="text-zl-muted" id="scenario-label">Scenario</span>
-            <select
-              className="rounded-lg border border-zl-border bg-zl-bg px-3 py-1.5 text-sm text-zl-text"
-              value={scenario}
-              onChange={(e) => setScenario(e.target.value)}
-              aria-labelledby="scenario-label"
-            >
-              <option value="">Live / Core default</option>
-              {scenarios.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          {scenariosEnabled() && (
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-zl-muted" id="scenario-label">Scenario</span>
+              <select
+                className="rounded-lg border border-zl-border bg-zl-bg px-3 py-1.5 text-sm text-zl-text"
+                value={scenario}
+                onChange={(e) => setScenario(e.target.value)}
+                aria-labelledby="scenario-label"
+              >
+                <option value="">Live / Core default</option>
+                {scenarios.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </header>
 
         <nav className="flex gap-1 overflow-x-auto border-b border-zl-border bg-zl-surface px-3 py-2 lg:hidden" aria-label="Main navigation">
