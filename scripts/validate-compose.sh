@@ -25,8 +25,13 @@ for f in \
   "${DOCKER}/docker-compose.example.yaml" \
   "${DOCKER}/docker-compose.mosquitto.example.yaml" \
   "${DOCKER}/docker-compose.traefik.example.yaml" \
+  "${DOCKER}/docker-compose.caddy.example.yaml" \
+  "${DOCKER}/docker-compose.beast-traefik.example.yaml" \
+  "${DOCKER}/Caddyfile.example" \
+  "${ROOT}/deploy/traefik/security-headers-zigbeelens.yaml.example" \
   "${DOCKER}/README.md" \
   "${ROOT}/docs/docker.md" \
+  "${ROOT}/docs/hacs-embedded-view.md" \
   "${ROOT}/docs/upgrades.md" \
   "${ROOT}/docs/backups.md"
 do
@@ -66,7 +71,9 @@ fi
 for compose in \
   "${DOCKER}/docker-compose.example.yaml" \
   "${DOCKER}/docker-compose.mosquitto.example.yaml" \
-  "${DOCKER}/docker-compose.traefik.example.yaml"
+  "${DOCKER}/docker-compose.traefik.example.yaml" \
+  "${DOCKER}/docker-compose.caddy.example.yaml" \
+  "${DOCKER}/docker-compose.beast-traefik.example.yaml"
 do
   if grep -q 'docker.sock' "$compose" 2>/dev/null; then
     fail "docker.sock mount in $(basename "$compose")"
@@ -96,8 +103,32 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
   for compose in \
     "${DOCKER}/docker-compose.example.yaml" \
     "${DOCKER}/docker-compose.mosquitto.example.yaml" \
-    "${DOCKER}/docker-compose.traefik.example.yaml"
+    "${DOCKER}/docker-compose.traefik.example.yaml" \
+    "${DOCKER}/docker-compose.caddy.example.yaml" \
+    "${DOCKER}/docker-compose.beast-traefik.example.yaml"
   do
+    if [[ "$(basename "$compose")" == "docker-compose.caddy.example.yaml" ]]; then
+      cp -f "${DOCKER}/Caddyfile.example" "${DOCKER}/Caddyfile"
+      if (cd "${DOCKER}" && docker compose -f docker-compose.caddy.example.yaml config >/dev/null 2>&1); then
+        ok "docker compose config: $(basename "$compose")"
+      else
+        fail "docker compose config failed: $(basename "$compose")"
+      fi
+      rm -f "${DOCKER}/Caddyfile"
+      continue
+    fi
+    if [[ "$(basename "$compose")" == "docker-compose.beast-traefik.example.yaml" ]]; then
+      if (
+        cd "${DOCKER}" &&
+        DOMAIN=theaussiepom.me TZ=UTC HASS_TABLETS_TRAEFIK='Header(`X-Tablet`, `1`)' \
+          docker compose -f docker-compose.beast-traefik.example.yaml config >/dev/null 2>&1
+      ); then
+        ok "docker compose config: $(basename "$compose")"
+      else
+        fail "docker compose config failed: $(basename "$compose")"
+      fi
+      continue
+    fi
     if docker compose -f "$compose" config >/dev/null 2>&1; then
       ok "docker compose config: $(basename "$compose")"
     else

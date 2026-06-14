@@ -75,7 +75,7 @@ Secrets are read from config YAML only — they are **never logged**.
 
 ## Health check
 
-The container healthcheck calls `GET /api/health`.
+The image defines a built-in `HEALTHCHECK` (`deploy/docker/Dockerfile`) that calls `GET /api/health`. Compose files do not repeat it — Docker inherits the check from the image.
 
 Healthy means:
 - App is running
@@ -91,6 +91,9 @@ Healthy means:
 | `docker-compose.example.yaml` | Standalone ZigbeeLens (most users) |
 | `docker-compose.mosquitto.example.yaml` | Local broker for testing — **most HA users already have Mosquitto** |
 | `docker-compose.traefik.example.yaml` | Subdomain reverse proxy |
+| `docker-compose.beast-traefik.example.yaml` | Beast Traefik HTTPS route for optional embedded view |
+| `docker-compose.caddy.example.yaml` | **Optional:** HTTPS reverse proxy for HACS embedded view (see [hacs-embedded-view.md](../hacs-embedded-view.md)) |
+| `Caddyfile.example` | Caddy config for the example above (SSE-friendly) |
 
 Validate examples:
 
@@ -108,6 +111,17 @@ For Traefik + live updates (SSE):
 - Prefer subdomain routing over path prefixes
 - Disable response buffering for the ZigbeeLens service if updates stall
 - Report downloads use relative URLs; copy Markdown from the UI if downloads fail through a proxy
+
+### Optional: HTTPS for HACS embedded view
+
+If Home Assistant uses **HTTPS** and Core uses plain **HTTP** (`http://host:8377`), browsers block **Try Embedded View** in the HACS companion panel (mixed content). That is expected — **Open Full Dashboard** still works in a new tab.
+
+To enable embedded view, put Core behind HTTPS and point the integration **Core URL** at that HTTPS URL. The repo includes a self-contained Caddy stack:
+
+- `deploy/docker/docker-compose.caddy.example.yaml`
+- `deploy/docker/Caddyfile.example` (includes `flush_interval -1` for SSE)
+
+Full setup, certificate trust, and security notes: **[HACS embedded view — optional HTTPS reverse proxy](hacs-embedded-view.md)**.
 
 ## Security
 
@@ -174,5 +188,6 @@ SSE may be blocked — the UI falls back to 30s polling. Configure proxy for SSE
 
 - [Upgrades](upgrades.md)
 - [Backups](backups.md)
+- [HACS embedded view (optional HTTPS reverse proxy)](hacs-embedded-view.md)
 - [Add-on dev (HAOS)](../docs/addon-dev.md)
 - [MQTT dev](mqtt-dev.md)

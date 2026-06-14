@@ -40,13 +40,23 @@ async def test_panel_registered_as_native_custom_panel():
 
 @pytest.mark.asyncio
 async def test_panel_not_registered_twice():
+    from homeassistant.components import frontend
+
     hass = MagicMock()
-    hass.data = {"zigbeelens": {"entry1": {"panel_registered": True}}}
+    hass.data = {
+        "zigbeelens": {"entry1": {"panel_registered": True}},
+        frontend.DATA_PANELS: {"zigbeelens": {"config": {"core_url": "http://old"}}},
+    }
+    hass.http.async_register_static_paths = AsyncMock()
     with patch(
         "zigbeelens.panel.panel_custom.async_register_panel", new=AsyncMock()
     ) as register:
         await async_register_panel(hass, "entry1", "http://localhost:8377")
         register.assert_not_awaited()
+    assert (
+        hass.data[frontend.DATA_PANELS]["zigbeelens"]["config"]["core_url"]
+        == "http://localhost:8377"
+    )
 
 
 @pytest.mark.asyncio

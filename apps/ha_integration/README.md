@@ -45,18 +45,32 @@ Monorepo packaging for maintainers:
 
 Output: `dist/zigbeelens-hacs/` (push to the HACS repo).
 
+### Core URL and embedded view
+
+The Core URL is the address Home Assistant uses to reach ZigbeeLens Core.
+
+HTTP Core URLs are the normal Docker path and work for the native companion panel, entities, repairs, diagnostics, and **Open Full Dashboard**.
+
+The optional embedded dashboard view usually requires an **HTTPS Core URL** when Home Assistant is served over HTTPS. Configure this through **Settings → Devices & services → ZigbeeLens → Configure** — no need to delete and re-add the integration.
+
+See [docs/hacs-embedded-view.md](../../docs/hacs-embedded-view.md) for HTTPS reverse proxy options (Traefik on Beast, Caddy example, etc.).
+
 ## Configure
 
 During setup you will be asked for:
 
 | Option | Description |
 |--------|-------------|
-| Core URL | Base URL for Core — must be reachable **from Home Assistant** (see [release-test.md](../../docs/release-test.md)) |
+| Core URL | Address of your ZigbeeLens Core dashboard — must be reachable **from Home Assistant**. HTTP is fine for the native panel and **Open Full Dashboard**. Use HTTPS if you want the optional embedded dashboard view inside Home Assistant. |
 | Verify SSL | Enable TLS certificate verification |
 | Panel enabled | Show the ZigbeeLens companion panel in the Home Assistant sidebar |
 | Polling interval | How often summary entities refresh (default 60s) |
 
+Examples: `http://192.168.1.10:8377`, `https://zigbeelens.example.com`
+
 The config flow validates connectivity with `GET /api/health`.
+
+Change the Core URL later without deleting the integration: **Settings → Devices & services → ZigbeeLens → Configure**.
 
 ### URL hints
 
@@ -106,6 +120,8 @@ The panel shows:
 - **Copy Core URL** and **Reload status**
 
 The default view is the native summary panel. **Open Full Dashboard** opens Core in a new tab and works even when Home Assistant is HTTPS and Core is HTTP. **Try Embedded View** only embeds when safe (for example HTTPS Core, or HTTP HA with HTTP Core); otherwise the panel shows a calm blocked explanation — never a broken iframe. No reverse proxy is required for normal use.
+
+To enable embedded view when Home Assistant is HTTPS, put Core behind an HTTPS reverse proxy and update the **Core URL**. See **[HACS embedded view — optional HTTPS reverse proxy](../../docs/hacs-embedded-view.md)** (includes a Caddy Compose example).
 
 ## Troubleshooting
 

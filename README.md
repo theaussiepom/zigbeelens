@@ -44,19 +44,33 @@ See [docs/safety-audit.md](docs/safety-audit.md) for the full safety audit.
 
 ## Screenshots
 
-<!-- Replace placeholders with real screenshots before marketing release -->
+Real screenshots from a live Beast deployment (`home` + `home2` networks). See [docs/screenshots/](docs/screenshots/) for source files.
+
+### ZigbeeLens Core dashboard
+
+![ZigbeeLens Overview dashboard](docs/screenshots/overview-dashboard.png)
+
+The Overview page is the default entry point: live collector status, active incidents, network summaries, and evidence-backed findings.
+
+### Home Assistant HACS companion panel
+
+![HACS native companion panel](docs/screenshots/hacs-companion-panel.png)
+
+The HACS integration provides a native companion panel plus **Open Full Dashboard** (new tab). HTTP Core URLs work for this path — no reverse proxy required.
+
+![HACS embedded view blocked explanation](docs/screenshots/hacs-embedded-blocked.png)
+
+When Home Assistant uses HTTPS and Core uses HTTP, **Try Embedded View** shows a calm explanation instead of a broken iframe. Use an HTTPS Core URL only if you want embedded view — see [docs/hacs-embedded-view.md](docs/hacs-embedded-view.md).
+
+### More views
 
 | Overview | Incidents |
 |----------|-----------|
-| _Screenshot placeholder — Overview dashboard_ | _Screenshot placeholder — Incident detail_ |
+| _Add `docs/screenshots/incidents-page.png`_ | _Screenshot placeholder — Incident detail_ |
 
-| Devices | Topology |
-|---------|----------|
-| _Screenshot placeholder — Device drilldown_ | _Screenshot placeholder — Topology view_ |
-
-| Reports |
-|---------|
-| _Screenshot placeholder — Redacted report export_ |
+| Devices | Reports |
+|---------|---------|
+| _Screenshot placeholder — Device drilldown_ | _Add `docs/screenshots/reports-page.png`_ |
 
 ## Install
 
@@ -93,6 +107,25 @@ docker compose -f deploy/docker/docker-compose.example.yaml up -d
 Open **http://localhost:8377**
 
 Details: [docs/docker.md](docs/docker.md)
+
+### Home Assistant / HACS integration
+
+The HACS integration is optional. It gives Home Assistant:
+
+- a native ZigbeeLens companion panel
+- summary sensors and binary sensors
+- diagnostics and repairs
+- a button to open the full ZigbeeLens dashboard
+
+The full ZigbeeLens dashboard is served by ZigbeeLens Core.
+
+For Docker users, an HTTP Core URL such as `http://192.168.1.10:8377` is fine. The native Home Assistant panel works, and the **Open Full Dashboard** button opens the full dashboard in a new tab.
+
+The optional **Try Embedded View** button can show the full dashboard inside Home Assistant only when browser security allows it. In practice, if Home Assistant is served over HTTPS, the ZigbeeLens Core URL also needs to be HTTPS for embedded view to work.
+
+You do not need HTTPS or a reverse proxy for normal HACS use. Change the Core URL anytime under **Settings → Devices & services → ZigbeeLens → Configure**.
+
+Details: [docs/hacs.md](docs/hacs.md) · [docs/hacs-embedded-view.md](docs/hacs-embedded-view.md)
 
 ### Development (mock scenarios)
 
@@ -168,6 +201,7 @@ Details: [docs/security.md](docs/security.md) · [SECURITY.md](SECURITY.md)
 | HAOS add-on | [docs/addon-dev.md](docs/addon-dev.md) |
 | Docker | [docs/docker.md](docs/docker.md) |
 | HACS | [docs/hacs.md](docs/hacs.md) |
+| HACS embedded view (optional HTTPS) | [docs/hacs-embedded-view.md](docs/hacs-embedded-view.md) |
 | MQTT Discovery | [docs/mqtt-discovery.md](docs/mqtt-discovery.md) |
 | Topology | [docs/topology.md](docs/topology.md) |
 | Reports | [docs/reports.md](docs/reports.md) |
