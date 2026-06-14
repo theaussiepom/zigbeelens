@@ -1,12 +1,15 @@
 # ZigbeeLens Home Assistant integration
 
-ZigbeeLens connects Home Assistant to **ZigbeeLens Core** — the read-only observability engine for Zigbee2MQTT. This integration is the Home Assistant control surface: summary entities, sidebar access, diagnostics, and repairs.
+ZigbeeLens connects Home Assistant to **ZigbeeLens Core** — the read-only observability engine for Zigbee2MQTT. This integration is the Home Assistant control surface: summary entities, a native companion panel, diagnostics, and repairs.
+
+The HACS sidebar panel is a polished **native companion panel** — a status and launcher surface, not the full product UI. The full ZigbeeLens dashboard is served by Core and opens in a new tab with one obvious button. This works for normal Docker installs **without a reverse proxy**, and avoids the browser mixed-content block that occurs when Home Assistant uses HTTPS and Core uses HTTP.
 
 ## What this integration does
 
 - Connects Home Assistant to ZigbeeLens Core over HTTP
 - Adds summary sensors and binary sensors for automations
-- Registers a sidebar panel that opens the Core UI
+- Registers a native companion panel showing connection, health, incidents, networks, devices, and collector status
+- Provides an obvious **Open Full ZigbeeLens dashboard** button (opens Core in a new tab)
 - Exposes redacted diagnostics
 - Creates repairs for Core/collector/configuration issues
 
@@ -50,7 +53,7 @@ During setup you will be asked for:
 |--------|-------------|
 | Core URL | Base URL for Core — must be reachable **from Home Assistant** (see [release-test.md](../../docs/release-test.md)) |
 | Verify SSL | Enable TLS certificate verification |
-| Panel enabled | Show ZigbeeLens in the Home Assistant sidebar |
+| Panel enabled | Show the ZigbeeLens companion panel in the Home Assistant sidebar |
 | Polling interval | How often summary entities refresh (default 60s) |
 
 The config flow validates connectivity with `GET /api/health`.
@@ -87,21 +90,28 @@ For each configured network:
 
 Detailed diagnostics remain in the ZigbeeLens Core dashboard.
 
-## Sidebar panel
+## Companion panel
 
-When enabled, **ZigbeeLens** appears in the sidebar and embeds the Core UI via iframe.
+When enabled, **ZigbeeLens** appears in the sidebar as a native companion panel. It renders a redacted status summary supplied by the integration over the Home Assistant websocket — the browser never fetches Core directly, so the panel loads reliably whether Core is HTTP or HTTPS.
 
-**If the panel is blank:**
+The panel shows:
 
-- Update the HACS integration to the latest release (older builds registered the wrong panel component).
-- If Home Assistant uses **HTTPS** and Core uses **HTTP**, HA blocks the iframe. Open Core directly in a browser tab (e.g. `http://<docker-host-ip>:8377`), or serve Core over HTTPS / use HTTP for HA on your LAN during testing.
+- Connection state and overall health
+- Current finding and active incident count
+- Stats: incidents, networks, devices, unavailable, router risks
+- Per-network summaries (device count, bridge state)
+- Integration health: Core URL, collector status, last update
+- A prominent **Open Full ZigbeeLens dashboard** button (opens Core in a new tab) plus **Copy Core URL** and **Reload status**
+
+The full dashboard is hosted by Core and opens separately. This is intentional: embedded iframe behaviour is **not** the default because browsers block HTTP dashboards inside HTTPS Home Assistant sessions. A reverse proxy is optional and only needed by advanced users who specifically want an embedded view.
 
 ## Troubleshooting
 
 | Symptom | What to check |
 |---------|----------------|
 | Core unreachable | Core URL, container/add-on running, firewall |
-| Panel not loading | Panel enabled in options; try opening Core URL directly |
+| Panel shows "not responding" | Core URL reachable from Home Assistant; container/add-on running; click Reload status |
+| Open Dashboard button | Opens Core in a new tab; if the tab fails, Core itself is unreachable from your browser/LAN |
 | Add-on vs Docker URL | Use a URL reachable from Home Assistant Core, not your browser only |
 | Collector disconnected | MQTT settings in Core; broker reachable from Core |
 | No devices showing | Networks configured in Core; MQTT traffic observed |

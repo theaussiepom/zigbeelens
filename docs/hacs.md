@@ -1,6 +1,10 @@
 # HACS integration
 
-Home Assistant bridge to **ZigbeeLens Core** — summary entities, sidebar panel, diagnostics, and repairs.
+Home Assistant bridge to **ZigbeeLens Core** — summary entities, a native companion panel, diagnostics, and repairs.
+
+The HACS sidebar provides a **native companion panel** with an **Open Full Dashboard** button. This works for normal Docker installs without a reverse proxy. The full ZigbeeLens dashboard is served by Core and opens separately.
+
+> Embedded iframe behaviour is intentionally **not** the default because browsers block HTTP dashboards inside HTTPS Home Assistant sessions. A reverse proxy is optional and only needed by advanced users who want an embedded view.
 
 The Core dashboard is **canonical**. HACS does not collect MQTT or replace the dashboard.
 
@@ -27,7 +31,28 @@ Use a URL **reachable from Home Assistant**:
 
 Do not use `localhost` unless HA and Core share the same network namespace.
 
-If the sidebar iframe cannot embed Core (HTTPS/HTTP mismatch, network isolation), open the Core URL directly in a browser.
+The companion panel renders status from the integration (over the HA websocket) and does not require the browser to reach Core directly. The **Open Full Dashboard** button opens the configured Core URL in a new tab, so that URL must be reachable from your browser.
+
+## Deployment paths
+
+**Docker + HACS (normal path):**
+
+1. Run Core at `http://<host>:8377`.
+2. Install the HACS integration.
+3. Add the integration with your Core URL.
+4. Use the sidebar **companion panel** for status.
+5. Click **Open Full Dashboard** for the complete UI (opens in a new tab).
+
+No reverse proxy is required for a good sidebar experience.
+
+**HAOS add-on:**
+
+- The add-on / Ingress is the embedded full-dashboard path.
+- HACS remains optional for entities and repairs.
+
+**Advanced Docker:**
+
+- You may reverse proxy Core over HTTPS if you specifically want an embedded view, but this is not the normal path and is not required.
 
 ## Architecture
 
@@ -35,11 +60,14 @@ If the sidebar iframe cannot embed Core (HTTPS/HTTP mismatch, network isolation)
 flowchart LR
   HA[Home Assistant]
   HACS[ZigbeeLens HACS integration]
+  Panel[Companion panel]
   Core[ZigbeeLens Core]
   MQTT[Zigbee2MQTT via MQTT]
 
   HA --> HACS
+  HACS --> Panel
   HACS -->|HTTP read-only| Core
+  Panel -. Open Full Dashboard new tab .-> Core
   Core -->|subscribe only| MQTT
 ```
 
@@ -49,7 +77,7 @@ flowchart LR
 |---|------------------|----------------|
 | Install | HACS custom repository | Config flag in Core |
 | Config flow / repairs | Yes | No |
-| Sidebar panel | Yes | No |
+| Native companion panel | Yes | No |
 | Summary entities | Yes | Yes |
 | Recommended default | **Yes** | Optional |
 

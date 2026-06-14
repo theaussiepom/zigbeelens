@@ -177,7 +177,7 @@ Open the dashboard: **http://localhost:8377**
 5. Restart Home Assistant if prompted
 6. **Settings → Devices & services → Add Integration → ZigbeeLens**
 7. Enter Core URL (see below)
-8. Enable sidebar panel if desired
+8. Keep the companion panel enabled (default)
 
 ### Core URL examples
 
@@ -203,17 +203,29 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 - [ ] Device count / unavailable / router risk sensors appear
 - [ ] Per-network sensors appear (`Home`, `Home 2`)
 - [ ] Sidebar **ZigbeeLens** entry appears
-- [ ] Sidebar panel opens Core UI (iframe) or provides a usable open-link path
+- [ ] HACS panel opens
+- [ ] Native companion panel renders (cards, not raw JSON)
+- [ ] **No broken iframe** is shown
+- [ ] Core connected state appears
+- [ ] Overall health appears
+- [ ] Active incident count appears
+- [ ] Network count appears
+- [ ] Device count appears
+- [ ] Per-network summaries appear (`Home`, `Home 2`)
+- [ ] **Open Full Dashboard** button opens `http://192.168.100.5:8377` in a new tab
+- [ ] **Copy Core URL** works
+- [ ] Stop Core → panel shows a calm disconnected state (no traceback)
+- [ ] Stop Core → "Core unreachable" repair appears
+- [ ] Start Core → panel recovers and repair clears
 - [ ] Diagnostics download is redacted (no secrets)
-- [ ] Stop Core → repairs appear (if implemented)
-- [ ] Start Core → repairs clear
 
-### Sidebar / iframe notes
+### Companion panel notes
 
-- The **Core dashboard is canonical** — HACS does not build a second dashboard.
-- HACS exposes summary entities, diagnostics, repairs, and a sidebar entry that embeds Core.
-- If the iframe cannot embed Core (browser policy, HTTP/HTTPS mismatch, network isolation), open **http://\<docker-host-ip\>:8377** directly in a browser tab.
-- Mixed content (HTTPS HA + HTTP Core) often blocks iframe embedding — use LAN HTTP for both during testing, or terminate TLS consistently.
+- The **Core dashboard is canonical** — HACS does not build a second dashboard or drill-down pages.
+- The companion panel is a **status/launcher surface**: it renders a redacted summary supplied by the integration over the HA websocket, so the browser never fetches Core directly.
+- This works whether Core is HTTP or HTTPS, and needs **no reverse proxy**.
+- Embedded iframe behaviour is intentionally **not** the default because browsers block HTTP dashboards inside HTTPS Home Assistant sessions.
+- The **Open Full Dashboard** button opens `http://<docker-host-ip>:8377` in a new tab — that URL must be reachable from your browser.
 
 ---
 
