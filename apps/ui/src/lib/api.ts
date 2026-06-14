@@ -33,7 +33,15 @@ function buildUrl(path: string, params: Record<string, string | undefined>): str
   return url.toString();
 }
 
-async function fetchJson<T>(
+const RETRYABLE_STATUSES = new Set([0, 408, 429, 500, 502, 503, 504]);
+const MAX_FETCH_RETRIES = 3;
+const RETRY_BASE_MS = 400;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchJsonOnce<T>(
   path: string,
   params: Record<string, string | undefined> = {},
   init?: RequestInit,
@@ -52,6 +60,31 @@ async function fetchJson<T>(
   } catch {
     throw new ApiError("ZigbeeLens received an unexpected response.", res.status);
   }
+}
+
+async function fetchJson<T>(
+  path: string,
+  params: Record<string, string | undefined> = {},
+  init?: RequestInit,
+): Promise<T> {
+  let lastError: ApiError | null = null;
+  for (let attempt = 0; attempt <= MAX_FETCH_RETRIES; attempt += 1) {
+    try {
+      return await fetchJsonOnce<T>(path, params, init);
+    } catch (error) {
+      if (
+        error instanceof ApiError &&
+        RETRYABLE_STATUSES.has(error.status) &&
+        attempt < MAX_FETCH_RETRIES
+      ) {
+        lastError = error;
+        await sleep(RETRY_BASE_MS * (attempt + 1));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError ?? new ApiError("ZigbeeLens Core returned an error.", 500);
 }
 
 export interface Paginated<T> {

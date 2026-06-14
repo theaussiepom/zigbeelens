@@ -205,10 +205,12 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 - [ ] Sidebar **ZigbeeLens** entry appears
 - [ ] Native companion panel loads
 - [ ] Open Full Dashboard opens Core in a new tab
-- [ ] Try Embedded View button appears
-- [ ] If HA is HTTPS and Core is HTTP, Try Embedded View shows blocked explanation (no broken iframe)
-- [ ] Back to Summary works from embedded/blocked views
-- [ ] If testing HTTPS Core, Try Embedded View renders iframe
+- [ ] Native companion panel loads with HTTP Core URL
+- [ ] Open Full Dashboard opens Core in a new tab
+- [ ] Try Embedded View shows a friendly explanation if Home Assistant is HTTPS and Core is HTTP
+- [ ] Settings → Devices & services → ZigbeeLens → Configure can change Core URL without delete/re-add
+- [ ] If using an HTTPS Core URL, Try Embedded View displays the full dashboard inside Home Assistant
+- [ ] *(Optional advanced)* Caddy HTTPS stack from [hacs-embedded-view.md](hacs-embedded-view.md): Core URL updated, cert trusted, embedded view works
 - [ ] Core connected state appears
 - [ ] Overall health appears
 - [ ] Active incident count appears
@@ -222,6 +224,17 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 - [ ] Start Core → panel recovers and repair clears
 - [ ] Diagnostics download is redacted (no secrets)
 
+### Switch Core URL from HTTP to HTTPS (embedded view test)
+
+1. Put ZigbeeLens behind HTTPS (for Beast: `deploy/docker/docker-compose.beast-traefik.example.yaml` + Traefik headers middleware).
+2. In Home Assistant: **Settings → Devices & services → ZigbeeLens → Configure**.
+3. Change Core URL to the HTTPS address (for example `https://zigbeelens.theaussiepom.me`).
+4. Confirm validation succeeds (`GET /api/health`).
+5. Open the ZigbeeLens sidebar — native companion panel loads.
+6. **Open Full Dashboard** opens the HTTPS URL in a new tab.
+7. **Try Embedded View** — full dashboard renders inside Home Assistant.
+8. **Back to Summary** works from embedded/blocked views.
+
 ### Companion panel notes
 
 - The **Core dashboard is canonical** — HACS does not build a second dashboard or drill-down pages.
@@ -229,6 +242,7 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 - This works whether Core is HTTP or HTTPS, and needs **no reverse proxy**.
 - The default HACS view is a native companion panel over the HA websocket. **Open Full Dashboard** opens Core in a new tab. **Try Embedded View** is optional and only works when browser security allows embedding.
 - The **Open Full Dashboard** button opens `http://<docker-host-ip>:8377` in a new tab — that URL must be reachable from your browser.
+- Optional HTTPS reverse proxy for embedded view: [hacs-embedded-view.md](hacs-embedded-view.md)
 
 ---
 

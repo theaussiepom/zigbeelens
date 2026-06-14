@@ -1,0 +1,24 @@
+# ZigbeeLens behind Caddy — HTTPS for HACS embedded view (optional, advanced).
+#
+# 1. Copy to Caddyfile next to docker-compose.caddy.example.yaml
+# 2. Replace the hostname below with one that resolves to your Docker host
+#    (DNS A record, router DNS, or /etc/hosts on Home Assistant + your PC)
+# 3. Start: docker compose -f docker-compose.caddy.example.yaml up -d
+# 4. Trust Caddy's internal CA on devices that open Home Assistant:
+#      docker compose -f docker-compose.caddy.example.yaml exec caddy \
+#        caddy trust
+#    Or export the root cert from caddy_data and install manually (see docs).
+#
+# For a public domain with Let's Encrypt, replace "tls internal" with:
+#   tls you@example.com
+# and ensure ports 80/443 reach this host from the internet.
+#
+# flush_interval -1 helps Server-Sent Events (live dashboard updates).
+
+zigbeelens.home.arpa {
+	encode gzip
+	tls internal
+	reverse_proxy zigbeelens:8377 {
+		flush_interval -1
+	}
+}

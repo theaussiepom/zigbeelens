@@ -1,0 +1,71 @@
+# ZigbeeLens on Beast — Traefik HTTPS route for optional HACS embedded view.
+#
+# Merge the `zigbeelens` service below into:
+#   /mnt/nas/docker/automation/docker-compose.yml
+#
+# Follows existing Beast conventions (same label style as Music Assistant / Node-RED):
+#   entrypoints: https
+#   tls.certresolver: cloudflare
+#   middlewares: local@file, authentik@file, securityHeadersZigbeeLens@file
+#
+# Before starting:
+# 1. Copy deploy/traefik/security-headers-zigbeelens.yaml.example to Traefik middlewares dir
+#    (allows Google Fonts + Home Assistant iframe — do not use securityHeadersUnsafe@file).
+# 2. Ensure DNS: zigbeelens.${DOMAIN} → Beast (Cloudflare / Pi-hole).
+# 3. Create NAS path: automation/zigbeelens on the `docker` volume
+#    (config.yaml + SQLite live in that folder — see other automation services).
+# 3. Attach to `underground` (Traefik) and `mqtt` (collector) networks.
+#
+# After deploy, update the HACS integration Core URL to:
+#   https://zigbeelens.theaussiepom.me
+#
+# Local HTTP access is kept on port 8377 for LAN troubleshooting.
+
+volumes:
+  docker:
+    name: docker
+    external: true
+
+services:
+  zigbeelens:
+    image: ghcr.io/theaussiepom/zigbeelens:edge
+    container_name: zigbeelens
+    hostname: zigbeelens
+    restart: always
+    ports:
+      - "8377:8377"
+    environment:
+      ZIGBEELENS_CONFIG: /data/config.yaml
+      ZIGBEELENS_LOG_LEVEL: info
+      TZ: ${TZ}
+    volumes:
+      - type: volume
+        source: docker
+        target: /data
+        read_only: false
+        volume:
+          subpath: automation/zigbeelens
+    labels:
+      traefik.enable: true
+      traefik.http.routers.zigbeelens.tls: true
+      traefik.http.routers.zigbeelens.tls.certresolver: cloudflare
+      traefik.http.routers.zigbeelens.entrypoints: https
+      traefik.http.routers.zigbeelens.rule: Host(`zigbeelens.${DOMAIN}`)
+      traefik.http.routers.zigbeelens.middlewares: local@file,authentik@file,securityHeadersZigbeeLens@file
+      traefik.http.services.zigbeelens.loadbalancer.server.port: 8377
+      traefik.http.services.zigbeelens.loadbalancer.passhostheader: true
+    expose:
+      - "8377"
+    dns:
+      - 172.20.0.2
+      - 172.20.0.3
+    networks:
+      underground:
+      mqtt:
+    # Healthcheck is defined in deploy/docker/Dockerfile (GET /api/health).
+
+networks:
+  underground:
+    external: true
+  mqtt:
+    external: true

@@ -31,8 +31,11 @@ Use this checklist before tagging a release. See [docs/release.md](docs/release.
 - [ ] Native companion panel loads (cards, not raw JSON)
 - [ ] **Open Full Dashboard** button opens Core in a new tab (e.g. `http://192.168.100.5:8377`)
 - [ ] **Try Embedded View** button appears
-- [ ] If HA is HTTPS and Core is HTTP, Try Embedded View shows blocked explanation (no broken iframe)
-- [ ] Back to Summary works from embedded/blocked views
+- [ ] Native companion panel loads with HTTP Core URL
+- [ ] **Open Full Dashboard** button opens Core in a new tab (e.g. `http://192.168.100.5:8377`)
+- [ ] Configure flow can change Core URL to HTTPS without delete/re-add
+- [ ] If HA is HTTPS and Core is HTTP, Try Embedded View shows friendly blocked explanation
+- [ ] If using HTTPS Core URL, Try Embedded View renders full dashboard inside HA
 - [ ] Copy Core URL works
 - [ ] HACS entities appear (overall health, active incident, device counts, per-network)
 - [ ] Stop Core → panel shows calm disconnected state + Core unreachable repair
@@ -97,4 +100,4 @@ Use this checklist before tagging a release. See [docs/release.md](docs/release.
 - [ ] Fresh Docker install from docs quick start
 - [ ] HACS install from published repo
 - [ ] Generate and download a `public_safe` report
-- [ ] Confirm SSE works when Core is behind reverse proxy (optional advanced Docker path)
+- [ ] Confirm SSE works when Core is behind reverse proxy (optional advanced Docker path — see [docs/hacs-embedded-view.md](docs/hacs-embedded-view.md) for Caddy example)

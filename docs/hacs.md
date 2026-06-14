@@ -28,10 +28,33 @@ Use a URL **reachable from Home Assistant**:
 | Docker on LAN | `http://<docker-host-ip>:8377` |
 | Same Compose network | `http://zigbeelens:8377` |
 | HAOS add-on (Core in same namespace) | `http://localhost:8377` |
+| HTTPS reverse proxy (optional) | `https://zigbeelens.example.com` |
 
 Do not use `localhost` unless HA and Core share the same network namespace.
 
 The companion panel renders status from the integration (over the HA websocket) and does not require the browser to reach Core directly. The **Open Full Dashboard** button opens the configured Core URL in a new tab, so that URL must be reachable from your browser.
+
+You can change the Core URL later without deleting the integration: **Settings → Devices & services → ZigbeeLens → Configure**.
+
+### Core URL and embedded view
+
+The Core URL is the address Home Assistant uses to reach ZigbeeLens Core.
+
+Examples:
+
+- `http://192.168.1.10:8377`
+- `http://zigbeelens:8377`
+- `https://zigbeelens.example.com`
+
+**HTTP Core URLs are supported** and are the normal Docker path. They work for:
+
+- the native HACS companion panel
+- entities, repairs, and diagnostics
+- the **Open Full Dashboard** button
+
+The optional embedded dashboard view follows browser security rules. If Home Assistant is loaded over HTTPS and ZigbeeLens Core is loaded over HTTP, the browser will not allow the dashboard to be embedded inside Home Assistant.
+
+To use embedded view, use an **HTTPS Core URL**, such as one provided by your existing reverse proxy. This is optional — you do not need HTTPS or a reverse proxy for normal HACS use.
 
 ## Deployment paths
 
@@ -52,7 +75,8 @@ No reverse proxy is required for a good sidebar experience.
 
 **Advanced Docker (optional):**
 
-- You may reverse proxy Core over HTTPS for direct browser access or SSE through a proxy, but this is not required for HACS or Docker use.
+- You may reverse proxy Core over HTTPS for direct browser access, SSE through a proxy, or **HACS Try Embedded View** when Home Assistant is HTTPS. See **[HACS embedded view — optional HTTPS reverse proxy](hacs-embedded-view.md)** for the Caddy example and certificate trust steps.
+- A reverse proxy is **not** required for the native companion panel or **Open Full Dashboard**.
 
 ## Architecture
 
@@ -110,6 +134,7 @@ Output: `dist/zigbeelens-hacs/` → push to https://github.com/theaussiepom/zigb
 ## Related
 
 - [Pre-release smoke test](release-test.md)
+- [HACS embedded view (optional HTTPS reverse proxy)](hacs-embedded-view.md)
 - [HA integration README](../apps/ha_integration/README.md)
 - [Docker](docker.md)
 - [Add-on dev](addon-dev.md)

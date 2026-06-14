@@ -41,6 +41,8 @@ See also:
 
 - `docker-compose.mosquitto.example.yaml` — optional local broker (most users already have one)
 - `docker-compose.traefik.example.yaml` — subdomain reverse proxy
+- `docker-compose.beast-traefik.example.yaml` — Beast Traefik HTTPS route (optional embedded view)
+- `docker-compose.caddy.example.yaml` + `Caddyfile.example` — **optional** HTTPS reverse proxy for HACS **Try Embedded View** ([docs/hacs-embedded-view.md](../../docs/hacs-embedded-view.md))
 
 ## Container layout
 
@@ -71,5 +73,6 @@ Both run the same ZigbeeLens product.
 ## Documentation
 
 - [docs/docker.md](../../docs/docker.md) — install, security, troubleshooting
+- [docs/hacs-embedded-view.md](../../docs/hacs-embedded-view.md) — optional HTTPS reverse proxy for HACS embedded view
 - [docs/upgrades.md](../../docs/upgrades.md)
 - [docs/backups.md](../../docs/backups.md)

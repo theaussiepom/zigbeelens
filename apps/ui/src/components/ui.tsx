@@ -297,9 +297,16 @@ export function LoadingState({ label = "Loading ZigbeeLens…" }: { label?: stri
 }
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const friendly =
+    message.includes("(500)") || message.includes("(503)")
+      ? "ZigbeeLens Core is still starting or temporarily busy. This usually clears after a moment."
+      : message.includes("not reachable")
+        ? "ZigbeeLens Core is not reachable from your browser."
+        : message;
+
   return (
     <div className="rounded-xl border border-zl-critical/40 bg-zl-critical/10 p-6 text-zl-critical">
-      <p>{message}</p>
+      <p>{friendly}</p>
       {onRetry && (
         <button
           type="button"

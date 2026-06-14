@@ -22,15 +22,4 @@ services:
     volumes:
       - ./config:/config:ro
       - ./data:/data
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8377/api/health', timeout=5)",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+    # Healthcheck is defined in deploy/docker/Dockerfile (GET /api/health).

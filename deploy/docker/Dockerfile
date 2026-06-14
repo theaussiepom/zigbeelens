@@ -53,6 +53,7 @@ LABEL org.opencontainers.image.title="ZigbeeLens" \
 
 EXPOSE 8377
 
+# GET /api/health — collector disconnect does not fail the check (see docs/docker.md).
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8377/api/health', timeout=5)"
 
