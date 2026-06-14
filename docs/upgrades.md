@@ -33,7 +33,7 @@ SQLite migrations run automatically on startup. Check logs for `migration_versio
 Prefer pinning to a release tag in production:
 
 ```yaml
-image: ghcr.io/zigbeelens/zigbeelens:0.1.0
+image: ghcr.io/theaussiepom/zigbeelens:0.1.0
 ```
 
 Use `:latest` for convenience on trusted lab systems only.

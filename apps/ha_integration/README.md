@@ -27,21 +27,20 @@ Run ZigbeeLens Core using one of:
 
 ## Install via HACS
 
-Monorepo source lives under `apps/ha_integration/`. For HACS, use a packaged release where `custom_components/` is at the repository root:
+Published repository: **https://github.com/theaussiepom/zigbeelens-hacs**
+
+1. Run ZigbeeLens Core (see [docs/release-test.md](../../docs/release-test.md) for `:edge` pre-release testing).
+2. **HACS → Integrations → Custom repositories** → add the URL above (Category: Integration).
+3. Install **ZigbeeLens** and restart Home Assistant if prompted.
+4. **Settings → Devices & services → Add Integration → ZigbeeLens**.
+
+Monorepo packaging for maintainers:
 
 ```bash
-./scripts/package-hacs.sh
+./scripts/package-hacs-repo.sh
 ```
 
-The staged output is `dist/hacs/zigbeelens/`.
-
-Until a dedicated HACS release repository is published, install manually:
-
-1. Copy `custom_components/zigbeelens` into your Home Assistant `config/custom_components/` directory.
-2. Restart Home Assistant.
-3. Add the **ZigbeeLens** integration under **Settings → Devices & services**.
-
-Or add this monorepo path to HACS as a custom repository if your packaging workflow exposes `apps/ha_integration/custom_components`.
+Output: `dist/zigbeelens-hacs/` (push to the HACS repo).
 
 ## Configure
 
@@ -49,7 +48,7 @@ During setup you will be asked for:
 
 | Option | Description |
 |--------|-------------|
-| Core URL | Base URL for Core, e.g. `http://localhost:8377` (add-on) or `http://zigbeelens:8377` (Docker) |
+| Core URL | Base URL for Core — must be reachable **from Home Assistant** (see [release-test.md](../../docs/release-test.md)) |
 | Verify SSL | Enable TLS certificate verification |
 | Panel enabled | Show ZigbeeLens in the Home Assistant sidebar |
 | Polling interval | How often summary entities refresh (default 60s) |
@@ -60,8 +59,9 @@ The config flow validates connectivity with `GET /api/health`.
 
 | Deployment | Typical Core URL |
 |------------|-------------------|
-| HAOS add-on | `http://localhost:8377` or add-on hostname if reachable from Core |
-| Docker Compose | `http://zigbeelens:8377` or `http://<host>:8377` |
+| Docker on LAN (pre-release) | `http://<docker-host-ip>:8377` |
+| Docker Compose same network | `http://zigbeelens:8377` |
+| HAOS add-on (same namespace) | `http://localhost:8377` |
 
 ## Entities
 

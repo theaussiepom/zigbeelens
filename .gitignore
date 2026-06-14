@@ -21,10 +21,8 @@ dist/zigbeelens-hacs/
 dist/zigbeelens-addons/
 dist/hacs/
 
-# Local data
-data/
-.smoke-config/
-.smoke-data/
+# Local pre-release test (never commit secrets)
+local/
 zigbeelens-test/
 
 # IDE / OS

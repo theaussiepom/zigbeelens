@@ -13,8 +13,8 @@ chmod +x scripts/build-docker.sh scripts/validate-compose.sh deploy/docker/entry
 
 Image tags:
 
-- `ghcr.io/zigbeelens/zigbeelens:latest`
-- `ghcr.io/zigbeelens/zigbeelens:0.1.0`
+- `ghcr.io/theaussiepom/zigbeelens:latest`
+- `ghcr.io/theaussiepom/zigbeelens:0.1.0`
 
 > **TODO:** Replace `zigbeelens` with your GHCR owner when the repository is published.
 
@@ -28,7 +28,7 @@ cp deploy/docker/config.example.yaml config/config.yaml
 docker run --rm -p 8377:8377 \
   -v "$(pwd)/config:/config:ro" \
   -v "$(pwd)/data:/data" \
-  ghcr.io/zigbeelens/zigbeelens:latest
+  ghcr.io/theaussiepom/zigbeelens:latest
 ```
 
 ## Compose

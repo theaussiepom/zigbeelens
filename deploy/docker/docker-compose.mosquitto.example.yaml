@@ -10,7 +10,7 @@
 
 services:
   zigbeelens:
-    image: ghcr.io/zigbeelens/zigbeelens:latest
+    image: ghcr.io/theaussiepom/zigbeelens:latest
     container_name: zigbeelens
     restart: unless-stopped
     ports:

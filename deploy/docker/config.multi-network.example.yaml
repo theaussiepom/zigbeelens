@@ -28,13 +28,9 @@ networks:
     name: Home
     base_topic: zigbee2mqtt
 
-  - id: garage
-    name: Garage
-    base_topic: zigbee2mqtt-garage
-
-  - id: shed
-    name: Shed
-    base_topic: zigbee2mqtt-shed
+  - id: home2
+    name: Home 2
+    base_topic: zigbee2mqtt-home2
 
 storage:
   path: /data/zigbeelens.sqlite

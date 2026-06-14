@@ -2,7 +2,7 @@ name: ZigbeeLens
 version: "0.1.0"
 slug: zigbeelens
 description: Read-only observability and diagnostics for Zigbee2MQTT networks
-url: https://github.com/zigbeelens/zigbeelens
+url: https://github.com/theaussiepom/zigbeelens-addons
 arch:
   - aarch64
   - amd64

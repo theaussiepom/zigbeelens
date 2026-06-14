@@ -176,6 +176,7 @@ Details: [docs/security.md](docs/security.md) · [SECURITY.md](SECURITY.md)
 | Backups | [docs/backups.md](docs/backups.md) |
 | Upgrades | [docs/upgrades.md](docs/upgrades.md) |
 | Release | [docs/release.md](docs/release.md) |
+| Pre-release smoke test | [docs/release-test.md](docs/release-test.md) |
 | Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## Mock scenarios

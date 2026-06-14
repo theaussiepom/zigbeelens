@@ -1,6 +1,33 @@
-# ZigbeeLens HACS integration
+# HACS integration
 
-This document describes installing and using the ZigbeeLens Home Assistant integration from the monorepo.
+Home Assistant bridge to **ZigbeeLens Core** — summary entities, sidebar panel, diagnostics, and repairs.
+
+The Core dashboard is **canonical**. HACS does not collect MQTT or replace the dashboard.
+
+## Install via HACS (recommended)
+
+1. Run ZigbeeLens Core (Docker or add-on) — see [release-test.md](release-test.md) for pre-release `:edge` testing.
+2. In Home Assistant: **HACS → Integrations → Custom repositories**
+3. Add: **https://github.com/theaussiepom/zigbeelens-hacs**
+4. Category: **Integration**
+5. Install **ZigbeeLens** and restart Home Assistant if prompted
+6. **Settings → Devices & services → Add Integration → ZigbeeLens**
+
+Pre-release Core image: `ghcr.io/theaussiepom/zigbeelens:edge`
+
+## Core URL
+
+Use a URL **reachable from Home Assistant**:
+
+| Deployment | Typical URL |
+|------------|-------------|
+| Docker on LAN | `http://<docker-host-ip>:8377` |
+| Same Compose network | `http://zigbeelens:8377` |
+| HAOS add-on (Core in same namespace) | `http://localhost:8377` |
+
+Do not use `localhost` unless HA and Core share the same network namespace.
+
+If the sidebar iframe cannot embed Core (HTTPS/HTTP mismatch, network isolation), open the Core URL directly in a browser.
 
 ## Architecture
 
@@ -16,71 +43,35 @@ flowchart LR
   Core -->|subscribe only| MQTT
 ```
 
-- **ZigbeeLens Core** collects MQTT telemetry, stores history, runs health/incident engines, and hosts the dashboard.
-- **HACS integration** is the Home Assistant bridge: config flow, summary entities, panel, diagnostics, repairs.
-
 ## HACS vs MQTT Discovery
 
 | | HACS integration | MQTT Discovery |
 |---|------------------|----------------|
-| Install | HACS custom integration | Config flag in Core |
+| Install | HACS custom repository | Config flag in Core |
 | Config flow / repairs | Yes | No |
 | Sidebar panel | Yes | No |
 | Summary entities | Yes | Yes |
 | Recommended default | **Yes** | Optional |
 
-See [MQTT Discovery](mqtt-discovery.md) for the optional MQTT-only entity path. You generally do not need both enabled.
+See [MQTT Discovery](mqtt-discovery.md). You generally do not need both.
 
-## Install paths
+## Entities (examples)
 
-### HAOS add-on users
+- `binary_sensor.zigbeelens_active_incident`
+- `sensor.zigbeelens_overall_health`
+- `sensor.zigbeelens_unavailable_devices`
+- `sensor.zigbeelens_router_risks`
+- Per-network health and unavailable sensors
 
-1. Install and start the ZigbeeLens add-on.
-2. Install the HACS integration (see below).
-3. Add **ZigbeeLens** integration.
-4. Use Core URL `http://localhost:8377` unless your environment requires the add-on hostname.
-5. Enable the sidebar panel if desired.
+## Monorepo / packaging
 
-### Docker users
-
-1. Run ZigbeeLens with Docker/Compose.
-2. Install the HACS integration.
-3. Add **ZigbeeLens** integration with Core URL `http://<host>:8377`.
-4. Enable the sidebar panel if desired.
-
-## HACS packaging
-
-Source layout:
-
-```
-apps/ha_integration/
-  custom_components/zigbeelens/
-  hacs.json
-  README.md
-```
-
-HACS expects `custom_components/` at the repository root for default installs. Package a release without moving monorepo source:
+Source: `apps/ha_integration/`. Published HACS repo:
 
 ```bash
-./scripts/package-hacs.sh
+./scripts/package-hacs-repo.sh
 ```
 
-Output:
-
-```
-dist/hacs/zigbeelens/
-  custom_components/zigbeelens/...
-  hacs.json
-  README.md
-```
-
-Publish `dist/hacs/zigbeelens/` as a HACS-compatible repository or attach it to GitHub releases.
-
-`hacs.json` sets `"content_in_root": false` because the integration lives under `apps/ha_integration/` in the monorepo. Release packaging copies artifacts to the HACS-expected layout.
-
-## Manual install
-
-Copy `apps/ha_integration/custom_components/zigbeelens` to `config/custom_components/zigbeelens` and restart Home Assistant.
+Output: `dist/zigbeelens-hacs/` → push to https://github.com/theaussiepom/zigbeelens-hacs
 
 ## Validation
 
@@ -88,8 +79,9 @@ Copy `apps/ha_integration/custom_components/zigbeelens` to `config/custom_compon
 ./scripts/validate-ha-integration.sh
 ```
 
-## Related docs
+## Related
 
+- [Pre-release smoke test](release-test.md)
 - [HA integration README](../apps/ha_integration/README.md)
-- [Docker deployment](docker.md)
-- [HAOS add-on](addon.md)
+- [Docker](docker.md)
+- [Add-on dev](addon-dev.md)

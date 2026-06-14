@@ -15,7 +15,7 @@ Read:
 ## Development setup
 
 ```bash
-git clone https://github.com/zigbeelens/zigbeelens.git
+git clone https://github.com/theaussiepom/zigbeelens.git
 cd zigbeelens
 pnpm install
 python3 -m venv apps/core/.venv
@@ -130,4 +130,4 @@ Use the PR template checklist. Ensure:
 
 ## Questions
 
-Open a [discussion](https://github.com/zigbeelens/zigbeelens/discussions) or issue for design questions before large changes.
+Open a [discussion](https://github.com/theaussiepom/zigbeelens/discussions) or issue for design questions before large changes.

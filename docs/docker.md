@@ -24,7 +24,7 @@ Or build locally:
 docker run --rm -p 8377:8377 \
   -v "$(pwd)/config:/config:ro" \
   -v "$(pwd)/data:/data" \
-  ghcr.io/zigbeelens/zigbeelens:latest
+  ghcr.io/theaussiepom/zigbeelens:latest
 ```
 
 ## Configuration
@@ -121,12 +121,12 @@ For Traefik + live updates (SSE):
 Published images (when available):
 
 ```
-ghcr.io/zigbeelens/zigbeelens:latest
-ghcr.io/zigbeelens/zigbeelens:0.1.0
-ghcr.io/zigbeelens/zigbeelens:<git-sha>
+ghcr.io/theaussiepom/zigbeelens:latest
+ghcr.io/theaussiepom/zigbeelens:0.1.0
+ghcr.io/theaussiepom/zigbeelens:<git-sha>
 ```
 
-Replace `zigbeelens` with your GHCR owner when the repository is published.
+Replace `zigbeelens` with your GHCR owner when using a fork.
 
 ## Troubleshooting
 

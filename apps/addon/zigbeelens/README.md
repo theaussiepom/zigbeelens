@@ -30,7 +30,7 @@ ZigbeeLens is **read-only**. It will never:
 1. **Settings → Add-ons → Add-on store → ⋮ → Repositories**
 2. Add this repository URL (when published):
    ```
-   https://github.com/zigbeelens/zigbeelens
+   https://github.com/theaussiepom/zigbeelens-addons
    ```
    For local development, see [docs/addon-dev.md](../../../docs/addon-dev.md).
 3. Install **ZigbeeLens**.
@@ -163,5 +163,5 @@ If Zigbee2MQTT has just started, wait for telemetry to arrive. An empty network 
 
 ## Support
 
-- Issues: https://github.com/zigbeelens/zigbeelens/issues
+- Issues: https://github.com/theaussiepom/zigbeelens/issues
 - Docs: [docs/addon-dev.md](../../../docs/addon-dev.md) (developers)
