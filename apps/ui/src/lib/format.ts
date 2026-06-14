@@ -3,9 +3,12 @@ import type {
   Confidence,
   DeviceHealthPrimary,
   DeviceSummary,
+  DeviceType,
   Incident,
   IncidentScope,
   IncidentStatus,
+  InterviewState,
+  PowerSource,
   RouterRisk,
   Severity,
 } from "@zigbeelens/shared";
@@ -115,7 +118,60 @@ export function lifecycleSeverity(status: IncidentStatus): Severity {
 }
 
 export function healthLabel(h: DeviceHealthPrimary): string {
+  if (h === "unknown") return "No health signal";
   return titleCase(h.replace(/_/g, " "));
+}
+
+/** Human label for a Zigbee device type; disambiguates the "Unknown" case. */
+export function deviceTypeLabel(t: DeviceType | string): string {
+  switch (t) {
+    case "Coordinator":
+      return "Coordinator";
+    case "Router":
+      return "Router";
+    case "EndDevice":
+      return "End device";
+    default:
+      return "Unknown type";
+  }
+}
+
+/** Human label for a power source; disambiguates the "Unknown" case. */
+export function powerSourceLabel(p: PowerSource | string): string {
+  switch (p) {
+    case "Battery":
+      return "Battery";
+    case "Mains":
+      return "Mains";
+    default:
+      return "Unknown power";
+  }
+}
+
+/** Human label for an interview state; disambiguates the "Unknown" case. */
+export function interviewStateLabel(s: InterviewState | string): string {
+  switch (s) {
+    case "successful":
+      return "Successful";
+    case "failed":
+      return "Failed";
+    case "in_progress":
+      return "In progress";
+    default:
+      return "Not reported";
+  }
+}
+
+/** Human label for a Zigbee2MQTT bridge state. */
+export function bridgeStateLabel(state: string): string {
+  switch (state) {
+    case "online":
+      return "Online";
+    case "offline":
+      return "Offline";
+    default:
+      return "No bridge signal";
+  }
 }
 
 /** Map a device health primary to a severity for consistent colouring. */
@@ -144,7 +200,7 @@ export function availabilityLabel(a: Availability): string {
     case "offline":
       return "Offline";
     default:
-      return "Unknown";
+      return "No data";
   }
 }
 

@@ -21,7 +21,15 @@ import {
   SeverityBadge,
 } from "@/components/ui";
 import { DeviceHealthCard, IncidentCard } from "@/components/cards";
-import { compareDevices, formatTime, healthLabel } from "@/lib/format";
+import {
+  availabilityLabel,
+  compareDevices,
+  deviceTypeLabel,
+  formatTime,
+  healthLabel,
+  interviewStateLabel,
+  powerSourceLabel,
+} from "@/lib/format";
 
 const DEVICE_EVENTS = [
   "device_health_updated",
@@ -114,9 +122,9 @@ export function DevicesPage() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <Select label="Network" value={network} onChange={setNetwork} options={options.networks} />
           <Select label="Health" value={health} onChange={setHealth} options={options.healths} labeller={healthLabel as (v: string) => string} />
-          <Select label="Device type" value={deviceType} onChange={setDeviceType} options={options.types} />
-          <Select label="Power source" value={power} onChange={setPower} options={options.powers} />
-          <Select label="Availability" value={availability} onChange={setAvailability} options={["online", "offline", "unknown"]} />
+          <Select label="Device type" value={deviceType} onChange={setDeviceType} options={options.types} labeller={deviceTypeLabel} />
+          <Select label="Power source" value={power} onChange={setPower} options={options.powers} labeller={powerSourceLabel} />
+          <Select label="Availability" value={availability} onChange={setAvailability} options={["online", "offline", "unknown"]} labeller={availabilityLabel as (v: string) => string} />
           <label className="flex flex-col gap-1 text-xs text-zl-muted">
             Search
             <input
@@ -175,7 +183,7 @@ export function DevicesPage() {
                         <span className="truncate">{d.friendly_name}</span>
                         <span className="flex items-center gap-2 text-xs text-zl-muted">
                           <NetworkBadge network={d.network_id} />
-                          {d.device_type}
+                          {deviceTypeLabel(d.device_type)}
                         </span>
                       </Link>
                     </li>
@@ -283,8 +291,8 @@ export function DeviceDetailPage() {
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-zl-muted">
           <NetworkBadge network={device.network_id} />
           <span className="font-mono">{device.ieee_address}</span>
-          <span>{device.device_type}</span>
-          <span>{device.power_source}</span>
+          <span>{deviceTypeLabel(device.device_type)}</span>
+          <span>{powerSourceLabel(device.power_source)}</span>
         </div>
         {flags.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -306,12 +314,12 @@ export function DeviceDetailPage() {
             <Row label="Manufacturer" value={device.manufacturer} />
             <Row label="Model" value={device.model} />
             <Row label="Definition" value={device.definition} />
-            <Row label="Interview" value={device.interview_state} />
+            <Row label="Interview" value={interviewStateLabel(device.interview_state)} />
           </dl>
         </Card>
         <Card title="Telemetry">
           <dl className="space-y-2 text-sm">
-            <Row label="Availability" value={device.availability} />
+            <Row label="Availability" value={availabilityLabel(device.availability)} />
             <Row label="Last seen" value={formatTime(device.last_seen)} />
             <Row label="Last payload" value={formatTime(device.last_payload_at)} />
             <Row label="Link quality" value={device.linkquality?.toString()} />
@@ -393,7 +401,7 @@ export function DeviceDetailPage() {
                     <td className="py-2 pr-4 font-mono text-xs text-zl-muted">{formatTime(t.timestamp)}</td>
                     <td className="py-2 pr-4">{t.linkquality ?? "—"}</td>
                     <td className="py-2 pr-4">{t.battery != null ? `${t.battery}%` : "—"}</td>
-                    <td className="py-2">{t.availability ?? "—"}</td>
+                    <td className="py-2">{t.availability ? availabilityLabel(t.availability) : "—"}</td>
                   </tr>
                 ))}
               </tbody>

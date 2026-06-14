@@ -23,8 +23,10 @@ import {
   SeverityBadge,
 } from "@/components/ui";
 import {
+  bridgeStateLabel,
   confidenceLabel,
   devicePath,
+  deviceTypeLabel,
   healthLabel,
   incidentTypeLabel,
   relativeTime,
@@ -140,7 +142,7 @@ export function DeviceHealthCard({ device }: { device: DeviceSummary }) {
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
             <NetworkBadge network={device.network_id} />
-            <span className="text-zl-muted">{device.device_type}</span>
+            <span className="text-zl-muted">{deviceTypeLabel(device.device_type)}</span>
           </div>
         </div>
         <HealthBadge primary={device.health.primary} />
@@ -185,7 +187,7 @@ export function NetworkHealthCard({ network }: { network: NetworkSummary }) {
         <div className="flex flex-col items-end gap-1.5">
           <SeverityBadge severity={network.incident_state} />
           <Badge severity={network.bridge_state === "online" ? "healthy" : "critical"}>
-            Bridge {network.bridge_state}
+            Bridge: {bridgeStateLabel(network.bridge_state)}
           </Badge>
         </div>
       </div>
@@ -273,22 +275,24 @@ export function TimelineEventRow({ event }: { event: TimelineEvent }) {
 
   const body = (
     <>
-      <div className="w-40 shrink-0">
+      <div className="w-32 shrink-0 sm:w-40">
         <div className="font-mono text-xs text-zl-muted" title={new Date(event.timestamp).toLocaleString()}>
           {relativeTime(event.timestamp)}
         </div>
         <div className="mt-1 flex items-center gap-1.5 text-xs">
-          <span className={`h-1.5 w-1.5 rounded-full ${severityDot(event.severity)}`} />
-          <span className="text-zl-muted">{event.kind.replace(/_/g, " ")}</span>
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${severityDot(event.severity)}`} />
+          <span className="truncate text-zl-muted">{event.kind.replace(/_/g, " ")}</span>
         </div>
       </div>
-      <div className="min-w-0">
-        <div className="font-medium text-zl-text">{event.title}</div>
-        {event.summary && <div className="mt-0.5 text-sm text-zl-muted">{event.summary}</div>}
+      <div className="min-w-0 flex-1">
+        <div className="break-words font-medium text-zl-text">{event.title}</div>
+        {event.summary && (
+          <div className="mt-0.5 break-words text-sm text-zl-muted">{event.summary}</div>
+        )}
         {(event.network_id || event.friendly_name) && (
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zl-muted">
             {event.network_id && <NetworkBadge network={event.network_id} />}
-            {event.friendly_name && <span>{event.friendly_name}</span>}
+            {event.friendly_name && <span className="break-words">{event.friendly_name}</span>}
           </div>
         )}
       </div>
@@ -299,11 +303,15 @@ export function TimelineEventRow({ event }: { event: TimelineEvent }) {
     return (
       <Link
         to={target}
-        className="flex gap-4 rounded-lg border-l-2 border-zl-border py-2 pl-4 pr-2 transition-colors hover:border-zl-accent/60 hover:bg-zl-bg/30"
+        className="flex gap-4 overflow-hidden rounded-lg border-l-2 border-zl-border py-2 pl-4 pr-2 transition-colors hover:border-zl-accent/60 hover:bg-zl-bg/30"
       >
         {body}
       </Link>
     );
   }
-  return <div className="flex gap-4 border-l-2 border-zl-border py-2 pl-4">{body}</div>;
+  return (
+    <div className="flex gap-4 overflow-hidden border-l-2 border-zl-border py-2 pl-4 pr-2">
+      {body}
+    </div>
+  );
 }

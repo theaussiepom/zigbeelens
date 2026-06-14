@@ -19,7 +19,7 @@ import {
   RouterRiskCard,
   TimelineEventRow,
 } from "@/components/cards";
-import { compareDevices } from "@/lib/format";
+import { bridgeStateLabel, compareDevices } from "@/lib/format";
 
 const NETWORK_EVENTS = [
   "network_health_updated",
@@ -138,7 +138,7 @@ export function NetworkDetailPage() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile
           label="Bridge"
-          value={n.bridge_state}
+          value={bridgeStateLabel(n.bridge_state)}
           severity={n.bridge_state === "online" ? "healthy" : "critical"}
         />
         <StatTile label="Devices" value={n.device_count} />
