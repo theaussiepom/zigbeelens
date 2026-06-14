@@ -30,9 +30,9 @@ RUN apt-get update \
     && useradd -r -u 1000 -g zigbeelens -d /app -s /usr/sbin/nologin zigbeelens \
     && mkdir -p /data /config /app/static
 
-COPY apps/core/pyproject.toml apps/core/
-COPY apps/core/src apps/core/src
-RUN pip install --no-cache-dir ./apps/core
+COPY apps/core/pyproject.toml apps/core/README.md /tmp/core/
+COPY apps/core/src /tmp/core/src
+RUN pip install --no-cache-dir /tmp/core && rm -rf /tmp/core
 
 COPY --from=ui-build /app/apps/ui/dist /app/static
 COPY deploy/docker/entrypoint.sh /entrypoint.sh
