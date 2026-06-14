@@ -37,9 +37,14 @@ def test_panel_asset_has_embed_flow():
     assert "Try Embedded View" in source
     assert "embed_blocked" in source
     assert "canEmbedDashboard" in source
-    assert "hass-toggle-menu" in source
+    assert "<ha-menu-button" in source
+    assert "_syncHaMenuButton" in source
+    assert "panel-header" in source
     assert 'id="menu-btn"' in source
     assert "set narrow(n)" in source
+    assert "Open in new tab" not in source
+    assert "hass-toggle-menu" not in source
+    assert "ha-sidebar-open" not in source
     assert 'target="_blank"' in source
     assert 'rel="noopener noreferrer"' in source
     assert 'title="ZigbeeLens full dashboard"' in source
