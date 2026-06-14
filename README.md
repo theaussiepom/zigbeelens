@@ -60,7 +60,13 @@ The HACS integration provides a native companion panel plus **Open Full Dashboar
 
 ![HACS embedded view blocked explanation](docs/screenshots/hacs-embedded-blocked.png)
 
-When Home Assistant uses HTTPS and Core uses HTTP, **Try Embedded View** shows a calm explanation instead of a broken iframe. Use an HTTPS Core URL only if you want embedded view — see [docs/hacs-embedded-view.md](docs/hacs-embedded-view.md).
+When Home Assistant uses HTTPS and Core uses HTTP, the panel shows a calm explanation instead of a broken iframe. Use an HTTPS Core URL only if you want embedded view — see [docs/hacs-embedded-view.md](docs/hacs-embedded-view.md).
+
+### HACS config flow
+
+![HACS config flow — Core URL and companion panel](docs/screenshots/hacs-config-flow.png)
+
+The setup dialog explains HTTP vs HTTPS Core URLs, optional SSL verification, and the sidebar companion panel toggle.
 
 ### More views
 

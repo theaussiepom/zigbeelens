@@ -16,6 +16,16 @@ Embedded view is useful if you want the full ZigbeeLens dashboard to appear insi
 | HTTPS | HTTPS | Works when headers allow embedding |
 | HTTP | HTTP | Works |
 
+### Correct Core URLs (Beast example)
+
+| Use | URL |
+|-----|-----|
+| Default HACS / LAN | `http://192.168.100.5:8377` |
+| Optional HTTPS / iframe | `https://zigbeelens.theaussiepom.me` |
+| **Wrong** | `https://zigbeelens.theaussiepom.me:8377` |
+
+Traefik serves HTTPS on **port 443 only**. Appending `:8377` to an HTTPS hostname hits the wrong port (direct container HTTP), not the reverse proxy.
+
 If Home Assistant uses HTTPS and Core uses `http://192.168.100.5:8377`, the panel shows a friendly blocked explanation — not a broken iframe. **Open Full Dashboard** still works in a new tab.
 
 ## When to use HTTPS in front of Core
@@ -70,12 +80,18 @@ For embedded view through Traefik or another proxy, also check:
 
 For Beast-style Traefik stacks, see:
 
-- `deploy/docker/docker-compose.beast-traefik.example.yaml`
-- `deploy/traefik/security-headers-zigbeelens.yaml.example`
+- `deploy/docker/docker-compose.beast-traefik.example.yaml` — Docker labels for UI (Authentik)
+- `deploy/traefik/zigbeelens-router.yaml.example` — file provider router for `/api` (no Authentik)
+- `deploy/traefik/security-headers-zigbeelens.yaml.example` — CSP + iframe headers
 
-These follow existing conventions (`local@file`, `authentik@file`, `securityHeadersZigbeeLens@file`, Cloudflare cert resolver, `underground` network). Create a matching Authentik provider for `zigbeelens.${DOMAIN}` before enabling the route.
+These follow existing conventions (`local@file`, `authentik@file`, `securityHeadersZigbeeLens@file`, Cloudflare cert resolver, `underground` network). Create a matching Authentik provider for `zigbeelens.${DOMAIN}` before enabling the UI route.
 
-Example HTTPS Core URL: `https://zigbeelens.theaussiepom.me`
+**API bypass (required for HACS over HTTPS):** Home Assistant config flow calls `GET /api/health`. If Authentik protects all paths, those requests get `302` and setup fails. Mirror the ThreadLens split:
+
+- **`zigbeelens-api`** — `PathPrefix(/api)`, priority 100, `local@file` + security headers, **no Authentik**
+- **`zigbeelens`** — UI/dashboard, Authentik on Docker labels or a second file router
+
+Example HTTPS Core URL: `https://zigbeelens.theaussiepom.me` (no port suffix).
 
 ---
 
@@ -223,7 +239,8 @@ For a domain with public DNS:
 | "Embedded view is blocked by browser security" | Core URL still `http://` in integration | Set Core URL to `https://...` |
 | Blank iframe, certificate error in browser devtools | Untrusted self-signed / internal CA | Trust Caddy CA or use Let's Encrypt |
 | Panel works, iframe blank, `NET::ERR_CERT_AUTHORITY_INVALID` | HA device doesn't trust cert | Install CA on that device |
-| Integration "cannot connect" after switching to HTTPS | HA backend can't reach HTTPS URL | Fix DNS/firewall; test `curl` from HA host |
+| Integration "cannot connect" after switching to HTTPS | HA backend can't reach HTTPS URL; or Authentik blocking `/api` | Fix DNS/firewall; add API bypass router (see Option A); test `curl -sk https://host/api/health` returns JSON |
+| Used `https://host:8377` | Wrong URL — Traefik is on 443, `:8377` is direct HTTP | Use `http://host:8377` or `https://host` (no port) |
 | Dashboard loads but "Reconnecting" / stale live data | Proxy buffering SSE | `flush_interval -1` (Caddy) or `proxy_buffering off` (nginx) |
 | Open Full Dashboard works, embed doesn't | Mixed content or cert | Check Core URL scheme is `https://` in integration options |
 

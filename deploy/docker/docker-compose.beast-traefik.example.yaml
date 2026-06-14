@@ -11,13 +11,17 @@
 # Before starting:
 # 1. Copy deploy/traefik/security-headers-zigbeelens.yaml.example to Traefik middlewares dir
 #    (allows Google Fonts + Home Assistant iframe — do not use securityHeadersUnsafe@file).
-# 2. Ensure DNS: zigbeelens.${DOMAIN} → Beast (Cloudflare / Pi-hole).
-# 3. Create NAS path: automation/zigbeelens on the `docker` volume
+# 2. Copy deploy/traefik/zigbeelens-router.yaml.example to Traefik routers dir
+#    (API bypass: /api without Authentik so HACS config flow works over HTTPS).
+# 3. Ensure DNS: zigbeelens.${DOMAIN} → Beast (Cloudflare / Pi-hole).
+# 4. Create NAS path: automation/zigbeelens on the `docker` volume
 #    (config.yaml + SQLite live in that folder — see other automation services).
-# 3. Attach to `underground` (Traefik) and `mqtt` (collector) networks.
+# 5. Attach to `underground` (Traefik) and `mqtt` (collector) networks.
 #
-# After deploy, update the HACS integration Core URL to:
-#   https://zigbeelens.theaussiepom.me
+# HACS Core URL examples (see docs/hacs-embedded-view.md):
+#   http://192.168.100.5:8377              — default LAN (no Authentik)
+#   https://zigbeelens.theaussiepom.me     — optional HTTPS / embedded view
+# Wrong: https://zigbeelens.theaussiepom.me:8377  (Traefik is on 443 only)
 #
 # Local HTTP access is kept on port 8377 for LAN troubleshooting.
 
@@ -51,6 +55,7 @@ services:
       traefik.http.routers.zigbeelens.tls.certresolver: cloudflare
       traefik.http.routers.zigbeelens.entrypoints: https
       traefik.http.routers.zigbeelens.rule: Host(`zigbeelens.${DOMAIN}`)
+      # UI/dashboard only — /api is routed by deploy/traefik/zigbeelens-router.yaml.example
       traefik.http.routers.zigbeelens.middlewares: local@file,authentik@file,securityHeadersZigbeeLens@file
       traefik.http.services.zigbeelens.loadbalancer.server.port: 8377
       traefik.http.services.zigbeelens.loadbalancer.passhostheader: true

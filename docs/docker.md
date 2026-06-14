@@ -107,6 +107,20 @@ Validate examples:
 
 ZigbeeLens has **no built-in authentication**. Keep it on a trusted LAN or behind an authenticated reverse proxy / VPN.
 
+### Beast / Authentik split routing
+
+If the UI is behind Authentik, **do not** protect `/api` with the same middleware chain — Home Assistant config flow and the coordinator call `/api/health` and other read-only endpoints without a browser session. Use a higher-priority Traefik router for `PathPrefix(/api)` with `local@file` only (see `deploy/traefik/zigbeelens-router.yaml.example`, mirroring ThreadLens).
+
+### Correct Core URLs (Beast example)
+
+| Use | URL |
+|-----|-----|
+| Default HACS / LAN | `http://192.168.100.5:8377` |
+| Optional HTTPS / iframe | `https://zigbeelens.theaussiepom.me` |
+| **Wrong** | `https://zigbeelens.theaussiepom.me:8377` |
+
+Traefik HTTPS is on port **443**. The `:8377` suffix on an HTTPS hostname bypasses Traefik and will not work as intended.
+
 For Traefik + live updates (SSE):
 - Prefer subdomain routing over path prefixes
 - Disable response buffering for the ZigbeeLens service if updates stall

@@ -1,0 +1,39 @@
+# ZigbeeLens on Beast via Traefik file provider.
+#
+# Copy to Traefik dynamic config, e.g.:
+#   /mnt/nas/docker/network/traefik/conf.d/routers/zigbeelens.yaml
+#
+# Why split routers?
+# - Home Assistant config flow and coordinator call GET /api/health over HTTPS.
+# - Authentik on the UI router returns 302 for /api/* and breaks HACS setup.
+# - API router: LAN-only (local@file), no Authentik, higher priority.
+# - UI router: keep Authentik on the Docker-label router (see beast-traefik example).
+#
+# Correct HACS Core URLs (no :8377 on HTTPS):
+#   http://192.168.100.5:8377              — default LAN
+#   https://zigbeelens.theaussiepom.me     — optional HTTPS / embedded view
+# Wrong: https://zigbeelens.theaussiepom.me:8377
+#
+# After copying, reload Traefik (file provider may not pick up new files immediately).
+
+http:
+  routers:
+    zigbeelens-api:
+      entryPoints:
+        - https
+      service: zigbeelens-api
+      rule: Host(`zigbeelens.{{env "DOMAIN"}}`) && PathPrefix(`/api`)
+      priority: 100
+      tls:
+        certresolver: cloudflare
+      middlewares:
+        - local@file
+        - securityHeadersZigbeeLens@file
+
+  services:
+    zigbeelens-api:
+      loadBalancer:
+        servers:
+          # Traefik and zigbeelens share the `underground` Docker network.
+          - url: "http://zigbeelens:8377"
+        passHostHeader: true

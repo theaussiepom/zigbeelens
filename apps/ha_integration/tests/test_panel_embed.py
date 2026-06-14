@@ -43,5 +43,9 @@ def test_panel_asset_has_embed_flow():
     assert 'title="ZigbeeLens full dashboard"' in source
     assert "loading=\"lazy\"" in source
     assert "referrerpolicy=\"no-referrer\"" in source
-    # Default summary view must not auto-render iframe on load.
-    assert 'this._view = "summary"' in source or "_view" in source and '"summary"' in source
+
+
+def test_panel_auto_embeds_when_same_protocol():
+    source = PANEL_JS.read_text(encoding="utf-8")
+    assert 'this._view = "embedded"' in source
+    assert "canEmbedDashboard" in source
