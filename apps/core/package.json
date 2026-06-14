@@ -1,0 +1,12 @@
+{
+  "name": "@zigbeelens/core",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "cd ../.. && python -m uvicorn zigbeelens.main:app --app-dir apps/core/src --host 0.0.0.0 --port 8377 --reload",
+    "build": "echo 'Python core has no JS build step'",
+    "lint": "ruff check src tests",
+    "typecheck": "echo 'Python typecheck via ruff'",
+    "test": "PYTHONPATH=src pytest tests -q"
+  }
+}

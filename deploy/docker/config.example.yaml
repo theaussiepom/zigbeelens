@@ -1,0 +1,74 @@
+server:
+  host: 0.0.0.0
+  port: 8377
+
+mode:
+  mock: false
+
+mqtt:
+  server: mqtt://mosquitto:1883
+  username: ""
+  password: ""
+  client_id: zigbeelens
+  tls:
+    enabled: false
+    reject_unauthorized: true
+
+networks:
+  - id: home
+    name: Home
+    base_topic: zigbee2mqtt
+
+storage:
+  path: /data/zigbeelens.sqlite
+  retention_days: 30
+
+diagnostics:
+  incident_window_seconds: 180
+  stale_after_hours: 24
+  low_battery_percent: 20
+  weak_link_threshold: 40
+  flapping_threshold: 3
+  recently_unstable_window_hours: 24
+  bridge_stale_after_minutes: 10
+  mains_stale_after_hours: 12
+  battery_stale_after_hours: 48
+  incident_watch_window_minutes: 30
+  incident_resolution_grace_minutes: 5
+  network_wide_device_percent: 25
+  network_wide_min_devices: 5
+  correlated_min_devices: 2
+  stale_cluster_min_devices: 3
+  low_battery_cluster_min_devices: 3
+  interview_failure_min_devices: 2
+
+reporting:
+  default_profile: standard
+  max_recent_events: 100
+  max_metric_samples_per_device: 50
+  max_availability_changes_per_device: 50
+  include_raw_payloads: false
+
+features:
+  mqtt_collector: true
+  mqtt_discovery: false
+  bridge_logs: true
+  device_payload_history: true
+  manual_network_map: false
+  automatic_network_map: false
+
+mqtt_discovery:
+  enabled: true
+  topic_prefix: homeassistant
+  state_topic_prefix: zigbeelens
+  retain: true
+  device_name: ZigbeeLens
+  object_id_prefix: zigbeelens
+
+topology:
+  enabled: false
+  manual_capture_enabled: false
+  automatic_capture_enabled: false
+  capture_on_incident: false
+  max_snapshots_per_network: 5
+  warn_before_capture: true

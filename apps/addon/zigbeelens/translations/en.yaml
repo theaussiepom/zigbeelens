@@ -1,0 +1,17 @@
+name: ZigbeeLens
+description: Read-only observability and diagnostics for Zigbee2MQTT networks
+configuration:
+  mqtt:
+    name: MQTT broker
+    description: Connection settings for your MQTT broker (usually the Home Assistant Mosquitto add-on).
+  networks:
+    name: Zigbee2MQTT networks
+    description: One entry per Zigbee2MQTT instance or topic root.
+  storage:
+    name: Storage
+  diagnostics:
+    name: Diagnostics thresholds
+  reporting:
+    name: Report settings
+  features:
+    name: Feature flags

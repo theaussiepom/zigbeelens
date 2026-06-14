@@ -1,0 +1,27 @@
+services:
+  core:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    ports:
+      - "8377:8377"
+    environment:
+      ZIGBEELENS_CONFIG: /app/config/config.yaml
+      ZIGBEELENS_MOCK_SCENARIO: four_devices_same_room_unavailable
+    volumes:
+      - ../../apps/core/src:/app/apps/core/src:ro
+      - ../../config:/app/config:ro
+      - ../../data:/app/data
+
+  ui:
+    image: node:22-bookworm
+    working_dir: /app
+    command: sh -c "corepack enable && pnpm install && pnpm --filter @zigbeelens/shared build && pnpm --filter @zigbeelens/ui dev --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_PROXY_TARGET: http://core:8377
+    volumes:
+      - ../..:/app
+    depends_on:
+      - core

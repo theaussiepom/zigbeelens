@@ -1,0 +1,49 @@
+# ZigbeeLens + Mosquitto — for users who want a local broker for testing.
+#
+# Most Home Assistant users already have Mosquitto and do NOT need this stack.
+# Point ZigbeeLens at your existing broker in config/config.yaml instead.
+#
+# Usage:
+#   mkdir -p config data mosquitto/config mosquitto/data mosquitto/log
+#   cp deploy/docker/config.example.yaml config/config.yaml
+#   docker compose -f deploy/docker/docker-compose.mosquitto.example.yaml up -d
+
+services:
+  zigbeelens:
+    image: ghcr.io/zigbeelens/zigbeelens:latest
+    container_name: zigbeelens
+    restart: unless-stopped
+    ports:
+      - "8377:8377"
+    environment:
+      ZIGBEELENS_CONFIG: /config/config.yaml
+      ZIGBEELENS_LOG_LEVEL: info
+    volumes:
+      - ./config:/config:ro
+      - ./data:/data
+    depends_on:
+      mosquitto:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8377/api/health', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: zigbeelens-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log

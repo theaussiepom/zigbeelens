@@ -1,0 +1,36 @@
+# Standalone ZigbeeLens — copy to docker-compose.yaml and adjust.
+#
+# Quick start:
+#   mkdir -p config data
+#   cp deploy/docker/config.example.yaml config/config.yaml
+#   docker compose -f deploy/docker/docker-compose.example.yaml up -d
+#
+# Image: replace ghcr.io/zigbeelens/zigbeelens with your registry path.
+# TODO: set GHCR owner when repository is published.
+
+services:
+  zigbeelens:
+    image: ghcr.io/zigbeelens/zigbeelens:latest
+    container_name: zigbeelens
+    restart: unless-stopped
+    ports:
+      - "8377:8377"
+    environment:
+      ZIGBEELENS_CONFIG: /config/config.yaml
+      ZIGBEELENS_LOG_LEVEL: info
+      TZ: UTC
+    volumes:
+      - ./config:/config:ro
+      - ./data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8377/api/health', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

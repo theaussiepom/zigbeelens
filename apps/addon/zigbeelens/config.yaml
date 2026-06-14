@@ -1,0 +1,143 @@
+name: ZigbeeLens
+version: "0.1.0"
+slug: zigbeelens
+description: Read-only observability and diagnostics for Zigbee2MQTT networks
+url: https://github.com/zigbeelens/zigbeelens
+arch:
+  - aarch64
+  - amd64
+  - armv7
+startup: services
+boot: auto
+init: false
+ingress: true
+ingress_port: 8377
+panel_icon: mdi:zigbee
+panel_title: ZigbeeLens
+webui: null
+ports: {}
+ports_description: {}
+hassio_api: false
+homeassistant_api: false
+host_network: false
+options:
+  mqtt:
+    host: core-mosquitto
+    port: 1883
+    username: ""
+    password: ""
+    tls:
+      enabled: false
+      reject_unauthorized: true
+  networks:
+    - id: home
+      name: Home
+      base_topic: zigbee2mqtt
+  storage:
+    retention_days: 30
+  diagnostics:
+    incident_window_seconds: 180
+    stale_after_hours: 24
+    low_battery_percent: 20
+    weak_link_threshold: 40
+    flapping_threshold: 3
+    recently_unstable_window_hours: 24
+    bridge_stale_after_minutes: 10
+    mains_stale_after_hours: 12
+    battery_stale_after_hours: 48
+    incident_watch_window_minutes: 30
+    incident_resolution_grace_minutes: 5
+    network_wide_device_percent: 25
+    network_wide_min_devices: 5
+    correlated_min_devices: 2
+    stale_cluster_min_devices: 3
+    low_battery_cluster_min_devices: 3
+    interview_failure_min_devices: 2
+  reporting:
+    default_profile: standard
+    max_recent_events: 100
+    max_metric_samples_per_device: 50
+    max_availability_changes_per_device: 50
+    include_raw_payloads: false
+  features:
+    mqtt_collector: true
+    mqtt_discovery: false
+    bridge_logs: true
+    device_payload_history: true
+    manual_network_map: false
+    automatic_network_map: false
+  mqtt_discovery:
+    enabled: true
+    topic_prefix: homeassistant
+    state_topic_prefix: zigbeelens
+    retain: true
+    device_name: ZigbeeLens
+    object_id_prefix: zigbeelens
+  topology:
+    enabled: false
+    manual_capture_enabled: false
+    automatic_capture_enabled: false
+    capture_on_incident: false
+    max_snapshots_per_network: 5
+    warn_before_capture: true
+schema:
+  mqtt:
+    host: str
+    port: port
+    username: str?
+    password: password?
+    tls:
+      enabled: bool
+      reject_unauthorized: bool
+  networks:
+    - id: match(^[a-zA-Z0-9_-]+$)
+      name: str
+      base_topic: str
+  storage:
+    retention_days: int(1,365)?
+  diagnostics:
+    incident_window_seconds: int(30,3600)?
+    stale_after_hours: int(1,720)?
+    low_battery_percent: int(1,100)?
+    weak_link_threshold: int(1,255)?
+    flapping_threshold: int(2,50)?
+    recently_unstable_window_hours: int(1,168)?
+    bridge_stale_after_minutes: int(1,1440)?
+    mains_stale_after_hours: int(1,720)?
+    battery_stale_after_hours: int(1,720)?
+    incident_watch_window_minutes: int(1,1440)?
+    incident_resolution_grace_minutes: int(1,1440)?
+    network_wide_device_percent: int(1,100)?
+    network_wide_min_devices: int(2,1000)?
+    correlated_min_devices: int(2,100)?
+    stale_cluster_min_devices: int(2,100)?
+    low_battery_cluster_min_devices: int(2,100)?
+    interview_failure_min_devices: int(1,100)?
+  reporting:
+    default_profile: list(standard|public_safe|strict)?
+    max_recent_events: int(0,1000)?
+    max_metric_samples_per_device: int(0,1000)?
+    max_availability_changes_per_device: int(0,1000)?
+    include_raw_payloads: bool?
+  features:
+    mqtt_collector: bool?
+    mqtt_discovery: bool?
+    bridge_logs: bool?
+    device_payload_history: bool?
+    manual_network_map: bool?
+    automatic_network_map: bool?
+  mqtt_discovery:
+    enabled: bool?
+    topic_prefix: str?
+    state_topic_prefix: str?
+    retain: bool?
+    device_name: str?
+    object_id_prefix: str?
+  topology:
+    enabled: bool?
+    manual_capture_enabled: bool?
+    automatic_capture_enabled: bool?
+    automatic_capture_interval_hours: int(1,168)?
+    capture_on_incident: bool?
+    max_snapshots_per_network: int(1,50)?
+    warn_before_capture: bool?

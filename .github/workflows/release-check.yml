@@ -1,0 +1,65 @@
+name: Release check
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pnpm install
+          pnpm --filter @zigbeelens/shared build
+          pip install -e "apps/core[dev]"
+
+      - name: Backend tests
+        run: pytest apps/core/tests -q
+        env:
+          PYTHONPATH: apps/core/src
+
+      - name: UI tests and build
+        run: |
+          pnpm --filter @zigbeelens/ui test
+          pnpm --filter @zigbeelens/ui build
+
+      - name: HA integration validation
+        run: bash scripts/validate-ha-integration.sh
+
+      - name: HACS repo packaging
+        run: bash scripts/package-hacs-repo.sh
+
+      - name: Add-on validation
+        run: bash scripts/validate-addon.sh
+
+      - name: Compose validation
+        run: bash scripts/validate-compose.sh
+
+      - name: Core smoke
+        run: bash scripts/smoke-core.sh
+
+      - name: Safety guardrails
+        run: pytest apps/core/tests/test_safety_guardrails.py -q
+        env:
+          PYTHONPATH: apps/core/src

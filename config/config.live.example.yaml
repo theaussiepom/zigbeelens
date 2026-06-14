@@ -1,0 +1,56 @@
+server:
+  host: 127.0.0.1
+  port: 8377
+
+mode:
+  mock: false
+
+mqtt:
+  server: mqtt://user:secret-pass@mosquitto:1883
+  username: user
+  password: secret-pass
+  client_id: zigbeelens-test
+
+networks:
+  - id: home
+    name: Home
+    base_topic: zigbee2mqtt
+
+storage:
+  path: ./data/test-live.sqlite
+  retention_days: 7
+
+diagnostics:
+  incident_window_seconds: 180
+  stale_after_hours: 24
+  low_battery_percent: 20
+  weak_link_threshold: 40
+  flapping_threshold: 3
+  recently_unstable_window_hours: 24
+  bridge_stale_after_minutes: 10
+  mains_stale_after_hours: 12
+  battery_stale_after_hours: 48
+  incident_watch_window_minutes: 30
+  incident_resolution_grace_minutes: 5
+  network_wide_device_percent: 25
+  network_wide_min_devices: 5
+  correlated_min_devices: 2
+  stale_cluster_min_devices: 3
+  low_battery_cluster_min_devices: 3
+  interview_failure_min_devices: 2
+
+features:
+  mqtt_collector: true
+  mqtt_discovery: false
+  bridge_logs: true
+  device_payload_history: true
+  manual_network_map: true
+  automatic_network_map: false
+
+reporting:
+  max_recent_events: 100
+  max_metric_samples_per_device: 50
+  max_availability_changes_per_device: 50
+  include_raw_payloads: false
+  # standard | strict | public_safe
+  default_profile: standard

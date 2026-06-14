@@ -1,0 +1,133 @@
+# Development
+
+Guide for working on ZigbeeLens locally.
+
+For architecture overview see [architecture.md](architecture.md). For MQTT broker testing see [mqtt-dev.md](mqtt-dev.md).
+
+## Prerequisites
+
+- Node.js 20+
+- pnpm 9+ (`corepack enable`)
+- Python 3.11+
+
+## First-time setup
+
+```bash
+cd zigbeelens
+pnpm install
+python3 -m venv apps/core/.venv
+source apps/core/.venv/bin/activate
+pip install -e "apps/core[dev]"
+pnpm --filter @zigbeelens/shared build
+```
+
+## Configuration
+
+Default config: `config/config.yaml`
+
+Override:
+
+```bash
+export ZIGBEELENS_CONFIG=/path/to/config.yaml
+```
+
+### Mock mode (default)
+
+```yaml
+mode:
+  mock: true
+  default_scenario: four_devices_same_room_unavailable
+```
+
+All 14 diagnostic stories are available via `?scenario=` on API calls and the UI dropdown.
+
+### Live mode
+
+Copy `config/config.live.example.yaml`:
+
+```yaml
+mode:
+  mock: false
+storage:
+  path: ./data/zigbeelens.sqlite
+mqtt:
+  server: mqtt://127.0.0.1:1883
+networks:
+  - id: home
+    name: Home
+    base_topic: zigbee2mqtt
+```
+
+With live mode and no MQTT data yet, the API returns valid empty/unknown payloads.
+
+## Run Core + UI
+
+```bash
+export ZIGBEELENS_CONFIG=config/config.yaml
+./scripts/dev.sh
+```
+
+Or manually:
+
+```bash
+# Terminal 1 — Core
+export ZIGBEELENS_CONFIG=config/config.yaml
+source apps/core/.venv/bin/activate
+PYTHONPATH=apps/core/src uvicorn zigbeelens.main:app --host 0.0.0.0 --port 8377 --reload
+
+# Terminal 2 — UI
+pnpm --filter @zigbeelens/ui dev
+```
+
+- UI: http://localhost:5173
+- API docs: http://localhost:8377/docs
+
+## Docker dev
+
+```bash
+docker compose -f deploy/compose/docker-compose.dev.yaml up --build
+```
+
+## Tests
+
+```bash
+source apps/core/.venv/bin/activate
+PYTHONPATH=apps/core/src pytest apps/core/tests -q
+pnpm --filter @zigbeelens/ui test
+pnpm --filter @zigbeelens/ui typecheck
+ruff check apps/core/src apps/core/tests
+./scripts/validate-ha-integration.sh
+./scripts/validate-addon.sh
+./scripts/validate-compose.sh
+./scripts/smoke-core.sh
+```
+
+## Repository layout
+
+```
+apps/core/           Python FastAPI service
+apps/ui/             React + Vite dashboard
+apps/ha_integration/ HACS custom integration
+apps/addon/          Home Assistant OS add-on
+packages/shared/     TypeScript shared types
+deploy/docker/       Production Dockerfile + Compose
+deploy/compose/      Dev Compose
+scripts/             Build, validate, smoke scripts
+docs/                Documentation
+```
+
+## Key modules
+
+| Layer | Path |
+|-------|------|
+| Config | `apps/core/src/zigbeelens/config/` |
+| MQTT collector | `apps/core/src/zigbeelens/mqtt/` |
+| Health / incidents | `apps/core/src/zigbeelens/diagnostics/` |
+| Reports / redaction | `apps/core/src/zigbeelens/services/reports.py`, `report_redaction.py` |
+| MQTT Discovery | `apps/core/src/zigbeelens/mqtt_discovery/` |
+| Topology | `apps/core/src/zigbeelens/topology/` |
+| API | `apps/core/src/zigbeelens/api/routes.py` |
+
+## Contributing
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md).

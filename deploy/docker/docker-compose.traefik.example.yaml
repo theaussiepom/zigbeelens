@@ -1,0 +1,48 @@
+# ZigbeeLens behind Traefik — subdomain deployment (recommended).
+#
+# Prerequisites:
+# - Traefik running with docker provider and a public entrypoint
+# - DNS for zigbeelens.example.com pointing at your host
+#
+# ZigbeeLens has no built-in authentication. Put it behind your existing
+# authenticated reverse proxy, VPN, or trusted LAN only.
+#
+# SSE/WebSocket: enable buffering off on the Traefik service if live updates stall.
+
+services:
+  zigbeelens:
+    image: ghcr.io/zigbeelens/zigbeelens:latest
+    container_name: zigbeelens
+    restart: unless-stopped
+    environment:
+      ZIGBEELENS_CONFIG: /config/config.yaml
+      ZIGBEELENS_LOG_LEVEL: info
+    volumes:
+      - ./config:/config:ro
+      - ./data:/data
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.zigbeelens.rule=Host(`zigbeelens.example.com`)
+      - traefik.http.routers.zigbeelens.entrypoints=websecure
+      - traefik.http.routers.zigbeelens.tls=true
+      - traefik.http.services.zigbeelens.loadbalancer.server.port=8377
+      # Helps Server-Sent Events (live dashboard updates) through Traefik.
+      - traefik.http.services.zigbeelens.loadbalancer.passhostheader=true
+    networks:
+      - proxy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8377/api/health', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  proxy:
+    external: true

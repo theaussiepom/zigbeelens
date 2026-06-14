@@ -1,0 +1,80 @@
+name: Diagnostic report
+description: Share symptoms with a redacted ZigbeeLens report
+title: "[Diagnostic]: "
+labels: ["diagnostic"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us understand your Zigbee network issue using ZigbeeLens diagnostics.
+
+        **Before submitting:**
+        - Generate a report from the Reports page with **`public_safe`** redaction
+        - Do **not** paste secrets, passwords, network keys, or raw MQTT payloads
+        - Attach the JSON or paste the Markdown summary below
+
+  - type: dropdown
+    id: install-path
+    attributes:
+      label: Install path
+      options:
+        - Home Assistant OS add-on
+        - Docker / Compose
+        - Local development
+    validations:
+      required: true
+
+  - type: input
+    id: zigbee2mqtt-version
+    attributes:
+      label: Zigbee2MQTT version
+      placeholder: "2.x.x"
+    validations:
+      required: true
+
+  - type: input
+    id: networks
+    attributes:
+      label: Number of Zigbee2MQTT networks
+      placeholder: "1"
+    validations:
+      required: true
+
+  - type: input
+    id: devices
+    attributes:
+      label: Approximate device count
+      placeholder: "50"
+    validations:
+      required: true
+
+  - type: textarea
+    id: symptoms
+    attributes:
+      label: Symptoms
+      description: What is going wrong? When did it start? Is it isolated or widespread?
+    validations:
+      required: true
+
+  - type: textarea
+    id: report
+    attributes:
+      label: Redacted report (Markdown or JSON)
+      description: Use public_safe redaction. Remove anything you are unsure about.
+      render: shell
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: I used public_safe or strict redaction (not raw config or MQTT dumps)
+          required: true
+        - label: I removed any remaining secrets before submitting
+          required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      placeholder: Topology enabled? MQTT Discovery? Recent config changes?

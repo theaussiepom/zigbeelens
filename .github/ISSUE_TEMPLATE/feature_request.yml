@@ -1,0 +1,50 @@
+name: Feature request
+description: Suggest an enhancement for ZigbeeLens
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ZigbeeLens is read-only by design. Features that mutate Zigbee devices, permit join, or claim definitive root causes are out of scope.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What problem does this solve? Who benefits?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe what you want ZigbeeLens to do.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: safety-impact
+    attributes:
+      label: Does this require MQTT publish or Zigbee mutation?
+      options:
+        - "No — read-only / observability only"
+        - "Maybe — needs discussion"
+        - "Yes"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds or other tools you've tried?
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: I understand ZigbeeLens will not add repair/permit-join/remove/OTA actions
+          required: true
