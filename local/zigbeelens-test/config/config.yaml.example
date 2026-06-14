@@ -1,0 +1,49 @@
+# Local pre-release test config template (two Zigbee2MQTT networks).
+# Copy to config.yaml and edit placeholders — never commit config.yaml with real secrets.
+#
+#   cp local/zigbeelens-test/config/config.yaml.example local/zigbeelens-test/config/config.yaml
+#
+# Then run: ./scripts/local-release-test.sh
+
+server:
+  host: 0.0.0.0
+  port: 8377
+
+mode:
+  mock: false
+
+mqtt:
+  server: mqtt://<your-mqtt-host>:1883
+  username: "<mqtt-user>"
+  password: "<mqtt-password>"
+  client_id: zigbeelens
+  tls:
+    enabled: false
+    reject_unauthorized: true
+
+networks:
+  - id: home
+    name: Home
+    base_topic: zigbee2mqtt
+
+  - id: home2
+    name: Home 2
+    base_topic: zigbee2mqtt-home2
+
+storage:
+  path: /data/zigbeelens.sqlite
+  retention_days: 30
+
+features:
+  mqtt_collector: true
+  mqtt_discovery: false
+  bridge_logs: true
+  device_payload_history: true
+  manual_network_map: false
+  automatic_network_map: false
+
+topology:
+  enabled: false
+  manual_capture_enabled: false
+  automatic_capture_enabled: false
+  capture_on_incident: false

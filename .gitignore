@@ -21,8 +21,9 @@ dist/zigbeelens-hacs/
 dist/zigbeelens-addons/
 dist/hacs/
 
-# Local pre-release test (never commit secrets)
-local/
+# Local pre-release test (commit template; never commit secrets)
+local/zigbeelens-test/config/config.yaml
+local/zigbeelens-test/data/
 zigbeelens-test/
 
 # IDE / OS
