@@ -16,6 +16,10 @@ async def test_panel_registered_when_enabled():
     with patch("zigbeelens.panel.frontend.async_register_built_in_panel") as register:
         await async_register_panel(hass, "entry1", "http://localhost:8377")
         register.assert_called_once()
+        _args, kwargs = register.call_args
+        assert kwargs["component_name"] == "iframe"
+        assert kwargs["frontend_url_path"] == "zigbeelens"
+        assert kwargs["config"] == {"url": "http://localhost:8377/"}
         assert hass.data["zigbeelens"]["entry1"]["panel_registered"] is True
 
 

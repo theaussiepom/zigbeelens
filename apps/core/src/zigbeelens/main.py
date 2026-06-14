@@ -46,6 +46,14 @@ def create_app(config_path: str | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def allow_embedded_ui(request, call_next):
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/assets"):
+            response.headers["Content-Security-Policy"] = "frame-ancestors *"
+        return response
+
     app.include_router(router)
 
     if not mount_static_ui(app):

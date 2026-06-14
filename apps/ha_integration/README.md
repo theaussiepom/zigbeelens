@@ -89,7 +89,12 @@ Detailed diagnostics remain in the ZigbeeLens Core dashboard.
 
 ## Sidebar panel
 
-When enabled, **ZigbeeLens** appears in the sidebar and embeds the Core UI via iframe. If embedding is blocked by browser policy, open the configured Core URL directly in a new tab.
+When enabled, **ZigbeeLens** appears in the sidebar and embeds the Core UI via iframe.
+
+**If the panel is blank:**
+
+- Update the HACS integration to the latest release (older builds registered the wrong panel component).
+- If Home Assistant uses **HTTPS** and Core uses **HTTP**, HA blocks the iframe. Open Core directly in a browser tab (e.g. `http://<docker-host-ip>:8377`), or serve Core over HTTPS / use HTTP for HA on your LAN during testing.
 
 ## Troubleshooting
 
