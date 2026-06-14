@@ -9,11 +9,11 @@ ARG IMAGE_SOURCE=https://github.com/theaussiepom/zigbeelens
 
 FROM node:22-bookworm AS ui-build
 WORKDIR /app
-RUN corepack enable
-COPY package.json pnpm-workspace.yaml ./
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/shared/package.json packages/shared/
 COPY apps/ui/package.json apps/ui/
-RUN pnpm install --filter @zigbeelens/ui...
+RUN pnpm install --filter @zigbeelens/ui... --frozen-lockfile
 COPY packages/shared packages/shared
 COPY apps/ui apps/ui
 RUN pnpm --filter @zigbeelens/shared build && pnpm --filter @zigbeelens/ui build
