@@ -479,21 +479,21 @@ export function ReportsPage() {
                     </div>
                     <a
                       href={downloadReportUrl(r.id, scen)}
-                      className="rounded-lg border border-zl-border px-3 py-1.5 text-xs hover:bg-zl-surface-2"
+                      className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 active:bg-zl-surface-2"
                     >
                       Download
                     </a>
                     <button
                       type="button"
                       onClick={() => copyStored(r.id)}
-                      className="rounded-lg border border-zl-border px-3 py-1.5 text-xs hover:bg-zl-surface-2"
+                      className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 active:bg-zl-surface-2"
                     >
                       Copy MD
                     </button>
                     <button
                       type="button"
                       onClick={() => deleteStored(r.id)}
-                      className="rounded-lg border border-zl-border px-3 py-1.5 text-xs text-zl-muted hover:bg-zl-surface-2"
+                      className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm text-zl-muted hover:bg-zl-surface-2 active:bg-zl-surface-2"
                     >
                       Delete
                     </button>
@@ -563,7 +563,7 @@ function Segmented<T extends string>({
           key={o.value}
           type="button"
           onClick={() => onChange(o.value)}
-          className={`rounded-lg px-3 py-1.5 text-sm ${
+          className={`min-h-11 rounded-lg px-4 py-2 text-sm ${
             value === o.value
               ? "bg-zl-accent text-zl-bg"
               : "border border-zl-border text-zl-muted hover:bg-zl-surface-2"

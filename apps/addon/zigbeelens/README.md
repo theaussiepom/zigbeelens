@@ -158,7 +158,7 @@ If Zigbee2MQTT has just started, wait for telemetry to arrive. An empty network 
 
 - Single container: Core API + bundled UI on port **8377**
 - Home Assistant **Ingress** proxies the UI into the sidebar
-- Read-only MQTT subscriber — no publish, no request topics
+- Read-only MQTT subscriber by default — the collector does not publish to Zigbee2MQTT topics. Optional MQTT Discovery and topology capture can publish when explicitly enabled in options.
 - Same codebase as the Docker Compose / dev path
 
 ## Support

@@ -42,8 +42,8 @@ export function Card({
       className={`rounded-xl border border-zl-border bg-zl-surface p-5 shadow-sm ${className}`}
     >
       {(title || subtitle || actions) && (
-        <header className="mb-4 flex items-start justify-between gap-3">
-          <div>
+        <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
             {title && <h2 className="text-base font-semibold text-zl-text">{title}</h2>}
             {subtitle && <p className="mt-1 text-sm text-zl-muted">{subtitle}</p>}
           </div>
@@ -304,7 +304,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
         <button
           type="button"
           onClick={onRetry}
-          className="mt-3 rounded-lg border border-zl-critical/40 px-3 py-1.5 text-sm hover:bg-zl-critical/10"
+          className="mt-3 min-h-11 rounded-lg border border-zl-critical/40 px-4 py-2 text-sm hover:bg-zl-critical/10 active:bg-zl-critical/15"
         >
           Try again
         </button>

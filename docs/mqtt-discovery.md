@@ -14,7 +14,7 @@ ZigbeeLens can optionally publish **summary Home Assistant entities** using [MQT
 - Does **not** mutate Zigbee state
 - Does **not** expose every Zigbee device
 - Does **not** replace the ZigbeeLens dashboard
-- Does **not** replace the HACS integration repairs, diagnostics, config flow, or sidebar panel
+- Does **not** replace the HACS integration repairs, diagnostics, config flow, or native companion panel
 
 ## HACS vs MQTT Discovery
 
@@ -23,7 +23,7 @@ ZigbeeLens can optionally publish **summary Home Assistant entities** using [MQT
 | Install | HACS custom integration | Config flag only |
 | Config flow | Yes | No |
 | Repairs / diagnostics | Yes | No |
-| Sidebar panel | Yes | No |
+| Native companion panel | Yes | No |
 | Summary entities | Yes | Yes |
 | Best for | Native HA experience | Simple MQTT automations without HACS |
 

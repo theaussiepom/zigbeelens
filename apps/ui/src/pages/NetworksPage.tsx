@@ -131,7 +131,7 @@ export function NetworkDetailPage() {
           <h1 className="text-2xl font-semibold">{n.name}</h1>
           <SeverityBadge severity={n.incident_state} />
         </div>
-        <p className="font-mono text-sm text-zl-muted">{n.base_topic}</p>
+        <p className="break-all font-mono text-sm text-zl-muted">{n.base_topic}</p>
         <p className="mt-2 text-zl-text">{networkStatusLine(n)}</p>
       </div>
 
@@ -265,7 +265,7 @@ function Field({ label, value, mono }: { label: string; value?: string; mono?: b
   return (
     <div>
       <dt className="text-zl-muted">{label}</dt>
-      <dd className={mono ? "font-mono" : ""}>{value ?? "—"}</dd>
+      <dd className={mono ? "min-w-0 break-all text-right font-mono" : "min-w-0 break-words text-right"}>{value ?? "—"}</dd>
     </div>
   );
 }

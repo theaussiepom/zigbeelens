@@ -290,7 +290,7 @@ export function DeviceDetailPage() {
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-zl-muted">
           <NetworkBadge network={device.network_id} />
-          <span className="font-mono">{device.ieee_address}</span>
+          <span className="break-all font-mono">{device.ieee_address}</span>
           <span>{deviceTypeLabel(device.device_type)}</span>
           <span>{powerSourceLabel(device.power_source)}</span>
         </div>
@@ -444,9 +444,9 @@ export function DeviceDetailPage() {
 
 function Row({ label, value, mono }: { label: string; value?: string | null; mono?: boolean }) {
   return (
-    <div className="flex justify-between gap-4">
-      <dt className="text-zl-muted">{label}</dt>
-      <dd className={mono ? "font-mono" : ""}>{value ?? "—"}</dd>
+    <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+      <dt className="shrink-0 text-zl-muted">{label}</dt>
+      <dd className={mono ? "min-w-0 break-all text-right font-mono" : "min-w-0 break-words text-right"}>{value ?? "—"}</dd>
     </div>
   );
 }

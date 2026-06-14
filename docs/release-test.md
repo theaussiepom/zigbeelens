@@ -203,9 +203,9 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 - [ ] Device count / unavailable / router risk sensors appear
 - [ ] Per-network sensors appear (`Home`, `Home 2`)
 - [ ] Sidebar **ZigbeeLens** entry appears
-- [ ] HACS panel opens
-- [ ] Native companion panel renders (cards, not raw JSON)
-- [ ] **No broken iframe** is shown
+- [ ] Native companion panel loads
+- [ ] Panel renders cards (not raw JSON)
+- [ ] Panel does not iframe Core
 - [ ] Core connected state appears
 - [ ] Overall health appears
 - [ ] Active incident count appears
@@ -224,7 +224,7 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 - The **Core dashboard is canonical** — HACS does not build a second dashboard or drill-down pages.
 - The companion panel is a **status/launcher surface**: it renders a redacted summary supplied by the integration over the HA websocket, so the browser never fetches Core directly.
 - This works whether Core is HTTP or HTTPS, and needs **no reverse proxy**.
-- Embedded iframe behaviour is intentionally **not** the default because browsers block HTTP dashboards inside HTTPS Home Assistant sessions.
+- The HACS panel does not iframe Core — it renders a redacted summary over the HA websocket and opens the full dashboard in a new tab.
 - The **Open Full Dashboard** button opens `http://<docker-host-ip>:8377` in a new tab — that URL must be reachable from your browser.
 
 ---

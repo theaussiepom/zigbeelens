@@ -103,7 +103,7 @@ The panel shows:
 - Integration health: Core URL, collector status, last update
 - A prominent **Open Full ZigbeeLens dashboard** button (opens Core in a new tab) plus **Copy Core URL** and **Reload status**
 
-The full dashboard is hosted by Core and opens separately. This is intentional: embedded iframe behaviour is **not** the default because browsers block HTTP dashboards inside HTTPS Home Assistant sessions. A reverse proxy is optional and only needed by advanced users who specifically want an embedded view.
+The full dashboard is hosted by Core and opens separately. The HACS panel does not iframe Core — it renders status over the HA websocket and opens the full dashboard in a new tab. No reverse proxy is required for a good sidebar experience.
 
 ## Troubleshooting
 

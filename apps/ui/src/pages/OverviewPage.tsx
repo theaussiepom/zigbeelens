@@ -70,7 +70,7 @@ export function OverviewPage() {
         <SeverityBadge severity={data.overall_severity} />
       </header>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
         <StatTile
           label="Active incidents"
           value={data.active_incident_count}

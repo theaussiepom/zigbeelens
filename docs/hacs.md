@@ -4,7 +4,7 @@ Home Assistant bridge to **ZigbeeLens Core** — summary entities, a native comp
 
 The HACS sidebar provides a **native companion panel** with an **Open Full Dashboard** button. This works for normal Docker installs without a reverse proxy. The full ZigbeeLens dashboard is served by Core and opens separately.
 
-> Embedded iframe behaviour is intentionally **not** the default because browsers block HTTP dashboards inside HTTPS Home Assistant sessions. A reverse proxy is optional and only needed by advanced users who want an embedded view.
+> The HACS panel does not iframe Core. Browsers block HTTP dashboards inside HTTPS Home Assistant sessions, so the companion panel renders status over the HA websocket and opens the full dashboard in a new tab instead.
 
 The Core dashboard is **canonical**. HACS does not collect MQTT or replace the dashboard.
 
@@ -50,9 +50,9 @@ No reverse proxy is required for a good sidebar experience.
 - The add-on / Ingress is the embedded full-dashboard path.
 - HACS remains optional for entities and repairs.
 
-**Advanced Docker:**
+**Advanced Docker (optional):**
 
-- You may reverse proxy Core over HTTPS if you specifically want an embedded view, but this is not the normal path and is not required.
+- You may reverse proxy Core over HTTPS for direct browser access or SSE through a proxy, but this is not required for HACS or Docker use.
 
 ## Architecture
 

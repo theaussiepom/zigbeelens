@@ -22,7 +22,7 @@ ZigbeeLens is a read-only observability stack for Zigbee2MQTT. Core owns the can
     │
     ▼
  HACS integration ──HTTP read-only──► Core
- (entities, panel, diagnostics)
+ (entities, native companion panel, diagnostics)
 ```
 
 | Component | Role |
@@ -31,7 +31,7 @@ ZigbeeLens is a read-only observability stack for Zigbee2MQTT. Core owns the can
 | **UI** | React dashboard served by Core in production |
 | **HAOS add-on** | Wraps Core+UI with Supervisor options and Ingress |
 | **Docker** | Standalone Core+UI container with `/config` + `/data` volumes |
-| **HACS integration** | HA config flow, summary entities, sidebar panel, repairs |
+| **HACS integration** | HA config flow, summary entities, native companion panel, repairs |
 | **MQTT Discovery** | Optional summary HA entities via `homeassistant/` topics |
 | **Topology** | Optional point-in-time network map enrichment |
 | **HA enrichment** | Optional POST of HA device registry for area/name context |
@@ -112,7 +112,7 @@ Full audit: [safety-audit.md](safety-audit.md)
 | Dev | `./scripts/dev.sh` | UI 5173, API 8377 |
 | Docker | `deploy/docker/docker-compose.example.yaml` | 8377 |
 | HAOS add-on | Supervisor Ingress | 8377 internal |
-| HACS | HA sidebar panel → Core URL | via HA |
+| HACS | Native companion panel (HA websocket summary) + Open Full Dashboard in new tab | via HA |
 
 ## Live updates
 

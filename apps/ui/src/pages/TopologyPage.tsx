@@ -81,7 +81,7 @@ export function TopologyPage() {
                     <button
                       type="button"
                       onClick={() => setModalNetwork(network.network_id)}
-                      className="rounded-lg border border-zl-border px-3 py-1.5 text-sm hover:bg-zl-surface-2"
+                      className="min-h-11 w-full rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 active:bg-zl-surface-2 sm:w-auto"
                     >
                       Capture topology snapshot
                     </button>

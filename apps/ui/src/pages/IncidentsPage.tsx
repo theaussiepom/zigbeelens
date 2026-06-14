@@ -271,7 +271,7 @@ export function IncidentDetailPage() {
                     <div className="truncate font-medium">{d.friendly_name}</div>
                     <div className="mt-0.5 flex items-center gap-2 text-xs text-zl-muted">
                       <NetworkBadge network={d.network_id} />
-                      <span className="font-mono">{d.ieee_address}</span>
+                      <span className="break-all font-mono">{d.ieee_address}</span>
                     </div>
                   </div>
                   <HealthBadge primary={d.health_primary} />
@@ -329,7 +329,7 @@ function CopyableSnippet({ text }: { text: string }) {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
           }}
-          className="rounded-lg bg-zl-accent/20 px-3 py-1.5 text-sm font-medium text-zl-accent hover:bg-zl-accent/30"
+          className="min-h-11 rounded-lg bg-zl-accent/20 px-4 py-2 text-sm font-medium text-zl-accent hover:bg-zl-accent/30 active:bg-zl-accent/40"
         >
           {copied ? "Copied!" : "Copy"}
         </button>

@@ -16,10 +16,10 @@ const nav = [
 ];
 
 function navClass(isActive: boolean): string {
-  return `block rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+  return `block rounded-lg px-3 py-2.5 min-h-11 text-sm font-medium transition-colors ${
     isActive
       ? "bg-zl-accent/15 text-zl-accent"
-      : "text-zl-muted hover:bg-zl-surface-2 hover:text-zl-text"
+      : "text-zl-muted hover:bg-zl-surface-2 hover:text-zl-text active:bg-zl-surface-2"
   }`;
 }
 
@@ -47,7 +47,7 @@ function ModeBanner() {
   if (isScenarioMode) {
     const label = scenario ? scenarios.find((s) => s.id === scenario)?.label ?? scenario : null;
     return (
-      <div className="border-b border-zl-border bg-zl-accent/10 px-6 py-2 text-sm text-zl-accent">
+      <div className="border-b border-zl-border bg-zl-accent/10 px-4 py-2 text-sm text-zl-accent break-words sm:px-6">
         Scenario mode: showing fixture data{label ? ` — ${label}` : ""}
       </div>
     );
@@ -55,14 +55,14 @@ function ModeBanner() {
 
   if (dataMode === "live" && !mqttConnected) {
     return (
-      <div className="border-b border-zl-watch/40 bg-zl-watch/10 px-6 py-2 text-sm text-zl-watch">
+      <div className="border-b border-zl-watch/40 bg-zl-watch/10 px-4 py-2 text-sm text-zl-watch break-words sm:px-6">
         Live mode: Core is running, but the MQTT collector is not connected.
       </div>
     );
   }
 
   return (
-    <div className="border-b border-zl-healthy/30 bg-zl-healthy/10 px-6 py-2 text-sm text-zl-healthy">
+    <div className="border-b border-zl-healthy/30 bg-zl-healthy/10 px-4 py-2 text-sm text-zl-healthy break-words sm:px-6">
       Live mode: connected to ZigbeeLens Core
     </div>
   );
@@ -98,8 +98,8 @@ export function AppShell() {
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zl-border bg-zl-surface/80 px-6 py-3 backdrop-blur">
+      <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zl-border bg-zl-surface/80 px-4 py-3 backdrop-blur sm:px-6">
           <div className="flex items-center gap-3">
             <span className="font-semibold tracking-tight lg:hidden">ZigbeeLens</span>
             <h1 className="hidden text-sm font-medium text-zl-muted sm:block">
@@ -111,7 +111,7 @@ export function AppShell() {
             <label className="flex items-center gap-2 text-sm">
               <span className="text-zl-muted" id="scenario-label">Scenario</span>
               <select
-                className="rounded-lg border border-zl-border bg-zl-bg px-3 py-1.5 text-sm text-zl-text"
+                className="rounded-lg border border-zl-border bg-zl-bg px-3 py-2 text-sm text-zl-text w-full sm:w-auto"
                 value={scenario}
                 onChange={(e) => setScenario(e.target.value)}
                 aria-labelledby="scenario-label"
@@ -127,17 +127,17 @@ export function AppShell() {
           )}
         </header>
 
-        <nav className="flex gap-1 overflow-x-auto border-b border-zl-border bg-zl-surface px-3 py-2 lg:hidden" aria-label="Main navigation">
+        <nav className="flex gap-1 overflow-x-auto scroll-px-3 border-b border-zl-border bg-zl-surface px-3 py-2 lg:hidden" aria-label="Main navigation">
           {nav.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.end}
               className={({ isActive }) =>
-                `whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                `whitespace-nowrap rounded-lg px-3 py-2 min-h-11 text-sm font-medium transition-colors ${
                   isActive
                     ? "bg-zl-accent/15 text-zl-accent"
-                    : "text-zl-muted hover:bg-zl-surface-2 hover:text-zl-text"
+                    : "text-zl-muted hover:bg-zl-surface-2 hover:text-zl-text active:bg-zl-surface-2"
                 }`
               }
             >
@@ -148,7 +148,7 @@ export function AppShell() {
 
         <ModeBanner />
 
-        <main className="flex-1 overflow-auto p-4 sm:p-6" id="main-content">
+        <main className="flex-1 overflow-auto p-4 sm:p-6 pb-[max(1rem,env(safe-area-inset-bottom))]" id="main-content">
           <Outlet />
         </main>
       </div>

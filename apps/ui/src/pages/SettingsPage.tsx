@@ -53,7 +53,7 @@ export function SettingsPage() {
               refreshStatus();
               health.refetch();
             }}
-            className="rounded-lg border border-zl-border px-3 py-1.5 text-sm hover:bg-zl-surface-2"
+            className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 active:bg-zl-surface-2"
           >
             Refresh
           </button>
@@ -85,7 +85,7 @@ export function SettingsPage() {
           <ul className="mt-4 space-y-2 text-sm">
             {collector.networks.map((n) => (
               <li key={n.network_id} className="flex items-center justify-between gap-3">
-                <span className="font-mono text-zl-muted">{n.network_id}</span>
+                <span className="break-all font-mono text-zl-muted">{n.network_id}</span>
                 <Badge severity={n.subscribed ? "healthy" : "watch"}>
                   {n.subscribed ? "subscribed" : "not subscribed"}
                 </Badge>
@@ -191,7 +191,7 @@ export function SettingsPage() {
             status.configured_networks.map((n) => (
               <li key={n.id} className="rounded-lg border border-zl-border px-3 py-2">
                 <div className="font-medium">{n.name}</div>
-                <div className="font-mono text-xs text-zl-muted">{n.id} · {n.base_topic}</div>
+                <div className="break-all font-mono text-xs text-zl-muted">{n.id} · {n.base_topic}</div>
               </li>
             ))
           )}
@@ -199,9 +199,9 @@ export function SettingsPage() {
       </Card>
 
       <Card title="Features">
-        <dl className="grid grid-cols-2 gap-2 text-sm">
+        <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
           {Object.entries(status.features).map(([k, v]) => (
-            <div key={k} className="flex justify-between border-b border-zl-border/40 py-2">
+            <div key={k} className="flex flex-col gap-1 border-b border-zl-border/40 py-2 sm:flex-row sm:justify-between">
               <dt className="text-zl-muted">{k.replace(/_/g, " ")}</dt>
               <dd>{v ? "enabled" : "disabled"}</dd>
             </div>
@@ -211,11 +211,11 @@ export function SettingsPage() {
 
       {status.diagnostics && Object.keys(status.diagnostics).length > 0 && (
         <Card title="Diagnostics thresholds">
-          <dl className="grid grid-cols-2 gap-2 text-sm">
+          <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
             {Object.entries(status.diagnostics).map(([k, v]) => (
-              <div key={k} className="flex justify-between border-b border-zl-border/40 py-2">
+              <div key={k} className="flex flex-col gap-1 border-b border-zl-border/40 py-2 sm:flex-row sm:justify-between">
                 <dt className="text-zl-muted">{k.replace(/_/g, " ")}</dt>
-                <dd className="font-mono">{v}</dd>
+                <dd className="break-all font-mono">{v}</dd>
               </div>
             ))}
           </dl>

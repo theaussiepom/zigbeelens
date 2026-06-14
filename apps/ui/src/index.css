@@ -19,10 +19,25 @@
 body {
   @apply bg-zl-bg text-zl-text font-sans antialiased;
   margin: 0;
+  overflow-x: clip;
+  padding-left: env(safe-area-inset-left, 0);
+  padding-right: env(safe-area-inset-right, 0);
 }
 
 #root {
   min-height: 100vh;
+  overflow-x: clip;
+}
+
+/* Comfortable touch targets for interactive controls on mobile */
+button,
+select,
+input[type="text"],
+input[type="search"],
+input[type="number"],
+input[type="email"],
+input[type="url"] {
+  min-height: 2.75rem;
 }
 
 /*
