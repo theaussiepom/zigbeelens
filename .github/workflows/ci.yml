@@ -127,6 +127,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install Python dependencies
+        run: pip install -e "apps/core[dev]"
+
       - name: Deployment tests
         run: pytest apps/core/tests/test_docker_deploy.py apps/core/tests/test_logging_config.py -q
         env:

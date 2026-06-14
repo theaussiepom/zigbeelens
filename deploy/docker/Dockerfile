@@ -20,6 +20,7 @@ RUN pnpm --filter @zigbeelens/shared build && pnpm --filter @zigbeelens/ui build
 
 FROM python:3.12-slim AS runtime
 ARG VERSION
+ARG IMAGE_SOURCE
 WORKDIR /app
 
 RUN apt-get update \
