@@ -31,6 +31,22 @@ def test_mount_static_ui_serves_spa(tmp_path, monkeypatch):
     assert "ZigbeeLens UI" in client.get("/incidents").text
 
 
+def test_static_ui_serves_favicon(tmp_path, monkeypatch):
+    static = tmp_path / "static"
+    static.mkdir()
+    (static / "index.html").write_text("<html></html>", encoding="utf-8")
+    (static / "favicon.ico").write_bytes(b"fake-ico")
+    (static / "favicon.svg").write_text("<svg></svg>", encoding="utf-8")
+
+    monkeypatch.setenv("ZIGBEELENS_STATIC_DIR", str(static))
+    app = create_app()
+    assert mount_static_ui(app) is True
+
+    client = TestClient(app)
+    assert client.get("/favicon.ico").content == b"fake-ico"
+    assert client.get("/favicon.svg").status_code == 200
+
+
 def test_static_path_traversal_blocked(tmp_path, monkeypatch):
     static = tmp_path / "static"
     assets = static / "assets"
