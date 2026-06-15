@@ -1,6 +1,6 @@
 [project]
 name = "zigbeelens-core"
-version = "0.1.0"
+version = "0.1.13"
 description = "ZigbeeLens core diagnostic service"
 readme = "README.md"
 requires-python = ">=3.11"

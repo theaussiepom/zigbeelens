@@ -7,14 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-06-16
+
+Lens family alignment release — clean MQTT summary entities, API v1 surface, and presentation health buckets.
+
 ### Added
 
+- **API v1:** `/api/v1` route aliases, `/api/v1/capabilities`, and `/api/v1/status` (Lens-family parity with ThreadLens)
+- **Presentation:** `lens_bucket` and related fields on dashboard/API summary payloads
+- **MQTT Discovery:** clean Lens-family global summary entities (health, issues, bucket counts — six entities on one HA device)
+- **Docs:** [lens-family.md](docs/lens-family.md) stub, [lens-alignment-status.md](docs/lens-alignment-status.md), [deployments/lens-alignment-live-state.md](docs/deployments/lens-alignment-live-state.md)
 - Browser favicon for Core UI (`favicon.svg`, `favicon.ico`, `apple-touch-icon.png`)
 - Storage retention: purge collected telemetry older than `storage.retention_days` on Core startup
 - `scripts/run-release-checks.sh` — runs all automated pre-release validation steps
 
+### Changed
+
+- **MQTT Discovery:** new topic layout under `homeassistant/sensor/zigbeelens/<entity_key>/config` and `zigbeelens/summary/<entity_key>/state`
+- **MQTT Discovery:** backward compatibility intentionally not preserved; migration docs for clearing old retained discovery configs
+- OpenAPI docs (`/docs`, `/openapi.json`) disabled by default; enable with `ZIGBEELENS_OPENAPI_ENABLED=true`
+- Documented v0.1.0 security posture: ZigbeeLens Core has no built-in authentication; Zigbee control remains read-only
+- HACS manifest version aligned with Core/add-on packages
+- Settings/docs: `retention_days` enforced on startup purge (default 7 days)
+- CI: version alignment check on every run; packaging job waits for HA integration tests
+- HACS packaging: drop root `icon.png` / `logo.png`; keep inline `custom_components/zigbeelens/brand/`
+- Remove home-assistant/brands CDN sync script and docs
+
 ### Fixed
 
+- **MQTT Discovery:** flat `device.identifiers` (`["zigbeelens_core"]`) — Home Assistant rejects nested identifier arrays
 - Static UI: block path traversal outside the bundled static directory
 - SQLite: expose `LockedCursor.rowcount` and release locks after DML/iteration
 - Topology: clear pending capture after handler errors and stale timeouts
@@ -25,18 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - API health/SSE collector status: redact `last_error` (parity with HA diagnostics)
 - CORS: disable credentials with wildcard origins (invalid browser combination)
 
-### Changed
+### Notes
 
-- OpenAPI docs (`/docs`, `/openapi.json`) disabled by default; enable with `ZIGBEELENS_OPENAPI_ENABLED=true`
-- Documented v0.1.0 security posture: ZigbeeLens Core has no built-in authentication; Zigbee control remains read-only; users are responsible for access-control decisions if exposing Core beyond trusted users or networks
-- HACS manifest version aligned to `0.1.0` with Core/add-on packages
-- Settings/docs: `retention_days` is enforced on startup purge (default 7 days)
-- CI: version alignment check on every run; packaging job waits for HA integration tests
-
-### Changed
-
-- HACS packaging: drop root `icon.png` / `logo.png` (unused by HACS integration downloads); keep inline `custom_components/zigbeelens/brand/` for HA Settings
-- Remove home-assistant/brands CDN sync script and docs
+- MQTT Discovery remains **opt-in** (`features.mqtt_discovery: false` by default)
+- HACS companion entities are separate from MQTT summary entities and were preserved during Ben's deployment migration
+- HACS UI was source-validated; full browser visual smoke was not part of this release
+- Report/export alignment (PR #10) remains open — not included in this tag
 
 ## [0.1.12] - 2026-06-15
 
