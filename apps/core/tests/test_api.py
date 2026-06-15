@@ -15,7 +15,7 @@ def test_health(mock_client: TestClient):
     assert "collector" in body
 
 
-def test_health_redacts_collector_last_error(live_client: TestClient, tmp_path: Path):
+def test_health_redacts_collector_last_error(live_client: TestClient):
     from zigbeelens.app.context import get_context
 
     ctx = get_context()
