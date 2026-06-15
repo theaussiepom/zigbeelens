@@ -14,6 +14,8 @@ Use this checklist before tagging a release. See [docs/release.md](docs/release.
 - [ ] HACS package builds (`./scripts/package-hacs-repo.sh`)
 - [ ] Add-on package builds (`./scripts/package-addon-repo.sh`)
 - [ ] Core smoke passes (`./scripts/smoke-core.sh`)
+- [ ] Version alignment check passes (`./scripts/check-version-alignment.sh`)
+- [ ] Storage retention enforcement is **not** included in v0.1.0 — monitor database size on long-running installs
 
 ## Manual gates — real-world (Beast / production-like)
 

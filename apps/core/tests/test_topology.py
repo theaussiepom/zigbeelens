@@ -153,6 +153,56 @@ def test_topology_response_stored(tmp_path: Path):
     reset_context()
 
 
+def test_topology_handler_error_clears_pending(tmp_path: Path):
+    from unittest.mock import patch
+
+    from zigbeelens.app.context import bootstrap, reset_context
+    from zigbeelens.mqtt.models import RawMqttMessage
+
+    db_path = tmp_path / "handler-error.sqlite"
+    cfg = _config(db_path)
+    reset_context()
+    with patch("zigbeelens.app.context.start_discovery", return_value=None):
+        ctx = bootstrap(config=cfg)
+    publisher = FakeTopologyRequestPublisher(cfg)
+    service = TopologyService(ctx, publisher=publisher)
+    service.request_capture("home", confirmed=True)
+
+    message = RawMqttMessage(
+        topic="zigbee2mqtt/bridge/response/networkmap",
+        payload=b'{"nodes": {}, "links": []}',
+        retained=False,
+        received_at=utc_now_iso(),
+    )
+    with patch.object(ctx.repo, "store_topology_parsed", side_effect=RuntimeError("db fail")):
+        assert service.try_handle_response(message) is False
+    assert service.status.capture_in_progress is False
+
+    service.request_capture("home", confirmed=True)
+    assert service.status.capture_in_progress is True
+    reset_context()
+
+
+def test_stale_pending_capture_cleared_on_retry(tmp_path: Path, monkeypatch):
+    from zigbeelens.app.context import bootstrap, reset_context
+    from zigbeelens.topology import service as topology_service_module
+
+    db_path = tmp_path / "stale-pending.sqlite"
+    cfg = _config(db_path)
+    reset_context()
+    monkeypatch.setattr(topology_service_module, "PENDING_CAPTURE_TIMEOUT_SECONDS", 0)
+    with patch("zigbeelens.app.context.start_discovery", return_value=None):
+        ctx = bootstrap(config=cfg)
+    publisher = FakeTopologyRequestPublisher(cfg)
+    service = TopologyService(ctx, publisher=publisher)
+    service.request_capture("home", confirmed=True)
+    assert service.status.capture_in_progress is True
+
+    service.request_capture("home", confirmed=True)
+    assert service.status.capture_in_progress is True
+    reset_context()
+
+
 def test_correlator_topology_evidence_not_root_cause(tmp_path: Path):
     from zigbeelens.db.connection import Database
     from zigbeelens.diagnostics.incidents.correlator import IncidentCorrelationEngine

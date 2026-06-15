@@ -62,17 +62,24 @@ async function fetchJsonOnce<T>(
   }
 }
 
+function isIdempotentRequest(init?: RequestInit): boolean {
+  const method = (init?.method ?? "GET").toUpperCase();
+  return method === "GET" || method === "HEAD";
+}
+
 async function fetchJson<T>(
   path: string,
   params: Record<string, string | undefined> = {},
   init?: RequestInit,
 ): Promise<T> {
+  const retryable = isIdempotentRequest(init);
   let lastError: ApiError | null = null;
   for (let attempt = 0; attempt <= MAX_FETCH_RETRIES; attempt += 1) {
     try {
       return await fetchJsonOnce<T>(path, params, init);
     } catch (error) {
       if (
+        retryable &&
         error instanceof ApiError &&
         RETRYABLE_STATUSES.has(error.status) &&
         attempt < MAX_FETCH_RETRIES

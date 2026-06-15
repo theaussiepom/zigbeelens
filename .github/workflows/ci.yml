@@ -25,6 +25,9 @@ jobs:
       - name: Ruff
         run: ruff check apps/core/src apps/core/tests
 
+      - name: Version alignment
+        run: bash scripts/check-version-alignment.sh
+
       - name: Pytest
         run: pytest apps/core/tests -q
         env:
@@ -80,7 +83,7 @@ jobs:
 
   packaging:
     runs-on: ubuntu-latest
-    needs: [backend, ui]
+    needs: [backend, ui, ha-integration]
     steps:
       - uses: actions/checkout@v4
 

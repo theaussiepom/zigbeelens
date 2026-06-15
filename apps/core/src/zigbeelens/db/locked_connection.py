@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from typing import Any
+from typing import Any, Iterator
 
 
 class LockedCursor:
@@ -42,8 +42,27 @@ class LockedCursor:
         finally:
             self._release()
 
-    def __iter__(self):
-        return self._cursor.__iter__()
+    @property
+    def rowcount(self) -> int:
+        try:
+            return self._cursor.rowcount
+        finally:
+            self._release()
+
+    def __iter__(self) -> Iterator[sqlite3.Row]:
+        try:
+            yield from self._cursor
+        finally:
+            self._release()
+
+    def close(self) -> None:
+        self._release()
+
+    def __enter__(self) -> LockedCursor:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self._release()
 
     def __del__(self) -> None:
         self._release()

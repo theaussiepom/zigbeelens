@@ -29,6 +29,7 @@ from zigbeelens.schemas import (
     ReportRequest,
     ReportScope,
     ReportSummary,
+    TopologyCaptureRequest,
     ZigbeeLensConfigStatus,
 )
 from zigbeelens.services.reports import (
@@ -414,20 +415,19 @@ def topology_snapshot_detail(
 @router.post("/topology/{network_id}/capture")
 def topology_capture(
     network_id: str,
-    body: dict,
+    body: TopologyCaptureRequest,
     ctx: AppContext = Depends(ctx_dep),
 ) -> dict:
     service = get_topology_service()
     if service is None:
         raise HTTPException(status_code=403, detail="Topology is disabled")
-    confirmed = bool(body.get("confirmed"))
-    if not confirmed:
+    if body.confirmed is not True:
         raise HTTPException(status_code=400, detail=CAPTURE_WARNING)
     try:
         return service.request_capture(
             network_id,
-            confirmed=confirmed,
-            requested_by=str(body.get("reason") or "manual_user_capture"),
+            confirmed=True,
+            requested_by=str(body.reason or "manual_user_capture"),
         )
     except PermissionError as err:
         raise HTTPException(status_code=403, detail=str(err)) from err

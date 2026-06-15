@@ -6,10 +6,12 @@ import logging
 import threading
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Protocol
 
 from zigbeelens.config.models import AppConfig
 from zigbeelens.mqtt.models import RawMqttMessage
+from zigbeelens.storage.repository import utc_now_iso
 from zigbeelens.topology.parser import parse_networkmap_payload
 from zigbeelens.topology.publisher import TopologyRequestPublisher
 from zigbeelens.topology.topics import (
@@ -22,6 +24,9 @@ if TYPE_CHECKING:
     from zigbeelens.app.context import AppContext
 
 logger = logging.getLogger(__name__)
+
+# Pending captures with no MQTT response are cleared after this window.
+PENDING_CAPTURE_TIMEOUT_SECONDS = 15 * 60
 
 
 class RequestPublisherProtocol(Protocol):
@@ -37,6 +42,7 @@ class PendingCapture:
     base_topic: str
     requested_by: str
     warning_acknowledged: bool
+    requested_at: str
 
 
 @dataclass
@@ -118,10 +124,12 @@ class TopologyService:
         if network is None:
             raise KeyError(f"Unknown network: {network_id}")
         with self._lock:
+            self._clear_stale_pending_unlocked()
             if self._pending is not None:
                 raise RuntimeError("Topology capture already in progress")
 
             snapshot_id = str(uuid.uuid4())
+            requested_at = utc_now_iso()
             self._repo.create_topology_snapshot(
                 snapshot_id=snapshot_id,
                 network_id=network_id,
@@ -135,6 +143,7 @@ class TopologyService:
                 base_topic=network.base_topic,
                 requested_by=requested_by,
                 warning_acknowledged=True,
+                requested_at=requested_at,
             )
 
         publisher = self._publisher or TopologyRequestPublisher(self._config)
@@ -167,27 +176,63 @@ class TopologyService:
                 publisher.disconnect()
 
     def try_handle_response(self, message: RawMqttMessage) -> bool:
-        pending = self._pending
+        with self._lock:
+            pending = self._pending
         if pending is None:
             return False
         if not is_networkmap_response_topic(message.topic, pending.base_topic):
             return False
 
-        parsed = parse_networkmap_payload(message.payload)
-        self._repo.store_topology_parsed(
+        try:
+            parsed = parse_networkmap_payload(message.payload)
+            self._repo.store_topology_parsed(
+                pending.snapshot_id,
+                pending.network_id,
+                parsed,
+                status="complete",
+            )
+            self._repo.enforce_topology_retention(
+                pending.network_id, self._config.topology.max_snapshots_per_network
+            )
+            self._status.last_capture_error = None
+            self._refresh_diagnostics()
+            return True
+        except Exception:
+            logger.exception("Topology response handling failed")
+            self._repo.update_topology_snapshot(
+                pending.snapshot_id,
+                status="error",
+                error="Topology response handling failed",
+            )
+            self._status.last_capture_error = "Topology response handling failed"
+            return False
+        finally:
+            with self._lock:
+                self._pending = None
+
+    def _clear_stale_pending_unlocked(self) -> None:
+        pending = self._pending
+        if pending is None:
+            return
+        try:
+            requested = datetime.fromisoformat(pending.requested_at.replace("Z", "+00:00"))
+        except ValueError:
+            requested = datetime.now(timezone.utc)
+        age_seconds = (datetime.now(timezone.utc) - requested).total_seconds()
+        if age_seconds < PENDING_CAPTURE_TIMEOUT_SECONDS:
+            return
+        self._repo.update_topology_snapshot(
             pending.snapshot_id,
+            status="error",
+            error="Topology capture timed out",
+        )
+        self._pending = None
+        self._status.last_capture_error = "Topology capture timed out"
+        logger.warning(
+            "Cleared stale topology capture for network %s (snapshot %s)",
             pending.network_id,
-            parsed,
-            status="complete",
+            pending.snapshot_id,
         )
-        self._repo.enforce_topology_retention(
-            pending.network_id, self._config.topology.max_snapshots_per_network
-        )
-        with self._lock:
-            self._pending = None
-        self._status.last_capture_error = None
-        self._refresh_diagnostics()
-        return True
 
     def _refresh_diagnostics(self) -> None:
         ctx = self._ctx

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Static UI: block path traversal outside the bundled static directory
+- SQLite: expose `LockedCursor.rowcount` and release locks after DML/iteration
+- Topology: clear pending capture after handler errors and stale timeouts
+- Topology API: require strict boolean confirmation (reject `"false"` strings)
+- HA enrichment: fix IEEE-only device lookup SQL join
+- UI API client: retry GET only, not POST/DELETE
+- HACS integration: unregister companion panel when `panel_enabled` is disabled
+
+### Changed
+
+- HACS manifest version aligned to `0.1.0` with Core/add-on packages
+- Settings/docs: clarify `retention_days` is configured but auto-purge is not yet enforced in v0.1.0
+- CI: version alignment check on every run; packaging job waits for HA integration tests
+
 ### Changed
 
 - HACS packaging: drop root `icon.png` / `logo.png` (unused by HACS integration downloads); keep inline `custom_components/zigbeelens/brand/` for HA Settings

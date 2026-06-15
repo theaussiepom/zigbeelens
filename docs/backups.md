@@ -59,4 +59,6 @@ These exports are redacted snapshots suitable for sharing.
 
 ## Retention
 
-`storage.retention_days` in config controls how long collected telemetry is kept. Reports you explicitly generate are stored until deleted from the Reports page or the database is removed.
+`storage.retention_days` in config is the **configured target** for how long collected telemetry should be kept. **Automatic purge is not implemented in v0.1.0** — the database will grow until you remove old data manually or restore from backup. Monitor disk usage on long-running installs.
+
+Topology snapshots are capped separately via `topology.max_snapshots_per_network`. Reports you explicitly generate are stored until deleted from the Reports page or the database is removed.

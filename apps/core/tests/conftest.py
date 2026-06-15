@@ -15,6 +15,7 @@ def write_config(
     mock: bool = True,
     db_path: Path | None = None,
     mqtt_collector: bool | None = None,
+    topology_enabled: bool = False,
 ) -> None:
     db = db_path or (path.parent / "test.sqlite")
     if mqtt_collector is None:
@@ -67,9 +68,30 @@ features:
   device_payload_history: true
   manual_network_map: true
   automatic_network_map: false
+topology:
+  enabled: {"true" if topology_enabled else "false"}
+  manual_capture_enabled: {"true" if topology_enabled else "false"}
+  automatic_capture_enabled: false
 """.strip(),
         encoding="utf-8",
     )
+
+
+@pytest.fixture
+def topology_client(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.yaml"
+    write_config(
+        config_path,
+        mock=True,
+        db_path=tmp_path / "topo.sqlite",
+        topology_enabled=True,
+    )
+    monkeypatch.setenv("ZIGBEELENS_CONFIG", str(config_path))
+    reset_context()
+    app = create_app(str(config_path))
+    with TestClient(app) as client:
+        yield client
+    reset_context()
 
 
 @pytest.fixture
