@@ -2,6 +2,21 @@
 
 ZigbeeLens can optionally publish **summary Home Assistant entities** using [MQTT Discovery](https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery). This is a lightweight automation/status path for users who prefer MQTT over installing the HACS integration.
 
+## Lens family MQTT conventions
+
+Shared rules across [ZigbeeLens](https://github.com/theaussiepom/zigbeelens) and [ThreadLens](https://github.com/theaussiepom/threadlens). See [lens-family.md](lens-family.md).
+
+| Rule | Detail |
+|------|--------|
+| **Global summary by default** | Overall health, incident state, device counts, collector status — one HA device |
+| **Avoid per-device spam** | ZigbeeLens does not publish per-Zigbee-device entities by default |
+| **Unknown vs zero** | Use `unknown` or omit when unobserved; use `0` only for observed zero counts |
+| **Diagnostic naming** | Entity names describe status (“overall health”, “unavailable devices”), not control |
+| **Availability** | Product liveness via availability topic (`online` / `offline`) |
+| **No secrets** | Passwords, keys, and broker credentials never appear in discovery payloads |
+
+ThreadLens equivalent: [mqtt-home-assistant.md](https://github.com/theaussiepom/threadlens/blob/main/docs/mqtt-home-assistant.md).
+
 ## What it does
 
 - Publishes summary ZigbeeLens entities to Home Assistant via MQTT Discovery
