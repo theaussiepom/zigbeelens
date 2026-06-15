@@ -22,6 +22,7 @@ def classify_network(
     network_id: str,
     bridge_state: str,
     network_updated_at: str | None,
+    last_mqtt_activity_at: str | None = None,
     device_health: list[HealthResult],
     router_devices: list[tuple[str, HealthResult]],
     config: DiagnosticsConfig,
@@ -30,6 +31,7 @@ def classify_network(
     bridge = classify_bridge(
         bridge_state=bridge_state,
         last_updated_at=network_updated_at,
+        last_mqtt_activity_at=last_mqtt_activity_at,
         config=config,
     )
 

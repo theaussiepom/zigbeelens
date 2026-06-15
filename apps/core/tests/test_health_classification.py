@@ -193,6 +193,18 @@ def test_bridge_stale():
     assert result.state == BridgeHealthState.stale
 
 
+def test_bridge_online_when_state_quiet_but_devices_active():
+    old = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    result = classify_bridge(
+        bridge_state="online",
+        last_updated_at=old,
+        last_mqtt_activity_at=utc_now_iso(),
+        config=_diag(),
+    )
+    assert result.state == BridgeHealthState.online
+    assert any("Recent device MQTT activity" in item for item in result.evidence)
+
+
 def test_bridge_unknown():
     result = classify_bridge(bridge_state="unknown", last_updated_at=None, config=_diag())
     assert result.state == BridgeHealthState.unknown
