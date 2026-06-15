@@ -1,7 +1,7 @@
 {
   "name": "zigbeelens",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.13",
   "description": "Read-only observability console for Zigbee2MQTT networks",
   "scripts": {
     "dev": "pnpm --parallel -r dev",

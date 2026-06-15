@@ -1,5 +1,5 @@
 name: ZigbeeLens
-version: "0.1.0"
+version: 0.1.13
 slug: zigbeelens
 description: Read-only observability and diagnostics for Zigbee2MQTT networks
 url: https://github.com/theaussiepom/zigbeelens-addons
