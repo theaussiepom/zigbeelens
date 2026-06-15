@@ -6,6 +6,8 @@ Understand your Zigbee mesh before you change it.
 
 ZigbeeLens is a read-only observability and diagnostic console for Zigbee2MQTT networks. It watches Zigbee2MQTT over MQTT, keeps local history, detects health and instability patterns, explains likely scope using evidence and limitations, and generates redacted reports for troubleshooting.
 
+ZigbeeLens is part of the **Lens family** of read-only home-network observability tools, alongside [ThreadLens](https://github.com/theaussiepom/threadlens). See [docs/lens-family.md](docs/lens-family.md) for shared conventions.
+
 ZigbeeLens does **not** repair, reset, remove, re-pair, or mutate Zigbee devices.
 
 ## What it is
@@ -247,18 +249,22 @@ Set `ZIGBEELENS_MOCK_SCENARIO` or use `?scenario=` in the UI.
 
 ## API overview
 
+**`/api/v1` is the preferred prefix for new integrations.** Legacy `/api/*` routes remain available. Details: [docs/api.md](docs/api.md).
+
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/health` | Core, collector, discovery, topology status |
-| `GET /api/dashboard` | Overview payload |
-| `GET /api/networks`, `/api/devices`, `/api/routers` | Inventory |
-| `GET /api/incidents`, `/api/timeline` | Diagnostics |
-| `GET/POST/DELETE /api/reports*` | Redacted reports |
-| `GET/POST /api/topology*` | Optional topology (capture requires confirmation) |
-| `GET/POST/DELETE /api/enrichment/*` | Optional HA enrichment |
-| `GET /api/events/stream` | SSE live updates |
+| `GET /api/v1/health` | Core, collector, discovery, topology status |
+| `GET /api/v1/capabilities` | Stable feature flags (no secrets) |
+| `GET /api/v1/status` | Collector and storage summary |
+| `GET /api/v1/dashboard` | Overview payload |
+| `GET /api/v1/networks`, `/api/v1/devices`, `/api/v1/routers` | Inventory |
+| `GET /api/v1/incidents`, `/api/v1/timeline` | Diagnostics |
+| `GET/POST/DELETE /api/v1/reports*` | Redacted reports |
+| `GET/POST /api/v1/topology*` | Optional topology (capture requires confirmation) |
+| `GET/POST/DELETE /api/v1/enrichment/*` | Optional HA enrichment |
+| `GET /api/v1/events/stream` | SSE live updates |
 
-Interactive docs: `http://localhost:8377/docs`
+Interactive docs (when enabled): `http://localhost:8377/docs` — set `ZIGBEELENS_OPENAPI_ENABLED=true`.
 
 ## License
 

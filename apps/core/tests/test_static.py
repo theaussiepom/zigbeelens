@@ -90,6 +90,7 @@ def test_event_stream_route_precedes_static_spa_fallback(tmp_path, monkeypatch):
 
     paths = [getattr(r, "path", None) for r in app.router.routes]
     assert "/api/events/stream" in paths, "event stream route missing"
+    assert "/api/v1/events/stream" in paths, "v1 event stream route missing"
     sse_index = paths.index("/api/events/stream")
     catch_all_index = paths.index("/{full_path:path}")
     assert sse_index < catch_all_index, "SSE route must precede the SPA catch-all"
