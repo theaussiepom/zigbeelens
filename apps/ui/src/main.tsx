@@ -12,6 +12,7 @@ import { TimelinePage } from "@/pages/TimelinePage";
 import { ReportsPage } from "@/pages/ReportsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { TopologyPage } from "@/pages/TopologyPage";
+import { MonitoringGuidePage } from "@/pages/MonitoringGuidePage";
 import { detectRouterBasename } from "@/lib/base";
 import "./index.css";
 
@@ -26,6 +27,7 @@ createRoot(document.getElementById("root")!).render(
             <Route index element={<OverviewPage />} />
             <Route path="incidents" element={<IncidentsPage />} />
             <Route path="incidents/:incidentId" element={<IncidentDetailPage />} />
+            <Route path="monitoring" element={<MonitoringGuidePage />} />
             <Route path="networks" element={<NetworksPage />} />
             <Route path="networks/:networkId" element={<NetworkDetailPage />} />
             <Route path="routers" element={<RoutersPage />} />

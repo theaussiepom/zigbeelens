@@ -6,6 +6,7 @@ import { scenariosEnabled } from "@/lib/flags";
 const nav = [
   { to: "/", label: "Overview", end: true },
   { to: "/incidents", label: "Incidents" },
+  { to: "/monitoring", label: "How it works" },
   { to: "/networks", label: "Networks" },
   { to: "/routers", label: "Routers" },
   { to: "/topology", label: "Topology" },

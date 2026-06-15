@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
 import { api } from "@/lib/api";
@@ -26,8 +27,13 @@ export function SettingsPage() {
     <div className="max-w-3xl space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Settings &amp; status</h1>
-        <p className="mt-1 text-zl-muted">
-          Core, collector, and configuration health. Secrets are never shown.
+        <p className="text-sm leading-relaxed text-zl-muted">
+          Core, collector, and configuration health. Secrets are never shown. For a full explanation
+          of health rules and incidents, see{" "}
+          <Link to="/monitoring" className="text-zl-accent hover:underline">
+            How monitoring works
+          </Link>
+          .
         </p>
       </div>
 
