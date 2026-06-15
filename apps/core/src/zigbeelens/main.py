@@ -65,14 +65,14 @@ def create_app(config_path: str | None = None) -> FastAPI:
             response.headers["Content-Security-Policy"] = "frame-ancestors *"
         return response
 
-    app.include_router(router)
+    app.include_router(router, prefix="/api")
+    app.include_router(router, prefix="/api/v1")
 
-    # NOTE: this SSE route must be registered BEFORE mount_static_ui(), whose
-    # catch-all `/{full_path:path}` would otherwise shadow it and 404 the
+    # NOTE: SSE routes must be registered BEFORE mount_static_ui(), whose
+    # catch-all `/{full_path:path}` would otherwise shadow them and 404 the
     # event stream (only reproducible when static UI is mounted, i.e. in the
     # built image), leaving the UI permanently "reconnecting".
-    @app.get("/api/events/stream")
-    async def events_stream() -> EventSourceResponse:
+    async def _events_stream() -> EventSourceResponse:
         async def generator():
             ctx = get_context()
             yield {
@@ -100,6 +100,14 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 }
 
         return EventSourceResponse(generator())
+
+    @app.get("/api/events/stream")
+    async def events_stream() -> EventSourceResponse:
+        return await _events_stream()
+
+    @app.get("/api/v1/events/stream")
+    async def events_stream_v1() -> EventSourceResponse:
+        return await _events_stream()
 
     if not mount_static_ui(app):
 

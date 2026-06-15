@@ -6,6 +6,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from zigbeelens import __version__
+from zigbeelens.api.summary import capabilities_dict, service_status_dict
 from zigbeelens.app.context import AppContext, get_context
 from zigbeelens.config.redaction import redact_mqtt_server
 from zigbeelens.enrichment.ha import (
@@ -41,7 +42,7 @@ from zigbeelens.services.reports import (
     summary_from_row,
 )
 
-router = APIRouter(prefix="/api")
+router = APIRouter()
 
 
 def ctx_dep() -> AppContext:
@@ -70,6 +71,16 @@ def health(ctx: AppContext = Depends(ctx_dep)) -> HealthResponse:
         topology=topology_status_dict(ctx),
         home_assistant_enrichment=enrichment_status_dict(ctx.repo),
     )
+
+
+@router.get("/capabilities")
+def capabilities(ctx: AppContext = Depends(ctx_dep)) -> dict:
+    return capabilities_dict(ctx)
+
+
+@router.get("/status")
+def status(ctx: AppContext = Depends(ctx_dep)) -> dict:
+    return service_status_dict(ctx)
 
 
 @router.get("/config/status", response_model=ZigbeeLensConfigStatus)
