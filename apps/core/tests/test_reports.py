@@ -66,7 +66,8 @@ def test_markdown_report_downloads(mock_client: TestClient):
     assert res.status_code == 200
     assert "markdown" in res.headers["content-type"]
     assert res.text.startswith("# ZigbeeLens diagnostic report")
-    assert "## Known limitations" in res.text
+    assert "## Executive summary" in res.text
+    assert "## Limitations" in res.text
 
 
 def test_json_download_content_type(mock_client: TestClient):
@@ -298,3 +299,29 @@ def test_empty_state_report_valid(live_client: TestClient):
     assert created["id"]
     fetched = live_client.get(f"/api/reports/{created['id']}")
     assert fetched.status_code == 200
+
+
+def test_lens_report_alignment_fields(mock_client: TestClient):
+    detail = mock_client.get("/api/reports/preview", params={"profile": "public_safe"}).json()
+    assert detail["product"] == "ZigbeeLens"
+    assert detail["version"]
+    assert detail["generated_at"]
+    assert detail["redaction_profile"] == "public_safe"
+    assert detail["mode"] in {"mock", "live"}
+    assert detail["executive_summary"]
+    assert detail["health_summary"]["vocabulary"] == "lens_family"
+    assert "bucket_counts" in detail["health_summary"]
+    assert detail["collector_status"]["mqtt_collector"] in {
+        "connected",
+        "disconnected",
+        "disabled",
+    }
+    assert detail["domain_details"]["networks"]
+    assert detail["events_or_timeline"] == detail["timeline"]
+    if detail["active_incidents"]:
+        entity = detail["active_incidents"][0]["affected_devices"][0]
+        assert entity.get("name")
+        assert entity.get("classification") or entity.get("lens_bucket")
+    blob = json.dumps(detail)
+    assert '"secret"' not in blob
+    assert ":secret@" not in blob

@@ -419,12 +419,18 @@ class PayloadBuilder:
                 if device_health
                 else {}
             )
+            friendly = dev.friendly_name if dev else ref["ieee_address"]
+            bucket = presentation.get("lens_bucket", "unknown")
+            bucket_reason = presentation.get("lens_bucket_reason", "")
             affected.append(
                 IncidentDeviceRef(
                     network_id=ref["network_id"],
                     ieee_address=ref["ieee_address"],
-                    friendly_name=dev.friendly_name if dev else ref["ieee_address"],
+                    friendly_name=friendly,
                     health_primary=health_primary,
+                    name=friendly,
+                    classification=str(bucket),
+                    reason=bucket_reason or str(presentation.get("lens_bucket_label", "")),
                     **presentation,
                 )
             )

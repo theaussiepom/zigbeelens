@@ -221,6 +221,9 @@ class IncidentDeviceRef(BaseModel):
     lens_bucket: str = "unknown"
     lens_bucket_label: str = "Unknown"
     lens_bucket_reason: str = ""
+    name: str = ""
+    reason: str = ""
+    classification: str = ""
 
 
 class TimelineEvent(BaseModel):
@@ -355,6 +358,13 @@ class ReportSummaryBlock(BaseModel):
     low_battery_devices: int
 
 
+class LensHealthSummary(BaseModel):
+    vocabulary: str = "lens_family"
+    overall_state: str | None = None
+    bucket_counts: dict[str, int] = Field(default_factory=dict)
+    bucket_labels: dict[str, str] = Field(default_factory=dict)
+
+
 class ReportSummary(BaseModel):
     id: str
     generated_at: str
@@ -374,21 +384,30 @@ class ReportDetail(BaseModel):
     report_version: int = 1
     generated_at: str
     version: str
+    site: str | None = None
+    mode: str | None = None
+    redaction_profile: str | None = None
     scope: str = "full"
     format: str = "json"
     redaction: ReportRedactionStatus
+    executive_summary: str | None = None
     summary: ReportSummaryBlock | None = None
+    health_summary: LensHealthSummary | None = None
+    active_incidents: list[Incident] = Field(default_factory=list)
     config_summary: dict[str, Any]
     collector: dict[str, Any] = Field(default_factory=dict)
+    collector_status: dict[str, Any] = Field(default_factory=dict)
     networks: list[NetworkSummary]
     devices: list[DeviceSummary]
     device_details: list[DeviceDetail] = Field(default_factory=list)
     router_risks: list[RouterRisk]
     incidents: list[Incident]
     timeline: list[TimelineEvent] = Field(default_factory=list)
+    events_or_timeline: list[TimelineEvent] = Field(default_factory=list)
     health_snapshot: HealthSnapshot
     diagnostic_conclusions: list[DiagnosticConclusion]
     limitations: list[LimitationItem] = Field(default_factory=list)
+    domain_details: dict[str, Any] = Field(default_factory=dict)
     raw_counts: dict[str, int] = Field(default_factory=dict)
     markdown_summary: str
 
