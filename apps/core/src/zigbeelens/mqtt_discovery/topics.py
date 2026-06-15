@@ -8,6 +8,7 @@ from zigbeelens.mqtt_discovery.models import ComponentType
 
 _UNSAFE_PATTERNS = ("/bridge/request/",)
 _OBJECT_ID_RE = re.compile(r"[^a-zA-Z0-9_-]+")
+PRODUCT = "zigbeelens"
 
 
 class UnsafeMqttTopicError(ValueError):
@@ -37,14 +38,20 @@ def validate_publish_topic(topic: str, *, zigbee_base_topics: tuple[str, ...] = 
             continue
         if normalized == base or normalized.startswith(f"{base}/"):
             raise UnsafeMqttTopicError("Publishing under Zigbee2MQTT base topics is not allowed")
-    allowed_prefixes = ("homeassistant/", "zigbeelens/")
+    allowed_prefixes = ("homeassistant/", f"{PRODUCT}/")
     if not any(normalized.startswith(prefix) for prefix in allowed_prefixes):
-        raise UnsafeMqttTopicError("Topic must be under homeassistant/ or zigbeelens/")
+        raise UnsafeMqttTopicError(f"Topic must be under homeassistant/ or {PRODUCT}/")
 
 
-def discovery_config_topic(topic_prefix: str, component: ComponentType, object_id: str) -> str:
+def discovery_config_topic(
+    topic_prefix: str,
+    component: ComponentType,
+    entity_key: str,
+    *,
+    product: str = PRODUCT,
+) -> str:
     prefix = topic_prefix.strip("/")
-    return f"{prefix}/{component}/{object_id}/config"
+    return f"{prefix}/{component}/{product}/{entity_key}/config"
 
 
 def availability_topic(state_topic_prefix: str) -> str:
@@ -52,7 +59,30 @@ def availability_topic(state_topic_prefix: str) -> str:
     return f"{prefix}/status"
 
 
-def state_topic(state_topic_prefix: str, path: str) -> str:
+def summary_state_topic(state_topic_prefix: str, entity_key: str) -> str:
     prefix = state_topic_prefix.strip("/")
-    segment = path.strip("/")
-    return f"{prefix}/state/{segment}"
+    return f"{prefix}/summary/{entity_key}/state"
+
+
+def summary_attributes_topic(state_topic_prefix: str, entity_key: str) -> str:
+    prefix = state_topic_prefix.strip("/")
+    return f"{prefix}/summary/{entity_key}/attributes"
+
+
+# Legacy discovery topics from the pre-clean Lens MQTT model (for manual cleanup).
+LEGACY_DISCOVERY_TOPICS: tuple[str, ...] = (
+    "homeassistant/sensor/zigbeelens_overall_health/config",
+    "homeassistant/binary_sensor/zigbeelens_active_incident/config",
+    "homeassistant/sensor/zigbeelens_incident_state/config",
+    "homeassistant/sensor/zigbeelens_unavailable_devices/config",
+    "homeassistant/sensor/zigbeelens_recently_unstable_devices/config",
+    "homeassistant/sensor/zigbeelens_router_risks/config",
+    "homeassistant/sensor/zigbeelens_stale_devices/config",
+    "homeassistant/sensor/zigbeelens_weak_link_devices/config",
+    "homeassistant/sensor/zigbeelens_low_battery_devices/config",
+    "homeassistant/sensor/zigbeelens_unknown_devices/config",
+    "homeassistant/sensor/zigbeelens_network_count/config",
+    "homeassistant/sensor/zigbeelens_device_count/config",
+    "homeassistant/binary_sensor/zigbeelens_mqtt_collector_connected/config",
+    "homeassistant/binary_sensor/zigbeelens_core_running/config",
+)

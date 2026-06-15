@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import replace
 from typing import TYPE_CHECKING, Protocol
 
 from zigbeelens import __version__
@@ -10,15 +9,20 @@ from zigbeelens.config.models import AppConfig
 from zigbeelens.mqtt_discovery.models import MqttDiscoveryStatus
 from zigbeelens.mqtt_discovery.payloads import (
     all_discovery_entities,
+    attributes_payload,
     build_discovery_device,
-    build_network_states,
     build_states_from_dashboard,
     discovery_config_payload,
     discovery_topic_for_entity,
     state_payload,
 )
 from zigbeelens.mqtt_discovery.publisher import FakeDiscoveryPublisher, SafeMqttPublisher
-from zigbeelens.mqtt_discovery.topics import availability_topic, state_topic
+from zigbeelens.mqtt_discovery.topics import (
+    LEGACY_DISCOVERY_TOPICS,
+    availability_topic,
+    summary_attributes_topic,
+    summary_state_topic,
+)
 from zigbeelens.storage.repository import utc_now_iso
 
 if TYPE_CHECKING:
@@ -44,7 +48,7 @@ def discovery_enabled(config: AppConfig) -> bool:
 
 
 class MqttDiscoveryService:
-    """Publish summary entities via Home Assistant MQTT Discovery."""
+    """Publish Lens-family summary entities via Home Assistant MQTT Discovery."""
 
     def __init__(
         self,
@@ -121,6 +125,14 @@ class MqttDiscoveryService:
                 logger.debug("Failed to delete discovery topic %s", topic, exc_info=True)
         self._discovery_topics.clear()
 
+    def cleanup_legacy_discovery_configs(self) -> None:
+        """Publish empty retained payloads for known legacy discovery topics."""
+        for topic in LEGACY_DISCOVERY_TOPICS:
+            try:
+                self._publisher.delete_retained(topic)
+            except Exception:
+                logger.debug("Failed to delete legacy discovery topic %s", topic, exc_info=True)
+
     def _publish_availability(self, state: str) -> None:
         topic = availability_topic(self._config.mqtt_discovery.state_topic_prefix)
         retain = self._config.mqtt_discovery.retain
@@ -160,22 +172,20 @@ class MqttDiscoveryService:
             dashboard,
             core_version=__version__,
             collector_connected=bool(collector.get("connected")),
+            mock_mode=bool(self._config.mode.mock),
         )
-        states["collector"] = replace(
-            states["collector"],
-            state=bool(collector.get("connected")),
-            attributes={
-                "last_message_at": collector.get("last_message_at"),
-                "subscribed_topics_count": collector.get("subscribed_topics_count"),
-                "last_error": "[redacted]" if collector.get("last_error") else None,
-            },
-        )
-        states.update(build_network_states(dashboard))
-
-        for path, published in states.items():
-            topic = state_topic(self._config.mqtt_discovery.state_topic_prefix, path)
-            self._publisher.publish(topic, state_payload(published), retain=retain)
-            self._published_topics.add(topic)
+        prefix = self._config.mqtt_discovery.state_topic_prefix
+        for entity_key, published in states.items():
+            state_topic = summary_state_topic(prefix, entity_key)
+            attributes_topic = summary_attributes_topic(prefix, entity_key)
+            self._publisher.publish(state_topic, state_payload(published), retain=retain)
+            self._publisher.publish(
+                attributes_topic,
+                attributes_payload(published),
+                retain=retain,
+            )
+            self._published_topics.add(state_topic)
+            self._published_topics.add(attributes_topic)
 
         self._status.published_entities_count = len(entities)
         self._status.last_publish_at = utc_now_iso()
