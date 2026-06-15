@@ -179,7 +179,7 @@ export function SettingsPage() {
         <dl className="space-y-3 text-sm">
           <Row label="MQTT server" value={status.mqtt_server} />
           <Row label="Storage path" value={status.storage_path} mono />
-          <Row label="Retention (configured)" value={`${status.retention_days} days — auto-purge not yet enforced in v0.1.0`} />
+          <Row label="Retention (configured)" value={`${status.retention_days} days — purged on Core startup`} />
         </dl>
         <h3 className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-zl-muted">
           Configured networks

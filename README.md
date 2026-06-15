@@ -159,7 +159,7 @@ Key settings in `config.yaml`:
 | `networks[].name` | Display label only |
 | `networks[].base_topic` | Zigbee2MQTT base topic (must match exactly) |
 | `storage.path` | SQLite database path |
-| `storage.retention_days` | Telemetry retention |
+| `storage.retention_days` | Telemetry retention (default 7 days; purged on startup) |
 | `diagnostics.*` | Health and incident thresholds |
 | `reports.*` | Report limits and defaults |
 | `topology.enabled` | **false** by default |

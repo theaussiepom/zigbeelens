@@ -1127,7 +1127,7 @@ def build_report_preview(scenario: ScenarioData) -> ReportDetail:
         redaction=ReportRedactionStatus(applied=True, mqtt_credentials=True),
         config_summary={
             "networks": [{"id": n.id, "name": n.name, "base_topic": n.base_topic} for n in scenario.networks],
-            "retention_days": 30,
+            "retention_days": 7,
         },
         networks=scenario.networks,
         devices=scenario.devices,

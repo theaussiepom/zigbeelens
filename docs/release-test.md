@@ -92,7 +92,7 @@ networks:
 
 storage:
   path: /data/zigbeelens.sqlite
-  retention_days: 30
+  retention_days: 7
 
 features:
   mqtt_collector: true
