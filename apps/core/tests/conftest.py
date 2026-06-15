@@ -42,7 +42,7 @@ networks:
     base_topic: zigbee2mqtt-home2
 storage:
   path: {db}
-  retention_days: 30
+  retention_days: 7
 diagnostics:
   incident_window_seconds: 180
   stale_after_hours: 24

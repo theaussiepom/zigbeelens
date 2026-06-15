@@ -17,6 +17,7 @@ from zigbeelens.mqtt_discovery import start_discovery, stop_discovery
 from zigbeelens.topology import start_topology
 from zigbeelens.services.data_service import DataService
 from zigbeelens.storage.repository import Repository
+from zigbeelens.storage.retention import enforce_storage_retention
 
 if TYPE_CHECKING:
     from zigbeelens.mqtt.collector import MqttCollector
@@ -84,6 +85,7 @@ def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -
     db = Database(cfg.storage.path)
     migration_version = db.migrate()
     repo = Repository(db)
+    enforce_storage_retention(repo, cfg.storage.retention_days)
     repo.sync_networks(cfg.networks)
 
     broadcaster = create_broadcaster()

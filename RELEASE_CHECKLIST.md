@@ -4,6 +4,12 @@ Use this checklist before tagging a release. See [docs/release.md](docs/release.
 
 ## Automated tests and validation
 
+Run all automated checks:
+
+```bash
+./scripts/run-release-checks.sh
+```
+
 - [ ] Backend tests pass (`pytest apps/core/tests -q`)
 - [ ] UI tests pass (`pnpm --filter @zigbeelens/ui test`)
 - [ ] UI typecheck passes (`pnpm --filter @zigbeelens/ui typecheck`)
@@ -15,7 +21,7 @@ Use this checklist before tagging a release. See [docs/release.md](docs/release.
 - [ ] Add-on package builds (`./scripts/package-addon-repo.sh`)
 - [ ] Core smoke passes (`./scripts/smoke-core.sh`)
 - [ ] Version alignment check passes (`./scripts/check-version-alignment.sh`)
-- [ ] Storage retention enforcement is **not** included in v0.1.0 — monitor database size on long-running installs
+- [ ] Storage retention enforcement runs on startup (`storage.retention_days`)
 
 ## Security acknowledgement (v0.1.0)
 

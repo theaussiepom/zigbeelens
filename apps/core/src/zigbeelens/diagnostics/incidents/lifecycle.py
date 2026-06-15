@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from zigbeelens.config.models import AppConfig
 from zigbeelens.diagnostics.incidents.models import IncidentCandidate, IncidentLifecycle
-from zigbeelens.storage.repository import Repository, utc_now_iso
+from zigbeelens.storage.repository import Repository
 
 
 class IncidentLifecycleManager:
@@ -16,8 +16,13 @@ class IncidentLifecycleManager:
         self.config = config
         self.repo = repo
 
+    @staticmethod
+    def _iso(now: datetime) -> str:
+        return now.replace(microsecond=0).isoformat()
+
     def sync(self, candidates: list[IncidentCandidate], now: datetime | None = None) -> list[str]:
         now = now or datetime.now(timezone.utc)
+        ts = self._iso(now)
         events: list[str] = []
         active_keys = {c.dedup_key for c in candidates if c.active}
 
@@ -39,6 +44,7 @@ class IncidentLifecycleManager:
                         counter_evidence=candidate.counter_evidence,
                         limitations=candidate.limitations,
                         resolved_at=None,
+                        updated_at=ts,
                     )
                     self.repo.replace_incident_devices(existing["id"], candidate.affected_devices)
                     self.repo.insert_event(
@@ -57,11 +63,11 @@ class IncidentLifecycleManager:
                         incident_id=existing["id"],
                         lifecycle_state=IncidentLifecycle.open.value,
                         resolved_at=None,
+                        updated_at=ts,
                     )
                     events.append("incident_updated")
             else:
                 incident_id = f"inc-{uuid.uuid4().hex[:12]}"
-                ts = utc_now_iso()
                 self.repo.insert_incident(
                     incident_id=incident_id,
                     dedup_key=candidate.dedup_key,
@@ -112,6 +118,7 @@ class IncidentLifecycleManager:
                         incident_id=row["id"],
                         lifecycle_state=IncidentLifecycle.open.value,
                         resolved_at=None,
+                        updated_at=self._iso(now),
                     )
                 continue
 
@@ -123,6 +130,7 @@ class IncidentLifecycleManager:
                 self.repo.update_incident(
                     incident_id=row["id"],
                     lifecycle_state=IncidentLifecycle.watching.value,
+                    updated_at=self._iso(now),
                 )
                 self.repo.insert_event(
                     event_id=str(uuid.uuid4()),
@@ -139,10 +147,12 @@ class IncidentLifecycleManager:
 
             if row["lifecycle_state"] == IncidentLifecycle.watching.value:
                 if now - updated_at >= watch_delta + grace_delta:
+                    resolved_at = self._iso(now)
                     self.repo.update_incident(
                         incident_id=row["id"],
                         lifecycle_state=IncidentLifecycle.resolved.value,
-                        resolved_at=utc_now_iso(),
+                        resolved_at=resolved_at,
+                        updated_at=resolved_at,
                     )
                     self.repo.insert_event(
                         event_id=str(uuid.uuid4()),

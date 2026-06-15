@@ -93,7 +93,7 @@ def sample_config_status():
         "configured_networks": [{"id": "home", "name": "Home", "base_topic": "zigbee2mqtt"}],
         "storage_path": "/data/zigbeelens.sqlite",
         "storage_ready": True,
-        "retention_days": 30,
+        "retention_days": 7,
         "features": {"mqtt_collector": True},
         "data_mode": "live",
         "mock_mode": False,

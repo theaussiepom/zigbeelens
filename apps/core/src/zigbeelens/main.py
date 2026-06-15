@@ -18,10 +18,18 @@ from zigbeelens.static import mount_static_ui
 logger = logging.getLogger(__name__)
 
 
+def _openapi_enabled() -> bool:
+    import os
+
+    value = os.environ.get("ZIGBEELENS_OPENAPI_ENABLED", "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
 def create_app(config_path: str | None = None) -> FastAPI:
     import os
 
     resolved_config_path = config_path or os.environ.get("ZIGBEELENS_CONFIG")
+    openapi_enabled = _openapi_enabled()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -38,11 +46,14 @@ def create_app(config_path: str | None = None) -> FastAPI:
         description="Read-only observability console for Zigbee2MQTT networks",
         version=__version__,
         lifespan=lifespan,
+        docs_url="/docs" if openapi_enabled else None,
+        redoc_url="/redoc" if openapi_enabled else None,
+        openapi_url="/openapi.json" if openapi_enabled else None,
     )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -95,12 +106,14 @@ def create_app(config_path: str | None = None) -> FastAPI:
         @app.get("/")
         def root() -> dict[str, str]:
             ctx = get_context()
-            return {
+            payload = {
                 "name": "ZigbeeLens Core",
                 "version": __version__,
                 "data_mode": "mock" if ctx.config.mode.mock else "live",
-                "docs": "/docs",
             }
+            if openapi_enabled:
+                payload["docs"] = "/docs"
+            return payload
 
     return app
 
