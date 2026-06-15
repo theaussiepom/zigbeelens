@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Browser favicon for Core UI (`favicon.svg`, `favicon.ico`, `apple-touch-icon.png`)
 - Storage retention: purge collected telemetry older than `storage.retention_days` on Core startup
 - `scripts/run-release-checks.sh` — runs all automated pre-release validation steps
 
