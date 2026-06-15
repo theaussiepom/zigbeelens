@@ -94,6 +94,21 @@ See [hacs.md](hacs.md) and [hacs-embedded-view.md](hacs-embedded-view.md).
 
 ThreadLens uses the same `/api/v1` prefix pattern. Shared conventions: [lens-family.md](lens-family.md) (when present) or the ThreadLens [API docs](https://github.com/theaussiepom/threadlens/blob/main/docs/api.md).
 
+## Lens health buckets (presentation layer)
+
+Device entries in dashboard, device detail, and incident payloads include **Lens family** presentation fields:
+
+| Field | Description |
+|-------|-------------|
+| `lens_bucket` | Shared high-level bucket (`healthy`, `recently_unstable`, `needs_attention`, `unavailable`, `diagnostics_limited`, `informational`, `unknown`) |
+| `lens_bucket_label` | Human-readable bucket label |
+| `lens_bucket_reason` | Primary reason for the bucket |
+| `lens_reasons` | Additional mapped reasons from existing Zigbee health flags |
+
+`lens_bucket` is a **presentation-layer** classification shared across Lens tools. It does **not** replace Zigbee-specific `health.primary`, `health.flags`, or domain reason codes — those remain the source of diagnostic detail.
+
+Mapping uses existing health engine output only; it does not change classification rules.
+
 ## OpenAPI
 
 OpenAPI docs (`/docs`, `/openapi.json`) are disabled by default in production. Set `ZIGBEELENS_OPENAPI_ENABLED=true` for development.

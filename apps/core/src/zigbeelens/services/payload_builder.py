@@ -14,9 +14,11 @@ from zigbeelens.diagnostics.service import (
     health_result_to_router_risk,
     sort_priority,
 )
+from zigbeelens.presentation.lens_buckets import enrich_device_summary, lens_presentation_for_health
 from zigbeelens.schemas import (
     Availability,
     AvailabilityChange,
+    BridgeState,
     Confidence,
     DashboardPayload,
     DeviceDetail,
@@ -359,7 +361,11 @@ class PayloadBuilder:
             self._incident_service.incident_affected_keys() if self._incident_service else set()
         )
         incident_affected = (row.network_id, row.ieee_address) in affected_keys
-        return DeviceSummary(
+        network_row = self.repo.get_network(row.network_id)
+        bridge_state = None
+        if network_row is not None and network_row.bridge_state in BridgeState.__members__:
+            bridge_state = BridgeState(network_row.bridge_state)
+        summary = DeviceSummary(
             network_id=row.network_id,
             ieee_address=row.ieee_address,
             friendly_name=row.friendly_name,
@@ -381,6 +387,7 @@ class PayloadBuilder:
             incident_affected=incident_affected,
             sort_priority=sort_priority(result) if result else 100,
         )
+        return enrich_device_summary(summary, bridge_state=bridge_state)
 
     def _incident_from_row(self, row: dict) -> Incident | None:
         if not row:
@@ -390,16 +397,35 @@ class PayloadBuilder:
         for ref in refs:
             dev = self.repo.get_device(ref["network_id"], ref["ieee_address"])
             health_primary = DeviceHealthPrimary.unknown
+            device_health = None
             if self.health:
                 hr = self.health.get_device_health(ref["network_id"], ref["ieee_address"])
                 if hr:
                     health_primary = DeviceHealthPrimary(hr.primary.value)
+                    device_health = health_result_to_device_health(hr)
+            availability = Availability.unknown
+            if dev:
+                availability = (
+                    Availability(dev.availability)
+                    if dev.availability in Availability.__members__
+                    else Availability.unknown
+                )
+            presentation = (
+                lens_presentation_for_health(
+                    device_health,
+                    availability=availability,
+                    incident_affected=True,
+                )
+                if device_health
+                else {}
+            )
             affected.append(
                 IncidentDeviceRef(
                     network_id=ref["network_id"],
                     ieee_address=ref["ieee_address"],
                     friendly_name=dev.friendly_name if dev else ref["ieee_address"],
                     health_primary=health_primary,
+                    **presentation,
                 )
             )
         evidence = _evidence_items(_parse_json_list(row["evidence_json"]))

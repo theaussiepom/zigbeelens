@@ -28,6 +28,16 @@ export type DeviceHealthPrimary =
   | "router_risk"
   | "unknown";
 
+/** Lens family presentation-layer health bucket (shared across Lens tools) */
+export type LensBucket =
+  | "healthy"
+  | "recently_unstable"
+  | "needs_attention"
+  | "unavailable"
+  | "diagnostics_limited"
+  | "informational"
+  | "unknown";
+
 /** Bridge online state */
 export type BridgeState = "online" | "offline" | "unknown";
 
@@ -134,6 +144,10 @@ export interface DeviceSummary {
   health: DeviceHealth;
   incident_affected: boolean;
   sort_priority: number;
+  lens_bucket: LensBucket;
+  lens_bucket_label: string;
+  lens_bucket_reason: string;
+  lens_reasons: string[];
 }
 
 /** Full device detail for drilldown */
@@ -210,6 +224,9 @@ export interface IncidentDeviceRef {
   ieee_address: string;
   friendly_name: string;
   health_primary: DeviceHealthPrimary;
+  lens_bucket: LensBucket;
+  lens_bucket_label: string;
+  lens_bucket_reason: string;
 }
 
 /** Alias for clarity in API responses */

@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 
+from zigbeelens.presentation.lens_buckets import enrich_device_summary
 from zigbeelens.schemas import (
     Availability,
     BridgeState,
@@ -70,7 +71,7 @@ def device(
     sort_priority: int = 100,
     interview_state: InterviewState = InterviewState.successful,
 ) -> DeviceSummary:
-    return DeviceSummary(
+    summary = DeviceSummary(
         network_id=network_id,
         ieee_address=ieee,
         friendly_name=name,
@@ -86,6 +87,7 @@ def device(
         incident_affected=incident_affected,
         sort_priority=sort_priority,
     )
+    return enrich_device_summary(summary)
 
 
 def network(

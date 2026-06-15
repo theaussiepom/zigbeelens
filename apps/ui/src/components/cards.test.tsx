@@ -52,6 +52,10 @@ function device(overrides: Partial<DeviceSummary> = {}): DeviceSummary {
     interview_state: "successful",
     incident_affected: true,
     sort_priority: 1,
+    lens_bucket: "unavailable",
+    lens_bucket_label: "Unavailable",
+    lens_bucket_reason: "Unavailable",
+    lens_reasons: ["Unavailable"],
     health: {
       primary: "unavailable",
       severity: "incident",

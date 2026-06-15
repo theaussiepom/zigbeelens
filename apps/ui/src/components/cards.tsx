@@ -14,7 +14,7 @@ import {
   ConfidenceBadge,
   CounterEvidenceList,
   EvidenceList,
-  HealthBadge,
+  LensBucketBadge,
   LastSeenText,
   LimitationsList,
   LifecycleBadge,
@@ -145,7 +145,12 @@ export function DeviceHealthCard({ device }: { device: DeviceSummary }) {
             <span className="text-zl-muted">{deviceTypeLabel(device.device_type)}</span>
           </div>
         </div>
-        <HealthBadge primary={device.health.primary} />
+        <div className="shrink-0 text-right">
+          <LensBucketBadge bucket={device.lens_bucket} />
+          {device.lens_bucket !== "healthy" && device.lens_bucket_reason && (
+            <p className="mt-1 text-xs text-zl-muted">Reason: {device.lens_bucket_reason}</p>
+          )}
+        </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zl-muted">
         <AvailabilityBadge availability={device.availability} />
