@@ -249,6 +249,40 @@ def test_lifecycle_deduplication(tmp_path: Path):
     assert repo.list_incidents()[0]["lifecycle_state"] == IncidentLifecycle.open.value
 
 
+def test_lifecycle_resolves_after_watch_window(tmp_path: Path):
+    db = Database(tmp_path / "resolve.sqlite")
+    db.migrate()
+    repo = Repository(db)
+    config = _config(
+        tmp_path / "resolve.sqlite",
+        incident_watch_window_minutes=30,
+        incident_resolution_grace_minutes=5,
+    )
+    lifecycle = IncidentLifecycleManager(config, repo)
+    candidate = IncidentCandidate(
+        dedup_key="single_unavailable:home:0xabc",
+        incident_type=IncidentType.single_device_unavailable,
+        scope=IncidentScope.device,
+        severity=Severity.incident,
+        confidence=Confidence.high,
+        title="Device quiet",
+        summary="One device unavailable",
+        explanation="Isolated device pattern",
+        network_ids=["home"],
+    )
+    opened_at = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+
+    lifecycle.sync([candidate], now=opened_at)
+    assert repo.list_incidents()[0]["lifecycle_state"] == IncidentLifecycle.open.value
+
+    lifecycle.sync([], now=opened_at + timedelta(minutes=1))
+    assert repo.list_incidents()[0]["lifecycle_state"] == IncidentLifecycle.watching.value
+
+    lifecycle.sync([], now=opened_at + timedelta(minutes=36))
+    assert repo.list_incidents()[0]["lifecycle_state"] == IncidentLifecycle.resolved.value
+    assert repo.list_incidents()[0]["resolved_at"] is not None
+
+
 def test_bridge_offline_suppresses_device_incidents(tmp_path: Path):
     db = Database(tmp_path / "suppress.sqlite")
     db.migrate()

@@ -58,7 +58,7 @@ def options_to_config_dict(options: dict[str, Any]) -> dict[str, Any]:
         ],
         "storage": {
             "path": "/data/zigbeelens/zigbeelens.sqlite",
-            "retention_days": int(storage.get("retention_days") or 30),
+            "retention_days": int(storage.get("retention_days") or 7),
         },
         "diagnostics": diagnostics,
         "reporting": reporting,

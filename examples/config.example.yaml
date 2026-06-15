@@ -26,7 +26,7 @@ networks:
 
 storage:
   path: ./data/zigbeelens.sqlite
-  retention_days: 30
+  retention_days: 7
 
 diagnostics:
   incident_window_seconds: 180

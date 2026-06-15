@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Storage retention: purge collected telemetry older than `storage.retention_days` on Core startup
+- `scripts/run-release-checks.sh` — runs all automated pre-release validation steps
+
 ### Fixed
 
 - Static UI: block path traversal outside the bundled static directory
@@ -16,12 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HA enrichment: fix IEEE-only device lookup SQL join
 - UI API client: retry GET only, not POST/DELETE
 - HACS integration: unregister companion panel when `panel_enabled` is disabled
+- API health/SSE collector status: redact `last_error` (parity with HA diagnostics)
+- CORS: disable credentials with wildcard origins (invalid browser combination)
 
 ### Changed
 
+- OpenAPI docs (`/docs`, `/openapi.json`) disabled by default; enable with `ZIGBEELENS_OPENAPI_ENABLED=true`
 - Documented v0.1.0 security posture: ZigbeeLens Core has no built-in authentication; Zigbee control remains read-only; users are responsible for access-control decisions if exposing Core beyond trusted users or networks
 - HACS manifest version aligned to `0.1.0` with Core/add-on packages
-- Settings/docs: clarify `retention_days` is configured but auto-purge is not yet enforced in v0.1.0
+- Settings/docs: `retention_days` is enforced on startup purge (default 7 days)
 - CI: version alignment check on every run; packaging job waits for HA integration tests
 
 ### Changed

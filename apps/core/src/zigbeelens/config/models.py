@@ -46,7 +46,7 @@ class NetworkConfig(BaseModel):
 
 class StorageConfig(BaseModel):
     path: str = "./data/zigbeelens.sqlite"
-    retention_days: int = Field(default=30, ge=1)
+    retention_days: int = Field(default=7, ge=1)
 
 
 class DiagnosticsConfig(BaseModel):

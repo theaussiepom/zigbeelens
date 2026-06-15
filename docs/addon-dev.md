@@ -48,7 +48,7 @@ cat > data/ha-addon/options.json <<'EOF'
   "networks": [
     { "id": "home", "name": "Home", "base_topic": "zigbee2mqtt" }
   ],
-  "storage": { "retention_days": 30 },
+  "storage": { "retention_days": 7 },
   "diagnostics": {},
   "reporting": { "default_profile": "standard" },
   "features": {

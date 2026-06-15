@@ -72,6 +72,10 @@ def stop_collector(collector: MqttCollector | None, broadcaster: EventBroadcaste
         broadcaster.publish_sync("collector_disconnected", {"type": "collector_disconnected"})
 
 
+def _public_last_error(last_error: str | None) -> str | None:
+    return "[redacted]" if last_error else None
+
+
 def collector_status_dict(ctx: AppContext) -> dict:
     if ctx.collector is not None:
         status = ctx.collector.status()
@@ -80,7 +84,7 @@ def collector_status_dict(ctx: AppContext) -> dict:
             "connected": status.connected,
             "subscribed_topics_count": status.subscribed_topics_count,
             "last_message_at": status.last_message_at,
-            "last_error": status.last_error,
+            "last_error": _public_last_error(status.last_error),
             "networks": [
                 {"network_id": n.network_id, "subscribed": n.subscribed} for n in status.networks
             ],
@@ -91,5 +95,5 @@ def collector_status_dict(ctx: AppContext) -> dict:
         "connected": bool(row.get("connected")),
         "subscribed_topics_count": int(row.get("subscribed_topics_count") or 0),
         "last_message_at": row.get("last_message_at"),
-        "last_error": row.get("last_error"),
+        "last_error": _public_last_error(row.get("last_error")),
     }

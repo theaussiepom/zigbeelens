@@ -15,6 +15,59 @@ def test_health(mock_client: TestClient):
     assert "collector" in body
 
 
+def test_health_redacts_collector_last_error(live_client: TestClient):
+    from zigbeelens.app.context import get_context
+
+    ctx = get_context()
+    ctx.repo.update_collector_status(
+        enabled=True,
+        connected=False,
+        subscribed_topics_count=0,
+        last_error="Connection refused mqtt://user:secret@broker:1883",
+    )
+    res = live_client.get("/api/health")
+    assert res.status_code == 200
+    collector = res.json()["collector"]
+    assert collector["last_error"] == "[redacted]"
+    assert "secret" not in str(collector)
+
+
+def test_openapi_disabled_by_default(live_client: TestClient):
+    assert live_client.get("/docs").status_code == 404
+    assert live_client.get("/openapi.json").status_code == 404
+
+
+def test_openapi_enabled_when_configured(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from zigbeelens.app.context import reset_context
+    from zigbeelens.main import create_app
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        f"""
+server:
+  host: 127.0.0.1
+  port: 8377
+mode:
+  mock: true
+networks:
+  - id: home
+    name: Home
+    base_topic: zigbee2mqtt
+storage:
+  path: {tmp_path / "openapi.sqlite"}
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ZIGBEELENS_CONFIG", str(config_path))
+    monkeypatch.setenv("ZIGBEELENS_OPENAPI_ENABLED", "true")
+    reset_context()
+    with TestClient(create_app(str(config_path))) as client:
+        assert client.get("/openapi.json").status_code == 200
+    reset_context()
+
+
 def test_dashboard_default_scenario(mock_client: TestClient):
     res = mock_client.get("/api/dashboard")
     assert res.status_code == 200

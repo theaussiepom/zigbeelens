@@ -662,9 +662,10 @@ class Repository:
         counter_evidence: list[str] | None = None,
         limitations: list[str] | None = None,
         resolved_at: str | None = ...,  # type: ignore[assignment]
+        updated_at: str | None = None,
     ) -> None:
         fields: list[str] = ["updated_at = ?"]
-        values: list[Any] = [utc_now_iso()]
+        values: list[Any] = [updated_at or utc_now_iso()]
         if lifecycle_state is not None:
             fields.append("lifecycle_state = ?")
             values.append(lifecycle_state)
@@ -1325,3 +1326,48 @@ class Repository:
         )
         row = cur.fetchone()
         return dict(row) if row else None
+
+    def purge_collected_data_before(self, cutoff_iso: str) -> dict[str, int]:
+        """Remove collected telemetry older than *cutoff_iso* (UTC ISO timestamp)."""
+        counts: dict[str, int] = {}
+
+        def _delete(table: str, where: str) -> None:
+            cur = self.db.conn.execute(f"DELETE FROM {table} WHERE {where}", (cutoff_iso,))
+            counts[table] = cur.rowcount
+
+        _delete("metric_samples", "sampled_at < ?")
+        _delete("availability_changes", "changed_at < ?")
+        _delete("device_snapshots", "captured_at < ?")
+        _delete("bridge_snapshots", "captured_at < ?")
+        _delete("health_snapshots", "captured_at < ?")
+        _delete("events", "occurred_at < ?")
+        _delete("reports", "generated_at < ?")
+        if self._has_table("unresolved_device_messages"):
+            _delete("unresolved_device_messages", "received_at < ?")
+
+        cur = self.db.conn.execute(
+            """
+            DELETE FROM incidents
+            WHERE lifecycle_state = 'resolved'
+              AND resolved_at IS NOT NULL
+              AND resolved_at < ?
+            """,
+            (cutoff_iso,),
+        )
+        counts["incidents_resolved"] = cur.rowcount
+
+        if self._has_table("topology_snapshots"):
+            cur = self.db.conn.execute(
+                """
+                SELECT snapshot_id FROM topology_snapshots
+                WHERE captured_at < ?
+                """,
+                (cutoff_iso,),
+            )
+            stale_ids = [row[0] for row in cur.fetchall()]
+            for snapshot_id in stale_ids:
+                self.delete_topology_snapshot(snapshot_id)
+            counts["topology_snapshots"] = len(stale_ids)
+
+        self.db.conn.commit()
+        return counts

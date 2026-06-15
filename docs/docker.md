@@ -39,6 +39,7 @@ Copy `deploy/docker/config.example.yaml` to `config/config.yaml`.
 | `networks[].name` | Display label only |
 | `networks[].base_topic` | Zigbee2MQTT base topic (must match exactly) |
 | `storage.path` | Use `/data/zigbeelens.sqlite` in containers |
+| `storage.retention_days` | Keep collected telemetry for this many days (default **7**; purged on startup) |
 
 ### Multiple Zigbee2MQTT networks
 
@@ -55,6 +56,8 @@ Add one `networks[]` entry per Zigbee2MQTT instance. See `deploy/docker/config.m
 | `/config` (read-only) | `config.yaml` |
 | `/data` (read-write) | SQLite database, stored reports, runtime state |
 
+**Run one Core instance per SQLite database.** Do not mount the same `/data` volume into multiple containers — migrations and writes are not safe across concurrent processes.
+
 Ensure `/data` is writable by container UID **1000** (`zigbeelens` user):
 
 ```bash
@@ -69,6 +72,7 @@ sudo chown -R 1000:1000 data
 | `ZIGBEELENS_STATIC_DIR` | `/app/static` | Bundled UI assets |
 | `ZIGBEELENS_LOG_LEVEL` | `info` | `debug`, `info`, `warning`, `error` |
 | `ZIGBEELENS_PORT` | `8377` | Listen port (usually leave default) |
+| `ZIGBEELENS_OPENAPI_ENABLED` | `false` | Set `true` to expose `/docs` and `/openapi.json` (dev/debug only) |
 | `TZ` | — | Timezone for logs/display |
 
 Secrets are read from config YAML only — they are **never logged**.
