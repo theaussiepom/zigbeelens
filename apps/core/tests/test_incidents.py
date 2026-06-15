@@ -6,7 +6,6 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-
 from zigbeelens.config.models import AppConfig, DiagnosticsConfig, ModeConfig, NetworkConfig, StorageConfig
 from zigbeelens.db.connection import Database
 from zigbeelens.diagnostics.incidents.correlator import IncidentCorrelationEngine, NetworkContext
@@ -144,6 +143,64 @@ def test_bridge_offline_rule():
     )
     results = engine._bridge_offline_rules([ctx])
     assert results[0].incident_type == IncidentType.bridge_offline
+
+
+def test_bridge_stale_rule_uses_quiet_title():
+    engine = IncidentCorrelationEngine(AppConfig(), Repository(Database(":memory:")))
+    ctx = NetworkContext(
+        network_id="home",
+        network_name="Home",
+        bridge_state="online",
+        bridge_health_state=BridgeHealthState.stale,
+        devices=[],
+        device_health={},
+        offline_cluster={},
+    )
+    results = engine._bridge_offline_rules([ctx])
+    assert results[0].severity == Severity.watch
+    assert results[0].title == "Bridge state quiet on Home"
+
+
+def test_bridge_stale_not_incident_when_devices_active(tmp_path: Path):
+    db = Database(tmp_path / "stale_active.sqlite")
+    db.migrate()
+    repo = Repository(db)
+    config = _config(tmp_path / "stale_active.sqlite")
+    repo.sync_networks(config.networks)
+    health = HealthDiagnosticService(config, repo)
+    incidents = IncidentDiagnosticService(config, repo)
+    repo.update_network_bridge_state("home", "online")
+    old = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    repo.db.conn.execute("UPDATE networks SET updated_at = ? WHERE id = 'home'", (old,))
+    repo.db.conn.commit()
+    _seed_device(repo, "0x1", "plug")
+    repo.update_device_current_state(
+        network_id="home", ieee_address="0x1", last_payload_at=utc_now_iso()
+    )
+    health.recalculate_all()
+    incidents.correlate_and_sync(health)
+    assert repo.list_active_incidents() == []
+
+
+def test_bridge_stale_incident_when_no_mqtt_activity(tmp_path: Path):
+    db = Database(tmp_path / "stale_quiet.sqlite")
+    db.migrate()
+    repo = Repository(db)
+    config = _config(tmp_path / "stale_quiet.sqlite")
+    repo.sync_networks(config.networks)
+    health = HealthDiagnosticService(config, repo)
+    incidents = IncidentDiagnosticService(config, repo)
+    repo.update_network_bridge_state("home", "online")
+    old = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    repo.db.conn.execute("UPDATE networks SET updated_at = ? WHERE id = 'home'", (old,))
+    repo.db.conn.commit()
+    health.recalculate_all()
+    incidents.correlate_and_sync(health)
+    active = repo.list_active_incidents()
+    assert len(active) == 1
+    assert active[0]["incident_type"] == IncidentType.bridge_offline.value
+    assert active[0]["title"] == "Bridge state quiet on Home"
+    assert active[0]["severity"] == Severity.watch.value
 
 
 def test_network_wide_rule():

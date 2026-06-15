@@ -115,6 +115,29 @@ class Repository:
         )
         self.db.conn.commit()
 
+    def get_network_last_mqtt_activity_at(self, network_id: str) -> str | None:
+        """Latest observed MQTT activity for a network (devices, bridge snapshots)."""
+        cur = self.db.conn.execute(
+            """
+            SELECT MAX(ts) FROM (
+                SELECT last_payload_at AS ts
+                FROM device_current_state
+                WHERE network_id = ? AND last_payload_at IS NOT NULL
+                UNION ALL
+                SELECT last_seen AS ts
+                FROM device_current_state
+                WHERE network_id = ? AND last_seen IS NOT NULL
+                UNION ALL
+                SELECT captured_at AS ts
+                FROM bridge_snapshots
+                WHERE network_id = ?
+            )
+            """,
+            (network_id, network_id, network_id),
+        )
+        row = cur.fetchone()
+        return row[0] if row and row[0] else None
+
     def insert_bridge_snapshot(
         self,
         *,

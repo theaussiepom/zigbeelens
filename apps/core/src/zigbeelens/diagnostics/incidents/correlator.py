@@ -105,7 +105,8 @@ class IncidentCorrelationEngine:
                 if bridge_offline
                 else [
                     f"No bridge state update observed for more than "
-                    f"{cfg.bridge_stale_after_minutes} minutes"
+                    f"{cfg.bridge_stale_after_minutes} minutes",
+                    "No recent device MQTT activity observed on this network",
                 ]
             )
             out.append(
@@ -113,13 +114,20 @@ class IncidentCorrelationEngine:
                     dedup_key=f"bridge_offline:{ctx.network_id}",
                     incident_type=IncidentType.bridge_offline,
                     scope=IncidentScope.network,
-                    severity=Severity.critical if bridge_offline else Severity.incident,
+                    severity=Severity.critical if bridge_offline else Severity.watch,
                     confidence=confidence,
-                    title=f"Bridge offline on {ctx.network_name}",
+                    title=(
+                        f"Bridge offline on {ctx.network_name}"
+                        if bridge_offline
+                        else f"Bridge state quiet on {ctx.network_name}"
+                    ),
                     summary=(
                         f"The Zigbee2MQTT bridge for {ctx.network_name} is offline."
                         if bridge_offline
-                        else f"The Zigbee2MQTT bridge for {ctx.network_name} appears stale."
+                        else (
+                            f"The Zigbee2MQTT bridge for {ctx.network_name} has not published "
+                            f"bridge/state recently and no device MQTT activity has been observed."
+                        )
                     ),
                     explanation=explanation_for(IncidentType.bridge_offline),
                     evidence=evidence,

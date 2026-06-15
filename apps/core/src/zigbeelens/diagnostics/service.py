@@ -71,6 +71,7 @@ class HealthDiagnosticService:
                 network_id=network.id,
                 bridge_state=network.bridge_state,
                 network_updated_at=self._network_updated_at(network.id),
+                last_mqtt_activity_at=self._network_last_mqtt_activity_at(network.id),
                 device_health=device_results,
                 router_devices=router_pairs,
                 config=self.config.diagnostics,
@@ -124,6 +125,7 @@ class HealthDiagnosticService:
             network_id=network_id,
             bridge_state=network.bridge_state,
             network_updated_at=self._network_updated_at(network_id),
+            last_mqtt_activity_at=self._network_last_mqtt_activity_at(network_id),
             device_health=device_results,
             router_devices=router_pairs,
             config=self.config.diagnostics,
@@ -192,6 +194,9 @@ class HealthDiagnosticService:
         )
         row = cur.fetchone()
         return row[0] if row else None
+
+    def _network_last_mqtt_activity_at(self, network_id: str) -> str | None:
+        return self.repo.get_network_last_mqtt_activity_at(network_id)
 
     def _persist_device_health(self, key: tuple[str, str], result: HealthResult) -> bool:
         network_id, ieee = key
