@@ -183,6 +183,10 @@ class DeviceSummary(BaseModel):
     health: DeviceHealth
     incident_affected: bool = False
     sort_priority: int = 100
+    lens_bucket: str = "unknown"
+    lens_bucket_label: str = "Unknown"
+    lens_bucket_reason: str = ""
+    lens_reasons: list[str] = Field(default_factory=list)
 
 
 class DeviceDetail(DeviceSummary):
@@ -214,6 +218,9 @@ class IncidentDeviceRef(BaseModel):
     ieee_address: str
     friendly_name: str
     health_primary: DeviceHealthPrimary
+    lens_bucket: str = "unknown"
+    lens_bucket_label: str = "Unknown"
+    lens_bucket_reason: str = ""
 
 
 class TimelineEvent(BaseModel):

@@ -15,6 +15,7 @@ import {
   ErrorState,
   EvidenceList,
   HealthBadge,
+  LensBucketBadge,
   LimitationsList,
   LoadingState,
   NetworkBadge,
@@ -284,10 +285,14 @@ export function DeviceDetailPage() {
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold">{device.friendly_name}</h1>
+          <LensBucketBadge bucket={device.lens_bucket} />
           <HealthBadge primary={device.health.primary} />
           <SeverityBadge severity={device.health.severity} />
           <ConfidenceBadge confidence={device.health.confidence} />
         </div>
+        {device.lens_bucket !== "healthy" && device.lens_bucket_reason && (
+          <p className="mt-1 text-sm text-zl-muted">Lens summary: {device.lens_bucket_reason}</p>
+        )}
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-zl-muted">
           <NetworkBadge network={device.network_id} />
           <span className="break-all font-mono">{device.ieee_address}</span>

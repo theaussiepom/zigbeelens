@@ -4,6 +4,7 @@ import type {
   Confidence,
   DeviceHealthPrimary,
   IncidentStatus,
+  LensBucket,
   Severity,
 } from "@zigbeelens/shared";
 import {
@@ -12,6 +13,8 @@ import {
   formatTime,
   healthLabel,
   healthSeverity,
+  lensBucketLabel,
+  lensBucketSeverity,
   lifecycleLabel,
   lifecycleSeverity,
   relativeTime,
@@ -97,6 +100,14 @@ export function SeverityBadge({ severity }: { severity: Severity }) {
 
 export function HealthBadge({ primary }: { primary: DeviceHealthPrimary }) {
   return <Badge severity={healthSeverity(primary)}>{healthLabel(primary)}</Badge>;
+}
+
+export function LensBucketBadge({ bucket }: { bucket: LensBucket }) {
+  return (
+    <Badge severity={lensBucketSeverity(bucket)} title="Lens family summary">
+      {lensBucketLabel(bucket)}
+    </Badge>
+  );
 }
 
 export function ConfidenceBadge({ confidence }: { confidence: Confidence }) {

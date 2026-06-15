@@ -13,7 +13,7 @@ import {
   EmptyState,
   ErrorState,
   EvidenceList,
-  HealthBadge,
+  LensBucketBadge,
   LifecycleBadge,
   LimitationsList,
   LoadingState,
@@ -274,7 +274,12 @@ export function IncidentDetailPage() {
                       <span className="break-all font-mono">{d.ieee_address}</span>
                     </div>
                   </div>
-                  <HealthBadge primary={d.health_primary} />
+                  <div className="shrink-0 text-right">
+                    <LensBucketBadge bucket={d.lens_bucket} />
+                    {d.lens_bucket_reason && (
+                      <p className="mt-0.5 text-xs text-zl-muted">{d.lens_bucket_reason}</p>
+                    )}
+                  </div>
                 </Link>
               </li>
             ))}

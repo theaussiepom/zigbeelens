@@ -8,6 +8,7 @@ import type {
   IncidentScope,
   IncidentStatus,
   InterviewState,
+  LensBucket,
   PowerSource,
   RouterRisk,
   Severity,
@@ -188,6 +189,44 @@ export function healthSeverity(h: DeviceHealthPrimary): Severity {
     case "weak_link":
     case "low_battery":
       return "watch";
+    default:
+      return "watch";
+  }
+}
+
+export function lensBucketLabel(bucket: LensBucket): string {
+  switch (bucket) {
+    case "healthy":
+      return "Healthy";
+    case "recently_unstable":
+      return "Recently unstable";
+    case "needs_attention":
+      return "Needs attention";
+    case "unavailable":
+      return "Unavailable";
+    case "diagnostics_limited":
+      return "Diagnostics limited";
+    case "informational":
+      return "Informational";
+    default:
+      return "Unknown";
+  }
+}
+
+export function lensBucketSeverity(bucket: LensBucket): Severity {
+  switch (bucket) {
+    case "healthy":
+      return "healthy";
+    case "informational":
+      return "watch";
+    case "recently_unstable":
+      return "watch";
+    case "needs_attention":
+      return "incident";
+    case "unavailable":
+      return "critical";
+    case "diagnostics_limited":
+    case "unknown":
     default:
       return "watch";
   }
