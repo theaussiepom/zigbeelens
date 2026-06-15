@@ -19,11 +19,14 @@
 # 5. Attach to `underground` (Traefik) and `mqtt` (collector) networks.
 #
 # HACS Core URL examples (see docs/hacs-embedded-view.md):
-#   http://192.168.100.5:8377              — default LAN (no Authentik)
-#   https://zigbeelens.theaussiepom.me     — optional HTTPS / embedded view
+#   http://192.168.100.5:8377              — convenient LAN access (no Authentik on /api)
+#   https://zigbeelens.theaussiepom.me     — optional HTTPS / embedded view (Authentik on UI)
 # Wrong: https://zigbeelens.theaussiepom.me:8377  (Traefik is on 443 only)
 #
-# Local HTTP access is kept on port 8377 for LAN troubleshooting.
+# Local HTTP on port 8377 is kept for LAN troubleshooting. If you expose that route beyond
+# users or networks you trust, scope it intentionally (for example firewall rules) or accept
+# the access-control risk. HTTPS via Traefik adds TLS, not authentication — Authentik is one
+# optional protection pattern for the UI route.
 
 volumes:
   docker:

@@ -29,14 +29,25 @@ def resolve_static_dir() -> Path | None:
     return None
 
 
+def _safe_static_file(root: Path, full_path: str) -> Path | None:
+    """Return a file under *root* or None if the path escapes the static tree."""
+    candidate = (root / full_path).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
+
+
 def mount_static_ui(app: FastAPI) -> bool:
     """Serve the built React UI from Core when static assets are present."""
     static_dir = resolve_static_dir()
     if static_dir is None:
         return False
 
-    index_path = static_dir / "index.html"
-    assets_dir = static_dir / "assets"
+    root = static_dir.resolve()
+    index_path = root / "index.html"
+    assets_dir = root / "assets"
 
     if assets_dir.is_dir():
         app.mount("/assets", StaticFiles(directory=assets_dir), name="static-assets")
@@ -49,8 +60,8 @@ def mount_static_ui(app: FastAPI) -> bool:
     async def spa_fallback(full_path: str) -> FileResponse:
         if full_path.startswith("api") or full_path in {"docs", "openapi.json", "redoc"}:
             raise HTTPException(status_code=404, detail="Not found")
-        candidate = static_dir / full_path
-        if candidate.is_file():
+        candidate = _safe_static_file(root, full_path)
+        if candidate is not None:
             return FileResponse(candidate)
         return FileResponse(index_path)
 

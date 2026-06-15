@@ -5,8 +5,11 @@
 #   cp deploy/docker/config.example.yaml config/config.yaml
 #   docker compose -f deploy/docker/docker-compose.example.yaml up -d
 #
+# Port 8377 is published on the Docker host for convenient local/trusted-network access.
+# ZigbeeLens Core has no built-in authentication in v0.1.0. If Core is reachable beyond
+# users or networks you trust, access-control decisions are your responsibility.
+#
 # Image: replace ghcr.io/theaussiepom/zigbeelens with your registry path.
-# TODO: set GHCR owner when repository is published.
 
 services:
   zigbeelens:

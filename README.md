@@ -189,12 +189,15 @@ Details: [docs/reports.md](docs/reports.md) · [docs/redaction.md](docs/redactio
 - Some sleepy end devices report infrequently by design.
 - Diagnostics use correlation language — not definitive root-cause claims.
 
-## Security
+## Security model
 
-- Local-first: no cloud sync, data stays on your host
-- Secrets are redacted from logs and reports
-- No Zigbee mutation — subscribe-only collector by default
-- Standalone Docker should sit on a trusted LAN or behind a reverse proxy
+ZigbeeLens Core does **not** include built-in authentication in v0.1.0.
+
+ZigbeeLens is read-only with respect to Zigbee control. It does not perform device-control actions such as permit join, remove, reset, bind/unbind, OTA, or channel changes.
+
+Some API routes can modify ZigbeeLens’ own local data, such as creating/deleting reports, requesting a topology snapshot, or storing Home Assistant enrichment metadata. If you expose Core beyond users or networks you trust, access-control decisions are your responsibility.
+
+For broader access, consider firewall rules, Home Assistant Ingress, network isolation, or an authenticated reverse proxy such as Authentik, Cloudflare Access, Authelia, or basic auth. HTTPS may be useful for the optional embedded dashboard view, but **HTTPS is not authentication**.
 
 Details: [docs/security.md](docs/security.md) · [SECURITY.md](SECURITY.md)
 

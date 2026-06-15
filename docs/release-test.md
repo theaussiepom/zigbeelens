@@ -25,6 +25,18 @@ Before you start, confirm:
 - [ ] Home Assistant can reach the Docker host IP on port 8377 (for HACS test)
 - [ ] HACS is installed in Home Assistant
 
+## Security acknowledgement (v0.1.0)
+
+Before release testing, confirm you understand:
+
+- ZigbeeLens Core has **no built-in authentication** in v0.1.0
+- ZigbeeLens is **read-only for Zigbee control** (no permit join, remove, reset, bind/unbind, OTA, or channel changes)
+- Some Core API routes modify **ZigbeeLens local data only** (reports, topology snapshots, HA enrichment)
+- If Core is reachable beyond users or networks you trust, **access-control decisions are your responsibility**
+- **HTTPS is not authentication** — it may be needed for optional HACS embedded view only
+
+See [security.md](security.md).
+
 Optional helper (creates dirs, copies template, refuses placeholder config):
 
 ```bash

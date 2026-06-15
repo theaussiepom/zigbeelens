@@ -18,7 +18,9 @@
 #
 # See docs/hacs-embedded-view.md for full setup, certificate trust, and security notes.
 #
-# ZigbeeLens has no built-in authentication. Use trusted LAN, VPN, or add auth
+# ZigbeeLens has no built-in authentication in v0.1.0. HTTPS below helps embedded view;
+# it is not authentication. If Core is reachable beyond users or networks you trust,
+# consider firewall rules, network isolation, VPN, or auth at the proxy.
 # at the proxy layer. Do not expose HTTPS to the public internet without auth.
 
 services:

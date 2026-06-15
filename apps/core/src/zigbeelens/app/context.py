@@ -127,6 +127,12 @@ def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -
         cfg.storage.path,
         migration_version,
     )
+    if not cfg.mode.mock:
+        logger.info(
+            "Security notice: ZigbeeLens Core has no built-in authentication in v0.1.0. "
+            "If Core is reachable beyond users or networks you trust, access-control "
+            "decisions are your responsibility."
+        )
     return ctx
 
 

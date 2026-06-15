@@ -1207,10 +1207,14 @@ class Repository:
     def find_devices_by_ieee(self, ieee_address: str) -> list[DeviceRow]:
         cur = self.db.conn.execute(
             """
-            SELECT network_id, ieee_address, friendly_name, device_type, power_source,
-                   manufacturer, model, interview_state, availability, last_seen,
-                   last_payload_at, linkquality, battery
-            FROM devices WHERE ieee_address = ?
+            SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source,
+                   d.manufacturer, d.model, d.interview_state,
+                   COALESCE(s.availability, 'unknown') AS availability,
+                   s.last_seen, s.last_payload_at, s.linkquality, s.battery
+            FROM devices d
+            LEFT JOIN device_current_state s
+              ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address
+            WHERE d.ieee_address = ?
             """,
             (ieee_address,),
         )

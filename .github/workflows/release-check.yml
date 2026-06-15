@@ -34,6 +34,9 @@ jobs:
           pnpm --filter @zigbeelens/shared build
           pip install -e "apps/core[dev]"
 
+      - name: Version alignment
+        run: bash scripts/check-version-alignment.sh
+
       - name: Backend tests
         run: pytest apps/core/tests -q
         env:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 
 
 class Severity(str, Enum):
@@ -421,3 +421,8 @@ class HealthResponse(BaseModel):
 class PaginatedResponse(BaseModel):
     items: list[Any]
     total: int
+
+
+class TopologyCaptureRequest(BaseModel):
+    confirmed: StrictBool
+    reason: str | None = None

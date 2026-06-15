@@ -144,6 +144,10 @@ To enable embedded view when Home Assistant is HTTPS, put Core behind an HTTPS r
 
 Tests live in `apps/ha_integration/tests/`.
 
-## Safety
+## Safety and security
 
-This integration is read-only. It never publishes MQTT, sends Zigbee2MQTT request topics, or mutates Zigbee state.
+This integration is read-only toward Zigbee and Zigbee2MQTT. It never publishes MQTT, sends Zigbee2MQTT request topics, or mutates Zigbee state.
+
+The HACS integration is **not** an authentication layer for ZigbeeLens Core. If your Core URL is reachable by users or networks you do not trust, consider firewall rules, network isolation, Home Assistant Ingress, or an authenticated reverse proxy. HTTPS Core URLs support optional embedded view in the browser; **HTTPS is not authentication**.
+
+Some Core API routes modify ZigbeeLens local data only (reports, topology snapshots, HA enrichment). See [docs/security.md](../../docs/security.md).

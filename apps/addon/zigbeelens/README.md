@@ -161,6 +161,10 @@ If Zigbee2MQTT has just started, wait for telemetry to arrive. An empty network 
 - Read-only MQTT subscriber by default — the collector does not publish to Zigbee2MQTT topics. Optional MQTT Discovery and topology capture can publish when explicitly enabled in options.
 - Same codebase as the Docker Compose / dev path
 
+## Security
+
+The add-on dashboard is served through Home Assistant **Ingress**, which inherits your Home Assistant access controls. ZigbeeLens Core still has no built-in authentication in v0.1.0. If you expose Core directly on port 8377 outside Ingress, access-control decisions are your responsibility. See [docs/security.md](../../../docs/security.md).
+
 ## Support
 
 - Issues: https://github.com/theaussiepom/zigbeelens/issues

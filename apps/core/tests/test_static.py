@@ -31,6 +31,28 @@ def test_mount_static_ui_serves_spa(tmp_path, monkeypatch):
     assert "ZigbeeLens UI" in client.get("/incidents").text
 
 
+def test_static_path_traversal_blocked(tmp_path, monkeypatch):
+    static = tmp_path / "static"
+    assets = static / "assets"
+    assets.mkdir(parents=True)
+    (static / "index.html").write_text("<html><body>ZigbeeLens UI</body></html>", encoding="utf-8")
+    (assets / "app.js").write_text("console.log('ok')", encoding="utf-8")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("secret-data", encoding="utf-8")
+
+    monkeypatch.setenv("ZIGBEELENS_STATIC_DIR", str(static))
+    app = create_app()
+    assert mount_static_ui(app) is True
+
+    client = TestClient(app)
+    assert client.get("/assets/app.js").status_code == 200
+    traversal = client.get("/../../../secret.txt")
+    assert traversal.status_code == 200
+    assert "secret-data" not in traversal.text
+    assert "ZigbeeLens UI" in traversal.text
+    assert client.get("/api/not-real").status_code == 404
+
+
 def test_event_stream_route_precedes_static_spa_fallback(tmp_path, monkeypatch):
     """The SSE route must win over the SPA catch-all when static UI is mounted.
 
