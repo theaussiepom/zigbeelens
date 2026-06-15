@@ -32,7 +32,7 @@ def build_discovery_device(
     configuration_url: str | None = None,
 ) -> DiscoveryDevice:
     return DiscoveryDevice(
-        identifiers=[["zigbeelens", "core"]],
+        identifiers=["zigbeelens_core"],
         manufacturer="ZigbeeLens",
         name=device_name,
         model="ZigbeeLens Core",

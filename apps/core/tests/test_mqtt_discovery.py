@@ -100,6 +100,7 @@ def test_health_discovery_config_uses_clean_topic_pattern():
     assert payload["unique_id"] == "zigbeelens_health"
     assert payload["state_topic"] == "zigbeelens/summary/health/state"
     assert payload["json_attributes_topic"] == "zigbeelens/summary/health/attributes"
+    assert payload["device"]["identifiers"] == ["zigbeelens_core"]
     assert discovery_topic_for_entity("homeassistant", health) == (
         "homeassistant/sensor/zigbeelens/health/config"
     )

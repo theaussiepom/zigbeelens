@@ -10,7 +10,7 @@ ComponentType = Literal["sensor", "binary_sensor"]
 
 @dataclass(frozen=True)
 class DiscoveryDevice:
-    identifiers: list[list[str]]
+    identifiers: list[str]
     manufacturer: str
     name: str
     model: str
