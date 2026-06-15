@@ -105,7 +105,7 @@ Validate examples:
 
 **Recommended:** subdomain (`zigbeelens.example.com` → container `:8377`).
 
-ZigbeeLens has **no built-in authentication**. Keep it on a trusted LAN or behind an authenticated reverse proxy / VPN.
+ZigbeeLens Core does **not** include built-in authentication in v0.1.0. If Core is reachable beyond users or networks you trust, access-control decisions are your responsibility — for example firewall rules, network isolation, Home Assistant Ingress, or an authenticated reverse proxy / VPN.
 
 ### Beast / Authentik split routing
 
@@ -139,9 +139,14 @@ Full setup, certificate trust, and security notes: **[HACS embedded view — opt
 
 ## Security
 
-- ZigbeeLens is **read-only** toward Zigbee2MQTT — no publish, no request topics, no device commands
+ZigbeeLens Core does **not** include built-in authentication in v0.1.0.
+
+- ZigbeeLens is **read-only** toward Zigbee2MQTT — no device commands, permit join, remove, reset, bind/unbind, or OTA
+- Some API routes modify **ZigbeeLens local data only** (reports, topology snapshots, HA enrichment metadata)
 - Reports are redacted before storage/download
-- Do **not** expose port 8377 to the public internet without authentication
+- Publishing `8377:8377` exposes Core on the Docker host — convenient for local or trusted-network use
+- If Core is reachable by users or networks you do not trust, access-control decisions are your responsibility (firewall rules, network isolation, Home Assistant Ingress, or an authenticated reverse proxy)
+- HTTPS helps with optional HACS embedded view browser requirements; **HTTPS is not authentication**
 - No Docker socket, privileged mode, or host networking in default examples
 
 ## Image tags

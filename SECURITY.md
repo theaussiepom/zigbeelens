@@ -27,6 +27,16 @@ Include:
 
 We aim to acknowledge reports within a reasonable timeframe and will coordinate disclosure.
 
+## v0.1.0 security posture
+
+ZigbeeLens Core does **not** include built-in authentication in v0.1.0.
+
+ZigbeeLens is read-only with respect to Zigbee control. It does not perform device-control actions such as permit join, remove, reset, bind/unbind, OTA, or channel changes.
+
+Some API routes can modify ZigbeeLens’ own local data, such as creating/deleting reports, requesting a topology snapshot, or storing Home Assistant enrichment metadata. If you expose Core beyond users or networks you trust, access-control decisions are your responsibility.
+
+For broader access, consider firewall rules, Home Assistant Ingress, network isolation, or an authenticated reverse proxy such as Authentik, Cloudflare Access, Authelia, or basic auth. HTTPS may help with the optional embedded dashboard view in Home Assistant, but **HTTPS is not authentication**.
+
 ## Design principles
 
 ZigbeeLens is **local-first**:
@@ -47,10 +57,14 @@ See [docs/redaction.md](docs/redaction.md) and [docs/security.md](docs/security.
 
 ## Deployment guidance
 
-- Standalone Docker exposes the dashboard on port 8377 — use a trusted LAN or reverse proxy with authentication
-- Home Assistant Ingress inherits your HA access controls
-- Do not expose ZigbeeLens directly to the public internet without appropriate access controls
+| Install | Notes |
+|---------|-------|
+| HAOS add-on | Full dashboard via Home Assistant Ingress — inherits your HA access controls |
+| Docker standalone | Publishing port 8377 exposes Core on the Docker host; convenient for local or trusted-network use |
+| HACS integration | Not an authentication layer for Core; HTTPS Core URLs are for embedded-view browser compatibility, not auth |
 
-## Out of scope
+If Core is reachable by users or networks you do not trust, consider firewall rules, network isolation, Home Assistant Ingress, or an authenticated reverse proxy.
 
-ZigbeeLens intentionally does **not** implement authentication in v0.1.0. Treat network placement and reverse-proxy auth as part of your security model for standalone installs.
+## Out of scope for v0.1.0
+
+Built-in login, API tokens, and session authentication are intentionally **not** included in v0.1.0. Operators choose how to expose Core and whether to add access control around it.

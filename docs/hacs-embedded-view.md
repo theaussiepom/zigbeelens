@@ -6,6 +6,8 @@ Embedded view is useful if you want the full ZigbeeLens dashboard to appear insi
 
 **HTTP is fine** for the native Home Assistant panel and the **Open Full Dashboard** button. You do not need a reverse proxy for normal HACS use.
 
+An HTTPS Core URL may be **required** for the optional embedded dashboard view, but **HTTPS is not authentication**. If the HTTPS route is reachable by users or networks you do not trust, access-control decisions remain your responsibility.
+
 ---
 
 ## Quick summary
@@ -219,16 +221,17 @@ For a domain with public DNS:
 2. Map `443:443` on the host.
 3. HACS Core URL: `https://zigbeelens.example.com` (no port).
 
-**Security:** ZigbeeLens has **no built-in login**. Do not expose HTTPS to the internet without authentication (Authelia, OAuth2 proxy, VPN-only access, etc.).
+**Security:** ZigbeeLens Core has **no built-in authentication** in v0.1.0. HTTPS adds TLS, not authentication. If Core is reachable beyond users or networks you trust, consider firewall rules, network isolation, VPN, or authentication at the proxy (Authelia, OAuth2 proxy, Authentik, etc.).
 
 ---
 
 ## Security reminders
 
-- Reverse proxy adds **TLS**, not **authentication**. Treat Core like an internal admin console.
-- Prefer **trusted LAN**, **VPN**, or an **authenticated** reverse proxy for anything beyond lab use.
-- The MQTT collector remains subscribe-only; the proxy only affects HTTP access to the dashboard/API.
-- Reports are still redacted before download; do not disable redaction because TLS is enabled.
+- Reverse proxy adds **TLS**, not **authentication**
+- If you expose Core beyond users or networks you trust, access-control decisions are your responsibility
+- Consider firewall rules, Home Assistant Ingress, network isolation, or an authenticated reverse proxy for broader access
+- The MQTT collector remains subscribe-only; the proxy only affects HTTP access to the dashboard/API
+- Reports are still redacted before download; do not disable redaction because TLS is enabled
 
 ---
 

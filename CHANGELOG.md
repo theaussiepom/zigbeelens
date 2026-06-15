@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Documented v0.1.0 security posture: ZigbeeLens Core has no built-in authentication; Zigbee control remains read-only; users are responsible for access-control decisions if exposing Core beyond trusted users or networks
 - HACS manifest version aligned to `0.1.0` with Core/add-on packages
 - Settings/docs: clarify `retention_days` is configured but auto-purge is not yet enforced in v0.1.0
 - CI: version alignment check on every run; packaging job waits for HA integration tests

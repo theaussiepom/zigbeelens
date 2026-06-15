@@ -87,10 +87,10 @@ do
 done
 ok "compose files avoid docker.sock, privileged, and host networking"
 
-if grep -qi 'trusted LAN\|reverse proxy\|VPN' "${ROOT}/docs/docker.md"; then
-  ok "docker docs mention trusted LAN / reverse proxy"
+if grep -qiE 'access.control|reverse proxy|authentication|HTTPS is not' "${ROOT}/docs/docker.md"; then
+  ok "docker docs mention access control / reverse proxy"
 else
-  fail "docs/docker.md should mention trusted LAN or reverse proxy auth"
+  fail "docs/docker.md should mention access control or reverse proxy auth"
 fi
 
 if [[ -d "${ROOT}/apps/core/.venv" ]]; then

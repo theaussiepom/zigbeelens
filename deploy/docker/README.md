@@ -64,6 +64,10 @@ See also:
 
 Both run the same ZigbeeLens product.
 
+## Security
+
+ZigbeeLens Core does **not** include built-in authentication in v0.1.0. Publishing `8377:8377` exposes Core on the Docker host — convenient for local or trusted-network use. If Core is reachable beyond users or networks you trust, access-control decisions are your responsibility. HTTPS (optional, for embedded view) is not authentication. See [docs/security.md](../../docs/security.md).
+
 ## Validation
 
 ```bash

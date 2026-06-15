@@ -17,6 +17,15 @@ Use this checklist before tagging a release. See [docs/release.md](docs/release.
 - [ ] Version alignment check passes (`./scripts/check-version-alignment.sh`)
 - [ ] Storage retention enforcement is **not** included in v0.1.0 — monitor database size on long-running installs
 
+## Security acknowledgement (v0.1.0)
+
+- [ ] I understand ZigbeeLens Core has no built-in authentication in v0.1.0.
+- [ ] I understand ZigbeeLens is read-only for Zigbee control and does not perform permit join, remove, reset, bind/unbind, OTA, or channel changes.
+- [ ] I understand some API routes can modify ZigbeeLens local data, such as reports, topology snapshots, and Home Assistant enrichment metadata.
+- [ ] If Core is reachable beyond users/networks I trust, I have intentionally added suitable access control or accepted the risk.
+- [ ] If using an FQDN/HTTPS route, I understand HTTPS is not authentication.
+- [ ] If using a tablet/no-auth route, I have intentionally scoped it to trusted/local access or accepted the risk.
+
 ## Manual gates — real-world (Beast / production-like)
 
 - [ ] Real GHCR edge container tested on Beast (`ghcr.io/theaussiepom/zigbeelens:edge`)
