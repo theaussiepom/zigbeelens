@@ -6,6 +6,8 @@ Understand your Zigbee mesh before you change it.
 
 ZigbeeLens is a read-only observability and diagnostic console for Zigbee2MQTT networks. It watches Zigbee2MQTT over MQTT, keeps local history, detects health and instability patterns, explains likely scope using evidence and limitations, and generates redacted reports for troubleshooting.
 
+ZigbeeLens is part of the **Lens family** of read-only home-network observability tools, alongside [ThreadLens](https://github.com/theaussiepom/threadlens). See [docs/lens-family.md](docs/lens-family.md) for shared conventions.
+
 ZigbeeLens does **not** repair, reset, remove, re-pair, or mutate Zigbee devices.
 
 ## What it is

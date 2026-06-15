@@ -2,6 +2,23 @@
 
 ZigbeeLens generates scoped diagnostic reports from local SQLite history and current classification state.
 
+## Lens family report structure (target)
+
+Shared section vocabulary across Lens products. Generators may differ; new exports should converge toward this shape. See [lens-family.md](lens-family.md).
+
+| Section | Purpose |
+|---------|---------|
+| `product`, `version`, `generated_at` | Report identity |
+| `site`, `mode` | Deployment context (networks, mock/live) |
+| **Executive summary** | One paragraph; evidence-first, no causal overclaiming |
+| **Health summary** | Lens bucket or severity counts |
+| **Active incidents** | Open/watching incidents with evidence and limitations |
+| **Collector status** | MQTT collector, bridge visibility, enrichment |
+| **Limitations** | Explicit gaps (“bridge offline — device list may be stale”) |
+| **Redaction profile** | `standard`, `public_safe`, or `strict` |
+
+ThreadLens on-demand reports: [reports.md](https://github.com/theaussiepom/threadlens/blob/main/docs/reports.md).
+
 ## Formats
 
 | Format | Use case |
