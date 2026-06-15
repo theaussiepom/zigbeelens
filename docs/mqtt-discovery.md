@@ -1,35 +1,60 @@
 # MQTT Discovery
 
-ZigbeeLens can optionally publish **summary Home Assistant entities** using [MQTT Discovery](https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery). This is a lightweight automation/status path for users who prefer MQTT over installing the HACS integration.
+ZigbeeLens can optionally publish **Lens-family summary Home Assistant entities** using [MQTT Discovery](https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery).
 
-## What it does
+**Backward compatibility:** Phase 3C intentionally replaces the previous MQTT entity model. After deploying, delete stale retained discovery configs and remove old HA entities (see [Migration](#migration)).
 
-- Publishes summary ZigbeeLens entities to Home Assistant via MQTT Discovery
-- Exposes overall health, incident state, device counts, collector status, and per-network health
-- Uses ZigbeeLens-owned topics only (`homeassistant/...` discovery configs and `zigbeelens/state/...` states)
+## Lens family MQTT conventions
 
-## What it does not do
+Shared rules across [ZigbeeLens](https://github.com/theaussiepom/zigbeelens) and [ThreadLens](https://github.com/theaussiepom/threadlens). See [lens-family.md](lens-family.md).
 
-- Does **not** publish Zigbee2MQTT commands or request topics
-- Does **not** mutate Zigbee state
-- Does **not** expose every Zigbee device
-- Does **not** replace the ZigbeeLens dashboard
-- Does **not** replace the HACS integration repairs, diagnostics, config flow, or native companion panel
+| Rule | Detail |
+|------|--------|
+| **Global summary by default** | Six summary sensors on one HA device |
+| **No per-device spam** | No per-Zigbee-device entities by default |
+| **Unknown vs zero** | `unknown` when not observable; `0` only for observed zero |
+| **Diagnostic naming** | Names describe status, not control |
+| **Availability** | `zigbeelens/status` with `online` / `offline` |
+| **No secrets** | Passwords and keys never appear in discovery payloads |
 
-## HACS vs MQTT Discovery
+ThreadLens equivalent: [mqtt-home-assistant.md](https://github.com/theaussiepom/threadlens/blob/main/docs/mqtt-home-assistant.md).
 
-| | HACS integration | MQTT Discovery |
-|---|------------------|----------------|
-| Install | HACS custom integration | Config flag only |
-| Config flow | Yes | No |
-| Repairs / diagnostics | Yes | No |
-| Native companion panel | Yes | No |
-| Summary entities | Yes | Yes |
-| Best for | Native HA experience | Simple MQTT automations without HACS |
+## Clean summary entities (default)
 
-You generally do **not** need both enabled unless you explicitly want duplicate summary entities.
+All entities group under one Home Assistant device: **ZigbeeLens**.
 
-**Recommended:** use the [HACS integration](hacs.md) for native Home Assistant polish. Enable MQTT Discovery only when you want HA entities without HACS.
+| HA entity | State topic | Purpose |
+|-----------|-------------|---------|
+| ZigbeeLens Health | `zigbeelens/summary/health/state` | Overall Lens bucket |
+| ZigbeeLens Issues | `zigbeelens/summary/issues/state` | Total issue count |
+| ZigbeeLens Unavailable Devices | `zigbeelens/summary/unavailable/state` | Unavailable device count |
+| ZigbeeLens Needs Attention | `zigbeelens/summary/needs_attention/state` | Needs attention count |
+| ZigbeeLens Recently Unstable | `zigbeelens/summary/recently_unstable/state` | Recently unstable count |
+| ZigbeeLens Diagnostics Limited | `zigbeelens/summary/diagnostics_limited/state` | Diagnostics limited count |
+
+Attributes publish to matching `.../attributes` topics and include:
+
+- `product`, `version`, `lens_bucket`, `lens_bucket_label`
+- `issue_count`, bucket counts, `generated_at`, `redaction_profile`
+
+## Topic patterns
+
+| Kind | Pattern |
+|------|---------|
+| Discovery config | `homeassistant/sensor/zigbeelens/<entity_key>/config` |
+| State | `zigbeelens/summary/<entity_key>/state` |
+| Attributes | `zigbeelens/summary/<entity_key>/attributes` |
+| Availability | `zigbeelens/status` |
+
+## Unknown vs zero
+
+| Situation | MQTT state |
+|-----------|------------|
+| Live mode, MQTT collector disconnected | Count entities → `unknown` |
+| Mock mode or collector connected, observed zero | `0` |
+| Observed count | integer string |
+
+Health entity state uses Lens bucket strings (`healthy`, `recently_unstable`, `needs_attention`, etc.).
 
 ## Configuration
 
@@ -45,76 +70,39 @@ mqtt_discovery:
   state_topic_prefix: zigbeelens
   retain: true
   device_name: ZigbeeLens
-  object_id_prefix: zigbeelens
 ```
 
-- `features.mqtt_discovery` — user-facing on/off switch (default **false** in add-on and Docker examples)
-- `mqtt_discovery.*` — advanced topic and retain settings
+## Migration
 
-## Entities
+After deploying the clean Lens MQTT model:
 
-All entities group under one Home Assistant device: **ZigbeeLens**.
+1. Stop ZigbeeLens (publishes `offline` on `zigbeelens/status`).
+2. Clear stale retained discovery configs for old entities, for example:
 
-### Global summary
-
-- Overall health (`ok` / `watch` / `incident` / `unknown`)
-- Active incident (binary, problem device class)
-- Incident state (`none` / `watch` / `incident`)
-- Unavailable, recently unstable, router risks, stale, weak-link, low-battery, unknown device counts
-- Network count, device count
-- MQTT collector connected (binary, connectivity)
-- Core running (binary, connectivity)
-
-### Per network
-
-For each configured network:
-
-- `{Network} health`
-- `{Network} unavailable devices`
-- `{Network} router risks`
-
-Network IDs are sanitized for MQTT object IDs. Keep `networks[].id` stable.
-
-## Topics
-
-Discovery configs:
-
-```
-homeassistant/sensor/zigbeelens_overall_health/config
-homeassistant/binary_sensor/zigbeelens_active_incident/config
+```bash
+mosquitto_pub -h broker.mqtt -t 'homeassistant/sensor/zigbeelens_overall_health/config' -r -n
+mosquitto_pub -h broker.mqtt -t 'homeassistant/binary_sensor/zigbeelens_active_incident/config' -r -n
+# repeat for other old zigbeelens_* discovery topics
 ```
 
-State payloads:
+Or call `cleanup_legacy_discovery_configs()` from the discovery service when connected.
 
-```
-zigbeelens/state/overall
-zigbeelens/state/incidents
-zigbeelens/state/counts/unavailable_devices
-zigbeelens/state/networks/{network_id}/health
-zigbeelens/status
-```
+3. In Home Assistant: **Settings → Devices & services → MQTT → Entities** — delete stale ZigbeeLens entities.
+4. Restart ZigbeeLens and reload the MQTT integration if needed.
 
-ZigbeeLens **never** publishes under your Zigbee2MQTT `base_topic`.
+Old discovery topics are listed in `zigbeelens.mqtt_discovery.topics.LEGACY_DISCOVERY_TOPICS`.
+
+## What it does not do
+
+- Does **not** publish Zigbee2MQTT commands or request topics
+- Does **not** mutate Zigbee state
+- Does **not** expose every Zigbee device
+- Does **not** replace the HACS integration or dashboard
+
+## HACS vs MQTT Discovery
+
+Use the [HACS integration](hacs.md) for native Home Assistant polish. Enable MQTT Discovery only when you want summary entities without HACS.
 
 ## Safety
 
-- The MQTT collector client remains **subscribe-only**
-- Discovery uses a separate publisher client with strict topic validation
-- Rejected topics include `/bridge/request/`, `/set`, wildcards, and anything under configured Zigbee2MQTT base topics
-- State payloads are summaries only — no raw reports, passwords, or full device lists
-
-## Troubleshooting
-
-| Symptom | What to check |
-|---------|----------------|
-| Entities not appearing | `features.mqtt_discovery: true`, MQTT Discovery enabled in HA, broker reachable from Core |
-| Wrong entity names | `object_id_prefix` and `topic_prefix` settings |
-| Stale retained entities | Disable discovery and clear retained `homeassistant/.../zigbeelens_*` config topics |
-| Duplicate entities | Disable either HACS integration entities or MQTT Discovery — both expose summaries |
-| Cleanup after disable | Restart Core with discovery off; retained discovery configs may need manual broker cleanup |
-
-## Status in the UI
-
-**Settings → MQTT Discovery** shows enabled state, publisher connection, published entity count, last publish time, and last error (redacted).
-
-See also [HACS integration](hacs.md) and [Docker deployment](docker.md).
+The collector remains subscribe-only. The discovery publisher validates topics and rejects Zigbee2MQTT base topics, wildcards, and `/set` paths.

@@ -17,16 +17,22 @@ from zigbeelens.config.models import (
     StorageConfig,
 )
 from zigbeelens.mqtt_discovery.payloads import (
-    all_discovery_entities,
+    attributes_payload,
     build_discovery_device,
     build_states_from_dashboard,
     discovery_config_payload,
+    discovery_topic_for_entity,
     entity_catalog,
     state_payload,
 )
 from zigbeelens.mqtt_discovery.publisher import FakeDiscoveryPublisher
 from zigbeelens.mqtt_discovery.service import MqttDiscoveryService, discovery_enabled
-from zigbeelens.mqtt_discovery.topics import UnsafeMqttTopicError, sanitize_object_id, validate_publish_topic
+from zigbeelens.mqtt_discovery.topics import (
+    LEGACY_DISCOVERY_TOPICS,
+    UnsafeMqttTopicError,
+    sanitize_object_id,
+    validate_publish_topic,
+)
 from zigbeelens.services.data_service import DataService
 
 
@@ -71,8 +77,8 @@ def test_validate_publish_topic_rejects_unsafe(topic: str):
 
 
 def test_validate_publish_topic_allows_zigbeelens_topics():
-    validate_publish_topic("homeassistant/sensor/zigbeelens_overall_health/config")
-    validate_publish_topic("zigbeelens/state/overall", zigbee_base_topics=("zigbee2mqtt",))
+    validate_publish_topic("homeassistant/sensor/zigbeelens/health/config")
+    validate_publish_topic("zigbeelens/summary/health/state", zigbee_base_topics=("zigbee2mqtt",))
 
 
 def test_sanitize_object_id():
@@ -80,7 +86,7 @@ def test_sanitize_object_id():
     assert sanitize_object_id("home 2!") == "home_2"
 
 
-def test_overall_health_discovery_config():
+def test_health_discovery_config_uses_clean_topic_pattern():
     device = build_discovery_device(device_name="ZigbeeLens", core_version="0.1.0")
     entities = entity_catalog(
         topic_prefix="homeassistant",
@@ -89,14 +95,17 @@ def test_overall_health_discovery_config():
         availability="zigbeelens/status",
         device=device,
     )
-    overall = next(e for e in entities if e.unique_id == "zigbeelens_overall_health")
-    payload = discovery_config_payload(overall, "zigbeelens/status", device)
-    assert payload["unique_id"] == "zigbeelens_overall_health"
-    assert payload["state_topic"] == "zigbeelens/state/overall"
-    assert payload["device"]["manufacturer"] == "ZigbeeLens"
+    health = next(e for e in entities if e.unique_id == "zigbeelens_health")
+    payload = discovery_config_payload(health, "zigbeelens/status", device)
+    assert payload["unique_id"] == "zigbeelens_health"
+    assert payload["state_topic"] == "zigbeelens/summary/health/state"
+    assert payload["json_attributes_topic"] == "zigbeelens/summary/health/attributes"
+    assert discovery_topic_for_entity("homeassistant", health) == (
+        "homeassistant/sensor/zigbeelens/health/config"
+    )
 
 
-def test_active_incident_binary_sensor_device_class():
+def test_summary_entity_catalog_has_six_global_entities():
     device = build_discovery_device(device_name="ZigbeeLens", core_version="0.1.0")
     entities = entity_catalog(
         topic_prefix="homeassistant",
@@ -105,63 +114,65 @@ def test_active_incident_binary_sensor_device_class():
         availability="zigbeelens/status",
         device=device,
     )
-    active = next(e for e in entities if e.unique_id == "zigbeelens_active_incident")
-    payload = discovery_config_payload(active, "zigbeelens/status", device)
-    assert payload["device_class"] == "problem"
+    assert len(entities) == 6
+    assert {entity.unique_id for entity in entities} == {
+        "zigbeelens_health",
+        "zigbeelens_issues",
+        "zigbeelens_unavailable",
+        "zigbeelens_needs_attention",
+        "zigbeelens_recently_unstable",
+        "zigbeelens_diagnostics_limited",
+    }
 
 
-def test_collector_binary_sensor_connectivity_class():
-    device = build_discovery_device(device_name="ZigbeeLens", core_version="0.1.0")
-    entities = entity_catalog(
-        topic_prefix="homeassistant",
-        state_topic_prefix="zigbeelens",
-        object_id_prefix="zigbeelens",
-        availability="zigbeelens/status",
-        device=device,
-    )
-    collector = next(e for e in entities if e.unique_id == "zigbeelens_mqtt_collector_connected")
-    payload = discovery_config_payload(collector, "zigbeelens/status", device)
-    assert payload["device_class"] == "connectivity"
-
-
-def test_per_network_unique_ids_stable(mock_dashboard):
-    device = build_discovery_device(device_name="ZigbeeLens", core_version="0.1.0")
-    entities = all_discovery_entities(
-        topic_prefix="homeassistant",
-        state_topic_prefix="zigbeelens",
-        object_id_prefix="zigbeelens",
-        availability="zigbeelens/status",
-        device=device,
-        dashboard=mock_dashboard,
-    )
-    ids = {e.unique_id for e in entities}
-    assert "zigbeelens_network_home_health" in ids
-
-
-def test_overall_state_payload(mock_dashboard):
+def test_health_state_payload_includes_lens_bucket_attributes(mock_dashboard):
     states = build_states_from_dashboard(
-        mock_dashboard, core_version="0.1.0", collector_connected=True
+        mock_dashboard,
+        core_version="0.1.0",
+        collector_connected=True,
+        mock_mode=True,
     )
-    payload = json.loads(state_payload(states["overall"]))
-    assert payload["state"] == "incident"
-    assert payload["active_incident_count"] == 1
-    assert "current_finding" in payload
-    assert "password" not in json.dumps(payload).lower()
+    health_state = states["health"]
+    assert health_state.state in {
+        "healthy",
+        "recently_unstable",
+        "needs_attention",
+        "unavailable",
+        "diagnostics_limited",
+        "unknown",
+    }
+    attrs = json.loads(attributes_payload(health_state))
+    assert attrs["product"] == "zigbeelens"
+    assert attrs["version"] == "0.1.0"
+    assert attrs["lens_bucket"] == health_state.state
+    assert attrs["lens_bucket_label"]
+    assert "issue_count" in attrs
+    assert attrs["redaction_profile"] == "public_safe"
+    assert "password" not in json.dumps(attrs).lower()
 
 
-def test_active_incident_on_off(mock_dashboard):
+def test_count_entities_use_numeric_state_when_observable(mock_dashboard):
     states = build_states_from_dashboard(
-        mock_dashboard, core_version="0.1.0", collector_connected=True
+        mock_dashboard,
+        core_version="0.1.0",
+        collector_connected=True,
+        mock_mode=True,
     )
-    assert json.loads(state_payload(states["active_incident"]))["state"] == "ON"
-    mock_dashboard.active_incident_count = 0
+    assert state_payload(states["issues"]).isdigit() or state_payload(states["issues"]) == "unknown"
+
+
+def test_count_entities_unknown_when_collector_offline_live_mode(mock_dashboard):
     states = build_states_from_dashboard(
-        mock_dashboard, core_version="0.1.0", collector_connected=True
+        mock_dashboard,
+        core_version="0.1.0",
+        collector_connected=False,
+        mock_mode=False,
     )
-    assert json.loads(state_payload(states["active_incident"]))["state"] == "OFF"
+    assert state_payload(states["issues"]) == "unknown"
+    assert state_payload(states["unavailable"]) == "unknown"
 
 
-def test_discovery_service_publishes_configs_and_states(tmp_path: Path):
+def test_discovery_service_publishes_clean_topics(tmp_path: Path):
     db_path = tmp_path / "discovery.sqlite"
     config = _config(db_path, discovery=True)
     from zigbeelens.app.context import bootstrap, reset_context
@@ -174,15 +185,20 @@ def test_discovery_service_publishes_configs_and_states(tmp_path: Path):
     service.start()
 
     topics = [record.topic for record in publisher.published]
-    assert any(t.startswith("homeassistant/sensor/") and t.endswith("/config") for t in topics)
-    assert "zigbeelens/state/overall" in topics
+    assert "homeassistant/sensor/zigbeelens/health/config" in topics
+    assert "zigbeelens/summary/health/state" in topics
+    assert "zigbeelens/summary/health/attributes" in topics
     assert "zigbeelens/status" in topics
     assert not any("/bridge/request/" in t for t in topics)
     assert not any(t.endswith("/set") for t in topics)
-    assert service.status.published_entities_count > 0
+    assert service.status.published_entities_count == 6
 
     service.stop()
     reset_context()
+
+
+def test_legacy_discovery_topics_documented():
+    assert "homeassistant/sensor/zigbeelens_overall_health/config" in LEGACY_DISCOVERY_TOPICS
 
 
 def test_disabled_discovery_publishes_nothing(tmp_path: Path):
