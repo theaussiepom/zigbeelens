@@ -88,7 +88,7 @@ The setup dialog explains HTTP vs HTTPS Core URLs, optional SSL verification, an
 | [Docker / Compose](docs/docker.md) | `ghcr.io/theaussiepom/zigbeelens` |
 | [HACS integration](docs/hacs.md) | [theaussiepom/zigbeelens-hacs](https://github.com/theaussiepom/zigbeelens-hacs) |
 | [MQTT Discovery](docs/mqtt-discovery.md) | Optional summary HA entities without HACS |
-| [Topology](docs/topology.md) | Optional mesh enrichment — disabled by default |
+| [Topology](docs/topology.md) | Optional mesh enrichment — enabled by default with one startup scan |
 
 ## Quick start
 

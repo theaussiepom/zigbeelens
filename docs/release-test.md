@@ -261,7 +261,7 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 ## 5. Safety checks (pre-release)
 
 - [ ] MQTT Discovery **disabled** in config (`features.mqtt_discovery: false`)
-- [ ] Topology **disabled** in config
+- [ ] Topology enabled with startup scan only (`topology.startup_scan: true`, `refresh_interval_seconds: 0`)
 - [ ] `/api/health` shows subscribe-only collector (no publish to Zigbee2MQTT topics)
 - [ ] Reports redacted before download
 - [ ] No permit join / remove / reset controls in UI

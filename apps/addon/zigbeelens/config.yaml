@@ -74,7 +74,10 @@ options:
     device_name: ZigbeeLens
     object_id_prefix: zigbeelens
   topology:
-    enabled: false
+    enabled: true
+    startup_scan: true
+    startup_stable_delay_seconds: 60
+    refresh_interval_seconds: 0
     manual_capture_enabled: false
     automatic_capture_enabled: false
     capture_on_incident: false
@@ -135,6 +138,9 @@ schema:
     object_id_prefix: str?
   topology:
     enabled: bool?
+    startup_scan: bool?
+    startup_stable_delay_seconds: int(0,3600)?
+    refresh_interval_seconds: int(0,604800)?
     manual_capture_enabled: bool?
     automatic_capture_enabled: bool?
     automatic_capture_interval_hours: int(1,168)?

@@ -143,13 +143,27 @@ See [mqtt-discovery.md](mqtt-discovery.md).
 
 ## Topology capture disabled
 
-Topology is **off by default**. Enable:
+Topology is **enabled by default** with one startup scan after collector and bridge readiness. To disable entirely:
+
+```yaml
+topology:
+  enabled: false
+```
+
+To keep topology enabled but skip the startup scan:
+
+```yaml
+topology:
+  enabled: true
+  startup_scan: false
+```
+
+Manual capture still requires explicit confirmation:
 
 ```yaml
 features:
   manual_network_map: true
 topology:
-  enabled: true
   manual_capture_enabled: true
 ```
 

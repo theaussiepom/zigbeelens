@@ -72,6 +72,7 @@ topology:
   enabled: {"true" if topology_enabled else "false"}
   manual_capture_enabled: {"true" if topology_enabled else "false"}
   automatic_capture_enabled: false
+  startup_scan: false
 """.strip(),
         encoding="utf-8",
     )

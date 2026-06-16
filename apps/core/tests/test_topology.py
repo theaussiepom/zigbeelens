@@ -31,6 +31,7 @@ def _config(db_path: Path, *, topology_enabled: bool = True) -> AppConfig:
             enabled=topology_enabled,
             manual_capture_enabled=topology_enabled,
             automatic_capture_enabled=False,
+            startup_scan=False,
             capture_on_incident=False,
         ),
     )

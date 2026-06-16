@@ -87,11 +87,12 @@ Each configured `networks[]` entry maps to one Zigbee2MQTT `base_topic`. Core su
 - Publishes only `homeassistant/...` discovery configs and `zigbeelens/state/...`
 - Rejects `/set`, `/bridge/request/`, configured base topics, wildcards
 
-### Topology (optional, off by default)
+### Topology (enabled by default)
 
-- Requires `topology.enabled`, `features.manual_network_map`, and explicit UI/API confirmation
+- Enabled by default with one startup network map scan after MQTT collector and bridge readiness
+- After startup, relies on passive MQTT updates; periodic active scans disabled unless configured
+- Manual capture requires explicit UI/API confirmation
 - Single allowlisted publish: `{base_topic}/bridge/request/networkmap`
-- No automatic capture by default
 
 ### Reports
 

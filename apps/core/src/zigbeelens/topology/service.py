@@ -14,6 +14,7 @@ from zigbeelens.mqtt.models import RawMqttMessage
 from zigbeelens.storage.repository import utc_now_iso
 from zigbeelens.topology.parser import parse_networkmap_payload
 from zigbeelens.topology.publisher import TopologyRequestPublisher
+from zigbeelens.topology.scheduler import periodic_capture_allowed, start_topology_scheduler
 from zigbeelens.topology.topics import (
     CAPTURE_WARNING,
     is_networkmap_response_topic,
@@ -74,11 +75,7 @@ def manual_capture_allowed(config: AppConfig) -> bool:
 
 
 def automatic_capture_allowed(config: AppConfig) -> bool:
-    return bool(
-        config.topology.enabled
-        and config.features.automatic_network_map
-        and config.topology.automatic_capture_enabled
-    )
+    return periodic_capture_allowed(config)
 
 
 class TopologyService:
@@ -175,6 +172,74 @@ class TopologyService:
             if own_publisher:
                 publisher.disconnect()
 
+    def request_system_capture(
+        self,
+        network_id: str,
+        *,
+        requested_by: str = "startup_scan",
+    ) -> dict:
+        if not self._config.topology.enabled:
+            raise PermissionError("Topology capture is disabled")
+        if requested_by == "startup_scan" and not self._config.topology.startup_scan:
+            raise PermissionError("Topology startup scan is disabled")
+        if requested_by == "periodic_refresh" and not periodic_capture_allowed(self._config):
+            raise PermissionError("Periodic topology refresh is disabled")
+
+        network = self._repo.get_network(network_id)
+        if network is None:
+            raise KeyError(f"Unknown network: {network_id}")
+        with self._lock:
+            self._clear_stale_pending_unlocked()
+            if self._pending is not None:
+                raise RuntimeError("Topology capture already in progress")
+
+            snapshot_id = str(uuid.uuid4())
+            requested_at = utc_now_iso()
+            self._repo.create_topology_snapshot(
+                snapshot_id=snapshot_id,
+                network_id=network_id,
+                requested_by=requested_by,
+                status="pending",
+                warning_acknowledged=True,
+            )
+            self._pending = PendingCapture(
+                snapshot_id=snapshot_id,
+                network_id=network_id,
+                base_topic=network.base_topic,
+                requested_by=requested_by,
+                warning_acknowledged=True,
+                requested_at=requested_at,
+            )
+
+        publisher = self._publisher or TopologyRequestPublisher(self._config)
+        own_publisher = self._publisher is None
+        try:
+            if own_publisher:
+                publisher.connect()
+            topic = networkmap_request_topic(network.base_topic)
+            publisher.publish_networkmap_request(topic)
+            self._status.last_capture_error = None
+            return {
+                "snapshot_id": snapshot_id,
+                "network_id": network_id,
+                "status": "pending",
+                "requested_by": requested_by,
+            }
+        except Exception as err:
+            self._repo.update_topology_snapshot(
+                snapshot_id,
+                status="error",
+                error="Topology request failed",
+            )
+            with self._lock:
+                self._pending = None
+            self._status.last_capture_error = "Topology request failed"
+            logger.exception("Topology system capture request failed")
+            raise RuntimeError("Topology capture request failed") from err
+        finally:
+            if own_publisher:
+                publisher.disconnect()
+
     def try_handle_response(self, message: RawMqttMessage) -> bool:
         with self._lock:
             pending = self._pending
@@ -262,6 +327,7 @@ def start_topology(ctx: AppContext) -> TopologyService:
     global _topology
     service = TopologyService(ctx)
     _topology = service
+    start_topology_scheduler(ctx, service)
     return service
 
 

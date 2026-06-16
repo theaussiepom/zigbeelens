@@ -1,6 +1,6 @@
 # Topology snapshots
 
-ZigbeeLens can optionally capture **point-in-time Zigbee2MQTT network map snapshots** to enrich router risk and incident context. Topology is never required for core diagnostics to work.
+ZigbeeLens can capture **point-in-time Zigbee2MQTT network map snapshots** to enrich router risk and incident context. Topology is never required for core diagnostics to work.
 
 ## What topology snapshots do
 
@@ -9,13 +9,29 @@ ZigbeeLens can optionally capture **point-in-time Zigbee2MQTT network map snapsh
 - Enrich router risk and correlated incident evidence
 - Show snapshot status in the Topology page and Settings
 
-## Why they are optional
+## Default behaviour
+
+Topology is **enabled by default**.
+
+After ZigbeeLens startup:
+
+1. Wait until the MQTT collector is connected
+2. Confirm each configured Zigbee2MQTT bridge is observed **online**
+3. Wait a short grace period so startup retained MQTT messages settle
+4. Request **one** topology snapshot per network
+
+After that startup snapshot, ZigbeeLens relies on **passive MQTT updates** (devices, availability, linkquality, bridge state) by default. Periodic active topology scans are **disabled** unless explicitly configured.
+
+## Why startup is delayed
 
 Network map requests can temporarily make a Zigbee network less responsive, especially on larger networks. ZigbeeLens therefore:
 
-- Disables topology by default
-- Requires explicit user confirmation before manual capture
-- Does not capture on startup, on incidents, or on a schedule unless explicitly enabled
+- Does **not** request topology immediately at container start
+- Does **not** request topology before the MQTT collector is connected
+- Does **not** request topology before the Zigbee2MQTT bridge is observed online
+- Waits `startup_stable_delay_seconds` after collector + bridge readiness before the startup scan
+
+Manual capture still requires explicit user confirmation.
 
 ## What ZigbeeLens can infer
 
@@ -41,23 +57,36 @@ Every topology-derived conclusion includes:
 
 ## Configuration
 
-Both feature flags and topology settings must be enabled for manual capture:
-
 ```yaml
-features:
-  manual_network_map: true
-  automatic_network_map: false
-
 topology:
   enabled: true
-  manual_capture_enabled: true
+  startup_scan: true
+  startup_stable_delay_seconds: 60
+  refresh_interval_seconds: 0
+  manual_capture_enabled: false
   automatic_capture_enabled: false
   capture_on_incident: false
   max_snapshots_per_network: 5
   warn_before_capture: true
 ```
 
-Defaults in add-on and Docker examples keep all topology capture **disabled**.
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `enabled` | `true` | Subscribe to topology responses and allow snapshot storage |
+| `startup_scan` | `true` | One active network map request per network after startup stability |
+| `startup_stable_delay_seconds` | `60` | Grace period after collector + bridge readiness before startup scan |
+| `refresh_interval_seconds` | `0` | Periodic active scans; `0` disables periodic polling |
+| `manual_capture_enabled` | `false` | UI/API manual capture (also needs `features.manual_network_map: true`) |
+
+Legacy periodic scheduling remains available via `automatic_capture_enabled` + `automatic_capture_interval_hours` when `refresh_interval_seconds` is `0`.
+
+To disable topology entirely:
+
+```yaml
+topology:
+  enabled: false
+  startup_scan: false
+```
 
 ## API
 
