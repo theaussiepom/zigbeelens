@@ -171,6 +171,8 @@ export const api = {
   deleteReport: (id: string) =>
     fetchJson<{ deleted: boolean }>(`api/reports/${id}`, {}, { method: "DELETE" }),
   topology: () => fetchJson<TopologyOverview>("api/topology"),
+  topologyNetwork: (networkId: string) =>
+    fetchJson<TopologyNetworkDetail>(`api/topology/${encodeURIComponent(networkId)}`),
   captureTopology: (networkId: string) =>
     fetchJson<{ snapshot_id: string; status: string }>(
       `api/topology/${networkId}/capture`,
@@ -200,6 +202,44 @@ export interface TopologyOverview {
       end_device_count: number;
     } | null;
   }>;
+}
+
+export interface TopologySnapshotSummary {
+  snapshot_id: string;
+  network_id: string;
+  captured_at?: string | null;
+  requested_by?: string | null;
+  status?: string | null;
+  router_count?: number | null;
+  end_device_count?: number | null;
+  link_count?: number | null;
+  error?: string | null;
+}
+
+export interface TopologyNodeRow {
+  ieee_address: string;
+  friendly_name?: string | null;
+  node_type?: string | null;
+  depth?: number | null;
+  lqi?: number | null;
+}
+
+export interface TopologyLinkRow {
+  source_ieee: string;
+  target_ieee: string;
+  source_type?: string | null;
+  target_type?: string | null;
+  linkquality?: number | null;
+  depth?: number | null;
+  relationship?: string | null;
+}
+
+export interface TopologyNetworkDetail {
+  network_id: string;
+  network_name: string;
+  latest_snapshot?: TopologySnapshotSummary | null;
+  nodes: TopologyNodeRow[];
+  links: TopologyLinkRow[];
 }
 
 export type { MockScenarioId };
