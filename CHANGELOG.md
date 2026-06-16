@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Reports:** Lens-family aligned sections on stored report detail (`executive_summary`, `health_summary`, `active_incidents`, `collector_status`, `limitations`, `domain_details`, `events_or_timeline`); legacy fields retained
+
+### Changed
+
+- **Docs:** deployment live-state and alignment status refreshed; BenBeast uses rolling `:edge`, not pinned semver
+
 ## [0.1.13] - 2026-06-16
 
 Lens family alignment release — clean MQTT summary entities, API v1 surface, and presentation health buckets.

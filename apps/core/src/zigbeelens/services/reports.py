@@ -20,7 +20,10 @@ from zigbeelens.schemas import (
     DeviceDetail,
     DeviceHealthPrimary,
     DeviceSummary,
+    Incident,
+    IncidentDeviceRef,
     IncidentStatus,
+    LensHealthSummary,
     LimitationItem,
     ReportDetail,
     ReportRedactionStatus,
@@ -30,6 +33,7 @@ from zigbeelens.schemas import (
     ReportSummaryBlock,
     Severity,
 )
+from zigbeelens.presentation.lens_buckets import BUCKET_LABELS, LensBucket
 from zigbeelens.services.report_redaction import Redactor, resolve_redaction
 from zigbeelens.storage.repository import ReportRow, Repository, utc_now_iso
 
@@ -120,6 +124,111 @@ def build_config_summary(config: AppConfig) -> dict[str, Any]:
 
 def _count_primary(devices: list[DeviceSummary], primary: DeviceHealthPrimary) -> int:
     return sum(1 for d in devices if d.health.primary == primary)
+
+
+def _lens_health_summary(
+    devices: list[DeviceSummary],
+    *,
+    overall_state: Severity | None,
+) -> LensHealthSummary:
+    counts = {bucket.value: 0 for bucket in LensBucket}
+    for device in devices:
+        bucket = device.lens_bucket if device.lens_bucket in counts else LensBucket.unknown.value
+        counts[bucket] += 1
+    labels = {
+        bucket: BUCKET_LABELS[LensBucket(bucket)]
+        for bucket, count in counts.items()
+        if count > 0
+    }
+    return LensHealthSummary(
+        overall_state=overall_state.value if overall_state else None,
+        bucket_counts=counts,
+        bucket_labels=labels,
+    )
+
+
+def _collector_status_summary(collector: dict[str, Any], mode: str | None) -> dict[str, Any]:
+    enabled = bool(collector.get("enabled"))
+    connected = bool(collector.get("connected"))
+    subscribed = int(collector.get("subscribed_topics_count") or 0)
+    if not enabled:
+        mqtt_state = "disabled"
+        bridge_state = "not_observed"
+    elif connected:
+        mqtt_state = "connected"
+        bridge_state = "observed" if subscribed > 0 else "not_observed"
+    else:
+        mqtt_state = "disconnected"
+        bridge_state = "not_observed"
+    return {
+        **collector,
+        "data_mode": mode,
+        "mqtt_collector": mqtt_state,
+        "zigbee2mqtt_bridge": bridge_state,
+    }
+
+
+def _domain_details(detail: ReportDetail) -> dict[str, Any]:
+    return {
+        "networks": detail.networks,
+        "devices": detail.devices,
+        "router_risks": detail.router_risks,
+        "device_details": detail.device_details,
+        "topology_snapshots": detail.raw_counts.get("topology_snapshots", 0),
+    }
+
+
+def _enrich_incident_entity(ref: IncidentDeviceRef) -> IncidentDeviceRef:
+    return ref.model_copy(
+        update={
+            "name": ref.name or ref.friendly_name,
+            "classification": ref.classification or ref.lens_bucket,
+            "reason": ref.reason or ref.lens_bucket_reason or ref.lens_bucket_label,
+        }
+    )
+
+
+def _enrich_incidents(incidents: list[Incident]) -> list[Incident]:
+    enriched: list[Incident] = []
+    for incident in incidents:
+        enriched.append(
+            incident.model_copy(
+                update={
+                    "affected_devices": [
+                        _enrich_incident_entity(ref) for ref in incident.affected_devices
+                    ]
+                }
+            )
+        )
+    return enriched
+
+
+def _apply_lens_report_sections(detail: ReportDetail) -> ReportDetail:
+    mode = detail.config_summary.get("mode")
+    active = _enrich_incidents(
+        [inc for inc in detail.incidents if inc.status != IncidentStatus.resolved]
+    )
+    incidents = _enrich_incidents(detail.incidents)
+    executive = None
+    if detail.summary and detail.summary.current_finding:
+        executive = detail.summary.current_finding
+    elif detail.diagnostic_conclusions:
+        executive = detail.diagnostic_conclusions[0].summary
+    overall = detail.summary.overall_state if detail.summary else detail.health_snapshot.overall_severity
+    return detail.model_copy(
+        update={
+            "site": None,
+            "mode": mode,
+            "redaction_profile": detail.redaction.profile,
+            "executive_summary": executive,
+            "health_summary": _lens_health_summary(detail.devices, overall_state=overall),
+            "incidents": incidents,
+            "active_incidents": active,
+            "collector_status": _collector_status_summary(detail.collector, mode),
+            "events_or_timeline": detail.timeline,
+            "domain_details": _domain_details(detail),
+        }
+    )
 
 
 def _summary_block(
@@ -307,6 +416,7 @@ def generate_report(
     redacted.scope = request.scope.value
     redacted.format = request.format.value
     redacted.raw_counts["events_included"] = len(redacted.timeline)
+    redacted = _apply_lens_report_sections(redacted)
     redacted.markdown_summary = render_markdown(redacted)
     return redacted
 
@@ -323,25 +433,46 @@ def render_markdown(detail: ReportDetail) -> str:
     lines = [
         "# ZigbeeLens diagnostic report",
         "",
+        f"Product: {detail.product}",
+        f"Version: {detail.version}",
         f"Generated: {detail.generated_at}",
         f"Scope: {_title(detail.scope)}",
-        f"Redaction: {detail.redaction.profile}",
+        f"Mode: {detail.mode or 'unknown'}",
+        f"Redaction profile: {detail.redaction_profile or detail.redaction.profile}",
         "",
-        "## Summary",
+        "## Executive summary",
         "",
     ]
+    if detail.executive_summary:
+        lines.append(detail.executive_summary)
+    elif s:
+        lines.append(s.current_finding)
+
+    if detail.health_summary and detail.health_summary.bucket_counts:
+        lines += ["", "## Health summary", ""]
+        for bucket, count in sorted(detail.health_summary.bucket_counts.items()):
+            if count <= 0:
+                continue
+            label = detail.health_summary.bucket_labels.get(
+                bucket,
+                BUCKET_LABELS.get(LensBucket(bucket), bucket.replace("_", " ").title()),
+            )
+            lines.append(f"- {label}: {count}")
+
     if s:
         lines += [
+            "",
+            "## Summary counts",
+            "",
             f"Overall state: {_title(s.overall_state.value)}",
             f"Networks monitored: {s.networks_monitored}",
             f"Devices monitored: {s.total_devices}",
             f"Active incidents: {s.active_incidents}",
-            "",
-            "Current finding:",
-            s.current_finding,
         ]
 
-    active = [i for i in detail.incidents if i.status != IncidentStatus.resolved]
+    active = detail.active_incidents or [
+        i for i in detail.incidents if i.status != IncidentStatus.resolved
+    ]
     if active:
         lines += ["", "## Active incidents"]
         for inc in active:
@@ -355,6 +486,14 @@ def render_markdown(detail: ReportDetail) -> str:
                 f"Network: {', '.join(inc.network_ids)}",
                 f"Affected devices: {inc.affected_device_count}",
             ]
+            if inc.affected_devices:
+                lines += ["", "Affected entities:"]
+                for entity in inc.affected_devices[:20]:
+                    reason = entity.reason or entity.lens_bucket_reason or entity.lens_bucket_label
+                    lines.append(
+                        f"- {entity.name or entity.friendly_name} "
+                        f"({entity.classification or entity.lens_bucket}): {reason}"
+                    )
             if inc.evidence:
                 lines += ["", "Evidence:"]
                 lines += [f"- {e.summary}" for e in inc.evidence]
@@ -362,22 +501,32 @@ def render_markdown(detail: ReportDetail) -> str:
                 lines += ["", "Limitations:"]
                 lines += [f"- {limitation.summary}" for limitation in inc.limitations]
 
+    if detail.collector_status:
+        lines += [
+            "",
+            "## Collector status",
+            "",
+            f"MQTT collector: {detail.collector_status.get('mqtt_collector', 'unknown')}",
+            f"Zigbee2MQTT bridge: {detail.collector_status.get('zigbee2mqtt_bridge', 'unknown')}",
+        ]
+
     unhealthy = [d for d in detail.devices if d.health.severity != Severity.healthy]
     if unhealthy:
         lines += [
             "",
             "## Unhealthy devices",
             "",
-            "| Device | Network | Health | Evidence |",
-            "|---|---|---|---|",
+            "| Device | Network | Health | Lens bucket | Evidence |",
+            "|---|---|---|---|---|",
         ]
         for d in unhealthy[:50]:
             evidence = d.health.evidence[0] if d.health.evidence else ""
             lines.append(
-                f"| {d.friendly_name} | {d.network_id} | {d.health.primary.value} | {evidence} |"
+                f"| {d.friendly_name} | {d.network_id} | {d.health.primary.value} | "
+                f"{d.lens_bucket_label} | {evidence} |"
             )
 
-    lines += ["", "## Known limitations", ""]
+    lines += ["", "## Limitations", ""]
     lines += [f"- {limitation.summary}" for limitation in detail.limitations]
     lines.append("")
     return "\n".join(lines)

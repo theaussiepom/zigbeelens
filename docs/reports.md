@@ -2,6 +2,27 @@
 
 ZigbeeLens generates scoped diagnostic reports from local SQLite history and current classification state.
 
+## Lens family report structure
+
+Lens reports share a common high-level structure but preserve protocol-specific details. Both products expose (or document) these sections where practical:
+
+| Section | ZigbeeLens field | ThreadLens field |
+|---------|------------------|------------------|
+| Identity | `product`, `version`, `generated_at` | same (+ legacy `report.tool`) |
+| Context | `site` (null if unknown), `mode` | `site`, `mode` |
+| Redaction | `redaction_profile` (+ `redaction` detail) | `redaction_profile` (+ `redaction.enabled`) |
+| Executive summary | `executive_summary` | `executive_summary` |
+| Health summary | `health_summary` (Lens bucket counts) | `health_summary` (mapped from health states) |
+| Active incidents | `active_incidents` (+ legacy `incidents`) | `active_incidents` |
+| Collector status | `collector_status` (+ legacy `collector`) | `collector_status` |
+| Limitations | `limitations` | `limitations` |
+| Domain details | `domain_details` (+ legacy top-level arrays) | `domain_details` |
+| Events / timeline | `events_or_timeline` (+ legacy `timeline`) | `events_or_timeline` (+ legacy `events`) |
+
+Exact schemas are not identical — domain payloads remain protocol-specific. New exports add aligned sections without removing existing fields.
+
+ThreadLens on-demand reports: [reports.md](https://github.com/theaussiepom/threadlens/blob/main/docs/reports.md).
+
 ## Formats
 
 | Format | Use case |
