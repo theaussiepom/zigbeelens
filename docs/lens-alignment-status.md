@@ -16,7 +16,7 @@ ThreadLens equivalent: [threadlens/docs/lens-alignment-status.md](https://github
 | API `/api/v1` | **v0.1.13** |
 | Presentation `lens_bucket` | **v0.1.13** |
 | Clean MQTT (6 global) | **edge** @ v0.1.13-era |
-| Report / export alignment | PR #10 |
+| Report / export alignment | Merged (main) |
 | Deployment hygiene | BenBeast rolling `:edge` (not pinned `:0.1.13`) |
 | Live deployment notes | [deployments/lens-alignment-live-state.md](deployments/lens-alignment-live-state.md) |
 
