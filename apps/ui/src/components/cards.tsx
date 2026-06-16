@@ -178,46 +178,59 @@ export function DeviceHealthCard({ device }: { device: DeviceSummary }) {
 /* Network health card                                                      */
 /* ----------------------------------------------------------------------- */
 
-export function NetworkHealthCard({ network }: { network: NetworkSummary }) {
+export function NetworkHealthCard({
+  network,
+  topologyEnabled = false,
+}: {
+  network: NetworkSummary;
+  topologyEnabled?: boolean;
+}) {
   return (
-    <Link
-      to={`/networks/${network.id}`}
-      className="block rounded-xl border border-zl-border bg-zl-surface p-5 transition-colors hover:border-zl-accent/40"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="text-lg font-semibold text-zl-text">{network.name}</h3>
-          <p className="mt-0.5 break-all font-mono text-xs text-zl-muted">{network.base_topic}</p>
+    <div className="rounded-xl border border-zl-border bg-zl-surface p-5 transition-colors hover:border-zl-accent/40">
+      <Link to={`/networks/${network.id}`} className="block">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-lg font-semibold text-zl-text">{network.name}</h3>
+            <p className="mt-0.5 break-all font-mono text-xs text-zl-muted">{network.base_topic}</p>
+          </div>
+          <div className="flex flex-col items-end gap-1.5">
+            <SeverityBadge severity={network.incident_state} />
+            <Badge severity={network.bridge_state === "online" ? "healthy" : "critical"}>
+              Bridge: {bridgeStateLabel(network.bridge_state)}
+            </Badge>
+          </div>
         </div>
-        <div className="flex flex-col items-end gap-1.5">
-          <SeverityBadge severity={network.incident_state} />
-          <Badge severity={network.bridge_state === "online" ? "healthy" : "critical"}>
-            Bridge: {bridgeStateLabel(network.bridge_state)}
-          </Badge>
+        <div className="mt-4 flex flex-wrap gap-1.5">
+          {network.active_incident_count > 0 && (
+            <MetricPill label="Incidents" value={network.active_incident_count} severity="incident" />
+          )}
+          <MetricPill label="Devices" value={network.device_count} />
+          {network.unavailable_count > 0 && (
+            <MetricPill label="Offline" value={network.unavailable_count} severity="incident" />
+          )}
+          {network.recently_unstable_count > 0 && (
+            <MetricPill label="Unstable" value={network.recently_unstable_count} severity="watch" />
+          )}
+          {network.weak_link_count > 0 && (
+            <MetricPill label="Weak" value={network.weak_link_count} severity="watch" />
+          )}
+          {network.low_battery_count > 0 && (
+            <MetricPill label="Low batt" value={network.low_battery_count} severity="watch" />
+          )}
+          {network.stale_count > 0 && (
+            <MetricPill label="Stale" value={network.stale_count} severity="watch" />
+          )}
         </div>
-      </div>
-      <div className="mt-4 flex flex-wrap gap-1.5">
-        {network.active_incident_count > 0 && (
-          <MetricPill label="Incidents" value={network.active_incident_count} severity="incident" />
-        )}
-        <MetricPill label="Devices" value={network.device_count} />
-        {network.unavailable_count > 0 && (
-          <MetricPill label="Offline" value={network.unavailable_count} severity="incident" />
-        )}
-        {network.recently_unstable_count > 0 && (
-          <MetricPill label="Unstable" value={network.recently_unstable_count} severity="watch" />
-        )}
-        {network.weak_link_count > 0 && (
-          <MetricPill label="Weak" value={network.weak_link_count} severity="watch" />
-        )}
-        {network.low_battery_count > 0 && (
-          <MetricPill label="Low batt" value={network.low_battery_count} severity="watch" />
-        )}
-        {network.stale_count > 0 && (
-          <MetricPill label="Stale" value={network.stale_count} severity="watch" />
-        )}
-      </div>
-    </Link>
+      </Link>
+      {topologyEnabled && (
+        <Link
+          to={`/topology/${network.id}`}
+          className="mt-4 inline-flex min-h-11 items-center text-sm text-zl-accent hover:underline"
+        >
+          View topology →
+        </Link>
+      )}
+    </div>
   );
 }
 

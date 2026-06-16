@@ -34,7 +34,7 @@ const DASHBOARD_EVENTS = [
 ];
 
 export function OverviewPage() {
-  const { scenario } = useScenario();
+  const { scenario, status } = useScenario();
 
   const dashboard = useLiveResource(() => api.dashboard(scenario || undefined), [scenario], {
     refetchOn: DASHBOARD_EVENTS,
@@ -121,7 +121,11 @@ export function OverviewPage() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">Networks</h2>
         <div className="grid gap-4 md:grid-cols-2">
           {data.networks.map((n) => (
-            <NetworkHealthCard key={n.id} network={n} />
+            <NetworkHealthCard
+              key={n.id}
+              network={n}
+              topologyEnabled={status?.topology?.enabled ?? false}
+            />
           ))}
         </div>
       </section>

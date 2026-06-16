@@ -32,6 +32,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="networks/:networkId" element={<NetworkDetailPage />} />
             <Route path="routers" element={<RoutersPage />} />
             <Route path="topology" element={<TopologyPage />} />
+            <Route path="topology/:networkId" element={<TopologyPage />} />
             <Route path="devices" element={<DevicesPage />} />
             <Route path="devices/:networkId/:ieeeAddress" element={<DeviceDetailPage />} />
             <Route path="timeline" element={<TimelinePage />} />

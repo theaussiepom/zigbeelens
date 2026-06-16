@@ -32,7 +32,7 @@ const NETWORK_EVENTS = [
 ];
 
 export function NetworksPage() {
-  const { scenario } = useScenario();
+  const { scenario, status } = useScenario();
   const { data, error, loading, refetch } = useLiveResource(
     () => api.networks(scenario || undefined).then((r) => r.items),
     [scenario],
@@ -57,7 +57,11 @@ export function NetworksPage() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {networks.map((n) => (
-            <NetworkHealthCard key={n.id} network={n} />
+            <NetworkHealthCard
+              key={n.id}
+              network={n}
+              topologyEnabled={status?.topology?.enabled ?? false}
+            />
           ))}
         </div>
       )}
