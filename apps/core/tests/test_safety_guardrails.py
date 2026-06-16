@@ -95,9 +95,11 @@ def test_ui_has_no_repair_controls():
         assert pattern not in combined, f"Unsafe UI pattern found: {pattern}"
 
 
-def test_topology_disabled_by_default_in_example_configs():
+def test_topology_startup_defaults_in_example_configs():
     docker_example = REPO_ROOT / "deploy" / "docker" / "config.example.yaml"
     assert docker_example.exists()
     text = docker_example.read_text(encoding="utf-8").lower()
     assert "topology:" in text
-    assert "enabled: false" in text
+    assert "enabled: true" in text
+    assert "startup_scan: true" in text
+    assert "refresh_interval_seconds: 0" in text

@@ -15,6 +15,7 @@ from zigbeelens.topology.parser import parse_networkmap_payload
 from zigbeelens.topology.publisher import FakeTopologyRequestPublisher
 from zigbeelens.topology.service import TopologyService, manual_capture_allowed
 from zigbeelens.topology.topics import (
+    CAPTURE_WARNING,
     UnsafeTopologyTopicError,
     networkmap_request_topic,
     validate_topology_request_topic,
@@ -31,6 +32,7 @@ def _config(db_path: Path, *, topology_enabled: bool = True) -> AppConfig:
             enabled=topology_enabled,
             manual_capture_enabled=topology_enabled,
             automatic_capture_enabled=False,
+            startup_scan=False,
             capture_on_incident=False,
         ),
     )
@@ -122,6 +124,7 @@ def test_no_automatic_capture_on_startup(tmp_path: Path):
 
 def test_topology_response_stored(tmp_path: Path):
     from zigbeelens.app.context import bootstrap, reset_context
+    from zigbeelens.db.connection import Database
 
     db_path = tmp_path / "response.sqlite"
     cfg = _config(db_path)

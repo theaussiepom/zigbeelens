@@ -103,7 +103,7 @@ Update add-on repository metadata if using a separate HA add-on repo.
 - [ ] HACS integration from packaged artifact
 - [ ] Generate `public_safe` report
 - [ ] Confirm MQTT Discovery off by default
-- [ ] Confirm topology off by default
+- [ ] Confirm topology enabled with startup scan only (no periodic refresh by default)
 
 ## Safety verification
 

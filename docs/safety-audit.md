@@ -32,15 +32,15 @@ The test MQTT client's `publish()` method exists only for test assertions — pr
 Implementation: `apps/core/src/zigbeelens/mqtt_discovery/topics.py`  
 Tests: `apps/core/tests/test_mqtt_discovery.py`
 
-## Topology (optional, off by default)
+## Topology (enabled by default)
 
 | Check | Status |
 |-------|--------|
-| Disabled by default | Enforced |
-| Requires `topology.enabled` + `features.manual_network_map` | Enforced |
-| Requires explicit `confirmed: true` for capture | Enforced |
+| Enabled by default with startup scan only | Enforced |
+| Startup scan waits for collector + bridge readiness | Enforced |
+| No periodic active scan when `refresh_interval_seconds: 0` | Enforced |
+| Manual capture requires explicit `confirmed: true` | Enforced |
 | Single allowlisted topic: `{base_topic}/bridge/request/networkmap` | Enforced |
-| No automatic capture by default | Enforced |
 | No permit join, remove, reset, OTA topics | Enforced |
 
 Implementation: `apps/core/src/zigbeelens/topology/topics.py`, `topology/publisher.py`  

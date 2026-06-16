@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Topology:** enabled by default with a single startup network map scan after MQTT collector and bridge readiness (`startup_stable_delay_seconds`, default 60); passive MQTT updates thereafter; periodic active scans disabled unless `refresh_interval_seconds` > 0
 - **Docs:** deployment live-state and alignment status refreshed; BenBeast uses rolling `:edge`, not pinned semver
 
 ## [0.1.13] - 2026-06-16

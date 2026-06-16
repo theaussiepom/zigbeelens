@@ -79,10 +79,13 @@ class FeaturesConfig(BaseModel):
 
 
 class TopologyConfig(BaseModel):
-    enabled: bool = False
+    enabled: bool = True
     manual_capture_enabled: bool = False
     automatic_capture_enabled: bool = False
     automatic_capture_interval_hours: int = Field(default=24, ge=1)
+    startup_scan: bool = True
+    startup_stable_delay_seconds: int = Field(default=60, ge=0)
+    refresh_interval_seconds: int = Field(default=0, ge=0)
     capture_on_incident: bool = False
     max_snapshots_per_network: int = Field(default=5, ge=1)
     warn_before_capture: bool = True

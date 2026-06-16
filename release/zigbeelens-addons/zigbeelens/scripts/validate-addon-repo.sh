@@ -23,7 +23,7 @@ grep -q 'password: ""' "${ADDON}/config.yaml" && ok "no embedded default secrets
 
 grep -q 'mqtt_discovery: false' "${ADDON}/config.yaml" && ok "mqtt_discovery disabled by default" || fail "mqtt_discovery should default false"
 
-grep -q 'topology:' "${ADDON}/config.yaml" && grep -q 'enabled: false' "${ADDON}/config.yaml" && ok "topology disabled by default" || fail "topology should default disabled"
+grep -q 'topology:' "${ADDON}/config.yaml" && grep -q 'enabled: true' "${ADDON}/config.yaml" && grep -q 'startup_scan: true' "${ADDON}/config.yaml" && ok "topology enabled with startup scan by default" || fail "topology should default enabled with startup_scan"
 
 if [[ -f "${ADDON}/Dockerfile" ]]; then
   echo "NOTE: Dockerfile present (image-based add-on may omit it)"

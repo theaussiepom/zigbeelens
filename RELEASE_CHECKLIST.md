@@ -81,7 +81,7 @@ Run all automated checks:
 - [ ] Docker Compose starts
 - [ ] Reports generate and redact correctly
 - [ ] MQTT Discovery **disabled** by default
-- [ ] Topology **disabled** by default
+- [ ] Topology **enabled** by default with startup scan only (no periodic refresh unless configured)
 - [ ] No unsafe MQTT topics published with default config
 - [ ] SSE `/api/events/stream` works (not shadowed by static SPA catch-all)
 
