@@ -234,12 +234,20 @@ export interface TopologyLinkRow {
   relationship?: string | null;
 }
 
+export interface TopologyInventoryCounts {
+  device_count: number;
+  router_count: number;
+  end_device_count: number;
+}
+
 export interface TopologyNetworkDetail {
   network_id: string;
   network_name: string;
   latest_snapshot?: TopologySnapshotSummary | null;
   nodes: TopologyNodeRow[];
   links: TopologyLinkRow[];
+  inventory?: TopologyInventoryCounts | null;
+  layout_available?: boolean;
 }
 
 export type { MockScenarioId };

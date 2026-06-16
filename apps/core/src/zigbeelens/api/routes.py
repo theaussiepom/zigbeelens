@@ -385,6 +385,15 @@ def topology_overview(ctx: AppContext = Depends(ctx_dep)) -> dict:
     return topology_status_dict(ctx)
 
 
+def _topology_inventory_counts(ctx: AppContext, network_id: str) -> dict[str, int]:
+    devices = ctx.repo.list_devices(network_id)
+    return {
+        "device_count": len(devices),
+        "router_count": sum(1 for device in devices if device.device_type == "Router"),
+        "end_device_count": sum(1 for device in devices if device.device_type == "EndDevice"),
+    }
+
+
 @router.get("/topology/{network_id}")
 def topology_network(network_id: str, ctx: AppContext = Depends(ctx_dep)) -> dict:
     network = ctx.repo.get_network(network_id)
@@ -399,6 +408,8 @@ def topology_network(network_id: str, ctx: AppContext = Depends(ctx_dep)) -> dic
         "latest_snapshot": latest,
         "nodes": nodes,
         "links": links,
+        "inventory": _topology_inventory_counts(ctx, network_id),
+        "layout_available": bool(nodes or links),
     }
 
 

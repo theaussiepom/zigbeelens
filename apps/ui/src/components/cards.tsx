@@ -187,7 +187,10 @@ export function NetworkHealthCard({
 }) {
   return (
     <div className="rounded-xl border border-zl-border bg-zl-surface p-5 transition-colors hover:border-zl-accent/40">
-      <Link to={`/networks/${network.id}`} className="block">
+      <Link
+        to={`/networks/${network.id}`}
+        className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 className="text-lg font-semibold text-zl-text">{network.name}</h3>
@@ -225,7 +228,7 @@ export function NetworkHealthCard({
       {topologyEnabled && (
         <Link
           to={`/topology/${network.id}`}
-          className="mt-4 inline-flex min-h-11 items-center text-sm text-zl-accent hover:underline"
+          className="relative z-10 mt-4 inline-flex min-h-11 items-center rounded-lg text-sm text-zl-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
         >
           View topology →
         </Link>
