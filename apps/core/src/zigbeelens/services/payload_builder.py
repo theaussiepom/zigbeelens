@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 from zigbeelens.config.models import AppConfig
 from zigbeelens.diagnostics.incidents.service import IncidentDiagnosticService
 from zigbeelens.diagnostics.models import HealthFlag
@@ -46,15 +44,11 @@ from zigbeelens.services.live_dashboard import (
     live_finding,
 )
 from zigbeelens.storage.repository import DeviceRow, Repository, utc_now_iso
+from zigbeelens.util.json_helpers import parse_json_list
 
 
 def _parse_json_list(raw: str | None) -> list:
-    if not raw:
-        return []
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return []
+    return parse_json_list(raw)
 
 
 def _device_has_flag(health, flag: DeviceHealthPrimary) -> bool:

@@ -56,7 +56,7 @@ pnpm --filter @zigbeelens/ui build
 ./scripts/validate-ha-integration.sh
 ./scripts/validate-addon.sh
 ./scripts/validate-compose.sh
-./scripts/package-hacs.sh
+./scripts/package-hacs-repo.sh
 ./scripts/smoke-core.sh
 ```
 
@@ -65,7 +65,7 @@ pnpm --filter @zigbeelens/ui build
 ```bash
 ./scripts/build-docker.sh
 ./scripts/build-addon.sh
-./scripts/package-hacs.sh
+./scripts/package-hacs-repo.sh
 ```
 
 ### 6. Tag and push

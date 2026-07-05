@@ -46,13 +46,10 @@ Run all automated checks:
 - [ ] HACS integration installed from custom repo (`theaussiepom/zigbeelens-hacs`)
 - [ ] Config flow accepts Core URL reachable from Home Assistant
 - [ ] Native companion panel loads (cards, not raw JSON)
-- [ ] **Open Full Dashboard** button opens Core in a new tab (e.g. `http://192.168.100.5:8377`)
-- [ ] **Try Embedded View** button appears
-- [ ] Native companion panel loads with HTTP Core URL
-- [ ] **Open Full Dashboard** button opens Core in a new tab (e.g. `http://192.168.100.5:8377`)
-- [ ] Configure flow can change Core URL to HTTPS without delete/re-add
-- [ ] If HA is HTTPS and Core is HTTP, Try Embedded View shows friendly blocked explanation
-- [ ] If using HTTPS Core URL, Try Embedded View renders full dashboard inside HA
+- [ ] **Open Full Dashboard** opens Core in a new tab (e.g. `http://192.168.100.5:8377`)
+- [ ] When HA and Core share the same protocol, full Core dashboard auto-embeds in the sidebar panel
+- [ ] When HA is HTTPS and Core is HTTP, panel stays on native summary (mixed content blocked)
+- [ ] Configure flow can change Core URL without delete/re-add; panel picks up new URL after reload
 - [ ] Copy Core URL works
 - [ ] HACS entities appear (overall health, active incident, device counts, per-network)
 - [ ] Stop Core → panel shows calm disconnected state + Core unreachable repair

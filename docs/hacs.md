@@ -2,9 +2,7 @@
 
 Home Assistant bridge to **ZigbeeLens Core** — summary entities, a native companion panel, diagnostics, and repairs.
 
-The HACS sidebar provides a **native companion panel** by default, with an **Open Full Dashboard** button (new tab) and an optional **Try Embedded View** button. This works for normal Docker installs without a reverse proxy. The full ZigbeeLens dashboard is served by Core.
-
-> When HA and Core share the same protocol, the **full Core dashboard** embeds automatically with a ☰ button to reopen HA navigation. Mixed content shows the native summary instead.
+The HACS sidebar provides a **native companion panel** by default, with an **Open Full Dashboard** button (new tab). When Home Assistant and Core share the same protocol (both HTTP or both HTTPS), the panel **auto-embeds** the full Core dashboard in the sidebar. Mixed content (HTTPS HA + HTTP Core) keeps the native summary panel instead.
 
 The Core dashboard is **canonical**. HACS does not collect MQTT or replace the dashboard.
 

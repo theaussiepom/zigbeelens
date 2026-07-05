@@ -12,6 +12,10 @@ ZigbeeLens is read-only with respect to Zigbee control. It does not perform devi
 
 Some API routes can modify ZigbeeLens’ own local data, such as creating/deleting reports, requesting a topology snapshot, or storing Home Assistant enrichment metadata. If you expose Core beyond users or networks you trust, access-control decisions are your responsibility.
 
+### Optional Core API key
+
+Set `ZIGBEELENS_API_KEY` in the Core container environment to require the header `X-ZigbeeLens-Api-Key` on **mutating** routes (`POST`/`DELETE` reports, topology capture, HA enrichment). Read-only GET routes remain open so dashboards and HA polling continue to work. When the variable is unset, Core behaves as before (no built-in auth).
+
 For broader access, consider firewall rules, Home Assistant Ingress, network isolation, or an authenticated reverse proxy such as Authentik, Cloudflare Access, Authelia, or basic auth. HTTPS may help with the optional embedded dashboard view in Home Assistant, but **HTTPS is not authentication**.
 
 ## Local-first design
