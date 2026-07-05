@@ -1,13 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, NavLink, useNavigate, useParams } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Link, NavLink, Navigate, useParams } from "react-router-dom";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
-import { api, type TopologyNetworkDetail } from "@/lib/api";
+import { api, type TopologyNetworkDetail, type TopologyOverview } from "@/lib/api";
 import { Badge, Card, EmptyState, ErrorState, LoadingState, MetricPill } from "@/components/ui";
 import { relativeTime } from "@/lib/format";
+import { topologyRequestedByLabel, topologyStatusLabel } from "@/lib/topologyLabels";
+import { resolveTopologyDisplayCounts, snapshotSummaryLooksLimited } from "@/lib/topologyStats";
 
 const CAPTURE_WARNING =
   "Capturing a Zigbee network map asks Zigbee2MQTT to scan the mesh. On larger networks this may temporarily make Zigbee less responsive. ZigbeeLens will not change Zigbee state, but this diagnostic request can create temporary network load.";
+
+const LIMITED_LAYOUT_COPY =
+  "Topology snapshot was captured, but Zigbee2MQTT did not provide usable node/link layout data. Device health still comes from passive MQTT inventory and state updates.";
 
 function NetworkTabs({
   networks,
@@ -29,7 +34,7 @@ function NetworkTabs({
           role="tab"
           aria-selected={network.network_id === activeId}
           className={({ isActive }) =>
-            `rounded-lg border px-4 py-2 text-sm font-medium transition-colors min-h-11 ${
+            `rounded-lg border px-4 py-2 text-sm font-medium transition-colors min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50 ${
               isActive
                 ? "border-zl-accent/40 bg-zl-accent/15 text-zl-accent"
                 : "border-zl-border text-zl-muted hover:bg-zl-surface-2 hover:text-zl-text"
@@ -65,16 +70,14 @@ function TopologyNetworkDetailView({ detail }: { detail: TopologyNetworkDetail }
   const snapshot = detail.latest_snapshot;
   const nodes = detail.nodes ?? [];
   const links = detail.links ?? [];
+  const inventory = detail.inventory;
 
   if (!snapshot) {
     return <MissingSnapshotState />;
   }
 
-  const routerCount = snapshot.router_count ?? nodes.filter((n) => n.node_type === "Router").length;
-  const endDeviceCount =
-    snapshot.end_device_count ?? nodes.filter((n) => n.node_type === "EndDevice").length;
-  const linkCount = snapshot.link_count ?? links.length;
-  const hasLayout = nodes.length > 0 || links.length > 0;
+  const counts = resolveTopologyDisplayCounts(snapshot, nodes, links);
+  const hasLayout = counts.layoutAvailable;
 
   return (
     <div className="space-y-4">
@@ -83,18 +86,28 @@ function TopologyNetworkDetailView({ detail }: { detail: TopologyNetworkDetail }
         subtitle={snapshot.captured_at ? `Captured ${relativeTime(snapshot.captured_at)}` : undefined}
         actions={
           snapshot.status === "complete" ? (
-            <Badge severity="healthy">complete</Badge>
+            <Badge severity="healthy">{topologyStatusLabel(snapshot.status)}</Badge>
           ) : (
-            <Badge severity="watch">{snapshot.status ?? "pending"}</Badge>
+            <Badge severity="watch">{topologyStatusLabel(snapshot.status)}</Badge>
           )
         }
       >
         <div className="flex flex-wrap gap-2">
-          <MetricPill label="Routers" value={routerCount} />
-          <MetricPill label="End devices" value={endDeviceCount} />
-          <MetricPill label="Links" value={linkCount} />
+          <MetricPill label="Topology routers" value={counts.routers} />
+          <MetricPill label="Topology end devices" value={counts.endDevices} />
+          <MetricPill label="Topology links" value={counts.links} />
+          {inventory && (
+            <>
+              <MetricPill label="Known devices" value={inventory.device_count} />
+              <MetricPill label="Known routers" value={inventory.router_count} />
+              <MetricPill label="Known end devices" value={inventory.end_device_count} />
+            </>
+          )}
           {snapshot.requested_by && (
-            <MetricPill label="Requested by" value={snapshot.requested_by} />
+            <MetricPill
+              label="Requested by"
+              value={topologyRequestedByLabel(snapshot.requested_by)}
+            />
           )}
         </div>
         {snapshot.error && (
@@ -102,8 +115,7 @@ function TopologyNetworkDetailView({ detail }: { detail: TopologyNetworkDetail }
         )}
         {!hasLayout && (
           <p className="mt-3 border-l-2 border-zl-watch/40 pl-3 text-sm text-zl-muted">
-            Snapshot stored, but node and link layout data is limited or empty. ZigbeeLens still
-            uses passive MQTT updates for device health.
+            {LIMITED_LAYOUT_COPY}
           </p>
         )}
       </Card>
@@ -167,10 +179,72 @@ function TopologyNetworkDetailView({ detail }: { detail: TopologyNetworkDetail }
   );
 }
 
+function networkSnapshotSummary(
+  latest: NonNullable<TopologyOverview["networks"][number]["latest_snapshot"]> | null | undefined,
+): string {
+  if (!latest) {
+    return "No topology snapshot captured yet";
+  }
+  const captured = `Latest snapshot ${relativeTime(latest.captured_at)}`;
+  if (snapshotSummaryLooksLimited(latest)) {
+    return `${captured} · topology layout limited`;
+  }
+  return `${captured} · ${latest.router_count} topology routers · ${latest.link_count} topology links`;
+}
+
+function NetworkTopologyRow({
+  network,
+  isActive,
+  manualCaptureEnabled,
+  onCapture,
+}: {
+  network: TopologyOverview["networks"][number];
+  isActive: boolean;
+  manualCaptureEnabled: boolean;
+  onCapture: (networkId: string) => void;
+}) {
+  const latest = network.latest_snapshot;
+
+  return (
+    <li className="flex flex-wrap items-stretch gap-2">
+      <Link
+        to={`/topology/${network.network_id}`}
+        aria-current={isActive ? "page" : undefined}
+        className={`flex min-h-11 flex-1 flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50 ${
+          isActive
+            ? "border-zl-accent/40 bg-zl-accent/5"
+            : "border-zl-border hover:border-zl-accent/30 hover:bg-zl-surface-2/50"
+        }`}
+      >
+        <div>
+          <div className="font-medium">{network.network_name}</div>
+          <div className="text-xs text-zl-muted">{networkSnapshotSummary(latest)}</div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {latest ? (
+            <Badge severity="healthy">snapshot</Badge>
+          ) : (
+            <Badge severity="watch">diagnostics limited</Badge>
+          )}
+          <span className="text-sm text-zl-accent">View topology →</span>
+        </div>
+      </Link>
+      {manualCaptureEnabled && (
+        <button
+          type="button"
+          onClick={() => onCapture(network.network_id)}
+          className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+        >
+          Capture snapshot
+        </button>
+      )}
+    </li>
+  );
+}
+
 export function TopologyPage() {
   const { status } = useScenario();
   const { networkId } = useParams<{ networkId?: string }>();
-  const navigate = useNavigate();
   const overview = useLiveResource(() => api.topology(), []);
   const [modalNetwork, setModalNetwork] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
@@ -183,12 +257,6 @@ export function TopologyPage() {
     }
     return networks[0]?.network_id;
   }, [networkId, networks]);
-
-  useEffect(() => {
-    if (!overview.loading && networks.length > 0 && !networkId) {
-      navigate(`/topology/${networks[0].network_id}`, { replace: true });
-    }
-  }, [overview.loading, networks, networkId, navigate]);
 
   const detail = useLiveResource(
     () =>
@@ -203,6 +271,10 @@ export function TopologyPage() {
 
   const topology = overview.data;
   const enabled = topology?.enabled ?? status.topology?.enabled ?? false;
+
+  if (enabled && networks.length > 0 && !networkId) {
+    return <Navigate to={`/topology/${networks[0].network_id}`} replace />;
+  }
 
   async function confirmCapture(targetNetworkId: string) {
     setCapturing(true);
@@ -271,49 +343,15 @@ export function TopologyPage() {
 
           <Card title="All networks">
             <ul className="space-y-3 text-sm">
-              {networks.map((network) => {
-                const latest = network.latest_snapshot;
-                const isActive = network.network_id === activeNetworkId;
-                return (
-                  <li
-                    key={network.network_id}
-                    className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-3 ${
-                      isActive ? "border-zl-accent/40 bg-zl-accent/5" : "border-zl-border"
-                    }`}
-                  >
-                    <div>
-                      <div className="font-medium">{network.network_name}</div>
-                      <div className="text-xs text-zl-muted">
-                        {latest
-                          ? `Latest snapshot ${relativeTime(latest.captured_at)} · ${latest.router_count} routers · ${latest.link_count} links`
-                          : "No topology snapshot captured yet"}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {latest ? (
-                        <Badge severity="healthy">snapshot</Badge>
-                      ) : (
-                        <Badge severity="watch">diagnostics limited</Badge>
-                      )}
-                      <Link
-                        to={`/topology/${network.network_id}`}
-                        className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2"
-                      >
-                        View topology
-                      </Link>
-                      {enabled && topology?.manual_capture_enabled && (
-                        <button
-                          type="button"
-                          onClick={() => setModalNetwork(network.network_id)}
-                          className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2"
-                        >
-                          Capture snapshot
-                        </button>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
+              {networks.map((network) => (
+                <NetworkTopologyRow
+                  key={network.network_id}
+                  network={network}
+                  isActive={network.network_id === activeNetworkId}
+                  manualCaptureEnabled={Boolean(enabled && topology?.manual_capture_enabled)}
+                  onCapture={setModalNetwork}
+                />
+              ))}
             </ul>
           </Card>
         </>
@@ -348,3 +386,5 @@ export function TopologyPage() {
     </div>
   );
 }
+
+export { LIMITED_LAYOUT_COPY };
