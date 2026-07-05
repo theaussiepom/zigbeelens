@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from zigbeelens.mqtt.collector import MqttCollector, build_collector, collector_enabled
+from zigbeelens.mqtt.dashboard_scheduler import DashboardPublishScheduler
 from zigbeelens.mqtt.events import EventBroadcaster
 from zigbeelens.mqtt.ingestion import MqttIngestionService
 
@@ -25,11 +26,11 @@ def start_collector(ctx: AppContext, broadcaster: EventBroadcaster) -> MqttColle
         ctx.repo.update_collector_status(enabled=False, connected=False, subscribed_topics_count=0)
         return None
 
+    dashboard_scheduler = DashboardPublishScheduler(ctx, broadcaster)
+    ctx.dashboard_scheduler = dashboard_scheduler
+
     def on_dashboard_update(_event_type: str, _network_id: str) -> None:
-        dashboard = ctx.data.dashboard()
-        broadcaster.publish_dashboard_update(dashboard.model_dump_json())
-        if ctx.discovery is not None:
-            ctx.discovery.schedule_update()
+        dashboard_scheduler.schedule()
 
     def on_health_recalc(network_id: str, ieee_address: str | None = None) -> None:
         if ieee_address:

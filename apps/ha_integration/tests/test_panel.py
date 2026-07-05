@@ -39,7 +39,7 @@ async def test_panel_registered_as_native_custom_panel():
 
 
 @pytest.mark.asyncio
-async def test_panel_not_registered_twice():
+async def test_panel_not_registered_twice_when_core_url_unchanged():
     from homeassistant.components import frontend
 
     hass = MagicMock()
@@ -51,12 +51,30 @@ async def test_panel_not_registered_twice():
     with patch(
         "zigbeelens.panel.panel_custom.async_register_panel", new=AsyncMock()
     ) as register:
-        await async_register_panel(hass, "entry1", "http://localhost:8377")
+        await async_register_panel(hass, "entry1", "http://old")
         register.assert_not_awaited()
     assert (
         hass.data[frontend.DATA_PANELS]["zigbeelens"]["config"]["core_url"]
-        == "http://localhost:8377"
+        == "http://old"
     )
+
+
+@pytest.mark.asyncio
+async def test_panel_reregisters_when_core_url_changes():
+    from homeassistant.components import frontend
+
+    hass = MagicMock()
+    hass.data = {
+        "zigbeelens": {"_panel_state": {"panel_registered": True}},
+        frontend.DATA_PANELS: {"zigbeelens": {"config": {"core_url": "http://old"}}},
+    }
+    hass.http.async_register_static_paths = AsyncMock()
+    with patch(
+        "zigbeelens.panel.panel_custom.async_register_panel", new=AsyncMock()
+    ) as register, patch("zigbeelens.panel.frontend.async_remove_panel") as remove:
+        await async_register_panel(hass, "entry1", "http://localhost:8377")
+        remove.assert_called_once()
+        register.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -115,6 +133,45 @@ def test_ws_panel_summary_disconnected_is_calm():
     assert payload["core_url"] == "http://192.168.100.5:8377"
     assert payload["error"] == "Cannot connect to ZigbeeLens Core"
     assert payload["networks"] == []
+
+
+@pytest.mark.asyncio
+async def test_panel_reregister_when_flag_set_but_panel_missing():
+    from homeassistant.components import frontend
+
+    hass = MagicMock()
+    hass.data = {
+        "zigbeelens": {"_panel_state": {"panel_registered": True}},
+        frontend.DATA_PANELS: {},
+    }
+    hass.http.async_register_static_paths = AsyncMock()
+    with patch(
+        "zigbeelens.panel.panel_custom.async_register_panel", new=AsyncMock()
+    ) as register:
+        await async_register_panel(hass, "entry1", "http://localhost:8377")
+        register.assert_awaited_once()
+    assert hass.data["zigbeelens"]["_panel_state"]["panel_registered"] is True
+
+
+def test_ws_panel_summary_handles_bad_dashboard_data():
+    hass = MagicMock()
+    coordinator = MagicMock()
+    coordinator.last_update_success = True
+    coordinator.data = MagicMock()
+    coordinator.data.dashboard = "bad-shape"
+    coordinator.data.health = {}
+    coordinator.data.core_version = None
+    coordinator.data.collector_connected = False
+    coordinator.last_exception = None
+    client = MagicMock(core_url="http://192.168.100.5:8377")
+    hass.data = {"zigbeelens": {"e": {"coordinator": coordinator, "client": client}}}
+    connection = MagicMock()
+
+    _ws_panel_summary(hass, connection, {"id": 9})
+
+    _id, payload = connection.send_result.call_args[0]
+    assert payload["connected"] is False
+    assert payload["error"] == "Panel summary unavailable"
 
 
 def test_ws_panel_summary_without_coordinator():

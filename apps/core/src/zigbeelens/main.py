@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 
 from zigbeelens import __version__
+from zigbeelens.api.auth import OptionalApiKeyMiddleware
 from zigbeelens.api.routes import router
 from zigbeelens.app.context import bootstrap, get_context, reset_context
 from zigbeelens.logging_config import configure_logging
@@ -57,6 +58,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(OptionalApiKeyMiddleware)
 
     @app.middleware("http")
     async def allow_embedded_ui(request, call_next):

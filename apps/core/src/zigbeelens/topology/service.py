@@ -335,6 +335,11 @@ def get_topology_service() -> TopologyService | None:
     return _topology
 
 
+def stop_topology() -> None:
+    global _topology
+    _topology = None
+
+
 def topology_status_dict(ctx: AppContext) -> dict:
     service = get_topology_service()
     if service is None:

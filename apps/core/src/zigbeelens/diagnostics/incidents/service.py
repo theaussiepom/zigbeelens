@@ -18,6 +18,7 @@ from zigbeelens.schemas import (
     Severity,
 )
 from zigbeelens.storage.repository import Repository
+from zigbeelens.util.json_helpers import parse_json_list
 
 OnIncidentUpdate = Callable[[str], None]
 
@@ -65,15 +66,15 @@ class IncidentDiagnosticService:
             summary=top["summary"],
             evidence=[
                 EvidenceItem(id=f"ev-{i}", kind="incident", summary=_summary_item(item))
-                for i, item in enumerate(_json_list(top.get("evidence_json")))
+                for i, item in enumerate(parse_json_list(top.get("evidence_json")))
             ],
             counter_evidence=[
                 EvidenceItem(id=f"ce-{i}", kind="incident", summary=_summary_item(item))
-                for i, item in enumerate(_json_list(top.get("counter_evidence_json")))
+                for i, item in enumerate(parse_json_list(top.get("counter_evidence_json")))
             ],
             limitations=[
                 LimitationItem(id=f"lim-{i}", summary=_summary_item(item))
-                for i, item in enumerate(_json_list(top.get("limitations_json")))
+                for i, item in enumerate(parse_json_list(top.get("limitations_json")))
             ],
         )
 
@@ -115,15 +116,4 @@ def _summary_item(item) -> str:
     return str(item)
 
 
-def _json_list(raw: str | None) -> list:
-    import json
-
-    if not raw:
-        return []
-    try:
-        data = json.loads(raw)
-        if isinstance(data, list):
-            return data
-    except json.JSONDecodeError:
-        pass
-    return []
+__all__ = ["IncidentDiagnosticService"]

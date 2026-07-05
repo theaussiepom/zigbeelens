@@ -21,7 +21,8 @@ test -f "${HA_DIR}/custom_components/zigbeelens/brand/icon@2x.png"
 test -f "${HA_DIR}/custom_components/zigbeelens/brand/logo@2x.png"
 
 echo "==> Packaging dry run"
-bash "${ROOT}/scripts/package-hacs.sh"
+bash "${ROOT}/scripts/package-hacs-repo.sh"
+bash "${ROOT}/dist/zigbeelens-hacs/scripts/validate-hacs-repo.sh"
 
 echo "==> Running HA integration tests"
 python3 -m venv "${HA_DIR}/.venv-test"

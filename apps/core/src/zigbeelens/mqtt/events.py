@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
 from collections.abc import AsyncIterator
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+_MAX_SSE_QUEUE_SIZE = 32
 
 
 class EventBroadcaster:
@@ -19,7 +24,7 @@ class EventBroadcaster:
         self._loop = loop
 
     async def subscribe(self) -> AsyncIterator[dict[str, Any]]:
-        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=_MAX_SSE_QUEUE_SIZE)
         with self._lock:
             self._queues.append(queue)
         try:
@@ -40,7 +45,17 @@ class EventBroadcaster:
         for queue in queues:
 
             def _put(q: asyncio.Queue[dict[str, Any]] = queue) -> None:
-                q.put_nowait(payload)
+                try:
+                    q.put_nowait(payload)
+                except asyncio.QueueFull:
+                    try:
+                        q.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                    try:
+                        q.put_nowait(payload)
+                    except asyncio.QueueFull:
+                        logger.debug("Dropped SSE event for slow client")
 
             self._loop.call_soon_threadsafe(_put)
 

@@ -14,13 +14,14 @@ from zigbeelens.diagnostics.service import HealthDiagnosticService
 from zigbeelens.mqtt.events import EventBroadcaster
 from zigbeelens.mqtt.lifecycle import create_broadcaster, start_collector, stop_collector
 from zigbeelens.mqtt_discovery import start_discovery, stop_discovery
-from zigbeelens.topology import start_topology
+from zigbeelens.topology import start_topology, stop_topology
 from zigbeelens.services.data_service import DataService
 from zigbeelens.storage.repository import Repository
 from zigbeelens.storage.retention import enforce_storage_retention
 
 if TYPE_CHECKING:
     from zigbeelens.mqtt.collector import MqttCollector
+    from zigbeelens.mqtt.dashboard_scheduler import DashboardPublishScheduler
     from zigbeelens.mqtt_discovery.service import MqttDiscoveryService
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ class AppContext:
     broadcaster: EventBroadcaster
     collector: MqttCollector | None = None
     discovery: MqttDiscoveryService | None = None
+    dashboard_scheduler: DashboardPublishScheduler | None = None
     config_path: str | None = None
     started_at: float = field(default_factory=time.time)
     config_loaded: bool = True
@@ -46,6 +48,9 @@ class AppContext:
         return int(time.time() - self.started_at)
 
     def close(self) -> None:
+        if self.dashboard_scheduler is not None:
+            self.dashboard_scheduler.cancel()
+        stop_topology()
         stop_discovery(self.discovery)
         stop_collector(self.collector, self.broadcaster)
         self.db.close()
@@ -54,23 +59,23 @@ class AppContext:
 _context: AppContext | None = None
 
 
-def _notify_discovery(ctx: AppContext) -> None:
+def _schedule_dashboard(ctx: AppContext, event_type: str) -> None:
+    ctx.broadcaster.publish_sync(event_type, {"type": event_type})
+    if ctx.dashboard_scheduler is not None:
+        ctx.dashboard_scheduler.schedule()
+        return
+    dashboard = ctx.data.dashboard()
+    ctx.broadcaster.publish_dashboard_update(dashboard.model_dump_json())
     if ctx.discovery is not None:
         ctx.discovery.schedule_update()
 
 
-def _on_health_update(ctx: AppContext, broadcaster: EventBroadcaster, event_type: str) -> None:
-    broadcaster.publish_sync(event_type, {"type": event_type})
-    dashboard = ctx.data.dashboard()
-    broadcaster.publish_dashboard_update(dashboard.model_dump_json())
-    _notify_discovery(ctx)
+def _on_health_update(ctx: AppContext, event_type: str) -> None:
+    _schedule_dashboard(ctx, event_type)
 
 
-def _on_incident_update(ctx: AppContext, broadcaster: EventBroadcaster, event_type: str) -> None:
-    broadcaster.publish_sync(event_type, {"type": event_type})
-    dashboard = ctx.data.dashboard()
-    broadcaster.publish_dashboard_update(dashboard.model_dump_json())
-    _notify_discovery(ctx)
+def _on_incident_update(ctx: AppContext, event_type: str) -> None:
+    _schedule_dashboard(ctx, event_type)
 
 
 def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -> AppContext:
@@ -102,13 +107,13 @@ def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -
     )
 
     def incident_callback(event_type: str) -> None:
-        _on_incident_update(ctx, broadcaster, event_type)
+        _on_incident_update(ctx, event_type)
 
     incidents = IncidentDiagnosticService(cfg, repo, on_update=incident_callback)
 
     def health_callback(event_type: str) -> None:
         ctx.incidents.correlate_and_sync(ctx.health)
-        _on_health_update(ctx, broadcaster, event_type)
+        _on_health_update(ctx, event_type)
 
     health = HealthDiagnosticService(cfg, repo, on_update=health_callback)
     ctx.health = health
@@ -131,9 +136,9 @@ def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -
     )
     if not cfg.mode.mock:
         logger.info(
-            "Security notice: ZigbeeLens Core has no built-in authentication in v0.1.0. "
-            "If Core is reachable beyond users or networks you trust, access-control "
-            "decisions are your responsibility."
+            "Security notice: ZigbeeLens Core has no built-in authentication by default. "
+            "Set ZIGBEELENS_API_KEY to protect mutating routes when Core is exposed beyond "
+            "trusted networks."
         )
     return ctx
 
