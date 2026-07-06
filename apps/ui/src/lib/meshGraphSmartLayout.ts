@@ -285,11 +285,13 @@ export function orderRoutersByEvidence(
 /* Geometry                                                                  */
 /* ------------------------------------------------------------------------ */
 
-const GAP_X = 42;
-const GAP_Y = 52;
+const GAP_X = 72;
+const GAP_Y = 80;
 const CELL_W = MESH_NODE_WIDTH + GAP_X;
 const CELL_H = MESH_NODE_HEIGHT + GAP_Y;
-const BAND_GAP = 140;
+const BAND_GAP = 168;
+/** Extra horizontal air between router cluster columns. */
+const CLUSTER_PAD = 40;
 
 function stableSort(
   devices: MeshEvidenceDevice[],
@@ -437,10 +439,12 @@ function placeHierarchy(
   edges: MeshEvidenceEdge[],
   options: { satelliteColumns: (n: number) => number; routersPerRow: number },
 ): void {
-  // Column width per cluster depends on its satellite grid width.
-  const widths = clusters.map((c) =>
-    Math.max(1, options.satelliteColumns(c.members.length)) * CELL_W,
-  );
+  // Column width: satellite grid plus padding so adjacent clusters never
+  // overlap at default zoom (node boxes are MESH_NODE_WIDTH wide).
+  const widths = clusters.map((c) => {
+    const cols = options.satelliteColumns(c.members.length);
+    return Math.max(MESH_NODE_WIDTH + GAP_X, cols * CELL_W) + CLUSTER_PAD;
+  });
 
   const perRow = Math.max(1, options.routersPerRow);
   const rows: number[][] = [];
@@ -516,7 +520,7 @@ function placeClusters(
   degree: Map<string, number>,
 ): void {
   const perRow = Math.max(1, Math.ceil(Math.sqrt(clusters.length)));
-  const clusterSpan = 3 * CELL_W;
+  const clusterSpan = 4 * CELL_W;
 
   const coordinators = stableSort(classified.coordinators, degree);
   placeGrid(positions, coordinators, 0, 0, coordinators.length || 1);

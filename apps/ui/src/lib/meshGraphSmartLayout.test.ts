@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { MeshEvidenceDevice, MeshEvidenceEdge, MeshRole } from "@/lib/meshEvidence";
+import { MESH_NODE_HEIGHT, MESH_NODE_WIDTH } from "@/lib/meshGraphLayout";
 import {
   DEFAULT_LAYOUT_MODE,
   MESH_LAYOUT_MODES,
@@ -275,13 +276,45 @@ describe("computeMeshLayout", () => {
   });
 
   it("does not depend on which edges are visible — only the full evidence set", () => {
-    // Connection-control toggles pass the same full edge set, so positions
-    // cannot move; this asserts determinism against edge ordering too.
     const shuffled = [...edges].reverse();
     const a = computeMeshLayout(devices, edges, "smart");
     const b = computeMeshLayout(devices, shuffled, "smart");
     for (const d of devices) {
       expect(b.get(d.ieee_address)).toEqual(a.get(d.ieee_address));
+    }
+  });
+
+  it("keeps every node box separated at default layout spacing", () => {
+    const manyRouters = Array.from({ length: 12 }, (_, i) =>
+      device(`0xr${i}`, "router", { friendly_name: `Router ${i}` }),
+    );
+    const manyEnds = Array.from({ length: 24 }, (_, i) =>
+      device(`0xe${i}`, "end_device", { friendly_name: `End ${i}` }),
+    );
+    const denseDevices = [coordinator, ...manyRouters, ...manyEnds];
+    const denseEdges = [
+      ...manyRouters.map((r) => neighbour("0xc0", r.ieee_address, 200)),
+      ...manyRouters.slice(1).map((r, i) =>
+        neighbour(manyRouters[i].ieee_address, r.ieee_address, 150),
+      ),
+      ...manyEnds.map((e, i) =>
+        neighbour(e.ieee_address, manyRouters[i % manyRouters.length].ieee_address, 120),
+      ),
+    ];
+    const positions = computeMeshLayout(denseDevices, denseEdges, "smart");
+    const ids = denseDevices.map((d) => d.ieee_address);
+    const minGap = 8;
+    for (let i = 0; i < ids.length; i += 1) {
+      const a = positions.get(ids[i])!;
+      for (let j = i + 1; j < ids.length; j += 1) {
+        const b = positions.get(ids[j])!;
+        const separated =
+          a.x + MESH_NODE_WIDTH + minGap <= b.x ||
+          b.x + MESH_NODE_WIDTH + minGap <= a.x ||
+          a.y + MESH_NODE_HEIGHT + minGap <= b.y ||
+          b.y + MESH_NODE_HEIGHT + minGap <= a.y;
+        expect(separated).toBe(true);
+      }
     }
   });
 });

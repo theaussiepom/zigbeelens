@@ -4,25 +4,24 @@ import {
   Controls,
   MarkerType,
   MiniMap,
-  Position,
   ReactFlow,
   applyNodeChanges,
   type Edge,
   type EdgeMarker,
   type Node,
   type NodeChange,
-  type NodeHandle,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import type {
-  MeshEvidenceDevice,
-  MeshEvidenceEdge,
-  MeshRole,
-} from "@/lib/meshEvidence";
+import type { MeshEvidenceDevice, MeshEvidenceEdge } from "@/lib/meshEvidence";
 import { evidenceClassLabel } from "@/lib/meshEvidence";
 import { evidenceEdgeStyle } from "@/components/meshGraph/evidenceStyles";
 import { MeshDeviceNode } from "@/components/meshGraph/MeshDeviceNode";
 import { MESH_NODE_HEIGHT, MESH_NODE_WIDTH } from "@/lib/meshGraphLayout";
+import {
+  borderPositionsForEdge,
+  handleIdsForPositions,
+  meshNodeStaticHandles,
+} from "@/lib/meshGraphEdgeGeometry";
 import { deviceHasIssue } from "@/lib/meshGraphDense";
 import {
   applySavedPositions,
@@ -30,40 +29,14 @@ import {
   loadSavedPositions,
   saveNodePosition,
   type MeshLayoutMode,
+  type MeshPoint,
   type SavedPositions,
 } from "@/lib/meshGraphSmartLayout";
 
 const nodeTypes = { meshDevice: MeshDeviceNode };
 
-/**
- * Static handle geometry so edges can render before (or without) DOM
- * measurement — required for deterministic first paint and jsdom tests.
- */
-const STATIC_HANDLES: NodeHandle[] = [
-  {
-    type: "target",
-    position: Position.Top,
-    x: MESH_NODE_WIDTH / 2,
-    y: 0,
-    width: 6,
-    height: 6,
-  },
-  {
-    type: "source",
-    position: Position.Bottom,
-    x: MESH_NODE_WIDTH / 2,
-    y: MESH_NODE_HEIGHT,
-    width: 6,
-    height: 6,
-  },
-];
-
-const ROLE_RANK: Record<MeshRole, number> = {
-  coordinator: 0,
-  router: 1,
-  end_device: 2,
-  unknown: 2,
-};
+/** Shared static handles — see meshNodeStaticHandles. */
+const STATIC_HANDLES = meshNodeStaticHandles();
 
 function edgeAriaLabel(
   edge: MeshEvidenceEdge,
@@ -73,20 +46,6 @@ function edgeAriaLabel(
     ? `from ${nameOf(edge.source)} to ${nameOf(edge.target)}`
     : `between ${nameOf(edge.source)} and ${nameOf(edge.target)}`;
   return `${evidenceClassLabel(edge.evidence_class)} ${relation}`;
-}
-
-/** Edge shape per class keeps parallel evidence edges visually separable. */
-function edgeType(edge: MeshEvidenceEdge): string {
-  switch (edge.evidence_class) {
-    case "latest_snapshot_route":
-    case "historical_route":
-      return "smoothstep";
-    case "passive_derived_association":
-    case "stale_low_confidence":
-      return "straight";
-    default:
-      return "default";
-  }
 }
 
 type EdgeFocus = "normal" | "focused" | "muted";
@@ -100,17 +59,21 @@ function edgeFocusFor(edge: MeshEvidenceEdge, selectedNodeId: string | null): Ed
 
 function buildFlowEdge(
   edge: MeshEvidenceEdge,
-  roleOf: (ieee: string) => MeshRole,
+  positions: Map<string, MeshPoint>,
   nameOf: (ieee: string) => string,
   focus: EdgeFocus,
 ): Edge {
   const style = evidenceEdgeStyle(edge.evidence_class);
-  // Render edges top-down (higher role first) so the layered layout stays
-  // clean; if the evidence direction is the reverse, the arrow moves to the
-  // path start so it still points at the evidence target.
-  const flip = ROLE_RANK[roleOf(edge.source)] > ROLE_RANK[roleOf(edge.target)];
-  const renderSource = flip ? edge.target : edge.source;
-  const renderTarget = flip ? edge.source : edge.target;
+  const sourcePos = positions.get(edge.source);
+  const targetPos = positions.get(edge.target);
+  const borders =
+    sourcePos && targetPos
+      ? borderPositionsForEdge(
+          { x: sourcePos.x, y: sourcePos.y, width: MESH_NODE_WIDTH, height: MESH_NODE_HEIGHT },
+          { x: targetPos.x, y: targetPos.y, width: MESH_NODE_WIDTH, height: MESH_NODE_HEIGHT },
+        )
+      : undefined;
+  const handles = borders ? handleIdsForPositions(borders) : undefined;
 
   const marker: EdgeMarker | undefined = edge.directional
     ? { type: MarkerType.ArrowClosed, color: style.stroke, width: 16, height: 16 }
@@ -124,9 +87,11 @@ function buildFlowEdge(
 
   return {
     id: edge.id,
-    source: renderSource,
-    target: renderTarget,
-    type: edgeType(edge),
+    source: edge.source,
+    target: edge.target,
+    type: "straight",
+    sourceHandle: handles?.sourceHandle,
+    targetHandle: handles?.targetHandle,
     className: `mesh-edge mesh-edge--${edge.evidence_class} mesh-edge--focus-${focus}`,
     ariaLabel: edgeAriaLabel(edge, nameOf),
     interactionWidth: 24,
@@ -137,8 +102,7 @@ function buildFlowEdge(
       strokeLinecap: style.strokeLinecap,
       opacity,
     },
-    markerEnd: flip ? undefined : marker,
-    markerStart: flip ? marker : undefined,
+    markerEnd: marker,
     data: { evidence: edge },
   };
 }
@@ -153,6 +117,10 @@ function buildFlowEdge(
  * open/close and selection never move nodes. React Flow is keyed by
  * network/mode/reset identity so fitView fires only on first load, network
  * change, mode change and explicit reset.
+ *
+ * Edges attach on the node side that faces their neighbour (not fixed
+ * top/bottom ports), and render as straight segments so lines leave boxes
+ * in a sensible direction.
  */
 export function MeshEvidenceGraph({
   devices,
@@ -170,17 +138,10 @@ export function MeshEvidenceGraph({
   devices: MeshEvidenceDevice[];
   visibleEdges: MeshEvidenceEdge[];
   allEdges: MeshEvidenceEdge[];
-  /**
-   * Stable identity of the data source: network id, data-source mode and
-   * snapshot id/captured-at. Must not include fetch times or UI state.
-   */
   signatureSeed: string;
   layoutMode: MeshLayoutMode;
-  /** Stable key for locally saved node positions (network scoped). */
   positionStorageId: string;
-  /** Bumped by "Reset layout"; forces recompute + one fitView. */
   resetNonce: number;
-  /** "Devices with issues" control: highlight nodes, never expand edges. */
   highlightIssueDevices: boolean;
   selectedNodeId: string | null;
   onSelectEdge: (edge: MeshEvidenceEdge) => void;
@@ -193,18 +154,11 @@ export function MeshEvidenceGraph({
     setSavedPositions(loadSavedPositions(positionStorageId, layoutMode));
   }, [positionStorageId, layoutMode, resetNonce]);
 
-  // Deterministic Zigbee-aware placement from the full (unfiltered) evidence
-  // set; recomputing on identical inputs yields identical positions, so
-  // memo-identity churn can never move nodes.
   const positions = useMemo(() => {
     const generated = computeMeshLayout(devices, allEdges, layoutMode);
     return applySavedPositions(generated, savedPositions);
   }, [devices, allEdges, layoutMode, savedPositions]);
 
-  const roleById = useMemo(
-    () => new Map(devices.map((d) => [d.ieee_address, d.role])),
-    [devices],
-  );
   const nameById = useMemo(
     () => new Map(devices.map((d) => [d.ieee_address, d.friendly_name])),
     [devices],
@@ -213,8 +167,6 @@ export function MeshEvidenceGraph({
     () => new Set(devices.filter(deviceHasIssue).map((d) => d.ieee_address)),
     [devices],
   );
-  // Selection neighbourhood (from ALL evidence, not just visible edges) so
-  // emphasis matches "full evidence neighbourhood" semantics.
   const selectionNeighbourhood = useMemo(() => {
     if (!selectedNodeId) return null;
     const ids = new Set<string>([selectedNodeId]);
@@ -262,8 +214,6 @@ export function MeshEvidenceGraph({
     [devices, positions, selectedNodeId, issueIds, selectionNeighbourhood, emphasiseIssues, layoutMode],
   );
 
-  // React Flow needs to own node state during drags; we sync our computed
-  // nodes in and persist the final dragged position back out.
   const [nodes, setNodes] = useState<Node[]>(computedNodes);
   useEffect(() => {
     setNodes(computedNodes);
@@ -289,20 +239,17 @@ export function MeshEvidenceGraph({
       visibleEdges.map((edge) =>
         buildFlowEdge(
           edge,
-          (ieee) => roleById.get(ieee) ?? "end_device",
+          positions,
           (ieee) => nameById.get(ieee) ?? ieee,
           edgeFocusFor(edge, selectedNodeId),
         ),
       ),
-    [visibleEdges, roleById, nameById, selectedNodeId],
+    [visibleEdges, positions, nameById, selectedNodeId],
   );
 
   return (
     <div className="h-full" data-layout-mode={layoutMode}>
       <ReactFlow
-        // Keyed by data + mode + reset identity: fitView reruns only on first
-        // load, network/snapshot change, layout mode change or reset — never
-        // on filter toggles, selection, drawers or routine refresh.
         key={`${signatureSeed}|${layoutMode}|${resetNonce}`}
         nodes={nodes}
         edges={edges}
@@ -311,8 +258,8 @@ export function MeshEvidenceGraph({
         onNodeDragStop={onNodeDragStop}
         nodesDraggable
         fitView
-        fitViewOptions={{ padding: 0.15 }}
-        minZoom={0.1}
+        fitViewOptions={{ padding: 0.12, minZoom: 0.08, maxZoom: 1.5 }}
+        minZoom={0.05}
         nodesConnectable={false}
         edgesFocusable
         proOptions={{ hideAttribution: false }}

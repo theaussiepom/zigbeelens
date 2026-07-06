@@ -29,6 +29,17 @@ function roleGlyph(device: MeshEvidenceDevice): string {
   }
 }
 
+const SIDE_HANDLES: Array<{ id: string; type: "source" | "target"; position: Position }> = [
+  { id: "s-top", type: "source", position: Position.Top },
+  { id: "t-top", type: "target", position: Position.Top },
+  { id: "s-bottom", type: "source", position: Position.Bottom },
+  { id: "t-bottom", type: "target", position: Position.Bottom },
+  { id: "s-left", type: "source", position: Position.Left },
+  { id: "t-left", type: "target", position: Position.Left },
+  { id: "s-right", type: "source", position: Position.Right },
+  { id: "t-right", type: "target", position: Position.Right },
+];
+
 /**
  * Compact node card: role, name and at most two status chips. Everything
  * else lives in the node drawer so the graph stays readable.
@@ -46,7 +57,15 @@ export function MeshDeviceNode({ data, selected }: NodeProps<MeshDeviceFlowNode>
         device.health_bucket,
       )} ${selected ? "ring-2 ring-zl-accent/60" : "hover:border-zl-accent/40"}`}
     >
-      <Handle type="target" position={Position.Top} className="!pointer-events-none !opacity-0" />
+      {SIDE_HANDLES.map((handle) => (
+        <Handle
+          key={handle.id}
+          id={handle.id}
+          type={handle.type}
+          position={handle.position}
+          className="!pointer-events-none !h-2 !w-2 !border-0 !bg-transparent !opacity-0"
+        />
+      ))}
       <div className="flex items-center gap-2">
         <span
           aria-hidden="true"
@@ -94,7 +113,6 @@ export function MeshDeviceNode({ data, selected }: NodeProps<MeshDeviceFlowNode>
           </span>
         )}
       </div>
-      <Handle type="source" position={Position.Bottom} className="!pointer-events-none !opacity-0" />
     </div>
   );
 }
