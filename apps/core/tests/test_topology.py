@@ -197,6 +197,54 @@ def test_topology_links_route_count_round_trip(tmp_path: Path):
     db.close()
 
 
+def test_store_dedupes_duplicate_directed_links(tmp_path: Path):
+    """Real Z2M maps can repeat the same directed pair; storing must not fail
+    on the (snapshot_id, source_ieee, target_ieee) primary key and must keep
+    the row with the strongest evidence (routes first, then LQI)."""
+    from zigbeelens.db.connection import Database
+
+    db = Database(tmp_path / "dupes.sqlite")
+    db.migrate()
+    repo = Repository(db)
+    cfg = _config(tmp_path / "dupes.sqlite")
+    repo.sync_networks(cfg.networks)
+    repo.create_topology_snapshot(
+        snapshot_id="snap-dupes",
+        network_id="home",
+        requested_by="test",
+        status="pending",
+        warning_acknowledged=True,
+    )
+    parsed = parse_networkmap_payload(
+        {
+            "nodes": {
+                "0x01": {"type": "Coordinator"},
+                "0x02": {"type": "Router"},
+            },
+            "links": [
+                {"source": "0x02", "target": "0x01", "linkquality": 90},
+                {
+                    "source": "0x02",
+                    "target": "0x01",
+                    "linkquality": 80,
+                    "routes": [{"destinationAddress": 0, "nextHop": 0}],
+                },
+                {"source": "0x02", "target": "0x01", "linkquality": 120},
+            ],
+        }
+    )
+    repo.store_topology_parsed("snap-dupes", "home", parsed, status="complete")
+    links = repo.list_topology_links("snap-dupes")
+    assert len(links) == 1
+    # Route evidence beats a higher LQI without routes.
+    assert links[0]["route_count"] == 1
+    assert links[0]["linkquality"] == 80
+    snapshot = repo.get_topology_snapshot("home", "snap-dupes")
+    assert snapshot is not None
+    assert snapshot["link_count"] == 1
+    db.close()
+
+
 def test_capture_blocked_without_confirmation(tmp_path: Path):
     from zigbeelens.app.context import bootstrap, reset_context
 
