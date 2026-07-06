@@ -18,9 +18,6 @@ importers:
       '@zigbeelens/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      elkjs:
-        specifier: ^0.11.1
-        version: 0.11.1
       react:
         specifier: ^19.1.0
         version: 19.2.7
@@ -894,9 +891,6 @@ packages:
 
   electron-to-chromium@1.5.372:
     resolution: {integrity: sha512-M3yhbAlilnwqC8D21t28UCDGHyitShTmmLRU/H+b74P6Ski16Nb9HONYEaVpMj/pwC7BEo5B95FpjODLCWbtfA==}
-
-  elkjs@0.11.1:
-    resolution: {integrity: sha512-zxxR9k+rx5ktMwT/FwyLdPCrq7xN6e4VGGHH8hA01vVYKjTFik7nHOxBnAYtrgYUB1RpAiLvA1/U2YraWxyKKg==}
 
   enhanced-resolve@5.21.6:
     resolution: {integrity: sha512-aNnGCvbJ/RIyWo1IuhNdVjnNF+EjH9wpzpNHt+ci/m9He9LJvUN8wrCcXjp9cWsGNAuvSpVFTx/vraAFQ8qGjQ==}
@@ -2086,8 +2080,6 @@ snapshots:
   dom-accessibility-api@0.6.3: {}
 
   electron-to-chromium@1.5.372: {}
-
-  elkjs@0.11.1: {}
 
   enhanced-resolve@5.21.6:
     dependencies:
