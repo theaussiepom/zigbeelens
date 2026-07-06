@@ -85,6 +85,11 @@ function topologySummary(node: TopologyNodeRow | undefined, neighborCount: numbe
   if (!node && neighborCount === 0) {
     return "Not observed in the latest topology snapshot.";
   }
+  if (!node) {
+    return `Referenced by ${neighborCount} topology link ${
+      neighborCount === 1 ? "entry" : "entries"
+    } in the latest snapshot, but no node details were reported.`;
+  }
   const parts = ["Observed in the latest topology snapshot"];
   if (neighborCount > 0) {
     parts.push(`with ${neighborCount} neighbour ${neighborCount === 1 ? "entry" : "entries"}`);
@@ -95,10 +100,14 @@ function topologySummary(node: TopologyNodeRow | undefined, neighborCount: numbe
 
 function interpretationFor(
   summary: DeviceSummary | undefined,
+  node: TopologyNodeRow | undefined,
   inTopology: boolean,
   role: MeshRole,
 ): string {
   if (!summary) {
+    if (!node) {
+      return "The latest topology snapshot referenced this endpoint in a link, but ZigbeeLens does not currently have matching inventory or device details. Snapshot data can briefly include renamed or removed devices; this is context, not an incident.";
+    }
     return "This node appeared in the topology snapshot but is not in the current device inventory. Snapshot data can briefly include renamed or removed devices; this is context, not an incident.";
   }
   if (!inTopology) {
@@ -142,7 +151,9 @@ function buildDevice(
     flags: summary ? flagsForDevice(summary, role) : [],
     inventory_status: summary
       ? "In Zigbee2MQTT device inventory"
-      : "Observed in topology snapshot only — not in the current device inventory",
+      : node
+        ? "Observed in topology snapshot only — not in the current device inventory"
+        : "Referenced by topology links only — unknown to inventory and node list",
     topology_evidence_summary: topologySummary(node, neighborCount),
     passive_observation_summary: summary
       ? summary.lens_bucket_reason || "No passive observation summary is available for this device."
@@ -153,7 +164,7 @@ function buildDevice(
           summary: "This device is referenced by an open incident. See the Incidents page for the evidence trail.",
         }
       : null,
-    interpretation: interpretationFor(summary, inTopology, role),
+    interpretation: interpretationFor(summary, node, inTopology, role),
   };
 }
 
@@ -292,7 +303,16 @@ export function buildLiveMeshEvidence(
   }
 
   // Devices: full inventory plus any topology-only nodes, distinction kept.
+  // Link endpoints are included too: a snapshot can reference an endpoint in
+  // its link table that appears in neither inventory nor the node list, and
+  // every edge endpoint must exist as a node or the graph layout fails
+  // outright. Such endpoints become clearly labelled topology-only
+  // placeholders — they are never presented as inventory devices.
   const allIeee = new Set<string>([...summaryByIeee.keys(), ...nodeByIeee.keys()]);
+  for (const edge of edges) {
+    allIeee.add(edge.source);
+    allIeee.add(edge.target);
+  }
   const devices: MeshEvidenceDevice[] = [];
   for (const ieee of allIeee) {
     devices.push(

@@ -1,6 +1,6 @@
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import type { MeshEvidenceDevice, MeshNodeFlag } from "@/lib/meshEvidence";
-import { meshNodeFlagLabel, meshRoleLabel } from "@/lib/meshEvidence";
+import { meshHealthBucketLabel, meshNodeFlagLabel, meshRoleLabel } from "@/lib/meshEvidence";
 import { nodeBorderClass } from "@/components/meshGraph/evidenceStyles";
 import { MESH_NODE_HEIGHT, MESH_NODE_WIDTH } from "@/lib/meshGraphLayout";
 
@@ -67,9 +67,17 @@ export function MeshDeviceNode({ data, selected }: NodeProps<MeshDeviceFlowNode>
       </div>
       <div className="flex flex-wrap gap-1">
         {chips.length === 0 ? (
-          <span className="rounded-full border border-zl-healthy/30 bg-zl-healthy/10 px-1.5 py-px text-[9px] font-medium text-zl-healthy">
-            Healthy
-          </span>
+          device.health_bucket === "healthy" ? (
+            <span className="rounded-full border border-zl-healthy/30 bg-zl-healthy/10 px-1.5 py-px text-[9px] font-medium text-zl-healthy">
+              Healthy
+            </span>
+          ) : (
+            // Never claim health for devices without passive observations
+            // (e.g. topology-only placeholder endpoints).
+            <span className="rounded-full border border-zl-border bg-zl-surface-2 px-1.5 py-px text-[9px] font-medium text-zl-muted">
+              {meshHealthBucketLabel(device.health_bucket)}
+            </span>
+          )
         ) : (
           chips.map((flag) => (
             <span

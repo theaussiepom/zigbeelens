@@ -23,8 +23,11 @@ import {
   MESH_NODE_HEIGHT,
   MESH_NODE_WIDTH,
   layoutMeshGraph,
-  type MeshNodePosition,
+  type MeshLayoutResult,
 } from "@/lib/meshGraphLayout";
+
+export const LAYOUT_ERROR_COPY =
+  "The graph layout could not be computed for this snapshot. The topology data is still available in list/detail views.";
 
 const nodeTypes = { meshDevice: MeshDeviceNode };
 
@@ -141,17 +144,35 @@ export function MeshEvidenceGraph({
   onSelectEdge: (edge: MeshEvidenceEdge) => void;
   onSelectNode: (device: MeshEvidenceDevice) => void;
 }) {
-  const [positions, setPositions] = useState<Map<string, MeshNodePosition> | null>(null);
+  const [layout, setLayout] = useState<MeshLayoutResult | null>(null);
+  const [layoutFailed, setLayoutFailed] = useState(false);
 
+  // Layout is computed from the full evidence set (allEdges), never the
+  // filtered set, so node positions do not move when filter toggles change.
   useEffect(() => {
     let cancelled = false;
-    layoutMeshGraph(devices, allEdges).then((result) => {
-      if (!cancelled) setPositions(result);
-    });
+    setLayout(null);
+    setLayoutFailed(false);
+    layoutMeshGraph(devices, allEdges)
+      .then((result) => {
+        if (cancelled) return;
+        setLayout(result);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        // Diagnostics only — counts and the ELK error, no payload contents.
+        console.error(
+          `[mesh-graph] layout failed for ${devices.length} devices / ${allEdges.length} evidence edges`,
+          error,
+        );
+        setLayoutFailed(true);
+      });
     return () => {
       cancelled = true;
     };
   }, [devices, allEdges]);
+
+  const positions = layout?.positions ?? null;
 
   const roleById = useMemo(
     () => new Map(devices.map((d) => [d.ieee_address, d.role])),
@@ -188,6 +209,21 @@ export function MeshEvidenceGraph({
     [visibleEdges, roleById, nameById],
   );
 
+  if (layoutFailed) {
+    return (
+      <div
+        role="alert"
+        data-testid="graph-layout-error"
+        className="flex h-full items-center justify-center p-6"
+      >
+        <div className="max-w-md space-y-2 rounded-lg border border-zl-watch/40 bg-zl-watch/10 p-4 text-sm">
+          <p className="font-medium text-zl-text">Graph layout unavailable</p>
+          <p className="text-zl-muted">{LAYOUT_ERROR_COPY}</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!positions) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-zl-muted">
@@ -197,28 +233,34 @@ export function MeshEvidenceGraph({
   }
 
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      nodeTypes={nodeTypes}
-      fitView
-      fitViewOptions={{ padding: 0.15 }}
-      minZoom={0.2}
-      nodesConnectable={false}
-      edgesFocusable
-      proOptions={{ hideAttribution: false }}
-      onEdgeClick={(_, edge) => {
-        const evidence = (edge.data as { evidence?: MeshEvidenceEdge } | undefined)?.evidence;
-        if (evidence) onSelectEdge(evidence);
-      }}
-      onNodeClick={(_, node) => {
-        const device = (node.data as { device?: MeshEvidenceDevice } | undefined)?.device;
-        if (device) onSelectNode(device);
-      }}
-      className="!bg-zl-bg"
+    <div
+      className="h-full"
+      data-layout-strategy={layout?.strategy}
+      data-layout-structural-edges={layout?.structuralEdgeCount}
     >
-      <Background gap={24} color="#1a2330" />
-      <Controls showInteractive={false} className="!border-zl-border !bg-zl-surface" />
-    </ReactFlow>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        fitView
+        fitViewOptions={{ padding: 0.15 }}
+        minZoom={0.2}
+        nodesConnectable={false}
+        edgesFocusable
+        proOptions={{ hideAttribution: false }}
+        onEdgeClick={(_, edge) => {
+          const evidence = (edge.data as { evidence?: MeshEvidenceEdge } | undefined)?.evidence;
+          if (evidence) onSelectEdge(evidence);
+        }}
+        onNodeClick={(_, node) => {
+          const device = (node.data as { device?: MeshEvidenceDevice } | undefined)?.device;
+          if (device) onSelectNode(device);
+        }}
+        className="!bg-zl-bg"
+      >
+        <Background gap={24} color="#1a2330" />
+        <Controls showInteractive={false} className="!border-zl-border !bg-zl-surface" />
+      </ReactFlow>
+    </div>
   );
 }
