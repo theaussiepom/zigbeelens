@@ -8,7 +8,9 @@ import {
   classifyDevices,
   clearSavedPositions,
   computeMeshLayout,
+  evidencePairWeights,
   loadSavedPositions,
+  orderRoutersByEvidence,
   positionStorageKey,
   saveNodePosition,
 } from "@/lib/meshGraphSmartLayout";
@@ -127,6 +129,77 @@ describe("assignEndDevicesToRouters", () => {
   it("leaves devices without router evidence unassigned", () => {
     const assignment = assignEndDevicesToRouters(devices, edges);
     expect(assignment.has("0xe3")).toBe(false);
+  });
+});
+
+describe("evidencePairWeights", () => {
+  it("accumulates parallel evidence and weights routes above neighbour links", () => {
+    const ids = new Set(["a", "b", "c"]);
+    const weights = evidencePairWeights(ids, [
+      neighbour("a", "b", 100),
+      neighbour("b", "a", 50),
+      {
+        ...neighbour("a", "c", 10),
+        id: "route-ac",
+        evidence_class: "latest_snapshot_route",
+        directional: true,
+      },
+    ]);
+    expect(weights.get("a|b")).toBe(150);
+    // Route evidence dominates even at low LQI.
+    expect(weights.get("a|c")!).toBeGreaterThan(weights.get("a|b")!);
+  });
+
+  it("ignores edges outside the member set and self-loops", () => {
+    const weights = evidencePairWeights(new Set(["a", "b"]), [
+      neighbour("a", "x", 200),
+      neighbour("a", "a", 200),
+      neighbour("a", "b", 80),
+    ]);
+    expect([...weights.keys()]).toEqual(["a|b"]);
+  });
+});
+
+describe("orderRoutersByEvidence", () => {
+  const r = (ieee: string) => device(ieee, "router");
+
+  it("places strongly-linked routers adjacent to each other", () => {
+    // Chain evidence: a—b strong, b—c strong, a—d weak. Expected order keeps
+    // a,b,c contiguous instead of interleaving d between them.
+    const routers = [r("d"), r("a"), r("c"), r("b")];
+    const order = orderRoutersByEvidence(routers, [
+      neighbour("a", "b", 250),
+      neighbour("b", "c", 240),
+      neighbour("a", "d", 30),
+    ]).map((x) => x.ieee_address);
+    const pos = (id: string) => order.indexOf(id);
+    expect(Math.abs(pos("a") - pos("b"))).toBe(1);
+    expect(Math.abs(pos("b") - pos("c"))).toBe(1);
+  });
+
+  it("is deterministic regardless of input order", () => {
+    const routers = [r("a"), r("b"), r("c"), r("d")];
+    const evidence = [
+      neighbour("a", "b", 250),
+      neighbour("b", "c", 240),
+      neighbour("c", "d", 230),
+    ];
+    const forward = orderRoutersByEvidence(routers, evidence).map((x) => x.ieee_address);
+    const backward = orderRoutersByEvidence([...routers].reverse(), [...evidence].reverse()).map(
+      (x) => x.ieee_address,
+    );
+    expect(backward).toEqual(forward);
+  });
+
+  it("appends routers with no evidence in stable name order", () => {
+    const isolated1 = device("z1", "router", { friendly_name: "Zeta" });
+    const isolated2 = device("y1", "router", { friendly_name: "Alpha" });
+    const order = orderRoutersByEvidence(
+      [isolated1, r("a"), isolated2, r("b"), r("c")],
+      [neighbour("a", "b", 250), neighbour("b", "c", 200)],
+    ).map((x) => x.ieee_address);
+    // Isolated routers come last, alphabetical by name (Alpha before Zeta).
+    expect(order.slice(-2)).toEqual(["y1", "z1"]);
   });
 });
 

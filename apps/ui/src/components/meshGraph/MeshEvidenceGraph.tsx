@@ -3,6 +3,7 @@ import {
   Background,
   Controls,
   MarkerType,
+  MiniMap,
   Position,
   ReactFlow,
   applyNodeChanges,
@@ -327,6 +328,21 @@ export function MeshEvidenceGraph({
       >
         <Background gap={24} color="#1a2330" />
         <Controls showInteractive={false} className="!border-zl-border !bg-zl-surface" />
+        <MiniMap
+          pannable
+          zoomable
+          ariaLabel="Graph overview minimap"
+          className="!h-28 !w-44 !rounded-lg !border !border-zl-border !bg-zl-surface"
+          maskColor="rgba(10, 15, 22, 0.7)"
+          nodeColor={(node) => {
+            const device = (node.data as { device?: MeshEvidenceDevice } | undefined)?.device;
+            if (!device) return "#2a3648";
+            if (issueIds.has(device.ieee_address)) return "#e6744a";
+            if (device.role === "coordinator") return "#5b9fd4";
+            if (device.role === "router") return "#3d6f9e";
+            return "#2a3648";
+          }}
+        />
       </ReactFlow>
     </div>
   );
