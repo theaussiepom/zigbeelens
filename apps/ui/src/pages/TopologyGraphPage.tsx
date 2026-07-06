@@ -295,9 +295,15 @@ function GraphPanel({
           )}
         </div>
       )}
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-      <Card className="!p-2">
-        <div className="h-[600px]" data-testid="mesh-evidence-graph">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch">
+      {/* The graph stretches to the full grid row: at least the viewport
+          (minus app chrome) and never shorter than the sidebar column, so
+          it always reaches the bottom of the content area. */}
+      <Card className="flex !p-2">
+        <div
+          className="min-h-[600px] w-full lg:min-h-[calc(100dvh-13rem)]"
+          data-testid="mesh-evidence-graph"
+        >
           <MeshEvidenceGraph
             devices={devices}
             visibleEdges={visibleEdges}

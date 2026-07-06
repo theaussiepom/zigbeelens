@@ -136,6 +136,9 @@ export function assignEndDevicesToRouters(
       const better =
         !current ||
         (lqi != null && (current.lqi == null || lqi > current.lqi)) ||
+        // Equal evidence ties break on router id so the assignment is
+        // independent of edge iteration order.
+        (lqi != null && lqi === current.lqi && other < current.router) ||
         (lqi == null && current.lqi == null && other < current.router);
       if (better) bestByEndDevice.set(device, { router: other, lqi });
     }
@@ -155,6 +158,127 @@ export function neighbourDegrees(edges: MeshEvidenceEdge[]): Map<string, number>
     degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1);
   }
   return degree;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Router seriation — evidence-aware ordering to minimise edge crossings     */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Neutral prior used ONLY to rank links for ordering when no LQI was
+ * recorded. This is a layout heuristic, never a data claim: missing LQI is
+ * still displayed as unknown everywhere in the UI.
+ */
+const ORDERING_NEUTRAL_LQI = 60;
+
+/** Route-table evidence binds routers much more strongly than adjacency. */
+const ORDERING_ROUTE_BONUS = 400;
+
+function pairKey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
+/**
+ * Accumulated evidence weight between every pair of the given devices.
+ * Route evidence dominates; neighbour links contribute their recorded LQI
+ * (or a neutral prior when unrecorded). Parallel evidence accumulates, so
+ * pairs seen from both directions bind tighter.
+ */
+export function evidencePairWeights(
+  memberIds: Set<string>,
+  edges: MeshEvidenceEdge[],
+): Map<string, number> {
+  const weights = new Map<string, number>();
+  for (const edge of edges) {
+    if (edge.source === edge.target) continue;
+    if (!memberIds.has(edge.source) || !memberIds.has(edge.target)) continue;
+    let w = 0;
+    if (edge.evidence_class === "latest_snapshot_route") {
+      w = ORDERING_ROUTE_BONUS + (edge.lqi_latest ?? ORDERING_NEUTRAL_LQI);
+    } else if (edge.evidence_class === "latest_snapshot_neighbor") {
+      w = edge.lqi_latest ?? ORDERING_NEUTRAL_LQI;
+    } else {
+      continue;
+    }
+    const key = pairKey(edge.source, edge.target);
+    weights.set(key, (weights.get(key) ?? 0) + w);
+  }
+  return weights;
+}
+
+/**
+ * Order routers so that strongly-linked routers end up adjacent in the
+ * backbone band — the single biggest lever against edge crossings.
+ *
+ * Greedy chain seriation: seed with the most-connected router (the hub, so
+ * it lands in the first band row, nearest the coordinator), then repeatedly
+ * attach the unplaced router with the strongest evidence to either chain
+ * end. Routers with no evidence to the chain are appended afterwards in
+ * stable name order. Fully deterministic: ties break on IEEE address.
+ */
+export function orderRoutersByEvidence(
+  routers: MeshEvidenceDevice[],
+  edges: MeshEvidenceEdge[],
+): MeshEvidenceDevice[] {
+  if (routers.length <= 2) {
+    return [...routers].sort((a, b) => a.ieee_address.localeCompare(b.ieee_address));
+  }
+
+  const ids = new Set(routers.map((r) => r.ieee_address));
+  const weights = evidencePairWeights(ids, edges);
+  const byId = new Map(routers.map((r) => [r.ieee_address, r]));
+
+  const totals = new Map<string, number>();
+  for (const [key, w] of weights) {
+    const [a, b] = key.split("|");
+    totals.set(a, (totals.get(a) ?? 0) + w);
+    totals.set(b, (totals.get(b) ?? 0) + w);
+  }
+
+  const seed = [...routers].sort((a, b) => {
+    const t = (totals.get(b.ieee_address) ?? 0) - (totals.get(a.ieee_address) ?? 0);
+    if (t !== 0) return t;
+    return a.ieee_address.localeCompare(b.ieee_address);
+  })[0];
+
+  const chain: string[] = [seed.ieee_address];
+  const remaining = new Set(ids);
+  remaining.delete(seed.ieee_address);
+
+  while (remaining.size > 0) {
+    let best: { id: string; end: "head" | "tail"; weight: number } | null = null;
+    const head = chain[0];
+    const tail = chain[chain.length - 1];
+    for (const id of remaining) {
+      for (const [end, anchor] of [
+        ["tail", tail],
+        ["head", head],
+      ] as const) {
+        const w = weights.get(pairKey(id, anchor)) ?? 0;
+        if (
+          w > 0 &&
+          (!best || w > best.weight || (w === best.weight && id < best.id))
+        ) {
+          best = { id, end, weight: w };
+        }
+      }
+    }
+    if (!best) break;
+    if (best.end === "tail") chain.push(best.id);
+    else chain.unshift(best.id);
+    remaining.delete(best.id);
+  }
+
+  // Routers with no evidence to the chain: stable name order at the end.
+  const leftover = [...remaining]
+    .map((id) => byId.get(id)!)
+    .sort((a, b) => {
+      const name = a.friendly_name.localeCompare(b.friendly_name);
+      if (name !== 0) return name;
+      return a.ieee_address.localeCompare(b.ieee_address);
+    });
+
+  return [...chain.map((id) => byId.get(id)!), ...leftover];
 }
 
 /* ------------------------------------------------------------------------ */
@@ -212,14 +336,22 @@ interface RouterCluster {
 function buildClusters(
   classified: ClassifiedDevices,
   assignment: Map<string, string>,
-  degree: Map<string, number>,
+  edges: MeshEvidenceEdge[],
 ): { clusters: RouterCluster[]; unassigned: MeshEvidenceDevice[] } {
   const membersByRouter = new Map<string, MeshEvidenceDevice[]>();
   const unassigned: MeshEvidenceDevice[] = [];
   const routerIds = new Set(classified.routers.map((r) => r.ieee_address));
   const coordinatorIds = new Set(classified.coordinators.map((c) => c.ieee_address));
 
-  for (const endDevice of stableSort(classified.endDevices, degree)) {
+  // Satellites in name order: end devices rarely link each other, so
+  // crossings don't change — but scanning a cluster alphabetically does.
+  const endDevicesByName = [...classified.endDevices].sort((a, b) => {
+    const name = a.friendly_name.localeCompare(b.friendly_name);
+    if (name !== 0) return name;
+    return a.ieee_address.localeCompare(b.ieee_address);
+  });
+
+  for (const endDevice of endDevicesByName) {
     const target = assignment.get(endDevice.ieee_address);
     if (target && (routerIds.has(target) || coordinatorIds.has(target))) {
       // End devices whose strongest evidence is the coordinator hang off the
@@ -236,7 +368,9 @@ function buildClusters(
     unassigned.push(endDevice);
   }
 
-  const clusters = stableSort(classified.routers, degree).map((router) => ({
+  // Router order comes from evidence seriation: strongly-linked routers sit
+  // next to each other, which is what actually removes crossing lines.
+  const clusters = orderRoutersByEvidence(classified.routers, edges).map((router) => ({
     router,
     members: membersByRouter.get(router.ieee_address) ?? [],
   }));
@@ -245,6 +379,48 @@ function buildClusters(
 
 function clusterColumns(memberCount: number): number {
   return memberCount <= 2 ? 1 : 2;
+}
+
+/**
+ * Evidence-weighted x for the coordinator: the average router-node centre,
+ * weighted by coordinator↔router evidence strength, clamped to the band so
+ * the anchor never drifts outside the graph. Falls back to the band centre
+ * when there is no coordinator evidence.
+ */
+function coordinatorBarycenterX(
+  positions: Map<string, MeshPoint>,
+  classified: ClassifiedDevices,
+  clusters: RouterCluster[],
+  edges: MeshEvidenceEdge[],
+): number {
+  if (classified.coordinators.length === 0 || clusters.length === 0) return 0;
+  const memberIds = new Set([
+    ...classified.coordinators.map((c) => c.ieee_address),
+    ...clusters.map((c) => c.router.ieee_address),
+  ]);
+  const weights = evidencePairWeights(memberIds, edges);
+  const coordinatorIds = new Set(classified.coordinators.map((c) => c.ieee_address));
+
+  let weightedX = 0;
+  let total = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const cluster of clusters) {
+    const pos = positions.get(cluster.router.ieee_address);
+    if (!pos) continue;
+    const centerX = pos.x + MESH_NODE_WIDTH / 2;
+    minX = Math.min(minX, centerX);
+    maxX = Math.max(maxX, centerX);
+    for (const coordinatorId of coordinatorIds) {
+      const w = weights.get(pairKey(coordinatorId, cluster.router.ieee_address)) ?? 0;
+      if (w > 0) {
+        weightedX += w * centerX;
+        total += w;
+      }
+    }
+  }
+  if (total === 0 || !Number.isFinite(minX)) return 0;
+  return Math.min(maxX, Math.max(minX, weightedX / total));
 }
 
 /**
@@ -258,6 +434,7 @@ function placeHierarchy(
   clusters: RouterCluster[],
   unassigned: MeshEvidenceDevice[],
   degree: Map<string, number>,
+  edges: MeshEvidenceEdge[],
   options: { satelliteColumns: (n: number) => number; routersPerRow: number },
 ): void {
   // Column width per cluster depends on its satellite grid width.
@@ -270,6 +447,11 @@ function placeHierarchy(
   for (let i = 0; i < clusters.length; i += perRow) {
     rows.push(clusters.slice(i, i + perRow).map((_, j) => i + j));
   }
+  // Serpentine wrap: clusters arrive in evidence-chain order, so reversing
+  // every other row keeps chain-adjacent routers physically close across
+  // row boundaries instead of jumping full-width (which draws long
+  // crossing lines through the whole band).
+  for (let r = 1; r < rows.length; r += 2) rows[r].reverse();
 
   const coordinatorY = 0;
   let bandTop = coordinatorY + MESH_NODE_HEIGHT + BAND_GAP;
@@ -299,9 +481,12 @@ function placeHierarchy(
     bandTop = rowBottom + BAND_GAP / 2;
   }
 
-  // Coordinator(s) centred above the router band.
+  // Coordinator(s) sit at the evidence-weighted barycenter of the routers
+  // they actually link to, not at a blind band centre — so coordinator
+  // edges drop down instead of fanning diagonally across the canvas.
   const coordinators = stableSort(classified.coordinators, degree);
-  placeGrid(positions, coordinators, 0, coordinatorY, coordinators.length || 1);
+  const coordinatorX = coordinatorBarycenterX(positions, classified, clusters, edges);
+  placeGrid(positions, coordinators, coordinatorX, coordinatorY, coordinators.length || 1);
 
   // Unassigned end devices, then limited/unknown devices, grouped at the
   // bottom so "no topology evidence" reads as its own area, not scatter.
@@ -339,8 +524,11 @@ function placeClusters(
   const top = MESH_NODE_HEIGHT + BAND_GAP;
   clusters.forEach((cluster, index) => {
     const row = Math.floor(index / perRow);
-    const col = index % perRow;
     const rowCount = Math.min(perRow, clusters.length - row * perRow);
+    // Serpentine: odd rows run right-to-left so evidence-chain neighbours
+    // stay close across row boundaries.
+    const rawCol = index % perRow;
+    const col = row % 2 === 1 ? rowCount - 1 - rawCol : rawCol;
     const centerX = (col - (rowCount - 1) / 2) * clusterSpan;
     // Height budget: assume up to 3 satellite rows per cluster row.
     const centerY = top + row * (5 * CELL_H);
@@ -383,8 +571,9 @@ function placeHealthFocus(
   clusters: RouterCluster[],
   unassigned: MeshEvidenceDevice[],
   degree: Map<string, number>,
+  edges: MeshEvidenceEdge[],
 ): void {
-  placeHierarchy(positions, classified, clusters, unassigned, degree, {
+  placeHierarchy(positions, classified, clusters, unassigned, degree, edges, {
     satelliteColumns: clusterColumns,
     routersPerRow: 6,
   });
@@ -421,25 +610,25 @@ export function computeMeshLayout(
   const classified = classifyDevices(devices);
   const degree = neighbourDegrees(edges);
   const assignment = assignEndDevicesToRouters(devices, edges);
-  const { clusters, unassigned } = buildClusters(classified, assignment, degree);
+  const { clusters, unassigned } = buildClusters(classified, assignment, edges);
 
   switch (mode) {
     case "clusters":
       placeClusters(positions, classified, clusters, unassigned, degree);
       break;
     case "health":
-      placeHealthFocus(positions, devices, classified, clusters, unassigned, degree);
+      placeHealthFocus(positions, devices, classified, clusters, unassigned, degree, edges);
       break;
     case "backbone":
       // Infrastructure first: one wide router band, compact satellites.
-      placeHierarchy(positions, classified, clusters, unassigned, degree, {
+      placeHierarchy(positions, classified, clusters, unassigned, degree, edges, {
         satelliteColumns: () => 1,
         routersPerRow: 10,
       });
       break;
     case "smart":
     case "manual":
-      placeHierarchy(positions, classified, clusters, unassigned, degree, {
+      placeHierarchy(positions, classified, clusters, unassigned, degree, edges, {
         satelliteColumns: clusterColumns,
         routersPerRow: 6,
       });
