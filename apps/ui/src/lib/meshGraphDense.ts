@@ -52,8 +52,13 @@ export interface ConnectionControls {
   routeHints: boolean;
   /** Readable subset of strongest observed neighbour links. */
   bestNeighbourLinks: boolean;
-  /** Evidence links touching devices ZigbeeLens has already flagged. */
-  issueDeviceLinks: boolean;
+  /**
+   * "Devices with issues": highlights devices ZigbeeLens has already
+   * flagged. Primarily node highlighting — it must never expand to every
+   * evidence edge touching issue devices (that flooded dense graphs);
+   * only edges already marked issue-related become visible.
+   */
+  devicesWithIssues: boolean;
   /** Every observed neighbour link from the latest snapshot. */
   allNeighbourLinks: boolean;
   /** Stale / low-confidence evidence already present in the model. */
@@ -63,18 +68,18 @@ export interface ConnectionControls {
 export const DENSE_DEFAULT_CONNECTION_CONTROLS: ConnectionControls = {
   routeHints: true,
   bestNeighbourLinks: true,
-  issueDeviceLinks: true,
+  devicesWithIssues: false,
   allNeighbourLinks: false,
   oldUncertainLinks: false,
 };
 
 /**
  * Existing issue/health signals that mark a device as "with issues" for the
- * "Links for devices with issues" control. This only reads fields ZigbeeLens
- * already computed — it never derives new issue inference. Deliberately
- * excluded: `battery_sleepy` (normal behaviour) and `diagnostics_limited`
- * (a data limitation, not an issue — and so common on real networks that
- * including it would defeat dense-mode readability).
+ * "Devices with issues" control. This only reads fields ZigbeeLens already
+ * computed — it never derives new issue inference. Deliberately excluded:
+ * `battery_sleepy` (normal behaviour) and `diagnostics_limited` (a data
+ * limitation, not an issue — and so common on real networks that including
+ * it would defeat dense-mode readability).
  */
 const ISSUE_FLAGS: readonly MeshNodeFlag[] = [
   "unavailable",
@@ -142,8 +147,6 @@ export function selectBestNeighbourLinks(
 export interface ConnectionEdgeContext {
   /** Edge ids picked by {@link selectBestNeighbourLinks}. */
   bestNeighbourEdgeIds: Set<string>;
-  /** Devices flagged by existing issue/health fields. */
-  issueDeviceIds: Set<string>;
   selectedNodeId: string | null;
   selectedEdge?: MeshEvidenceEdge | null;
 }
@@ -171,14 +174,10 @@ export function selectVisibleConnectionEdges(
     // evidence neighbourhood regardless of class.
     if (focusNodes.has(edge.source) || focusNodes.has(edge.target)) return true;
 
-    if (
-      controls.issueDeviceLinks &&
-      (edge.issue_related ||
-        context.issueDeviceIds.has(edge.source) ||
-        context.issueDeviceIds.has(edge.target))
-    ) {
-      return true;
-    }
+    // "Devices with issues" highlights nodes. The only edges it reveals are
+    // ones already explicitly marked issue-related — never every evidence
+    // edge touching an issue device, which flooded dense graphs with lines.
+    if (controls.devicesWithIssues && edge.issue_related) return true;
 
     switch (edge.evidence_class) {
       case "latest_snapshot_route":

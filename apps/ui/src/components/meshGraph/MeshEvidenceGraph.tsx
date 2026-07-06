@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Background,
   Controls,
   MarkerType,
   Position,
   ReactFlow,
+  applyNodeChanges,
   type Edge,
   type EdgeMarker,
   type Node,
+  type NodeChange,
   type NodeHandle,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -19,21 +21,16 @@ import type {
 import { evidenceClassLabel } from "@/lib/meshEvidence";
 import { evidenceEdgeStyle } from "@/components/meshGraph/evidenceStyles";
 import { MeshDeviceNode } from "@/components/meshGraph/MeshDeviceNode";
+import { MESH_NODE_HEIGHT, MESH_NODE_WIDTH } from "@/lib/meshGraphLayout";
+import { deviceHasIssue } from "@/lib/meshGraphDense";
 import {
-  MESH_NODE_HEIGHT,
-  MESH_NODE_WIDTH,
-  buildGraphSignature,
-  buildStructuralLayoutEdges,
-  chooseLayoutStrategy,
-  layoutMeshGraph,
-  type MeshLayoutResult,
-} from "@/lib/meshGraphLayout";
-
-export const LAYOUT_ERROR_COPY =
-  "The graph layout could not be computed for this snapshot. The topology data is still available in the snapshot and device views.";
-
-export const FAST_LAYOUT_NOTE_COPY =
-  "Dense graph mode used a faster layout to keep the graph responsive.";
+  applySavedPositions,
+  computeMeshLayout,
+  loadSavedPositions,
+  saveNodePosition,
+  type MeshLayoutMode,
+  type SavedPositions,
+} from "@/lib/meshGraphSmartLayout";
 
 const nodeTypes = { meshDevice: MeshDeviceNode };
 
@@ -148,17 +145,23 @@ function buildFlowEdge(
 /**
  * Mesh evidence graph renderer.
  *
- * Layout is computed with ELK from the full (unfiltered) evidence set and is
- * cached per graph signature: routine API refetches, filter toggles, drawer
- * open/close and selection changes never recompute layout or move nodes.
- * React Flow is keyed by the signature of the *displayed* layout, so fitView
- * fires only on first load and when the positional graph materially changes.
+ * Positions come from the synchronous, deterministic ZigbeeLens smart-layout
+ * pipeline (never a generic auto-layout), overlaid with the user's saved
+ * manual positions. Layout depends only on the device set, the full evidence
+ * set, the layout mode and saved positions — so filter toggles, drawer
+ * open/close and selection never move nodes. React Flow is keyed by
+ * network/mode/reset identity so fitView fires only on first load, network
+ * change, mode change and explicit reset.
  */
 export function MeshEvidenceGraph({
   devices,
   visibleEdges,
   allEdges,
   signatureSeed,
+  layoutMode,
+  positionStorageId,
+  resetNonce,
+  highlightIssueDevices,
   selectedNodeId,
   onSelectEdge,
   onSelectNode,
@@ -171,56 +174,31 @@ export function MeshEvidenceGraph({
    * snapshot id/captured-at. Must not include fetch times or UI state.
    */
   signatureSeed: string;
+  layoutMode: MeshLayoutMode;
+  /** Stable key for locally saved node positions (network scoped). */
+  positionStorageId: string;
+  /** Bumped by "Reset layout"; forces recompute + one fitView. */
+  resetNonce: number;
+  /** "Devices with issues" control: highlight nodes, never expand edges. */
+  highlightIssueDevices: boolean;
   selectedNodeId: string | null;
   onSelectEdge: (edge: MeshEvidenceEdge) => void;
   onSelectNode: (device: MeshEvidenceDevice) => void;
 }) {
-  const structuralEdges = useMemo(
-    () => buildStructuralLayoutEdges(devices, allEdges),
-    [devices, allEdges],
+  const [savedPositions, setSavedPositions] = useState<SavedPositions>(() =>
+    loadSavedPositions(positionStorageId, layoutMode),
   );
-  const strategy = chooseLayoutStrategy(structuralEdges.length);
-  const signature = useMemo(
-    () => buildGraphSignature(signatureSeed, devices, structuralEdges, strategy),
-    [signatureSeed, devices, structuralEdges, strategy],
-  );
-
-  const [layout, setLayout] = useState<{ signature: string; result: MeshLayoutResult } | null>(
-    null,
-  );
-  const [layoutFailed, setLayoutFailed] = useState(false);
-
-  // The effect below is keyed on the signature alone; it reads the latest
-  // inputs through this ref so identity-only changes (fresh arrays from a
-  // routine refetch with identical content) never trigger a relayout.
-  const layoutInputRef = useRef({ devices, allEdges, structuralEdges });
-  layoutInputRef.current = { devices, allEdges, structuralEdges };
-
   useEffect(() => {
-    let cancelled = false;
-    const input = layoutInputRef.current;
-    layoutMeshGraph(input.devices, input.allEdges, { structuralEdges: input.structuralEdges })
-      .then((result) => {
-        // A resolve racing a newer signature must never overwrite it.
-        if (cancelled) return;
-        setLayout({ signature, result });
-        setLayoutFailed(false);
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        // Diagnostics only — counts and the ELK error, no payload contents.
-        console.error(
-          `[mesh-graph] layout failed for ${input.devices.length} devices / ${input.allEdges.length} evidence edges`,
-          error,
-        );
-        setLayoutFailed(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [signature]);
+    setSavedPositions(loadSavedPositions(positionStorageId, layoutMode));
+  }, [positionStorageId, layoutMode, resetNonce]);
 
-  const positions = layout?.result.positions ?? null;
+  // Deterministic Zigbee-aware placement from the full (unfiltered) evidence
+  // set; recomputing on identical inputs yields identical positions, so
+  // memo-identity churn can never move nodes.
+  const positions = useMemo(() => {
+    const generated = computeMeshLayout(devices, allEdges, layoutMode);
+    return applySavedPositions(generated, savedPositions);
+  }, [devices, allEdges, layoutMode, savedPositions]);
 
   const roleById = useMemo(
     () => new Map(devices.map((d) => [d.ieee_address, d.role])),
@@ -230,20 +208,80 @@ export function MeshEvidenceGraph({
     () => new Map(devices.map((d) => [d.ieee_address, d.friendly_name])),
     [devices],
   );
+  const issueIds = useMemo(
+    () => new Set(devices.filter(deviceHasIssue).map((d) => d.ieee_address)),
+    [devices],
+  );
+  // Selection neighbourhood (from ALL evidence, not just visible edges) so
+  // emphasis matches "full evidence neighbourhood" semantics.
+  const selectionNeighbourhood = useMemo(() => {
+    if (!selectedNodeId) return null;
+    const ids = new Set<string>([selectedNodeId]);
+    for (const edge of allEdges) {
+      if (edge.source === selectedNodeId) ids.add(edge.target);
+      if (edge.target === selectedNodeId) ids.add(edge.source);
+    }
+    return ids;
+  }, [allEdges, selectedNodeId]);
 
-  const nodes: Node[] = useMemo(() => {
-    if (!positions) return [];
-    return devices.map((device) => ({
-      id: device.ieee_address,
-      type: "meshDevice",
-      position: positions.get(device.ieee_address) ?? { x: 0, y: 0 },
-      width: MESH_NODE_WIDTH,
-      height: MESH_NODE_HEIGHT,
-      handles: STATIC_HANDLES,
-      selected: device.ieee_address === selectedNodeId,
-      data: { device },
-    }));
-  }, [devices, positions, selectedNodeId]);
+  const emphasiseIssues = highlightIssueDevices || layoutMode === "health";
+
+  const computedNodes: Node[] = useMemo(
+    () =>
+      devices.map((device) => {
+        const isIssue = issueIds.has(device.ieee_address);
+        const inNeighbourhood =
+          selectionNeighbourhood?.has(device.ieee_address) ?? true;
+        const mutedBySelection = selectionNeighbourhood !== null && !inNeighbourhood;
+        const mutedByHealth =
+          emphasiseIssues && layoutMode === "health" && !isIssue && device.role !== "coordinator";
+
+        const classNames = ["mesh-node"];
+        if (emphasiseIssues && isIssue) classNames.push("mesh-node--issue-highlight");
+        if (mutedBySelection || mutedByHealth) classNames.push("mesh-node--muted");
+
+        return {
+          id: device.ieee_address,
+          type: "meshDevice",
+          position: positions.get(device.ieee_address) ?? { x: 0, y: 0 },
+          width: MESH_NODE_WIDTH,
+          height: MESH_NODE_HEIGHT,
+          handles: STATIC_HANDLES,
+          selected: device.ieee_address === selectedNodeId,
+          className: classNames.join(" "),
+          style: {
+            opacity: mutedBySelection ? 0.35 : mutedByHealth ? 0.55 : 1,
+            ...(emphasiseIssues && isIssue
+              ? { boxShadow: "0 0 0 3px rgba(230, 116, 74, 0.65)", borderRadius: 10 }
+              : {}),
+          },
+          data: { device },
+        } satisfies Node;
+      }),
+    [devices, positions, selectedNodeId, issueIds, selectionNeighbourhood, emphasiseIssues, layoutMode],
+  );
+
+  // React Flow needs to own node state during drags; we sync our computed
+  // nodes in and persist the final dragged position back out.
+  const [nodes, setNodes] = useState<Node[]>(computedNodes);
+  useEffect(() => {
+    setNodes(computedNodes);
+  }, [computedNodes]);
+
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    setNodes((current) => applyNodeChanges(changes, current));
+  }, []);
+
+  const onNodeDragStop = useCallback(
+    (_: unknown, node: Node) => {
+      const next = saveNodePosition(positionStorageId, layoutMode, node.id, {
+        x: node.position.x,
+        y: node.position.y,
+      });
+      setSavedPositions(next);
+    },
+    [positionStorageId, layoutMode],
+  );
 
   const edges: Edge[] = useMemo(
     () =>
@@ -258,45 +296,22 @@ export function MeshEvidenceGraph({
     [visibleEdges, roleById, nameById, selectedNodeId],
   );
 
-  if (layoutFailed) {
-    return (
-      <div
-        role="alert"
-        data-testid="graph-layout-error"
-        className="flex h-full items-center justify-center p-6"
-      >
-        <div className="max-w-md space-y-2 rounded-lg border border-zl-watch/40 bg-zl-watch/10 p-4 text-sm">
-          <p className="font-medium text-zl-text">Graph layout unavailable</p>
-          <p className="text-zl-muted">{LAYOUT_ERROR_COPY}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!layout) {
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-zl-muted">
-        <span className="animate-pulse">Computing layout…</span>
-      </div>
-    );
-  }
-
   return (
-    <div
-      className="relative h-full"
-      data-layout-strategy={layout.result.strategy}
-      data-layout-structural-edges={layout.result.structuralEdgeCount}
-    >
+    <div className="h-full" data-layout-mode={layoutMode}>
       <ReactFlow
-        // Keyed by the displayed layout's signature: fitView reruns only when
-        // the positional graph truly changed, never on routine refresh.
-        key={layout.signature}
+        // Keyed by data + mode + reset identity: fitView reruns only on first
+        // load, network/snapshot change, layout mode change or reset — never
+        // on filter toggles, selection, drawers or routine refresh.
+        key={`${signatureSeed}|${layoutMode}|${resetNonce}`}
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onNodeDragStop={onNodeDragStop}
+        nodesDraggable
         fitView
         fitViewOptions={{ padding: 0.15 }}
-        minZoom={0.2}
+        minZoom={0.1}
         nodesConnectable={false}
         edgesFocusable
         proOptions={{ hideAttribution: false }}
@@ -313,14 +328,6 @@ export function MeshEvidenceGraph({
         <Background gap={24} color="#1a2330" />
         <Controls showInteractive={false} className="!border-zl-border !bg-zl-surface" />
       </ReactFlow>
-      {layout.result.strategy === "mrtree" && (
-        <p
-          data-testid="graph-fast-layout-note"
-          className="pointer-events-none absolute bottom-2 right-2 rounded-md border border-zl-border bg-zl-surface/90 px-2 py-1 text-[11px] text-zl-muted"
-        >
-          {FAST_LAYOUT_NOTE_COPY}
-        </p>
-      )}
     </div>
   );
 }

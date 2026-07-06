@@ -7,6 +7,7 @@ import { TopologyGraphPage } from "@/pages/TopologyGraphPage";
 import { meshEvidenceGraphFixture } from "@/fixtures/meshEvidenceGraph";
 import type { TopologyNetworkDetail } from "@/lib/api";
 import { EVIDENCE_CLASSES, evidenceClassLabel, GRAPH_SAFETY_COPY } from "@/lib/meshEvidence";
+import { positionStorageKey } from "@/lib/meshGraphSmartLayout";
 import { mockReactFlow } from "@/test/mockReactFlow";
 
 beforeAll(() => {
@@ -228,21 +229,6 @@ function makeDenseNetwork(routerCount = 30): {
 
 let mockDetail: TopologyNetworkDetail | null = liveDetailHome;
 let mockDevices: DeviceSummary[] = liveDevices;
-let mockLayoutFailure: Error | null = null;
-let layoutCallCount = 0;
-
-vi.mock("@/lib/meshGraphLayout", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/meshGraphLayout")>();
-  return {
-    ...actual,
-    layoutMeshGraph: (...args: Parameters<typeof actual.layoutMeshGraph>) => {
-      layoutCallCount += 1;
-      return mockLayoutFailure
-        ? Promise.reject(mockLayoutFailure)
-        : actual.layoutMeshGraph(...args);
-    },
-  };
-});
 
 vi.mock("@/context/ScenarioContext", () => ({
   useScenario: () => ({
@@ -270,9 +256,16 @@ vi.mock("@/hooks/useLiveResource", () => ({
 beforeEach(() => {
   mockDetail = liveDetailHome;
   mockDevices = liveDevices;
-  mockLayoutFailure = null;
-  layoutCallCount = 0;
+  localStorage.clear();
 });
+
+/** Rendered canvas position of a device node (from React Flow's transform). */
+function nodePosition(container: HTMLElement, ieee: string): string {
+  const wrapper = container.querySelector(`.react-flow__node[data-id="${ieee}"]`);
+  expect(wrapper).not.toBeNull();
+  // Normalise whitespace: React Flow formats the transform inconsistently.
+  return (wrapper as HTMLElement).style.transform.replace(/\s+/g, "");
+}
 
 function renderGraphPage(networkId = "home") {
   return render(
@@ -478,35 +471,109 @@ describe("TopologyGraphPage live mode", () => {
     expect(within(drawer).queryByText("In Zigbee2MQTT device inventory")).not.toBeInTheDocument();
   });
 
-  it("exposes the chosen layout strategy as debug metadata", async () => {
+  it("exposes the active layout mode as debug metadata", async () => {
     const { container } = await renderLiveAndWaitForLayout();
-    const wrapper = container.querySelector("[data-layout-strategy]");
+    const wrapper = container.querySelector("[data-layout-mode]");
     expect(wrapper).not.toBeNull();
-    expect(wrapper).toHaveAttribute("data-layout-strategy", "layered");
-    expect(wrapper).toHaveAttribute("data-layout-structural-edges", "2");
+    expect(wrapper).toHaveAttribute("data-layout-mode", "smart");
   });
+});
 
-  it("shows an error state instead of an infinite spinner when the layout fails", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    mockLayoutFailure = new Error("Referenced shape does not exist: 0xdead");
-    renderGraphPage();
-    const errorPanel = await screen.findByTestId("graph-layout-error");
-    expect(errorPanel).toHaveTextContent(
-      "The graph layout could not be computed for this snapshot. The topology data is still available in the snapshot and device views.",
+describe("TopologyGraphPage layout modes", () => {
+  it("renders the five human-named layout modes with Smart layout as default", async () => {
+    await renderLiveAndWaitForLayout();
+    const selector = screen.getByRole("combobox", { name: /layout/i });
+    const labels = within(selector)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(labels).toEqual([
+      "Smart layout",
+      "Router backbone",
+      "Router clusters",
+      "Health focus",
+      "Manual layout",
+    ]);
+    expect(selector).toHaveValue("smart");
+    expect(screen.getByTestId("layout-mode-description")).toHaveTextContent(
+      /coordinator, router backbone, end devices/i,
     );
-    expect(screen.queryByText(/computing layout/i)).not.toBeInTheDocument();
-    expect(consoleError).toHaveBeenCalled();
-    consoleError.mockRestore();
   });
 
-  it("never silently swaps to sample data when the layout fails", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    mockLayoutFailure = new Error("layout timed out");
-    renderGraphPage();
-    await screen.findByTestId("graph-layout-error");
-    expect(screen.getByTestId("graph-mode-badge")).toHaveTextContent("Live topology snapshot");
-    expect(screen.queryByText("Living room plug")).not.toBeInTheDocument();
-    expect(screen.queryByText("Prototype — sample data")).not.toBeInTheDocument();
+  it("smart layout anchors the coordinator above the routers on first render", async () => {
+    const { container } = await renderLiveAndWaitForLayout();
+    const yOf = (ieee: string) => {
+      const match = /translate\(\s*[-\d.]+px\s*,\s*([-\d.]+)px\s*\)/.exec(
+        nodePosition(container, ieee),
+      );
+      expect(match).not.toBeNull();
+      return Number(match![1]);
+    };
+    expect(yOf("0xc0")).toBeLessThan(yOf("0xr1"));
+    expect(yOf("0xr1")).toBeLessThan(yOf("0xe1"));
+  });
+
+  it("changing layout mode keeps the evidence controls and updates the description", async () => {
+    const user = userEvent.setup();
+    const { container } = await renderLiveAndWaitForLayout();
+    await user.selectOptions(screen.getByRole("combobox", { name: /layout/i }), "clusters");
+    expect(container.querySelector("[data-layout-mode]")).toHaveAttribute(
+      "data-layout-mode",
+      "clusters",
+    );
+    expect(screen.getByTestId("layout-mode-description")).toHaveTextContent(
+      /does not prove current live routing/i,
+    );
+    expect(screen.getByRole("group", { name: /evidence filters/i })).toBeInTheDocument();
+  });
+
+  it("manual layout mode explains browser-local saved positions", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    await user.selectOptions(screen.getByRole("combobox", { name: /layout/i }), "manual");
+    expect(screen.getByTestId("layout-mode-description")).toHaveTextContent(
+      /remembers your positions on this browser/i,
+    );
+  });
+
+  it("applies saved manual positions from localStorage over the generated layout", async () => {
+    localStorage.setItem(
+      positionStorageKey("home", "smart"),
+      JSON.stringify({ "0xr1": { x: 4321, y: 1234 } }),
+    );
+    const { container } = await renderLiveAndWaitForLayout();
+    expect(nodePosition(container, "0xr1")).toContain("translate(4321px,1234px)");
+  });
+
+  it("keeps saved positions applied across filter toggles and drawer open/close", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(
+      positionStorageKey("home", "smart"),
+      JSON.stringify({ "0xr1": { x: 4321, y: 1234 } }),
+    );
+    const { container } = await renderLiveAndWaitForLayout();
+
+    await user.click(screen.getByRole("checkbox", { name: /route evidence/i }));
+    expect(nodePosition(container, "0xr1")).toContain("translate(4321px,1234px)");
+
+    fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
+    await screen.findByRole("dialog", { name: /device details/i });
+    expect(nodePosition(container, "0xr1")).toContain("translate(4321px,1234px)");
+  });
+
+  it("reset layout clears saved positions and recomputes the generated layout", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(
+      positionStorageKey("home", "smart"),
+      JSON.stringify({ "0xr1": { x: 4321, y: 1234 } }),
+    );
+    const { container } = await renderLiveAndWaitForLayout();
+    expect(nodePosition(container, "0xr1")).toContain("translate(4321px,1234px)");
+
+    await user.click(screen.getByRole("button", { name: /reset layout/i }));
+    await waitFor(() => {
+      expect(nodePosition(container, "0xr1")).not.toContain("translate(4321px,1234px)");
+    });
+    expect(localStorage.getItem(positionStorageKey("home", "smart"))).toBeNull();
   });
 });
 
@@ -580,12 +647,12 @@ describe("TopologyGraphPage sample mode", () => {
 });
 
 describe("TopologyGraphPage layout stability", () => {
-  it("does not recompute layout or remount the graph on a routine refetch with unchanged data", async () => {
+  it("does not move nodes or remount the graph on a routine refetch with unchanged data", async () => {
     const view = renderGraphPage();
     await screen.findByText("Live Hall Router");
-    await waitFor(() => expect(layoutCallCount).toBe(1));
     const flowEl = view.container.querySelector(".react-flow");
     expect(flowEl).not.toBeNull();
+    const before = nodePosition(view.container, "0xr1");
 
     // Simulate a routine API refetch: identical content, fresh object identity.
     mockDetail = JSON.parse(JSON.stringify(liveDetailHome)) as TopologyNetworkDetail;
@@ -597,22 +664,25 @@ describe("TopologyGraphPage layout stability", () => {
       </MemoryRouter>,
     );
     await screen.findByText("Live Hall Router");
-    expect(layoutCallCount).toBe(1);
+    expect(nodePosition(view.container, "0xr1")).toBe(before);
     // Same React Flow DOM node — no remount, so fitView cannot have re-fired.
     expect(view.container.querySelector(".react-flow")).toBe(flowEl);
   });
 
-  it("does not recompute layout when filters change or a drawer opens", async () => {
+  it("does not move nodes when filters change or a drawer opens", async () => {
     const user = userEvent.setup();
-    renderGraphPage();
+    const { container } = renderGraphPage();
     await screen.findByText("Live Hall Router");
-    await waitFor(() => expect(layoutCallCount).toBe(1));
+    const flowEl = container.querySelector(".react-flow");
+    const before = nodePosition(container, "0xr1");
 
     await user.click(screen.getByRole("checkbox", { name: /route evidence/i }));
     fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
     await screen.findByRole("dialog", { name: /device details/i });
 
-    expect(layoutCallCount).toBe(1);
+    expect(nodePosition(container, "0xr1")).toBe(before);
+    // No remount either: fitView cannot have re-fired.
+    expect(container.querySelector(".react-flow")).toBe(flowEl);
   });
 });
 
@@ -634,9 +704,11 @@ describe("TopologyGraphPage dense graph mode", () => {
 
     expect(panel.getByRole("checkbox", { name: /route hints/i })).toBeChecked();
     expect(panel.getByRole("checkbox", { name: /best neighbour links/i })).toBeChecked();
+    // "Devices with issues" is off by default and framed as highlighting.
+    expect(panel.getByRole("checkbox", { name: /devices with issues/i })).not.toBeChecked();
     expect(
-      panel.getByRole("checkbox", { name: /links for devices with issues/i }),
-    ).toBeChecked();
+      panel.getByText(/highlight devices already marked by zigbeelens as needing attention/i),
+    ).toBeInTheDocument();
     expect(panel.getByRole("checkbox", { name: /all neighbour links/i })).not.toBeChecked();
     expect(panel.getByRole("checkbox", { name: /old or uncertain links/i })).not.toBeChecked();
 
@@ -689,43 +761,49 @@ describe("TopologyGraphPage dense graph mode", () => {
     const neighbourCount = container.querySelectorAll(
       ".mesh-edge--latest_snapshot_neighbor",
     ).length;
-    // Best neighbour links + issue-device links: some but never all 436.
+    // Best neighbour links: some but never all 436.
     expect(neighbourCount).toBeGreaterThan(0);
     expect(neighbourCount).toBeLessThan(436);
-
-    expect(screen.getByTestId("graph-fast-layout-note")).toHaveTextContent(
-      /faster layout to keep the graph responsive/i,
-    );
-    expect(
-      container.querySelector("[data-layout-strategy]"),
-    ).toHaveAttribute("data-layout-strategy", "mrtree");
   });
 
-  it("shows only issue-device links when route hints and best links are off", async () => {
+  it("Devices with issues highlights issue nodes without flooding the graph with links", async () => {
     const user = userEvent.setup();
     const { container } = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
     const panel = connectionsPanel();
 
-    await user.click(panel.getByRole("checkbox", { name: /route hints/i }));
-    await user.click(panel.getByRole("checkbox", { name: /best neighbour links/i }));
+    const before = container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor").length;
+    const beforePos = nodePosition(container, "0xr7");
 
+    await user.click(panel.getByRole("checkbox", { name: /devices with issues/i }));
+
+    // Node highlighting only: the flagged device 0xr7 gets the highlight
+    // class, no extra neighbour edges appear, and nothing moves.
     await waitFor(() => {
-      // Only 0xr7 is flagged (needs attention); it touches 29 neighbour links.
-      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(29);
+      expect(
+        container.querySelector('.react-flow__node[data-id="0xr7"]'),
+      ).toHaveClass("mesh-node--issue-highlight");
     });
-    expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(0);
+    expect(container.querySelectorAll(".mesh-node--issue-highlight")).toHaveLength(1);
+    expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(
+      before,
+    );
+    expect(nodePosition(container, "0xr7")).toBe(beforePos);
 
-    await user.click(panel.getByRole("checkbox", { name: /links for devices with issues/i }));
+    // Selecting the issue node still reveals its full evidence neighbourhood.
+    fireEvent.click(screen.getByTestId("mesh-node-0xr7"));
+    await screen.findByRole("dialog", { name: /device details/i });
     await waitFor(() => {
-      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(0);
+      expect(
+        container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor").length,
+      ).toBeGreaterThan(before);
     });
   });
 
-  it("selecting a node reveals its full evidence neighbourhood without recomputing layout", async () => {
+  it("selecting a node reveals its full evidence neighbourhood without moving nodes", async () => {
     const { container } = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
-    const callsAfterLoad = layoutCallCount;
+    const beforePos = nodePosition(container, "0xr5");
     const beforeCount = container.querySelectorAll(
       ".mesh-edge--latest_snapshot_neighbor",
     ).length;
@@ -743,7 +821,7 @@ describe("TopologyGraphPage dense graph mode", () => {
         "Latest snapshot neighbour evidence between Dense Router 5 and Dense Router 4",
       ),
     ).toBeInTheDocument();
-    expect(layoutCallCount).toBe(callsAfterLoad);
+    expect(nodePosition(container, "0xr5")).toBe(beforePos);
   });
 
   it("All neighbour links renders the full snapshot evidence with a warning, and off restores the subset", async () => {
@@ -753,7 +831,7 @@ describe("TopologyGraphPage dense graph mode", () => {
     const subsetCount = container.querySelectorAll(
       ".mesh-edge--latest_snapshot_neighbor",
     ).length;
-    const callsAfterLoad = layoutCallCount;
+    const beforePos = nodePosition(container, "0xr5");
 
     const allLinks = connectionsPanel().getByRole("checkbox", { name: /all neighbour links/i });
     await user.click(allLinks);
@@ -772,8 +850,8 @@ describe("TopologyGraphPage dense graph mode", () => {
         subsetCount,
       );
     });
-    // Connection toggles never recompute layout.
-    expect(layoutCallCount).toBe(callsAfterLoad);
+    // Connection toggles never move nodes.
+    expect(nodePosition(container, "0xr5")).toBe(beforePos);
   });
 
   it("edge drawer keeps full metadata for visible edges in dense mode", async () => {
@@ -796,7 +874,6 @@ describe("TopologyGraphPage dense graph mode", () => {
     renderGraphPage();
     await screen.findByText("Live Hall Router");
     expect(screen.queryByTestId("dense-graph-banner")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("graph-fast-layout-note")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("group", { name: /connections to show/i }),
     ).not.toBeInTheDocument();

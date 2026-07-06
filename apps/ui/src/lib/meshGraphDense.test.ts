@@ -55,7 +55,6 @@ function controls(overrides: Partial<ConnectionControls> = {}): ConnectionContro
 
 const emptyContext = {
   bestNeighbourEdgeIds: new Set<string>(),
-  issueDeviceIds: new Set<string>(),
   selectedNodeId: null,
 };
 
@@ -93,14 +92,18 @@ describe("isDenseGraph", () => {
 });
 
 describe("default connection controls", () => {
-  it("matches the dense-mode spec: routes/best/issues on, all/old off", () => {
+  it("matches the spec: routes/best on; issues, all and old links off", () => {
     expect(DENSE_DEFAULT_CONNECTION_CONTROLS).toEqual({
       routeHints: true,
       bestNeighbourLinks: true,
-      issueDeviceLinks: true,
+      devicesWithIssues: false,
       allNeighbourLinks: false,
       oldUncertainLinks: false,
     });
+  });
+
+  it("keeps Devices with issues off by default", () => {
+    expect(DENSE_DEFAULT_CONNECTION_CONTROLS.devicesWithIssues).toBe(false);
   });
 });
 
@@ -255,25 +258,39 @@ describe("selectVisibleConnectionEdges", () => {
     expect(visible).toContain(staleEdge);
   });
 
-  it("issue-device links reveal edges touching flagged devices", () => {
-    const visible = selectVisibleConnectionEdges(all, controls(), {
-      ...context,
-      issueDeviceIds: new Set(["r3"]),
-    });
-    expect(visible).toContain(otherNeighbour);
-
-    const withoutToggle = selectVisibleConnectionEdges(
+  it("Devices with issues never expands to every edge touching issue devices", () => {
+    // r3 is an issue device with a plain neighbour edge; the toggle is node
+    // highlighting, so that edge must stay hidden even when enabled.
+    const visible = selectVisibleConnectionEdges(
       all,
-      controls({ issueDeviceLinks: false }),
-      { ...context, issueDeviceIds: new Set(["r3"]) },
+      controls({ devicesWithIssues: true }),
+      context,
     );
-    expect(withoutToggle).not.toContain(otherNeighbour);
+    expect(visible).not.toContain(otherNeighbour);
   });
 
-  it("issue-related edges stay visible under the issues toggle", () => {
+  it("Devices with issues reveals only edges already marked issue-related", () => {
     const issueEdge = edge("x", "y", { id: "issue", issue_related: true });
-    const visible = selectVisibleConnectionEdges([issueEdge], controls(), emptyContext);
-    expect(visible).toContain(issueEdge);
+    const plainEdge = edge("x", "z", { id: "plain" });
+    const on = selectVisibleConnectionEdges(
+      [issueEdge, plainEdge],
+      controls({ devicesWithIssues: true }),
+      emptyContext,
+    );
+    expect(on).toContain(issueEdge);
+    expect(on).not.toContain(plainEdge);
+
+    const off = selectVisibleConnectionEdges([issueEdge, plainEdge], controls(), emptyContext);
+    expect(off).not.toContain(issueEdge);
+  });
+
+  it("selecting an issue device still reveals its full evidence neighbourhood", () => {
+    const visible = selectVisibleConnectionEdges(
+      all,
+      controls({ devicesWithIssues: true }),
+      { ...context, selectedNodeId: "r3" },
+    );
+    expect(visible).toContain(otherNeighbour);
   });
 
   it("selected device links are always on: selection reveals every touching edge", () => {
@@ -282,7 +299,6 @@ describe("selectVisibleConnectionEdges", () => {
       controls({
         routeHints: false,
         bestNeighbourLinks: false,
-        issueDeviceLinks: false,
       }),
       { ...context, selectedNodeId: "r3" },
     );

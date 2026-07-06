@@ -21,13 +21,18 @@ import {
 import { buildStructuralLayoutEdges } from "@/lib/meshGraphLayout";
 import {
   DENSE_DEFAULT_CONNECTION_CONTROLS,
-  collectIssueDeviceIds,
   countHiddenConnectionEdges,
   isDenseGraph,
   selectBestNeighbourLinks,
   selectVisibleConnectionEdges,
   type ConnectionControls,
 } from "@/lib/meshGraphDense";
+import {
+  DEFAULT_LAYOUT_MODE,
+  MESH_LAYOUT_MODES,
+  clearSavedPositions,
+  type MeshLayoutMode,
+} from "@/lib/meshGraphSmartLayout";
 
 type GraphDataSource = "live" | "sample";
 
@@ -143,6 +148,7 @@ function GraphPanel({
   setFilters,
   liveMode,
   signatureSeed,
+  positionStorageId,
   onSelectEdge,
   onSelectNode,
   selectedNodeId,
@@ -154,6 +160,7 @@ function GraphPanel({
   setFilters: (update: (f: EvidenceFilters) => EvidenceFilters) => void;
   liveMode: boolean;
   signatureSeed: string;
+  positionStorageId: string;
   onSelectEdge: (edge: MeshEvidenceEdge) => void;
   onSelectNode: (device: MeshEvidenceDevice) => void;
   selectedNodeId: string | null;
@@ -162,6 +169,8 @@ function GraphPanel({
   const [controls, setControls] = useState<ConnectionControls>(
     DENSE_DEFAULT_CONNECTION_CONTROLS,
   );
+  const [layoutMode, setLayoutMode] = useState<MeshLayoutMode>(DEFAULT_LAYOUT_MODE);
+  const [resetNonce, setResetNonce] = useState(0);
 
   const filterVisibleEdges = useMemo(
     () => edges.filter((edge) => edgeVisible(edge, filters)),
@@ -178,7 +187,6 @@ function GraphPanel({
     structuralEdgeCount,
   });
 
-  const issueDeviceIds = useMemo(() => collectIssueDeviceIds(devices), [devices]);
   const bestNeighbourEdgeIds = useMemo(() => selectBestNeighbourLinks(edges), [edges]);
   const hasOldUncertainLinks = useMemo(
     () => edges.some((edge) => edge.evidence_class === "stale_low_confidence"),
@@ -192,7 +200,6 @@ function GraphPanel({
     if (!denseMode) return filterVisibleEdges;
     return selectVisibleConnectionEdges(edges, controls, {
       bestNeighbourEdgeIds,
-      issueDeviceIds,
       selectedNodeId,
       selectedEdge,
     });
@@ -202,7 +209,6 @@ function GraphPanel({
     edges,
     controls,
     bestNeighbourEdgeIds,
-    issueDeviceIds,
     selectedNodeId,
     selectedEdge,
   ]);
@@ -212,16 +218,59 @@ function GraphPanel({
   const enabledConnectionLabels = [
     controls.routeHints ? "route hints" : null,
     controls.bestNeighbourLinks ? "best neighbour links" : null,
-    controls.issueDeviceLinks ? "links for devices with issues" : null,
     "selected device links",
+    controls.devicesWithIssues ? "devices with issues" : null,
     controls.oldUncertainLinks ? "old or uncertain links" : null,
   ].filter((label): label is string => label !== null);
 
   const setControl = (key: keyof ConnectionControls) => (value: boolean) =>
     setControls((c) => ({ ...c, [key]: value }));
 
+  const layoutModeInfo = MESH_LAYOUT_MODES.find((m) => m.id === layoutMode);
+
+  const resetLayout = () => {
+    clearSavedPositions(positionStorageId, layoutMode);
+    setResetNonce((n) => n + 1);
+  };
+
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-zl-muted" id="graph-layout-mode-label">
+              Layout
+            </span>
+            <select
+              value={layoutMode}
+              onChange={(e) => setLayoutMode(e.target.value as MeshLayoutMode)}
+              aria-labelledby="graph-layout-mode-label"
+              className="rounded-lg border border-zl-border bg-zl-surface-2 px-2 py-1.5 text-sm"
+            >
+              {MESH_LAYOUT_MODES.map((mode) => (
+                <option key={mode.id} value={mode.id}>
+                  {mode.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={resetLayout}
+            className="rounded-lg border border-zl-border bg-zl-surface-2 px-3 py-1.5 text-sm text-zl-text hover:border-zl-accent/40"
+          >
+            Reset layout
+          </button>
+        </div>
+        {layoutModeInfo && (
+          <p
+            className="max-w-md text-[11px] leading-snug text-zl-muted"
+            data-testid="layout-mode-description"
+          >
+            {layoutModeInfo.description}
+          </p>
+        )}
+      </div>
       {denseMode && (
         <div
           role="note"
@@ -254,6 +303,10 @@ function GraphPanel({
             visibleEdges={visibleEdges}
             allEdges={edges}
             signatureSeed={signatureSeed}
+            layoutMode={layoutMode}
+            positionStorageId={positionStorageId}
+            resetNonce={resetNonce}
+            highlightIssueDevices={controls.devicesWithIssues}
             selectedNodeId={selectedNodeId}
             onSelectEdge={onSelectEdge}
             onSelectNode={onSelectNode}
@@ -284,16 +337,16 @@ function GraphPanel({
               onChange={setControl("bestNeighbourLinks")}
             />
             <ConnectionCheckbox
-              label="Links for devices with issues"
-              helper="Evidence links touching devices ZigbeeLens has already flagged (unavailable, needs attention, interview failure, weak-link or router-risk candidates)."
-              checked={controls.issueDeviceLinks}
-              onChange={setControl("issueDeviceLinks")}
-            />
-            <ConnectionCheckbox
               label="Selected device links"
               helper="Always on — selecting a device reveals its full neighbourhood."
               checked
               disabled
+            />
+            <ConnectionCheckbox
+              label="Devices with issues"
+              helper="Highlight devices already marked by ZigbeeLens as needing attention."
+              checked={controls.devicesWithIssues}
+              onChange={setControl("devicesWithIssues")}
             />
             <ConnectionCheckbox
               label="All neighbour links"
@@ -627,6 +680,7 @@ export function TopologyGraphPage() {
               setFilters={setFilters}
               liveMode
               signatureSeed={liveSignatureSeed}
+              positionStorageId={networkId ?? "unknown-network"}
               onSelectEdge={selectEdge}
               onSelectNode={selectNode}
               selectedNodeId={selectedDevice?.ieee_address ?? null}
@@ -649,6 +703,7 @@ export function TopologyGraphPage() {
             setFilters={setFilters}
             liveMode={false}
             signatureSeed={sampleSignatureSeed}
+            positionStorageId={`sample-${fixture.network_id}`}
             onSelectEdge={selectEdge}
             onSelectNode={selectNode}
             selectedNodeId={selectedDevice?.ieee_address ?? null}
