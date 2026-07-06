@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
@@ -22,12 +22,18 @@ import { MeshDeviceNode } from "@/components/meshGraph/MeshDeviceNode";
 import {
   MESH_NODE_HEIGHT,
   MESH_NODE_WIDTH,
+  buildGraphSignature,
+  buildStructuralLayoutEdges,
+  chooseLayoutStrategy,
   layoutMeshGraph,
   type MeshLayoutResult,
 } from "@/lib/meshGraphLayout";
 
 export const LAYOUT_ERROR_COPY =
-  "The graph layout could not be computed for this snapshot. The topology data is still available in list/detail views.";
+  "The graph layout could not be computed for this snapshot. The topology data is still available in the snapshot and device views.";
+
+export const FAST_LAYOUT_NOTE_COPY =
+  "Dense graph mode used a faster layout to keep the graph responsive.";
 
 const nodeTypes = { meshDevice: MeshDeviceNode };
 
@@ -85,10 +91,20 @@ function edgeType(edge: MeshEvidenceEdge): string {
   }
 }
 
+type EdgeFocus = "normal" | "focused" | "muted";
+
+function edgeFocusFor(edge: MeshEvidenceEdge, selectedNodeId: string | null): EdgeFocus {
+  if (!selectedNodeId) return "normal";
+  return edge.source === selectedNodeId || edge.target === selectedNodeId
+    ? "focused"
+    : "muted";
+}
+
 function buildFlowEdge(
   edge: MeshEvidenceEdge,
   roleOf: (ieee: string) => MeshRole,
   nameOf: (ieee: string) => string,
+  focus: EdgeFocus,
 ): Edge {
   const style = evidenceEdgeStyle(edge.evidence_class);
   // Render edges top-down (higher role first) so the layered layout stays
@@ -102,20 +118,26 @@ function buildFlowEdge(
     ? { type: MarkerType.ArrowClosed, color: style.stroke, width: 16, height: 16 }
     : undefined;
 
+  // Visual focus only — never changes which evidence exists or its meaning.
+  const baseOpacity = style.opacity ?? 1;
+  const opacity =
+    focus === "focused" ? Math.min(1, baseOpacity + 0.2) : focus === "muted" ? baseOpacity * 0.3 : baseOpacity;
+  const strokeWidth = focus === "focused" ? style.strokeWidth + 0.75 : style.strokeWidth;
+
   return {
     id: edge.id,
     source: renderSource,
     target: renderTarget,
     type: edgeType(edge),
-    className: `mesh-edge mesh-edge--${edge.evidence_class}`,
+    className: `mesh-edge mesh-edge--${edge.evidence_class} mesh-edge--focus-${focus}`,
     ariaLabel: edgeAriaLabel(edge, nameOf),
     interactionWidth: 24,
     style: {
       stroke: style.stroke,
-      strokeWidth: style.strokeWidth,
+      strokeWidth,
       strokeDasharray: style.strokeDasharray,
       strokeLinecap: style.strokeLinecap,
-      opacity: style.opacity,
+      opacity,
     },
     markerEnd: flip ? undefined : marker,
     markerStart: flip ? marker : undefined,
@@ -126,13 +148,17 @@ function buildFlowEdge(
 /**
  * Mesh evidence graph renderer.
  *
- * Layout is computed once with ELK from the full evidence set so positions
- * are deterministic and stable while filters toggle edge visibility.
+ * Layout is computed with ELK from the full (unfiltered) evidence set and is
+ * cached per graph signature: routine API refetches, filter toggles, drawer
+ * open/close and selection changes never recompute layout or move nodes.
+ * React Flow is keyed by the signature of the *displayed* layout, so fitView
+ * fires only on first load and when the positional graph materially changes.
  */
 export function MeshEvidenceGraph({
   devices,
   visibleEdges,
   allEdges,
+  signatureSeed,
   selectedNodeId,
   onSelectEdge,
   onSelectNode,
@@ -140,29 +166,51 @@ export function MeshEvidenceGraph({
   devices: MeshEvidenceDevice[];
   visibleEdges: MeshEvidenceEdge[];
   allEdges: MeshEvidenceEdge[];
+  /**
+   * Stable identity of the data source: network id, data-source mode and
+   * snapshot id/captured-at. Must not include fetch times or UI state.
+   */
+  signatureSeed: string;
   selectedNodeId: string | null;
   onSelectEdge: (edge: MeshEvidenceEdge) => void;
   onSelectNode: (device: MeshEvidenceDevice) => void;
 }) {
-  const [layout, setLayout] = useState<MeshLayoutResult | null>(null);
+  const structuralEdges = useMemo(
+    () => buildStructuralLayoutEdges(devices, allEdges),
+    [devices, allEdges],
+  );
+  const strategy = chooseLayoutStrategy(structuralEdges.length);
+  const signature = useMemo(
+    () => buildGraphSignature(signatureSeed, devices, structuralEdges, strategy),
+    [signatureSeed, devices, structuralEdges, strategy],
+  );
+
+  const [layout, setLayout] = useState<{ signature: string; result: MeshLayoutResult } | null>(
+    null,
+  );
   const [layoutFailed, setLayoutFailed] = useState(false);
 
-  // Layout is computed from the full evidence set (allEdges), never the
-  // filtered set, so node positions do not move when filter toggles change.
+  // The effect below is keyed on the signature alone; it reads the latest
+  // inputs through this ref so identity-only changes (fresh arrays from a
+  // routine refetch with identical content) never trigger a relayout.
+  const layoutInputRef = useRef({ devices, allEdges, structuralEdges });
+  layoutInputRef.current = { devices, allEdges, structuralEdges };
+
   useEffect(() => {
     let cancelled = false;
-    setLayout(null);
-    setLayoutFailed(false);
-    layoutMeshGraph(devices, allEdges)
+    const input = layoutInputRef.current;
+    layoutMeshGraph(input.devices, input.allEdges, { structuralEdges: input.structuralEdges })
       .then((result) => {
+        // A resolve racing a newer signature must never overwrite it.
         if (cancelled) return;
-        setLayout(result);
+        setLayout({ signature, result });
+        setLayoutFailed(false);
       })
       .catch((error: unknown) => {
         if (cancelled) return;
         // Diagnostics only — counts and the ELK error, no payload contents.
         console.error(
-          `[mesh-graph] layout failed for ${devices.length} devices / ${allEdges.length} evidence edges`,
+          `[mesh-graph] layout failed for ${input.devices.length} devices / ${input.allEdges.length} evidence edges`,
           error,
         );
         setLayoutFailed(true);
@@ -170,9 +218,9 @@ export function MeshEvidenceGraph({
     return () => {
       cancelled = true;
     };
-  }, [devices, allEdges]);
+  }, [signature]);
 
-  const positions = layout?.positions ?? null;
+  const positions = layout?.result.positions ?? null;
 
   const roleById = useMemo(
     () => new Map(devices.map((d) => [d.ieee_address, d.role])),
@@ -204,9 +252,10 @@ export function MeshEvidenceGraph({
           edge,
           (ieee) => roleById.get(ieee) ?? "end_device",
           (ieee) => nameById.get(ieee) ?? ieee,
+          edgeFocusFor(edge, selectedNodeId),
         ),
       ),
-    [visibleEdges, roleById, nameById],
+    [visibleEdges, roleById, nameById, selectedNodeId],
   );
 
   if (layoutFailed) {
@@ -224,7 +273,7 @@ export function MeshEvidenceGraph({
     );
   }
 
-  if (!positions) {
+  if (!layout) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-zl-muted">
         <span className="animate-pulse">Computing layout…</span>
@@ -234,11 +283,14 @@ export function MeshEvidenceGraph({
 
   return (
     <div
-      className="h-full"
-      data-layout-strategy={layout?.strategy}
-      data-layout-structural-edges={layout?.structuralEdgeCount}
+      className="relative h-full"
+      data-layout-strategy={layout.result.strategy}
+      data-layout-structural-edges={layout.result.structuralEdgeCount}
     >
       <ReactFlow
+        // Keyed by the displayed layout's signature: fitView reruns only when
+        // the positional graph truly changed, never on routine refresh.
+        key={layout.signature}
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
@@ -261,6 +313,14 @@ export function MeshEvidenceGraph({
         <Background gap={24} color="#1a2330" />
         <Controls showInteractive={false} className="!border-zl-border !bg-zl-surface" />
       </ReactFlow>
+      {layout.result.strategy === "mrtree" && (
+        <p
+          data-testid="graph-fast-layout-note"
+          className="pointer-events-none absolute bottom-2 right-2 rounded-md border border-zl-border bg-zl-surface/90 px-2 py-1 text-[11px] text-zl-muted"
+        >
+          {FAST_LAYOUT_NOTE_COPY}
+        </p>
+      )}
     </div>
   );
 }

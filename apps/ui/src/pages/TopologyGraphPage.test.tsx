@@ -148,18 +148,87 @@ const liveDetailWithGhostEndpoint: TopologyNetworkDetail = {
   ],
 };
 
+/**
+ * A dense network shaped like the real reference deployment: a coordinator
+ * plus a clique of routers, giving well over the dense-mode edge threshold,
+ * with exactly one real route-table link.
+ */
+function makeDenseNetwork(routerCount = 30): {
+  detail: TopologyNetworkDetail;
+  devices: DeviceSummary[];
+} {
+  const nodes = [
+    { ieee_address: "0xc0", friendly_name: "Dense Coordinator", node_type: "Coordinator" },
+  ];
+  const devices = [
+    makeDevice({
+      ieee_address: "0xc0",
+      friendly_name: "Dense Coordinator",
+      device_type: "Coordinator",
+    }),
+  ];
+  const links: NonNullable<TopologyNetworkDetail["links"]> = [];
+  for (let i = 0; i < routerCount; i += 1) {
+    const ieee = `0xr${i}`;
+    nodes.push({ ieee_address: ieee, friendly_name: `Dense Router ${i}`, node_type: "Router" });
+    devices.push(
+      makeDevice({ ieee_address: ieee, friendly_name: `Dense Router ${i}`, device_type: "Router" }),
+    );
+    for (let j = 0; j < i; j += 1) {
+      links.push({
+        source_ieee: ieee,
+        target_ieee: `0xr${j}`,
+        linkquality: 100,
+        relationship: "Sibling",
+        route_count: null,
+      });
+    }
+  }
+  links.push({
+    source_ieee: "0xr0",
+    target_ieee: "0xc0",
+    linkquality: 140,
+    relationship: "Parent",
+    route_count: 2,
+  });
+  return {
+    detail: {
+      network_id: "home",
+      network_name: "Home",
+      latest_snapshot: {
+        snapshot_id: "snap-dense",
+        network_id: "home",
+        captured_at: "2026-07-06T00:30:00+00:00",
+        requested_by: "startup_scan",
+        status: "complete",
+        router_count: routerCount,
+        end_device_count: 0,
+        link_count: links.length,
+      },
+      nodes,
+      links,
+      inventory: { device_count: devices.length, router_count: routerCount, end_device_count: 0 },
+      layout_available: true,
+    },
+    devices,
+  };
+}
+
 let mockDetail: TopologyNetworkDetail | null = liveDetailHome;
 let mockDevices: DeviceSummary[] = liveDevices;
 let mockLayoutFailure: Error | null = null;
+let layoutCallCount = 0;
 
 vi.mock("@/lib/meshGraphLayout", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/meshGraphLayout")>();
   return {
     ...actual,
-    layoutMeshGraph: (...args: Parameters<typeof actual.layoutMeshGraph>) =>
-      mockLayoutFailure
+    layoutMeshGraph: (...args: Parameters<typeof actual.layoutMeshGraph>) => {
+      layoutCallCount += 1;
+      return mockLayoutFailure
         ? Promise.reject(mockLayoutFailure)
-        : actual.layoutMeshGraph(...args),
+        : actual.layoutMeshGraph(...args);
+    },
   };
 });
 
@@ -190,6 +259,7 @@ beforeEach(() => {
   mockDetail = liveDetailHome;
   mockDevices = liveDevices;
   mockLayoutFailure = null;
+  layoutCallCount = 0;
 });
 
 function renderGraphPage(networkId = "home") {
@@ -410,7 +480,7 @@ describe("TopologyGraphPage live mode", () => {
     renderGraphPage();
     const errorPanel = await screen.findByTestId("graph-layout-error");
     expect(errorPanel).toHaveTextContent(
-      "The graph layout could not be computed for this snapshot. The topology data is still available in list/detail views.",
+      "The graph layout could not be computed for this snapshot. The topology data is still available in the snapshot and device views.",
     );
     expect(screen.queryByText(/computing layout/i)).not.toBeInTheDocument();
     expect(consoleError).toHaveBeenCalled();
@@ -494,6 +564,113 @@ describe("TopologyGraphPage sample mode", () => {
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--stale_low_confidence")).toHaveLength(1);
     });
+  });
+});
+
+describe("TopologyGraphPage layout stability", () => {
+  it("does not recompute layout or remount the graph on a routine refetch with unchanged data", async () => {
+    const view = renderGraphPage();
+    await screen.findByText("Live Hall Router");
+    await waitFor(() => expect(layoutCallCount).toBe(1));
+    const flowEl = view.container.querySelector(".react-flow");
+    expect(flowEl).not.toBeNull();
+
+    // Simulate a routine API refetch: identical content, fresh object identity.
+    mockDetail = JSON.parse(JSON.stringify(liveDetailHome)) as TopologyNetworkDetail;
+    view.rerender(
+      <MemoryRouter initialEntries={["/topology/home/graph"]}>
+        <Routes>
+          <Route path="/topology/:networkId/graph" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByText("Live Hall Router");
+    expect(layoutCallCount).toBe(1);
+    // Same React Flow DOM node — no remount, so fitView cannot have re-fired.
+    expect(view.container.querySelector(".react-flow")).toBe(flowEl);
+  });
+
+  it("does not recompute layout when filters change or a drawer opens", async () => {
+    const user = userEvent.setup();
+    renderGraphPage();
+    await screen.findByText("Live Hall Router");
+    await waitFor(() => expect(layoutCallCount).toBe(1));
+
+    await user.click(screen.getByRole("checkbox", { name: /route evidence/i }));
+    fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
+    await screen.findByRole("dialog", { name: /device details/i });
+
+    expect(layoutCallCount).toBe(1);
+  });
+});
+
+describe("TopologyGraphPage dense graph mode", () => {
+  beforeEach(() => {
+    const dense = makeDenseNetwork();
+    mockDetail = dense.detail;
+    mockDevices = dense.devices;
+  });
+
+  it("activates for large edge counts and reports available/shown/hidden honestly", async () => {
+    const { container } = renderGraphPage();
+    const banner = await screen.findByTestId("dense-graph-banner");
+    await screen.findByTestId("mesh-node-0xr5");
+
+    expect(banner).toHaveTextContent("Dense graph mode");
+    expect(banner).toHaveTextContent("437 evidence links available");
+    expect(banner).toHaveTextContent("showing 1");
+    expect(banner).toHaveTextContent("436 hidden for readability only");
+    expect(banner).not.toHaveTextContent(/ignored/i);
+    expect(banner).not.toHaveTextContent(/not relevant/i);
+
+    // Route evidence stays visible; the neighbour hairball does not render.
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(1);
+    });
+    expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(0);
+
+    // Dense graphs use the faster layout and say so without alarm.
+    expect(screen.getByTestId("graph-fast-layout-note")).toHaveTextContent(
+      /faster layout to keep the graph responsive/i,
+    );
+    expect(
+      container.querySelector("[data-layout-strategy]"),
+    ).toHaveAttribute("data-layout-strategy", "mrtree");
+  });
+
+  it("selecting a node reveals its evidence neighbourhood without recomputing layout", async () => {
+    const { container } = renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    const callsAfterLoad = layoutCallCount;
+
+    fireEvent.click(screen.getByTestId("mesh-node-0xr5"));
+    await screen.findByRole("dialog", { name: /device details/i });
+    await waitFor(() => {
+      // 0xr5 has neighbour links to the 29 other routers.
+      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(29);
+    });
+    expect(layoutCallCount).toBe(callsAfterLoad);
+  });
+
+  it("show all evidence renders every link with a readability warning", async () => {
+    const user = userEvent.setup();
+    const { container } = renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+
+    await user.click(screen.getByRole("checkbox", { name: /show all evidence/i }));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(436);
+    });
+    expect(screen.getByTestId("dense-graph-banner")).toHaveTextContent(/may be hard to read/i);
+  });
+
+  it("stays off for small graphs", async () => {
+    mockDetail = liveDetailHome;
+    mockDevices = liveDevices;
+    renderGraphPage();
+    await screen.findByText("Live Hall Router");
+    expect(screen.queryByTestId("dense-graph-banner")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("graph-fast-layout-note")).not.toBeInTheDocument();
   });
 });
 

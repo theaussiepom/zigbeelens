@@ -18,6 +18,12 @@ import {
   type MeshEvidenceDevice,
   type MeshEvidenceEdge,
 } from "@/lib/meshEvidence";
+import { buildStructuralLayoutEdges } from "@/lib/meshGraphLayout";
+import {
+  countHiddenEvidenceEdges,
+  isDenseGraph,
+  selectVisibleEdgesForDenseMode,
+} from "@/lib/meshGraphDense";
 
 type GraphDataSource = "live" | "sample";
 
@@ -97,32 +103,96 @@ function GraphPanel({
   filters,
   setFilters,
   liveMode,
+  signatureSeed,
   onSelectEdge,
   onSelectNode,
   selectedNodeId,
+  selectedEdge,
 }: {
   devices: MeshEvidenceDevice[];
   edges: MeshEvidenceEdge[];
   filters: EvidenceFilters;
   setFilters: (update: (f: EvidenceFilters) => EvidenceFilters) => void;
   liveMode: boolean;
+  signatureSeed: string;
   onSelectEdge: (edge: MeshEvidenceEdge) => void;
   onSelectNode: (device: MeshEvidenceDevice) => void;
   selectedNodeId: string | null;
+  selectedEdge: MeshEvidenceEdge | null;
 }) {
-  const visibleEdges = useMemo(
+  const [showAllEvidence, setShowAllEvidence] = useState(false);
+
+  const filterVisibleEdges = useMemo(
     () => edges.filter((edge) => edgeVisible(edge, filters)),
     [edges, filters],
   );
 
+  const structuralEdgeCount = useMemo(
+    () => buildStructuralLayoutEdges(devices, edges).length,
+    [devices, edges],
+  );
+  const denseMode = isDenseGraph({
+    nodeCount: devices.length,
+    evidenceEdgeCount: edges.length,
+    structuralEdgeCount,
+  });
+
+  // Dense mode reduces which evidence edges are *rendered*, never which
+  // evidence exists: hidden edges stay in the model/drawers and reappear by
+  // selecting an endpoint node or enabling "Show all evidence".
+  const visibleEdges = useMemo(() => {
+    if (!denseMode || showAllEvidence) return filterVisibleEdges;
+    return selectVisibleEdgesForDenseMode(filterVisibleEdges, selectedNodeId, selectedEdge);
+  }, [denseMode, showAllEvidence, filterVisibleEdges, selectedNodeId, selectedEdge]);
+
+  const hiddenEdgeCount = countHiddenEvidenceEdges(filterVisibleEdges, visibleEdges);
+
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+    <div className="space-y-4">
+      {denseMode && (
+        <div
+          role="note"
+          aria-label="Dense graph mode"
+          data-testid="dense-graph-banner"
+          className="rounded-lg border border-zl-border bg-zl-surface px-4 py-3 text-sm"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1">
+              <p className="font-medium text-zl-text">Dense graph mode</p>
+              {showAllEvidence ? (
+                <p className="text-zl-muted">
+                  Showing all {filterVisibleEdges.length} evidence links. A graph this dense may
+                  be hard to read.
+                </p>
+              ) : (
+                <p className="text-zl-muted">
+                  {filterVisibleEdges.length} evidence links available — showing{" "}
+                  {visibleEdges.length}, with {hiddenEdgeCount} hidden for readability only.
+                  Select a device to show its topology evidence neighbourhood, or show all
+                  evidence.
+                </p>
+              )}
+            </div>
+            <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-zl-text">
+              <input
+                type="checkbox"
+                checked={showAllEvidence}
+                onChange={(e) => setShowAllEvidence(e.target.checked)}
+                className="h-4 w-4 accent-[#5b9fd4]"
+              />
+              Show all evidence
+            </label>
+          </div>
+        </div>
+      )}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
       <Card className="!p-2">
         <div className="h-[600px]" data-testid="mesh-evidence-graph">
           <MeshEvidenceGraph
             devices={devices}
             visibleEdges={visibleEdges}
             allEdges={edges}
+            signatureSeed={signatureSeed}
             selectedNodeId={selectedNodeId}
             onSelectEdge={onSelectEdge}
             onSelectNode={onSelectNode}
@@ -184,12 +254,20 @@ function GraphPanel({
                 snapshot data yet. They remain available in prototype sample data.
               </p>
             )}
+            {denseMode && !showAllEvidence && (
+              <p className="text-[11px] leading-snug text-zl-muted">
+                Dense graph mode: neighbour evidence not connected to your selection is hidden
+                for readability, never removed. Select a device to show its topology evidence
+                neighbourhood.
+              </p>
+            )}
             <p className="text-[11px] leading-snug text-zl-muted">
               Hiding an evidence class only hides claims — it never means the relationship is
               gone.
             </p>
           </div>
         </Card>
+      </div>
       </div>
     </div>
   );
@@ -231,6 +309,14 @@ export function TopologyGraphPage() {
       ((detail.data?.nodes?.length ?? 0) > 0 || (detail.data?.links?.length ?? 0) > 0),
   );
   const topologyEnabled = status?.topology?.enabled ?? true;
+
+  // Stable data identity for layout caching: network + mode + snapshot only.
+  // Refetch timestamps, filters, selection and drawer state must never be in
+  // here — layout recomputes only when this (plus graph content) changes.
+  const liveSignatureSeed = `live|${networkId ?? "none"}|${
+    snapshot?.snapshot_id ?? snapshot?.captured_at ?? "no-snapshot"
+  }`;
+  const sampleSignatureSeed = `sample|${fixture.network_id}|${fixture.latest_snapshot_captured_at}`;
 
   const selectEdge = (edge: MeshEvidenceEdge) => {
     setSelectedDevice(null);
@@ -418,9 +504,11 @@ export function TopologyGraphPage() {
               filters={filters}
               setFilters={setFilters}
               liveMode
+              signatureSeed={liveSignatureSeed}
               onSelectEdge={selectEdge}
               onSelectNode={selectNode}
               selectedNodeId={selectedDevice?.ieee_address ?? null}
+              selectedEdge={selectedEdge}
             />
           </>
         ) : null
@@ -438,9 +526,11 @@ export function TopologyGraphPage() {
             filters={filters}
             setFilters={setFilters}
             liveMode={false}
+            signatureSeed={sampleSignatureSeed}
             onSelectEdge={selectEdge}
             onSelectNode={selectNode}
             selectedNodeId={selectedDevice?.ieee_address ?? null}
+            selectedEdge={selectedEdge}
           />
         </>
       )}

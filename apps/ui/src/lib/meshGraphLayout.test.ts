@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MeshEvidenceDevice, MeshEvidenceEdge, MeshRole } from "@/lib/meshEvidence";
 import {
+  buildGraphSignature,
   buildStructuralLayoutEdges,
+  chooseLayoutStrategy,
   layoutMeshGraph,
 } from "@/lib/meshGraphLayout";
 
@@ -115,6 +117,60 @@ describe("buildStructuralLayoutEdges", () => {
     ]);
     expect(result).toHaveLength(1);
     expect(result[0].id).toContain("0xc0");
+  });
+});
+
+describe("buildGraphSignature", () => {
+  const structural = buildStructuralLayoutEdges(devices, [edge("0xr1", "0xc0")]);
+
+  it("is stable across routine refreshes when the graph content is unchanged", () => {
+    // Fresh array/object identities, same content — as produced by a refetch.
+    const refetchedDevices = devices.map((d) => ({ ...d }));
+    const refetchedStructural = buildStructuralLayoutEdges(refetchedDevices, [
+      edge("0xr1", "0xc0"),
+    ]);
+    expect(buildGraphSignature("live|home|snap-1", devices, structural, "layered")).toBe(
+      buildGraphSignature("live|home|snap-1", refetchedDevices, refetchedStructural, "layered"),
+    );
+  });
+
+  it("is independent of device and edge ordering", () => {
+    const reversed = [...devices].reverse();
+    expect(buildGraphSignature("live|home|snap-1", devices, structural, "layered")).toBe(
+      buildGraphSignature("live|home|snap-1", reversed, [...structural].reverse(), "layered"),
+    );
+  });
+
+  it("changes when the snapshot seed changes", () => {
+    expect(buildGraphSignature("live|home|snap-1", devices, structural, "layered")).not.toBe(
+      buildGraphSignature("live|home|snap-2", devices, structural, "layered"),
+    );
+  });
+
+  it("changes when nodes or structural edges change", () => {
+    const moreEdges = buildStructuralLayoutEdges(devices, [
+      edge("0xr1", "0xc0"),
+      edge("0xr1", "0xe1"),
+    ]);
+    expect(buildGraphSignature("live|home|snap-1", devices, structural, "layered")).not.toBe(
+      buildGraphSignature("live|home|snap-1", devices, moreEdges, "layered"),
+    );
+    expect(buildGraphSignature("live|home|snap-1", devices, structural, "layered")).not.toBe(
+      buildGraphSignature("live|home|snap-1", devices.slice(0, 2), structural, "layered"),
+    );
+  });
+
+  it("changes when the layout strategy changes", () => {
+    expect(buildGraphSignature("live|home|snap-1", devices, structural, "layered")).not.toBe(
+      buildGraphSignature("live|home|snap-1", devices, structural, "mrtree"),
+    );
+  });
+});
+
+describe("chooseLayoutStrategy", () => {
+  it("uses layered up to the dense threshold and mrtree above it", () => {
+    expect(chooseLayoutStrategy(400)).toBe("layered");
+    expect(chooseLayoutStrategy(401)).toBe("mrtree");
   });
 });
 
