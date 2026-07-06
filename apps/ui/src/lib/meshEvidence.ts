@@ -60,6 +60,10 @@ export interface MeshEvidenceEdge {
   issue_related?: boolean;
   /** Whether this relationship appeared in the latest topology snapshot. */
   in_latest_snapshot: boolean;
+  /** When the snapshot supplying this evidence was captured, if known. */
+  captured_at?: string | null;
+  /** Neighbour-table relationship reported by Zigbee2MQTT (e.g. Child). */
+  observed_relationship?: string | null;
   first_seen_at?: string | null;
   last_seen_at?: string | null;
   observed_count?: number | null;
@@ -76,7 +80,7 @@ export interface MeshEvidenceEdge {
   suggested_investigation: string[];
 }
 
-export type MeshRole = "coordinator" | "router" | "end_device";
+export type MeshRole = "coordinator" | "router" | "end_device" | "unknown";
 
 export type MeshNodeFlag =
   | "unavailable"
@@ -93,7 +97,8 @@ export type MeshHealthBucket =
   | "unavailable"
   | "diagnostics_limited"
   | "recently_unstable"
-  | "informational";
+  | "informational"
+  | "unknown";
 
 export interface MeshOpenIssue {
   title: string;
@@ -208,6 +213,8 @@ export function meshRoleLabel(role: MeshRole): string {
       return "Router";
     case "end_device":
       return "End device";
+    case "unknown":
+      return "Unknown role";
   }
 }
 
@@ -225,6 +232,8 @@ export function meshHealthBucketLabel(bucket: MeshHealthBucket): string {
       return "Recently unstable";
     case "informational":
       return "Informational";
+    case "unknown":
+      return "Unknown";
   }
 }
 

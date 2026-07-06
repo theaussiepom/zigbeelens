@@ -28,6 +28,10 @@ class ParsedTopologyLink:
     linkquality: int | None = None
     depth: int | None = None
     relationship: str | None = None
+    # Number of route-table entries reported on this link (Zigbee2MQTT raw
+    # maps attach the source's routes whose next hop is the target). None
+    # means the payload carried no routes information — unknown, not zero.
+    route_count: int | None = None
     raw_json: dict[str, Any] = field(default_factory=dict)
 
 
@@ -42,7 +46,7 @@ class ParsedTopology:
 
 
 def _normalize_ieee(value: Any) -> str | None:
-    if value is None:
+    if value is None or isinstance(value, (dict, list)):
         return None
     text = str(value).strip().lower()
     if not text:
@@ -52,11 +56,70 @@ def _normalize_ieee(value: Any) -> str | None:
     return text
 
 
+def _link_endpoint_ieee(link_raw: dict[str, Any], *keys: str) -> str | None:
+    """Extract an endpoint IEEE from the several shapes Z2M has used.
+
+    Raw network maps report both a nested object (``source: {ieeeAddr: …}``)
+    and deprecated flat fields (``sourceIeeeAddr``).
+    """
+    for key in keys:
+        value = link_raw.get(key)
+        if isinstance(value, dict):
+            value = value.get("ieeeAddr") or value.get("ieee_address")
+        ieee = _normalize_ieee(value)
+        if ieee:
+            return ieee
+    return None
+
+
+def _unwrap_networkmap_envelope(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Unwrap a Z2M bridge response envelope if present.
+
+    Real ``bridge/response/networkmap`` payloads look like
+    ``{"data": {"type": "raw", "value": {"nodes": …, "links": …}}, "status": "ok"}``.
+    Bare maps (``{"nodes": …, "links": …}``) are returned unchanged.
+    """
+    if "nodes" in parsed or "links" in parsed:
+        return parsed
+    data = parsed.get("data")
+    if isinstance(data, dict):
+        value = data.get("value")
+        if isinstance(value, dict):
+            return value
+    return parsed
+
+
 def _node_type(raw: dict[str, Any]) -> str:
     for key in ("type", "device_type"):
         if raw.get(key):
             return str(raw[key])
     return "Unknown"
+
+
+# Neighbour-table relationship codes used by zigbee-herdsman raw maps.
+_RELATIONSHIP_LABELS = {
+    "0": "Parent",
+    "1": "Child",
+    "2": "Sibling",
+    "3": "Unknown relationship",
+    "4": "Previous child",
+}
+
+
+def _relationship_label(value: Any) -> str | None:
+    """Return a readable neighbour relationship, keeping unknown codes as-is."""
+    if value is None:
+        return None
+    text = str(value)
+    return _RELATIONSHIP_LABELS.get(text, text)
+
+
+def _route_count(link_raw: dict[str, Any]) -> int | None:
+    """Count route-table entries on a link; None when routes are not reported."""
+    routes = link_raw.get("routes")
+    if isinstance(routes, list):
+        return len(routes)
+    return None
 
 
 def parse_networkmap_payload(payload: bytes | str | dict[str, Any]) -> ParsedTopology:
@@ -70,6 +133,8 @@ def parse_networkmap_payload(payload: bytes | str | dict[str, Any]) -> ParsedTop
 
     if not isinstance(parsed, dict):
         return ParsedTopology(raw_redacted={"error": "invalid_payload"})
+
+    parsed = _unwrap_networkmap_envelope(parsed)
 
     redacted_text = redact_payload_text(
         json.dumps(parsed).encode("utf-8") if not isinstance(payload, (bytes, str)) else payload
@@ -107,7 +172,11 @@ def parse_networkmap_payload(payload: bytes | str | dict[str, Any]) -> ParsedTop
         for node_raw in nodes_section:
             if not isinstance(node_raw, dict):
                 continue
-            ieee = _normalize_ieee(node_raw.get("ieee_address") or node_raw.get("ieeeAddress"))
+            ieee = _normalize_ieee(
+                node_raw.get("ieee_address")
+                or node_raw.get("ieeeAddress")
+                or node_raw.get("ieeeAddr")
+            )
             if not ieee:
                 continue
             node_type = _node_type(node_raw)
@@ -128,8 +197,12 @@ def parse_networkmap_payload(payload: bytes | str | dict[str, Any]) -> ParsedTop
         for link_raw in links_section:
             if not isinstance(link_raw, dict):
                 continue
-            source = _normalize_ieee(link_raw.get("source") or link_raw.get("sourceIeeeAddress"))
-            target = _normalize_ieee(link_raw.get("target") or link_raw.get("targetIeeeAddress"))
+            source = _link_endpoint_ieee(
+                link_raw, "source", "sourceIeeeAddress", "sourceIeeeAddr"
+            )
+            target = _link_endpoint_ieee(
+                link_raw, "target", "targetIeeeAddress", "targetIeeeAddr"
+            )
             if not source or not target:
                 continue
             links.append(
@@ -140,7 +213,8 @@ def parse_networkmap_payload(payload: bytes | str | dict[str, Any]) -> ParsedTop
                     target_type=node_types.get(target) or link_raw.get("target_type"),
                     linkquality=_int_or_none(link_raw.get("linkquality") or link_raw.get("lqi")),
                     depth=_int_or_none(link_raw.get("depth")),
-                    relationship=str(link_raw.get("relationship")) if link_raw.get("relationship") else None,
+                    relationship=_relationship_label(link_raw.get("relationship")),
+                    route_count=_route_count(link_raw),
                     raw_json=link_raw,
                 )
             )

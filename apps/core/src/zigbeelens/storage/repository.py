@@ -1080,8 +1080,8 @@ class Repository:
                 """
                 INSERT INTO topology_links (
                     snapshot_id, network_id, source_ieee, target_ieee, source_type, target_type,
-                    linkquality, depth, relationship, raw_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    linkquality, depth, relationship, route_count, raw_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     snapshot_id,
@@ -1093,6 +1093,7 @@ class Repository:
                     link.linkquality,
                     link.depth,
                     link.relationship,
+                    link.route_count,
                     json.dumps(link.raw_json),
                 ),
             )
@@ -1181,7 +1182,8 @@ class Repository:
     def list_topology_links(self, snapshot_id: str) -> list[dict[str, Any]]:
         cur = self.db.conn.execute(
             """
-            SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship
+            SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth,
+                   relationship, route_count
             FROM topology_links WHERE snapshot_id = ?
             """,
             (snapshot_id,),

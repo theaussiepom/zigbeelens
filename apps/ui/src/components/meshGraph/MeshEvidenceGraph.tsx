@@ -55,6 +55,7 @@ const ROLE_RANK: Record<MeshRole, number> = {
   coordinator: 0,
   router: 1,
   end_device: 2,
+  unknown: 2,
 };
 
 function edgeAriaLabel(

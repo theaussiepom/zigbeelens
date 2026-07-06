@@ -24,6 +24,8 @@ function roleGlyph(device: MeshEvidenceDevice): string {
       return "R";
     case "end_device":
       return "E";
+    case "unknown":
+      return "?";
   }
 }
 

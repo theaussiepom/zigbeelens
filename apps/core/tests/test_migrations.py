@@ -10,7 +10,7 @@ def test_migrations_idempotent(tmp_path: Path):
     db = Database(db_path)
     version1 = db.migrate()
     version2 = db.migrate()
-    assert version1 == version2 == 7
+    assert version1 == version2 == 8
 
     tables = {
         row[0]
