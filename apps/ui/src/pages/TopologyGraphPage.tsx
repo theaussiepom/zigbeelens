@@ -1,17 +1,25 @@
 import { useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
-import { Card } from "@/components/ui";
+import { Link, useParams } from "react-router-dom";
+import { useScenario } from "@/context/ScenarioContext";
+import { useLiveResource } from "@/hooks/useLiveResource";
+import { api } from "@/lib/api";
+import { Badge, Card, ErrorState, LoadingState, MetricPill } from "@/components/ui";
 import { GraphLegend } from "@/components/meshGraph/GraphLegend";
 import { MeshEvidenceGraph } from "@/components/meshGraph/MeshEvidenceGraph";
 import { EdgeDrawer } from "@/components/meshGraph/EdgeDrawer";
 import { NodeDrawer } from "@/components/meshGraph/NodeDrawer";
 import { TopologyViewTabs } from "@/components/meshGraph/TopologyViewTabs";
 import { meshEvidenceGraphFixture } from "@/fixtures/meshEvidenceGraph";
+import { buildLiveMeshEvidence } from "@/lib/meshEvidenceLive";
+import { relativeTime } from "@/lib/format";
+import { topologyStatusLabel } from "@/lib/topologyLabels";
 import {
   GRAPH_SAFETY_COPY,
   type MeshEvidenceDevice,
   type MeshEvidenceEdge,
 } from "@/lib/meshEvidence";
+
+type GraphDataSource = "live" | "sample";
 
 type PassiveFilterMode = "issue_related" | "all" | "off";
 
@@ -32,6 +40,9 @@ const DEFAULT_FILTERS: EvidenceFilters = {
   // Stale / low-confidence evidence is off by default.
   staleLowConfidence: false,
 };
+
+const LIMITED_LAYOUT_COPY =
+  "Topology snapshot was captured, but Zigbee2MQTT did not provide usable node/link layout data. Device health still comes from passive MQTT inventory and state updates.";
 
 function edgeVisible(edge: MeshEvidenceEdge, filters: EvidenceFilters): boolean {
   switch (edge.evidence_class) {
@@ -55,16 +66,23 @@ function FilterCheckbox({
   label,
   checked,
   onChange,
+  disabled,
 }: {
   label: string;
   checked: boolean;
   onChange: (value: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
-    <label className="flex min-h-0 cursor-pointer items-center gap-2 text-sm text-zl-text">
+    <label
+      className={`flex min-h-0 items-center gap-2 text-sm ${
+        disabled ? "cursor-not-allowed text-zl-muted/60" : "cursor-pointer text-zl-text"
+      }`}
+    >
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
         className="h-4 w-4 accent-[#5b9fd4]"
       />
@@ -73,17 +91,161 @@ function FilterCheckbox({
   );
 }
 
+function GraphPanel({
+  devices,
+  edges,
+  filters,
+  setFilters,
+  liveMode,
+  onSelectEdge,
+  onSelectNode,
+  selectedNodeId,
+}: {
+  devices: MeshEvidenceDevice[];
+  edges: MeshEvidenceEdge[];
+  filters: EvidenceFilters;
+  setFilters: (update: (f: EvidenceFilters) => EvidenceFilters) => void;
+  liveMode: boolean;
+  onSelectEdge: (edge: MeshEvidenceEdge) => void;
+  onSelectNode: (device: MeshEvidenceDevice) => void;
+  selectedNodeId: string | null;
+}) {
+  const visibleEdges = useMemo(
+    () => edges.filter((edge) => edgeVisible(edge, filters)),
+    [edges, filters],
+  );
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <Card className="!p-2">
+        <div className="h-[600px]" data-testid="mesh-evidence-graph">
+          <MeshEvidenceGraph
+            devices={devices}
+            visibleEdges={visibleEdges}
+            allEdges={edges}
+            selectedNodeId={selectedNodeId}
+            onSelectEdge={onSelectEdge}
+            onSelectNode={onSelectNode}
+          />
+        </div>
+      </Card>
+
+      <div className="space-y-4">
+        <Card>
+          <GraphLegend />
+        </Card>
+        <Card>
+          <div role="group" aria-label="Evidence filters" className="space-y-2.5">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-zl-muted">
+              Show evidence
+            </h3>
+            <FilterCheckbox
+              label="Latest snapshot evidence"
+              checked={filters.latestSnapshot}
+              onChange={(v) => setFilters((f) => ({ ...f, latestSnapshot: v }))}
+            />
+            <FilterCheckbox
+              label="Route evidence"
+              checked={filters.route}
+              onChange={(v) => setFilters((f) => ({ ...f, route: v }))}
+            />
+            <FilterCheckbox
+              label="Historical evidence"
+              checked={liveMode ? false : filters.historical}
+              disabled={liveMode}
+              onChange={(v) => setFilters((f) => ({ ...f, historical: v }))}
+            />
+            <label
+              className={`block text-sm ${liveMode ? "text-zl-muted/60" : "text-zl-text"}`}
+            >
+              <span className="mb-1 block">Passive-derived hints</span>
+              <select
+                value={liveMode ? "off" : filters.passive}
+                disabled={liveMode}
+                onChange={(e) =>
+                  setFilters((f) => ({ ...f, passive: e.target.value as PassiveFilterMode }))
+                }
+                className="w-full rounded-lg border border-zl-border bg-zl-surface-2 px-2 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <option value="issue_related">Issue-related only (default)</option>
+                <option value="all">All passive hints</option>
+                <option value="off">Hidden</option>
+              </select>
+            </label>
+            <FilterCheckbox
+              label="Stale / low-confidence evidence"
+              checked={liveMode ? false : filters.staleLowConfidence}
+              disabled={liveMode}
+              onChange={(v) => setFilters((f) => ({ ...f, staleLowConfidence: v }))}
+            />
+            {liveMode && (
+              <p className="text-[11px] leading-snug text-zl-muted">
+                Historical, passive-derived and stale evidence classes are not produced from live
+                snapshot data yet. They remain available in prototype sample data.
+              </p>
+            )}
+            <p className="text-[11px] leading-snug text-zl-muted">
+              Hiding an evidence class only hides claims — it never means the relationship is
+              gone.
+            </p>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 export function TopologyGraphPage() {
+  const { status, scenario } = useScenario();
   const { networkId } = useParams<{ networkId?: string }>();
-  const fixture = meshEvidenceGraphFixture;
+  const [source, setSource] = useState<GraphDataSource>("live");
   const [filters, setFilters] = useState<EvidenceFilters>(DEFAULT_FILTERS);
   const [selectedEdge, setSelectedEdge] = useState<MeshEvidenceEdge | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<MeshEvidenceDevice | null>(null);
 
-  const visibleEdges = useMemo(
-    () => fixture.edges.filter((edge) => edgeVisible(edge, filters)),
-    [fixture.edges, filters],
+  const liveMode = source === "live";
+
+  const detail = useLiveResource(
+    () =>
+      networkId
+        ? api.topologyNetwork(networkId)
+        : Promise.reject(new Error("No network selected")),
+    [networkId],
+    { enabled: liveMode && Boolean(networkId) },
   );
+  const inventory = useLiveResource(
+    () => api.devices(scenario || undefined, networkId),
+    [networkId, scenario],
+    { enabled: liveMode && Boolean(networkId) },
+  );
+
+  const liveEvidence = useMemo(() => {
+    if (!detail.data) return null;
+    return buildLiveMeshEvidence(detail.data, inventory.data?.items ?? []);
+  }, [detail.data, inventory.data]);
+
+  const fixture = meshEvidenceGraphFixture;
+  const snapshot = detail.data?.latest_snapshot;
+  const layoutAvailable = Boolean(
+    detail.data?.layout_available ??
+      ((detail.data?.nodes?.length ?? 0) > 0 || (detail.data?.links?.length ?? 0) > 0),
+  );
+  const topologyEnabled = status?.topology?.enabled ?? true;
+
+  const selectEdge = (edge: MeshEvidenceEdge) => {
+    setSelectedDevice(null);
+    setSelectedEdge(edge);
+  };
+  const selectNode = (device: MeshEvidenceDevice) => {
+    setSelectedEdge(null);
+    setSelectedDevice(device);
+  };
+
+  const changeSource = (next: GraphDataSource) => {
+    setSource(next);
+    setSelectedEdge(null);
+    setSelectedDevice(null);
+  };
 
   return (
     <div className="max-w-7xl space-y-6">
@@ -91,13 +253,49 @@ export function TopologyGraphPage() {
         <div>
           <h1 className="text-2xl font-semibold">Mesh evidence graph</h1>
           <p className="mt-1 text-zl-muted">
-            Relationship evidence gathered over time — snapshots, history and passive observations
-            — for network <span className="font-mono">{networkId ?? fixture.network_id}</span>.
+            {liveMode ? (
+              <>
+                Latest topology snapshot evidence for network{" "}
+                <span className="font-mono">{networkId ?? "—"}</span>
+                {detail.data?.network_name ? ` (${detail.data.network_name})` : ""}.
+              </>
+            ) : (
+              <>Sample evidence data for design validation — not data from your network.</>
+            )}
           </p>
         </div>
-        <span className="inline-flex items-center rounded-full border border-zl-watch/40 bg-zl-watch/10 px-3 py-1 text-xs font-medium text-zl-watch">
-          Prototype — sample data
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {liveMode ? (
+            <span
+              data-testid="graph-mode-badge"
+              className="inline-flex items-center gap-1.5 rounded-full border border-zl-healthy/40 bg-zl-healthy/10 px-3 py-1 text-xs font-medium text-zl-healthy"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-zl-healthy" aria-hidden="true" />
+              Live topology snapshot
+            </span>
+          ) : (
+            <span
+              data-testid="graph-mode-badge"
+              className="inline-flex items-center rounded-full border border-zl-watch/40 bg-zl-watch/10 px-3 py-1 text-xs font-medium text-zl-watch"
+            >
+              Prototype — sample data
+            </span>
+          )}
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-zl-muted" id="graph-source-label">
+              Data source
+            </span>
+            <select
+              value={source}
+              onChange={(e) => changeSource(e.target.value as GraphDataSource)}
+              aria-labelledby="graph-source-label"
+              className="rounded-lg border border-zl-border bg-zl-surface-2 px-2 py-1.5 text-sm"
+            >
+              <option value="live">Live topology snapshot</option>
+              <option value="sample">Prototype sample data</option>
+            </select>
+          </label>
+        </div>
       </header>
 
       <TopologyViewTabs networkId={networkId ?? fixture.network_id} />
@@ -110,87 +308,147 @@ export function TopologyGraphPage() {
         {GRAPH_SAFETY_COPY}
       </div>
 
-      <p className="text-xs text-zl-muted">
-        This prototype renders fixture data to prove the evidence grammar and drawer model. It is
-        not reading your live network yet.
-      </p>
-
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <Card className="!p-2">
-          <div className="h-[600px]" data-testid="mesh-evidence-graph">
-            <MeshEvidenceGraph
-              devices={fixture.devices}
-              visibleEdges={visibleEdges}
-              allEdges={fixture.edges}
-              selectedNodeId={selectedDevice?.ieee_address ?? null}
-              onSelectEdge={(edge) => {
-                setSelectedDevice(null);
-                setSelectedEdge(edge);
-              }}
-              onSelectNode={(device) => {
-                setSelectedEdge(null);
-                setSelectedDevice(device);
-              }}
-            />
-          </div>
-        </Card>
-
-        <div className="space-y-4">
-          <Card>
-            <GraphLegend />
+      {liveMode ? (
+        !networkId ? (
+          <Card title="No network selected">
+            <p className="text-sm text-zl-muted">
+              Open the graph from a network on the{" "}
+              <Link to="/topology" className="text-zl-accent">
+                Topology page
+              </Link>{" "}
+              to see live snapshot evidence.
+            </p>
           </Card>
-          <Card>
-            <div role="group" aria-label="Evidence filters" className="space-y-2.5">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-zl-muted">
-                Show evidence
-              </h3>
-              <FilterCheckbox
-                label="Latest snapshot evidence"
-                checked={filters.latestSnapshot}
-                onChange={(v) => setFilters((f) => ({ ...f, latestSnapshot: v }))}
-              />
-              <FilterCheckbox
-                label="Route evidence"
-                checked={filters.route}
-                onChange={(v) => setFilters((f) => ({ ...f, route: v }))}
-              />
-              <FilterCheckbox
-                label="Historical evidence"
-                checked={filters.historical}
-                onChange={(v) => setFilters((f) => ({ ...f, historical: v }))}
-              />
-              <label className="block text-sm text-zl-text">
-                <span className="mb-1 block">Passive-derived hints</span>
-                <select
-                  value={filters.passive}
-                  onChange={(e) =>
-                    setFilters((f) => ({ ...f, passive: e.target.value as PassiveFilterMode }))
-                  }
-                  className="w-full rounded-lg border border-zl-border bg-zl-surface-2 px-2 py-1.5 text-sm"
-                >
-                  <option value="issue_related">Issue-related only (default)</option>
-                  <option value="all">All passive hints</option>
-                  <option value="off">Hidden</option>
-                </select>
-              </label>
-              <FilterCheckbox
-                label="Stale / low-confidence evidence"
-                checked={filters.staleLowConfidence}
-                onChange={(v) => setFilters((f) => ({ ...f, staleLowConfidence: v }))}
-              />
-              <p className="text-[11px] leading-snug text-zl-muted">
-                Hiding an evidence class only hides claims — it never means the relationship is
-                gone.
+        ) : !topologyEnabled ? (
+          <Card title="Topology disabled">
+            <p className="text-sm text-zl-muted">
+              Topology capture is disabled in configuration, so no live snapshot evidence is
+              available. Prototype sample data remains available from the data source selector.
+            </p>
+          </Card>
+        ) : detail.loading || (inventory.loading && !detail.data) ? (
+          <LoadingState />
+        ) : detail.error ? (
+          <ErrorState message={detail.error} onRetry={detail.refetch} />
+        ) : !snapshot ? (
+          <Card title="Waiting for a topology snapshot">
+            <div className="space-y-3 text-sm text-zl-muted">
+              <Badge severity="watch">diagnostics limited</Badge>
+              <p>
+                No topology snapshot has been captured for this network yet. After startup,
+                ZigbeeLens requests one network map per network once MQTT and the bridge are
+                ready, then relies on passive updates.
+              </p>
+              <p>
+                Missing topology data is not an incident by itself — it only limits mesh
+                enrichment. Device health still comes from passive MQTT inventory and state
+                updates.
+              </p>
+              <p>
+                <Link to={`/topology/${networkId}`} className="text-zl-accent">
+                  Open snapshot view
+                </Link>{" "}
+                ·{" "}
+                <Link to="/devices" className="text-zl-accent">
+                  Open devices
+                </Link>
               </p>
             </div>
           </Card>
-        </div>
-      </div>
+        ) : !layoutAvailable ? (
+          <Card
+            title="Topology layout limited"
+            subtitle={
+              snapshot.captured_at
+                ? `Latest snapshot captured ${relativeTime(snapshot.captured_at)}`
+                : undefined
+            }
+          >
+            <div className="space-y-3 text-sm">
+              <p className="border-l-2 border-zl-watch/40 pl-3 text-zl-muted">
+                {LIMITED_LAYOUT_COPY}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <MetricPill label="Snapshot status" value={topologyStatusLabel(snapshot.status)} />
+                <MetricPill label="Observed topology nodes" value="—" />
+                <MetricPill label="Observed topology links" value="—" />
+                {detail.data?.inventory && (
+                  <>
+                    <MetricPill label="Known devices" value={detail.data.inventory.device_count} />
+                    <MetricPill label="Known routers" value={detail.data.inventory.router_count} />
+                    <MetricPill
+                      label="Known end devices"
+                      value={detail.data.inventory.end_device_count}
+                    />
+                  </>
+                )}
+              </div>
+              <p className="text-zl-muted">
+                Missing topology data is not an incident by itself.{" "}
+                <Link to={`/topology/${networkId}`} className="text-zl-accent">
+                  Open snapshot view
+                </Link>{" "}
+                ·{" "}
+                <Link to="/devices" className="text-zl-accent">
+                  Open devices
+                </Link>
+              </p>
+            </div>
+          </Card>
+        ) : liveEvidence ? (
+          <>
+            <div className="flex flex-wrap gap-2">
+              <MetricPill label="Network" value={detail.data?.network_name ?? networkId} />
+              {snapshot.captured_at && (
+                <MetricPill label="Captured" value={relativeTime(snapshot.captured_at)} />
+              )}
+              <MetricPill label="Snapshot status" value={topologyStatusLabel(snapshot.status)} />
+              <MetricPill label="Observed topology nodes" value={detail.data?.nodes?.length ?? 0} />
+              <MetricPill
+                label="Snapshot evidence links"
+                value={liveEvidence.edges.length}
+              />
+              {detail.data?.inventory && (
+                <MetricPill label="Known devices" value={detail.data.inventory.device_count} />
+              )}
+            </div>
+            <GraphPanel
+              devices={liveEvidence.devices}
+              edges={liveEvidence.edges}
+              filters={filters}
+              setFilters={setFilters}
+              liveMode
+              onSelectEdge={selectEdge}
+              onSelectNode={selectNode}
+              selectedNodeId={selectedDevice?.ieee_address ?? null}
+            />
+          </>
+        ) : null
+      ) : (
+        <>
+          <p className="text-xs text-zl-muted">
+            This prototype sample dataset demonstrates the full evidence grammar, including
+            historical, passive-derived and stale evidence classes that live snapshot data cannot
+            produce yet. It does not represent network{" "}
+            <span className="font-mono">{networkId ?? fixture.network_id}</span>.
+          </p>
+          <GraphPanel
+            devices={fixture.devices}
+            edges={fixture.edges}
+            filters={filters}
+            setFilters={setFilters}
+            liveMode={false}
+            onSelectEdge={selectEdge}
+            onSelectNode={selectNode}
+            selectedNodeId={selectedDevice?.ieee_address ?? null}
+          />
+        </>
+      )}
 
       {selectedEdge && (
         <EdgeDrawer
           edge={selectedEdge}
-          devices={fixture.devices}
+          devices={liveMode && liveEvidence ? liveEvidence.devices : fixture.devices}
           onClose={() => setSelectedEdge(null)}
         />
       )}

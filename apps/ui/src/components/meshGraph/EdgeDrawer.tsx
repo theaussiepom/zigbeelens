@@ -37,7 +37,7 @@ export function EdgeDrawer({
   const sourceName = deviceName(devices, edge.source);
   const targetName = deviceName(devices, edge.target);
   const passive = edge.passive_corroboration;
-  const hasLqi = edge.lqi_min != null || edge.lqi_median != null || edge.lqi_max != null;
+  const hasLqiStats = edge.lqi_min != null || edge.lqi_median != null || edge.lqi_max != null;
 
   return (
     <DrawerShell label="Link evidence" onClose={onClose}>
@@ -68,6 +68,16 @@ export function EdgeDrawer({
 
       <DrawerSection title="Latest snapshot status">
         <p>{latestSnapshotStatusCopy(edge)}</p>
+        <dl className="mt-2">
+          {edge.captured_at != null && (
+            <DrawerFact label="Captured at" value={formatTime(edge.captured_at)} />
+          )}
+          <DrawerFact
+            label="Observed relationship"
+            value={edge.observed_relationship ?? "Not recorded"}
+          />
+          {edge.lqi_latest != null && <DrawerFact label="LQI latest" value={edge.lqi_latest} />}
+        </dl>
       </DrawerSection>
 
       <DrawerSection title="Historical evidence">
@@ -76,13 +86,17 @@ export function EdgeDrawer({
           <DrawerFact label="Last seen" value={formatTime(edge.last_seen_at ?? undefined)} />
           <DrawerFact label="Observed count" value={formatEvidenceCount(edge.observed_count)} />
           <DrawerFact label="Snapshot count" value={formatEvidenceCount(edge.snapshot_count)} />
-          {hasLqi ? (
+          {hasLqiStats ? (
             <>
-              <DrawerFact label="LQI latest" value={formatLqi(edge.lqi_latest)} />
               <DrawerFact label="LQI min" value={formatLqi(edge.lqi_min)} />
               <DrawerFact label="LQI median" value={formatLqi(edge.lqi_median)} />
               <DrawerFact label="LQI max" value={formatLqi(edge.lqi_max)} />
             </>
+          ) : edge.lqi_latest != null ? (
+            <p className="mt-1 text-xs text-zl-muted">
+              Historical LQI statistics are not available; only the latest snapshot LQI is shown
+              above.
+            </p>
           ) : (
             <p className="mt-1 text-xs text-zl-muted">
               No LQI data was recorded for this link. Missing LQI means less evidence, not a weak

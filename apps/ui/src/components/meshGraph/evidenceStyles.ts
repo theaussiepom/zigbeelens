@@ -79,5 +79,7 @@ export function nodeBorderClass(bucket: MeshHealthBucket): string {
       return "border-zl-watch/60";
     case "informational":
       return "border-zl-watch/40";
+    case "unknown":
+      return "border-zl-border";
   }
 }
