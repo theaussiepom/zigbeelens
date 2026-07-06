@@ -16,6 +16,29 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _dedupe_topology_links(links: list[Any]) -> list[Any]:
+    """Collapse duplicate source→target rows from raw maps.
+
+    Zigbee2MQTT can report the same directed neighbour entry more than once.
+    The DB primary key is (snapshot_id, source_ieee, target_ieee), so keep the
+    row with stronger route evidence, then higher LQI.
+    """
+    best: dict[tuple[str, str], Any] = {}
+    for link in links:
+        key = (link.source_ieee, link.target_ieee)
+        prev = best.get(key)
+        if prev is None:
+            best[key] = link
+            continue
+        prev_routes = prev.route_count or 0
+        new_routes = link.route_count or 0
+        prev_lqi = prev.linkquality if prev.linkquality is not None else -1
+        new_lqi = link.linkquality if link.linkquality is not None else -1
+        if new_routes > prev_routes or (new_routes == prev_routes and new_lqi > prev_lqi):
+            best[key] = link
+    return list(best.values())
+
+
 @dataclass
 class NetworkRow:
     id: str
@@ -1027,6 +1050,8 @@ class Repository:
         from zigbeelens.topology.parser import ParsedTopology
 
         assert isinstance(parsed, ParsedTopology)
+        stored_links = _dedupe_topology_links(parsed.links)
+        link_count = len(stored_links)
         self.db.conn.execute(
             """
             UPDATE topology_snapshots SET
@@ -1046,12 +1071,12 @@ class Repository:
                     {
                         "router_count": parsed.router_count,
                         "end_device_count": parsed.end_device_count,
-                        "link_count": parsed.link_count,
+                        "link_count": link_count,
                     }
                 ),
                 parsed.router_count,
                 parsed.end_device_count,
-                parsed.link_count,
+                link_count,
                 snapshot_id,
             ),
         )
@@ -1075,7 +1100,7 @@ class Repository:
                     json.dumps(node.raw_json),
                 ),
             )
-        for link in parsed.links:
+        for link in stored_links:
             self.db.conn.execute(
                 """
                 INSERT INTO topology_links (

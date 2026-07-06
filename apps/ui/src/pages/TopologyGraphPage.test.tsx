@@ -132,8 +132,36 @@ const liveDetailLimited: TopologyNetworkDetail = {
   layout_available: false,
 };
 
+// Same snapshot, but the link table references an endpoint that appears in
+// neither the node list nor the inventory (seen on real networks).
+const liveDetailWithGhostEndpoint: TopologyNetworkDetail = {
+  ...liveDetailHome,
+  links: [
+    ...liveDetailHome.links!,
+    {
+      source_ieee: "0xr1",
+      target_ieee: "0xghost",
+      linkquality: 60,
+      relationship: "Sibling",
+      route_count: null,
+    },
+  ],
+};
+
 let mockDetail: TopologyNetworkDetail | null = liveDetailHome;
 let mockDevices: DeviceSummary[] = liveDevices;
+let mockLayoutFailure: Error | null = null;
+
+vi.mock("@/lib/meshGraphLayout", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/meshGraphLayout")>();
+  return {
+    ...actual,
+    layoutMeshGraph: (...args: Parameters<typeof actual.layoutMeshGraph>) =>
+      mockLayoutFailure
+        ? Promise.reject(mockLayoutFailure)
+        : actual.layoutMeshGraph(...args),
+  };
+});
 
 vi.mock("@/context/ScenarioContext", () => ({
   useScenario: () => ({
@@ -161,6 +189,7 @@ vi.mock("@/hooks/useLiveResource", () => ({
 beforeEach(() => {
   mockDetail = liveDetailHome;
   mockDevices = liveDevices;
+  mockLayoutFailure = null;
 });
 
 function renderGraphPage(networkId = "home") {
@@ -345,6 +374,57 @@ describe("TopologyGraphPage live mode", () => {
       screen.getByText(/missing topology data is not an incident by itself/i),
     ).toBeInTheDocument();
     expect(screen.queryByText("Living room plug")).not.toBeInTheDocument();
+  });
+
+  it("creates a clearly labelled placeholder node for a link endpoint unknown to inventory and node list", async () => {
+    mockDetail = liveDetailWithGhostEndpoint;
+    await renderLiveAndWaitForLayout();
+    const ghost = screen.getByTestId("mesh-node-0xghost");
+    expect(ghost).toBeInTheDocument();
+    expect(within(ghost).getByText("Unknown role")).toBeInTheDocument();
+
+    fireEvent.click(ghost);
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(
+      within(drawer).getByText("Referenced by topology links only — unknown to inventory and node list"),
+    ).toBeInTheDocument();
+    expect(
+      within(drawer).getByText(
+        /the latest topology snapshot referenced this endpoint in a link, but zigbeelens does not currently have matching inventory or device details/i,
+      ),
+    ).toBeInTheDocument();
+    expect(within(drawer).queryByText("In Zigbee2MQTT device inventory")).not.toBeInTheDocument();
+  });
+
+  it("exposes the chosen layout strategy as debug metadata", async () => {
+    const { container } = await renderLiveAndWaitForLayout();
+    const wrapper = container.querySelector("[data-layout-strategy]");
+    expect(wrapper).not.toBeNull();
+    expect(wrapper).toHaveAttribute("data-layout-strategy", "layered");
+    expect(wrapper).toHaveAttribute("data-layout-structural-edges", "2");
+  });
+
+  it("shows an error state instead of an infinite spinner when the layout fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockLayoutFailure = new Error("Referenced shape does not exist: 0xdead");
+    renderGraphPage();
+    const errorPanel = await screen.findByTestId("graph-layout-error");
+    expect(errorPanel).toHaveTextContent(
+      "The graph layout could not be computed for this snapshot. The topology data is still available in list/detail views.",
+    );
+    expect(screen.queryByText(/computing layout/i)).not.toBeInTheDocument();
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("never silently swaps to sample data when the layout fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockLayoutFailure = new Error("layout timed out");
+    renderGraphPage();
+    await screen.findByTestId("graph-layout-error");
+    expect(screen.getByTestId("graph-mode-badge")).toHaveTextContent("Live topology snapshot");
+    expect(screen.queryByText("Living room plug")).not.toBeInTheDocument();
+    expect(screen.queryByText("Prototype — sample data")).not.toBeInTheDocument();
   });
 });
 
