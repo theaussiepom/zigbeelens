@@ -53,3 +53,29 @@ select {
   background-position: right 0.7rem center;
   padding-right: 2rem;
 }
+
+/* Dark styling for React Flow chrome on the mesh evidence graph */
+.react-flow__controls {
+  box-shadow: none;
+  border: 1px solid var(--color-zl-border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+.react-flow__controls-button {
+  background: var(--color-zl-surface);
+  border-bottom: 1px solid var(--color-zl-border);
+  color: var(--color-zl-muted);
+  min-height: 0;
+}
+.react-flow__controls-button:hover {
+  background: var(--color-zl-surface-2);
+}
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+.react-flow__attribution {
+  background: transparent;
+}
+.react-flow__attribution a {
+  color: var(--color-zl-muted);
+}
