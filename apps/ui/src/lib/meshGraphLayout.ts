@@ -27,10 +27,20 @@ export interface MeshLayoutOptions {
   denseEdgeThreshold?: number;
   /** Per-attempt timeout; a hung layout rejects instead of spinning forever. */
   timeoutMs?: number;
+  /** Reuse structural edges the caller already computed (e.g. for signatures). */
+  structuralEdges?: StructuralLayoutEdge[];
 }
 
 export const DENSE_GRAPH_EDGE_THRESHOLD = 400;
 export const LAYOUT_TIMEOUT_MS = 20_000;
+
+/** Which ELK algorithm will be attempted first for a given structural size. */
+export function chooseLayoutStrategy(
+  structuralEdgeCount: number,
+  denseEdgeThreshold: number = DENSE_GRAPH_EDGE_THRESHOLD,
+): MeshLayoutStrategy {
+  return structuralEdgeCount > denseEdgeThreshold ? "mrtree" : "layered";
+}
 
 const ROLE_RANK: Record<MeshRole, number> = {
   coordinator: 0,
@@ -82,6 +92,32 @@ export function buildStructuralLayoutEdges(
   }
 
   return layoutEdges;
+}
+
+/**
+ * Stable identity of the *positional* graph.
+ *
+ * Layout must be recomputed only when this signature changes. It contains
+ * the seed (network / data-source / snapshot identity from the caller), the
+ * node id set, the structural edge id set and the layout algorithm — and
+ * deliberately excludes anything volatile: fetch timestamps, filter toggles,
+ * selection, hover and drawer state, and render-edge visibility.
+ */
+export function buildGraphSignature(
+  seed: string,
+  devices: MeshEvidenceDevice[],
+  structuralEdges: StructuralLayoutEdge[],
+  strategy: MeshLayoutStrategy,
+): string {
+  const nodeIds = devices
+    .map((d) => d.ieee_address)
+    .sort()
+    .join(",");
+  const edgeIds = structuralEdges
+    .map((e) => e.id)
+    .sort()
+    .join(",");
+  return `${seed}::${strategy}::${nodeIds}::${edgeIds}`;
 }
 
 function layoutOptionsFor(strategy: MeshLayoutStrategy): Record<string, string> {
@@ -140,15 +176,14 @@ export async function layoutMeshGraph(
   const { default: ELK } = await import("elkjs/lib/elk.bundled.js");
   const elk = new ELK();
 
-  const layoutEdges = buildStructuralLayoutEdges(devices, edges);
+  const layoutEdges = options.structuralEdges ?? buildStructuralLayoutEdges(devices, edges);
   const children = devices.map((device) => ({
     id: device.ieee_address,
     width: MESH_NODE_WIDTH,
     height: MESH_NODE_HEIGHT,
   }));
 
-  const primary: MeshLayoutStrategy =
-    layoutEdges.length > denseEdgeThreshold ? "mrtree" : "layered";
+  const primary = chooseLayoutStrategy(layoutEdges.length, denseEdgeThreshold);
   const strategies: MeshLayoutStrategy[] =
     primary === "layered" ? ["layered", "mrtree"] : ["mrtree"];
 
