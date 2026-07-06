@@ -151,7 +151,8 @@ const liveDetailWithGhostEndpoint: TopologyNetworkDetail = {
 /**
  * A dense network shaped like the real reference deployment: a coordinator
  * plus a clique of routers, giving well over the dense-mode edge threshold,
- * with exactly one real route-table link.
+ * with exactly one real route-table link, varied LQI values, and one router
+ * (0xr7) already flagged as needing attention.
  */
 function makeDenseNetwork(routerCount = 30): {
   detail: TopologyNetworkDetail;
@@ -172,13 +173,24 @@ function makeDenseNetwork(routerCount = 30): {
     const ieee = `0xr${i}`;
     nodes.push({ ieee_address: ieee, friendly_name: `Dense Router ${i}`, node_type: "Router" });
     devices.push(
-      makeDevice({ ieee_address: ieee, friendly_name: `Dense Router ${i}`, device_type: "Router" }),
+      makeDevice({
+        ieee_address: ieee,
+        friendly_name: `Dense Router ${i}`,
+        device_type: "Router",
+        ...(i === 7
+          ? {
+              lens_bucket: "needs_attention" as const,
+              lens_bucket_label: "Needs attention",
+              lens_bucket_reason: "Reporting gaps observed.",
+            }
+          : {}),
+      }),
     );
     for (let j = 0; j < i; j += 1) {
       links.push({
         source_ieee: ieee,
         target_ieee: `0xr${j}`,
-        linkquality: 100,
+        linkquality: 20 + ((i * 7 + j * 13) % 200),
         relationship: "Sibling",
         route_count: null,
       });
@@ -611,25 +623,76 @@ describe("TopologyGraphPage dense graph mode", () => {
     mockDevices = dense.devices;
   });
 
-  it("activates for large edge counts and reports available/shown/hidden honestly", async () => {
+  function connectionsPanel() {
+    return within(screen.getByRole("group", { name: /connections to show/i }));
+  }
+
+  it("renders human-readable connection controls with the spec defaults", async () => {
+    renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    const panel = connectionsPanel();
+
+    expect(panel.getByRole("checkbox", { name: /route hints/i })).toBeChecked();
+    expect(panel.getByRole("checkbox", { name: /best neighbour links/i })).toBeChecked();
+    expect(
+      panel.getByRole("checkbox", { name: /links for devices with issues/i }),
+    ).toBeChecked();
+    expect(panel.getByRole("checkbox", { name: /all neighbour links/i })).not.toBeChecked();
+    expect(panel.getByRole("checkbox", { name: /old or uncertain links/i })).not.toBeChecked();
+
+    // Selected device links is always on and locked.
+    const selectedLinks = panel.getByRole("checkbox", { name: /selected device links/i });
+    expect(selectedLinks).toBeChecked();
+    expect(selectedLinks).toBeDisabled();
+    expect(
+      panel.getByText(/always on — selecting a device reveals its full neighbourhood/i),
+    ).toBeInTheDocument();
+
+    // No route-hint copy may claim live routing.
+    expect(panel.getByText(/not guaranteed live routing/i)).toBeInTheDocument();
+  });
+
+  it("disables old/uncertain links when the snapshot has none, and future controls with coming-later copy", async () => {
+    renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    const panel = connectionsPanel();
+
+    expect(panel.getByRole("checkbox", { name: /old or uncertain links/i })).toBeDisabled();
+    expect(
+      panel.getByText("No old or uncertain links in this snapshot."),
+    ).toBeInTheDocument();
+
+    expect(panel.getByRole("checkbox", { name: /previously seen links/i })).toBeDisabled();
+    expect(
+      panel.getByRole("checkbox", { name: /suggested investigation links/i }),
+    ).toBeDisabled();
+    expect(panel.getAllByText(/coming later/i)).toHaveLength(2);
+  });
+
+  it("shows a readable subset by default — not empty, not the full hairball", async () => {
     const { container } = renderGraphPage();
     const banner = await screen.findByTestId("dense-graph-banner");
     await screen.findByTestId("mesh-node-0xr5");
 
     expect(banner).toHaveTextContent("Dense graph mode");
-    expect(banner).toHaveTextContent("437 evidence links available");
-    expect(banner).toHaveTextContent("showing 1");
-    expect(banner).toHaveTextContent("436 hidden for readability only");
+    expect(screen.getByTestId("dense-graph-counts")).toHaveTextContent(
+      /437 evidence links available · \d+ shown · \d+ hidden for readability/,
+    );
+    expect(banner).toHaveTextContent(/showing a readable subset/i);
+    expect(banner).toHaveTextContent(/turn on “all neighbour links”/i);
     expect(banner).not.toHaveTextContent(/ignored/i);
     expect(banner).not.toHaveTextContent(/not relevant/i);
 
-    // Route evidence stays visible; the neighbour hairball does not render.
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(1);
     });
-    expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(0);
+    const neighbourCount = container.querySelectorAll(
+      ".mesh-edge--latest_snapshot_neighbor",
+    ).length;
+    // Best neighbour links + issue-device links: some but never all 436.
+    expect(neighbourCount).toBeGreaterThan(0);
+    expect(neighbourCount).toBeLessThan(436);
 
-    // Dense graphs use the faster layout and say so without alarm.
     expect(screen.getByTestId("graph-fast-layout-note")).toHaveTextContent(
       /faster layout to keep the graph responsive/i,
     );
@@ -638,39 +701,106 @@ describe("TopologyGraphPage dense graph mode", () => {
     ).toHaveAttribute("data-layout-strategy", "mrtree");
   });
 
-  it("selecting a node reveals its evidence neighbourhood without recomputing layout", async () => {
+  it("shows only issue-device links when route hints and best links are off", async () => {
+    const user = userEvent.setup();
+    const { container } = renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    const panel = connectionsPanel();
+
+    await user.click(panel.getByRole("checkbox", { name: /route hints/i }));
+    await user.click(panel.getByRole("checkbox", { name: /best neighbour links/i }));
+
+    await waitFor(() => {
+      // Only 0xr7 is flagged (needs attention); it touches 29 neighbour links.
+      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(29);
+    });
+    expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(0);
+
+    await user.click(panel.getByRole("checkbox", { name: /links for devices with issues/i }));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(0);
+    });
+  });
+
+  it("selecting a node reveals its full evidence neighbourhood without recomputing layout", async () => {
     const { container } = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
     const callsAfterLoad = layoutCallCount;
+    const beforeCount = container.querySelectorAll(
+      ".mesh-edge--latest_snapshot_neighbor",
+    ).length;
 
     fireEvent.click(screen.getByTestId("mesh-node-0xr5"));
     await screen.findByRole("dialog", { name: /device details/i });
     await waitFor(() => {
-      // 0xr5 has neighbour links to the 29 other routers.
-      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(29);
+      expect(
+        container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor").length,
+      ).toBeGreaterThan(beforeCount);
     });
+    // A weak link of 0xr5 that is in nobody's best-N is now reachable.
+    expect(
+      screen.getByLabelText(
+        "Latest snapshot neighbour evidence between Dense Router 5 and Dense Router 4",
+      ),
+    ).toBeInTheDocument();
     expect(layoutCallCount).toBe(callsAfterLoad);
   });
 
-  it("show all evidence renders every link with a readability warning", async () => {
+  it("All neighbour links renders the full snapshot evidence with a warning, and off restores the subset", async () => {
     const user = userEvent.setup();
     const { container } = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
+    const subsetCount = container.querySelectorAll(
+      ".mesh-edge--latest_snapshot_neighbor",
+    ).length;
+    const callsAfterLoad = layoutCallCount;
 
-    await user.click(screen.getByRole("checkbox", { name: /show all evidence/i }));
+    const allLinks = connectionsPanel().getByRole("checkbox", { name: /all neighbour links/i });
+    await user.click(allLinks);
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(436);
     });
-    expect(screen.getByTestId("dense-graph-banner")).toHaveTextContent(/may be hard to read/i);
+    expect(screen.getByTestId("dense-graph-banner")).toHaveTextContent(
+      /showing all neighbour links may be hard to read on dense networks/i,
+    );
+    // Route hints stay visible alongside.
+    expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(1);
+
+    await user.click(allLinks);
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(
+        subsetCount,
+      );
+    });
+    // Connection toggles never recompute layout.
+    expect(layoutCallCount).toBe(callsAfterLoad);
   });
 
-  it("stays off for small graphs", async () => {
+  it("edge drawer keeps full metadata for visible edges in dense mode", async () => {
+    renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    const edge = await screen.findByLabelText(
+      "Latest route-table / next-hop evidence from Dense Router 0 to Dense Coordinator",
+    );
+    fireEvent.click(edge);
+    const drawer = screen.getByRole("dialog", { name: /link evidence/i });
+    expect(within(drawer).getByText("Route observed count").nextElementSibling).toHaveTextContent(
+      "2",
+    );
+    expect(within(drawer).queryByText(/currently connected/i)).not.toBeInTheDocument();
+  });
+
+  it("stays off for small graphs, which keep the evidence filter panel", async () => {
     mockDetail = liveDetailHome;
     mockDevices = liveDevices;
     renderGraphPage();
     await screen.findByText("Live Hall Router");
     expect(screen.queryByTestId("dense-graph-banner")).not.toBeInTheDocument();
     expect(screen.queryByTestId("graph-fast-layout-note")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("group", { name: /connections to show/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: /evidence filters/i })).toBeInTheDocument();
   });
 });
 

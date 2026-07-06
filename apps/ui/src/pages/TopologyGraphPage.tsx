@@ -20,9 +20,13 @@ import {
 } from "@/lib/meshEvidence";
 import { buildStructuralLayoutEdges } from "@/lib/meshGraphLayout";
 import {
-  countHiddenEvidenceEdges,
+  DENSE_DEFAULT_CONNECTION_CONTROLS,
+  collectIssueDeviceIds,
+  countHiddenConnectionEdges,
   isDenseGraph,
-  selectVisibleEdgesForDenseMode,
+  selectBestNeighbourLinks,
+  selectVisibleConnectionEdges,
+  type ConnectionControls,
 } from "@/lib/meshGraphDense";
 
 type GraphDataSource = "live" | "sample";
@@ -97,6 +101,41 @@ function FilterCheckbox({
   );
 }
 
+/** Connection-type checkbox with helper copy for the dense-mode panel. */
+function ConnectionCheckbox({
+  label,
+  helper,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  helper: string;
+  checked: boolean;
+  onChange?: (value: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label
+      className={`block ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
+    >
+      <span className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange?.(e.target.checked)}
+          className="h-4 w-4 accent-[#5b9fd4]"
+        />
+        <span className={`text-sm ${disabled && !checked ? "text-zl-muted/60" : "text-zl-text"}`}>
+          {label}
+        </span>
+      </span>
+      <span className="mt-0.5 block pl-6 text-[11px] leading-snug text-zl-muted">{helper}</span>
+    </label>
+  );
+}
+
 function GraphPanel({
   devices,
   edges,
@@ -120,7 +159,9 @@ function GraphPanel({
   selectedNodeId: string | null;
   selectedEdge: MeshEvidenceEdge | null;
 }) {
-  const [showAllEvidence, setShowAllEvidence] = useState(false);
+  const [controls, setControls] = useState<ConnectionControls>(
+    DENSE_DEFAULT_CONNECTION_CONTROLS,
+  );
 
   const filterVisibleEdges = useMemo(
     () => edges.filter((edge) => edgeVisible(edge, filters)),
@@ -137,15 +178,47 @@ function GraphPanel({
     structuralEdgeCount,
   });
 
-  // Dense mode reduces which evidence edges are *rendered*, never which
-  // evidence exists: hidden edges stay in the model/drawers and reappear by
-  // selecting an endpoint node or enabling "Show all evidence".
-  const visibleEdges = useMemo(() => {
-    if (!denseMode || showAllEvidence) return filterVisibleEdges;
-    return selectVisibleEdgesForDenseMode(filterVisibleEdges, selectedNodeId, selectedEdge);
-  }, [denseMode, showAllEvidence, filterVisibleEdges, selectedNodeId, selectedEdge]);
+  const issueDeviceIds = useMemo(() => collectIssueDeviceIds(devices), [devices]);
+  const bestNeighbourEdgeIds = useMemo(() => selectBestNeighbourLinks(edges), [edges]);
+  const hasOldUncertainLinks = useMemo(
+    () => edges.some((edge) => edge.evidence_class === "stale_low_confidence"),
+    [edges],
+  );
 
-  const hiddenEdgeCount = countHiddenEvidenceEdges(filterVisibleEdges, visibleEdges);
+  // Dense mode changes which evidence edges are *rendered*, never which
+  // evidence exists: hidden edges stay in the model/drawers and remain
+  // reachable by selecting an endpoint device or "All neighbour links".
+  const visibleEdges = useMemo(() => {
+    if (!denseMode) return filterVisibleEdges;
+    return selectVisibleConnectionEdges(edges, controls, {
+      bestNeighbourEdgeIds,
+      issueDeviceIds,
+      selectedNodeId,
+      selectedEdge,
+    });
+  }, [
+    denseMode,
+    filterVisibleEdges,
+    edges,
+    controls,
+    bestNeighbourEdgeIds,
+    issueDeviceIds,
+    selectedNodeId,
+    selectedEdge,
+  ]);
+
+  const hiddenEdgeCount = countHiddenConnectionEdges(edges, visibleEdges);
+
+  const enabledConnectionLabels = [
+    controls.routeHints ? "route hints" : null,
+    controls.bestNeighbourLinks ? "best neighbour links" : null,
+    controls.issueDeviceLinks ? "links for devices with issues" : null,
+    "selected device links",
+    controls.oldUncertainLinks ? "old or uncertain links" : null,
+  ].filter((label): label is string => label !== null);
+
+  const setControl = (key: keyof ConnectionControls) => (value: boolean) =>
+    setControls((c) => ({ ...c, [key]: value }));
 
   return (
     <div className="space-y-4">
@@ -154,35 +227,23 @@ function GraphPanel({
           role="note"
           aria-label="Dense graph mode"
           data-testid="dense-graph-banner"
-          className="rounded-lg border border-zl-border bg-zl-surface px-4 py-3 text-sm"
+          className="space-y-1 rounded-lg border border-zl-border bg-zl-surface px-4 py-3 text-sm"
         >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="space-y-1">
-              <p className="font-medium text-zl-text">Dense graph mode</p>
-              {showAllEvidence ? (
-                <p className="text-zl-muted">
-                  Showing all {filterVisibleEdges.length} evidence links. A graph this dense may
-                  be hard to read.
-                </p>
-              ) : (
-                <p className="text-zl-muted">
-                  {filterVisibleEdges.length} evidence links available — showing{" "}
-                  {visibleEdges.length}, with {hiddenEdgeCount} hidden for readability only.
-                  Select a device to show its topology evidence neighbourhood, or show all
-                  evidence.
-                </p>
-              )}
-            </div>
-            <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-zl-text">
-              <input
-                type="checkbox"
-                checked={showAllEvidence}
-                onChange={(e) => setShowAllEvidence(e.target.checked)}
-                className="h-4 w-4 accent-[#5b9fd4]"
-              />
-              Show all evidence
-            </label>
-          </div>
+          <p className="font-medium text-zl-text">Dense graph mode</p>
+          <p className="text-zl-muted" data-testid="dense-graph-counts">
+            {edges.length} evidence links available · {visibleEdges.length} shown ·{" "}
+            {hiddenEdgeCount} hidden for readability
+          </p>
+          {controls.allNeighbourLinks ? (
+            <p className="text-zl-muted">
+              Showing all neighbour links may be hard to read on dense networks.
+            </p>
+          ) : (
+            <p className="text-zl-muted">
+              Showing a readable subset: {enabledConnectionLabels.join(", ")}. Turn on “All
+              neighbour links” to show the full snapshot evidence.
+            </p>
+          )}
         </div>
       )}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
@@ -204,6 +265,73 @@ function GraphPanel({
         <Card>
           <GraphLegend />
         </Card>
+        {denseMode ? (
+        <Card>
+          <div role="group" aria-label="Connections to show" className="space-y-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-zl-muted">
+              Connections to show
+            </h3>
+            <ConnectionCheckbox
+              label="Route hints"
+              helper="Route-table evidence observed in the latest snapshot. This suggests possible next-hop evidence at capture time, not guaranteed live routing."
+              checked={controls.routeHints}
+              onChange={setControl("routeHints")}
+            />
+            <ConnectionCheckbox
+              label="Best neighbour links"
+              helper="A readable subset of observed neighbour links, chosen to keep dense networks understandable."
+              checked={controls.bestNeighbourLinks}
+              onChange={setControl("bestNeighbourLinks")}
+            />
+            <ConnectionCheckbox
+              label="Links for devices with issues"
+              helper="Evidence links touching devices ZigbeeLens has already flagged (unavailable, needs attention, interview failure, weak-link or router-risk candidates)."
+              checked={controls.issueDeviceLinks}
+              onChange={setControl("issueDeviceLinks")}
+            />
+            <ConnectionCheckbox
+              label="Selected device links"
+              helper="Always on — selecting a device reveals its full neighbourhood."
+              checked
+              disabled
+            />
+            <ConnectionCheckbox
+              label="All neighbour links"
+              helper="Show every observed neighbour link. This may be hard to read on dense networks."
+              checked={controls.allNeighbourLinks}
+              onChange={setControl("allNeighbourLinks")}
+            />
+            <ConnectionCheckbox
+              label="Old or uncertain links"
+              helper={
+                hasOldUncertainLinks
+                  ? "Show old or low-confidence evidence that may be useful for investigation but should not be treated as current."
+                  : "No old or uncertain links in this snapshot."
+              }
+              checked={hasOldUncertainLinks && controls.oldUncertainLinks}
+              disabled={!hasOldUncertainLinks}
+              onChange={setControl("oldUncertainLinks")}
+            />
+            <ConnectionCheckbox
+              label="Previously seen links"
+              helper="Coming later — historical topology links observed in previous snapshots but not in the latest snapshot."
+              checked={false}
+              disabled
+            />
+            <ConnectionCheckbox
+              label="Suggested investigation links"
+              helper="Coming later — possible relationships suggested by passive observations. These are investigation hints, not topology evidence."
+              checked={false}
+              disabled
+            />
+            <p className="text-[11px] leading-snug text-zl-muted">
+              Turning a connection type off only hides evidence for readability — it never means
+              a relationship is gone. Hidden links stay reachable by selecting a device or
+              turning on “All neighbour links”.
+            </p>
+          </div>
+        </Card>
+        ) : (
         <Card>
           <div role="group" aria-label="Evidence filters" className="space-y-2.5">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-zl-muted">
@@ -254,19 +382,13 @@ function GraphPanel({
                 snapshot data yet. They remain available in prototype sample data.
               </p>
             )}
-            {denseMode && !showAllEvidence && (
-              <p className="text-[11px] leading-snug text-zl-muted">
-                Dense graph mode: neighbour evidence not connected to your selection is hidden
-                for readability, never removed. Select a device to show its topology evidence
-                neighbourhood.
-              </p>
-            )}
             <p className="text-[11px] leading-snug text-zl-muted">
               Hiding an evidence class only hides claims — it never means the relationship is
               gone.
             </p>
           </div>
         </Card>
+        )}
       </div>
       </div>
     </div>

@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { MeshEvidenceEdge } from "@/lib/meshEvidence";
+import type { MeshEvidenceDevice, MeshEvidenceEdge } from "@/lib/meshEvidence";
 import {
-  countHiddenEvidenceEdges,
+  DENSE_DEFAULT_CONNECTION_CONTROLS,
+  collectIssueDeviceIds,
+  countHiddenConnectionEdges,
+  deviceHasIssue,
   isDenseGraph,
-  selectVisibleEdgesForDenseMode,
+  selectBestNeighbourLinks,
+  selectVisibleConnectionEdges,
+  type ConnectionControls,
 } from "@/lib/meshGraphDense";
 
 function edge(
@@ -25,6 +30,34 @@ function edge(
     ...overrides,
   };
 }
+
+function device(ieee: string, overrides: Partial<MeshEvidenceDevice> = {}): MeshEvidenceDevice {
+  return {
+    ieee_address: ieee,
+    network_id: "home",
+    friendly_name: ieee,
+    role: "router",
+    power: "mains",
+    availability: "online",
+    health_bucket: "healthy",
+    flags: [],
+    inventory_status: "In Zigbee2MQTT device inventory",
+    topology_evidence_summary: "",
+    passive_observation_summary: "",
+    interpretation: "",
+    ...overrides,
+  };
+}
+
+function controls(overrides: Partial<ConnectionControls> = {}): ConnectionControls {
+  return { ...DENSE_DEFAULT_CONNECTION_CONTROLS, ...overrides };
+}
+
+const emptyContext = {
+  bestNeighbourEdgeIds: new Set<string>(),
+  issueDeviceIds: new Set<string>(),
+  selectedNodeId: null,
+};
 
 describe("isDenseGraph", () => {
   it("stays off for small graphs", () => {
@@ -59,53 +92,227 @@ describe("isDenseGraph", () => {
   });
 });
 
-describe("selectVisibleEdgesForDenseMode", () => {
-  const routeEdge = edge("0xr1", "0xc0", {
+describe("default connection controls", () => {
+  it("matches the dense-mode spec: routes/best/issues on, all/old off", () => {
+    expect(DENSE_DEFAULT_CONNECTION_CONTROLS).toEqual({
+      routeHints: true,
+      bestNeighbourLinks: true,
+      issueDeviceLinks: true,
+      allNeighbourLinks: false,
+      oldUncertainLinks: false,
+    });
+  });
+});
+
+describe("selectBestNeighbourLinks", () => {
+  it("keeps up to N strongest links per device by recorded LQI", () => {
+    const edges = [
+      edge("a", "b", { id: "ab", lqi_latest: 200 }),
+      edge("a", "c", { id: "ac", lqi_latest: 150 }),
+      edge("a", "d", { id: "ad", lqi_latest: 100 }),
+    ];
+    const best = selectBestNeighbourLinks(edges, 2);
+    expect(best.has("ab")).toBe(true);
+    expect(best.has("ac")).toBe(true);
+    // Weakest link is not in a's top 2, but it IS in d's top 2 (d has only
+    // one link) — union keeps every device connected.
+    expect(best.has("ad")).toBe(true);
+  });
+
+  it("drops weakest links only when no endpoint ranks them", () => {
+    // b, c, d each connect to both hubs a and z; every leaf keeps 2 links,
+    // so the union includes everything here — build a case where a's third
+    // link is also the leaf's third.
+    const edges = [
+      edge("a", "b", { id: "ab", lqi_latest: 200 }),
+      edge("a", "c", { id: "ac", lqi_latest: 180 }),
+      edge("b", "c", { id: "bc", lqi_latest: 170 }),
+      edge("a", "d", { id: "ad", lqi_latest: 20 }),
+      edge("b", "d", { id: "bd", lqi_latest: 160 }),
+      edge("c", "d", { id: "cd", lqi_latest: 150 }),
+    ];
+    const best = selectBestNeighbourLinks(edges, 2);
+    // "ad" is a's weakest (3rd) and d's weakest (3rd): excluded everywhere.
+    expect(best.has("ad")).toBe(false);
+    expect(best.has("ab")).toBe(true);
+    expect(best.has("bd")).toBe(true);
+  });
+
+  it("prefers links with recorded LQI over links without", () => {
+    const edges = [
+      edge("a", "b", { id: "ab", lqi_latest: 10 }),
+      edge("a", "c", { id: "ac", lqi_latest: null }),
+      edge("a", "d", { id: "ad", lqi_latest: 5 }),
+    ];
+    const best = selectBestNeighbourLinks(edges, 2);
+    // Both recorded-LQI links beat the unrecorded one, even at low values —
+    // missing LQI is unknown, not zero.
+    expect(best.has("ab")).toBe(true);
+    expect(best.has("ad")).toBe(true);
+  });
+
+  it("does not strand devices whose links have no recorded LQI", () => {
+    const edges = [
+      edge("a", "b", { id: "ab", lqi_latest: null }),
+      edge("a", "c", { id: "ac", lqi_latest: null }),
+      edge("a", "d", { id: "ad", lqi_latest: null }),
+    ];
+    const best = selectBestNeighbourLinks(edges, 2);
+    expect(best.size).toBeGreaterThanOrEqual(2);
+  });
+
+  it("only considers latest_snapshot_neighbor edges", () => {
+    const edges = [
+      edge("a", "b", { id: "route", evidence_class: "latest_snapshot_route", directional: true }),
+    ];
+    expect(selectBestNeighbourLinks(edges, 2).size).toBe(0);
+  });
+});
+
+describe("deviceHasIssue / collectIssueDeviceIds", () => {
+  it("flags devices with existing issue signals only", () => {
+    expect(deviceHasIssue(device("a"))).toBe(false);
+    expect(deviceHasIssue(device("b", { flags: ["needs_attention"] }))).toBe(true);
+    expect(deviceHasIssue(device("c", { flags: ["unavailable"] }))).toBe(true);
+    expect(deviceHasIssue(device("d", { flags: ["interview_failure"] }))).toBe(true);
+    expect(deviceHasIssue(device("e", { flags: ["weak_link_candidate"] }))).toBe(true);
+    expect(deviceHasIssue(device("f", { flags: ["router_risk_candidate"] }))).toBe(true);
+    expect(deviceHasIssue(device("g", { health_bucket: "unavailable" }))).toBe(true);
+    expect(
+      deviceHasIssue(device("h", { open_issue: { title: "t", summary: "s" } })),
+    ).toBe(true);
+  });
+
+  it("does not treat sleepy batteries or limited diagnostics as issues", () => {
+    expect(deviceHasIssue(device("a", { flags: ["battery_sleepy"] }))).toBe(false);
+    expect(deviceHasIssue(device("b", { flags: ["diagnostics_limited"] }))).toBe(false);
+    expect(deviceHasIssue(device("c", { health_bucket: "diagnostics_limited" }))).toBe(false);
+  });
+
+  it("collects issue device ids", () => {
+    const ids = collectIssueDeviceIds([
+      device("a"),
+      device("b", { flags: ["needs_attention"] }),
+    ]);
+    expect(ids).toEqual(new Set(["b"]));
+  });
+});
+
+describe("selectVisibleConnectionEdges", () => {
+  const routeEdge = edge("r1", "c0", {
+    id: "route",
     evidence_class: "latest_snapshot_route",
     directional: true,
   });
-  const issueEdge = edge("0xr2", "0xr3", { issue_related: true });
-  const neighborA = edge("0xr1", "0xr2");
-  const neighborB = edge("0xr3", "0xr4");
-  const all = [routeEdge, issueEdge, neighborA, neighborB];
+  const bestNeighbour = edge("r1", "r2", { id: "best" });
+  const otherNeighbour = edge("r3", "r4", { id: "other" });
+  const staleEdge = edge("r5", "r6", { id: "stale", evidence_class: "stale_low_confidence" });
+  const all = [routeEdge, bestNeighbour, otherNeighbour, staleEdge];
+  const context = {
+    ...emptyContext,
+    bestNeighbourEdgeIds: new Set(["best"]),
+  };
 
-  it("keeps route evidence visible with no selection", () => {
-    const visible = selectVisibleEdgesForDenseMode(all, null);
+  it("shows routes and best neighbour links by default, not the rest", () => {
+    const visible = selectVisibleConnectionEdges(all, controls(), context);
     expect(visible).toContain(routeEdge);
-    expect(visible).not.toContain(neighborA);
-    expect(visible).not.toContain(neighborB);
+    expect(visible).toContain(bestNeighbour);
+    expect(visible).not.toContain(otherNeighbour);
+    expect(visible).not.toContain(staleEdge);
   });
 
-  it("keeps issue-related evidence visible with no selection", () => {
-    expect(selectVisibleEdgesForDenseMode(all, null)).toContain(issueEdge);
+  it("route hints toggle controls route evidence", () => {
+    const visible = selectVisibleConnectionEdges(all, controls({ routeHints: false }), context);
+    expect(visible).not.toContain(routeEdge);
   });
 
-  it("reveals the full neighbourhood of the selected node", () => {
-    const visible = selectVisibleEdgesForDenseMode(all, "0xr1");
-    expect(visible).toContain(neighborA);
-    expect(visible).not.toContain(neighborB);
+  it("best neighbour links toggle controls the readable subset", () => {
+    const visible = selectVisibleConnectionEdges(
+      all,
+      controls({ bestNeighbourLinks: false }),
+      context,
+    );
+    expect(visible).not.toContain(bestNeighbour);
   });
 
-  it("reveals edges touching a selected edge's endpoints", () => {
-    const visible = selectVisibleEdgesForDenseMode(all, null, neighborB);
-    expect(visible).toContain(neighborB);
-    // 0xr3 is an endpoint of the selected edge, so issueEdge stays visible
-    // regardless, and neighbourB's own endpoints are in focus.
-    expect(visible).not.toContain(neighborA);
+  it("all neighbour links shows every neighbour edge", () => {
+    const visible = selectVisibleConnectionEdges(
+      all,
+      controls({ allNeighbourLinks: true }),
+      context,
+    );
+    expect(visible).toContain(bestNeighbour);
+    expect(visible).toContain(otherNeighbour);
+    expect(visible).not.toContain(staleEdge);
+  });
+
+  it("old or uncertain links gates stale/low-confidence evidence", () => {
+    const visible = selectVisibleConnectionEdges(
+      all,
+      controls({ oldUncertainLinks: true }),
+      context,
+    );
+    expect(visible).toContain(staleEdge);
+  });
+
+  it("issue-device links reveal edges touching flagged devices", () => {
+    const visible = selectVisibleConnectionEdges(all, controls(), {
+      ...context,
+      issueDeviceIds: new Set(["r3"]),
+    });
+    expect(visible).toContain(otherNeighbour);
+
+    const withoutToggle = selectVisibleConnectionEdges(
+      all,
+      controls({ issueDeviceLinks: false }),
+      { ...context, issueDeviceIds: new Set(["r3"]) },
+    );
+    expect(withoutToggle).not.toContain(otherNeighbour);
+  });
+
+  it("issue-related edges stay visible under the issues toggle", () => {
+    const issueEdge = edge("x", "y", { id: "issue", issue_related: true });
+    const visible = selectVisibleConnectionEdges([issueEdge], controls(), emptyContext);
+    expect(visible).toContain(issueEdge);
+  });
+
+  it("selected device links are always on: selection reveals every touching edge", () => {
+    const visible = selectVisibleConnectionEdges(
+      all,
+      controls({
+        routeHints: false,
+        bestNeighbourLinks: false,
+        issueDeviceLinks: false,
+      }),
+      { ...context, selectedNodeId: "r3" },
+    );
+    expect(visible).toContain(otherNeighbour);
+    expect(visible).not.toContain(bestNeighbour);
+  });
+
+  it("a selected edge reveals edges touching its endpoints", () => {
+    const visible = selectVisibleConnectionEdges(all, controls(), {
+      ...context,
+      selectedEdge: staleEdge,
+    });
+    expect(visible).toContain(staleEdge);
   });
 
   it("never invents or removes evidence — output is a subset of input", () => {
-    const visible = selectVisibleEdgesForDenseMode(all, "0xr1");
+    const visible = selectVisibleConnectionEdges(all, controls({ allNeighbourLinks: true }), {
+      ...context,
+      selectedNodeId: "r5",
+    });
     for (const e of visible) expect(all).toContain(e);
   });
 });
 
-describe("countHiddenEvidenceEdges", () => {
-  it("reports how many filter-visible edges are hidden for readability", () => {
+describe("countHiddenConnectionEdges", () => {
+  it("reports how many available edges are hidden for readability", () => {
     const a = edge("a", "b");
     const b = edge("c", "d");
     const c = edge("e", "f");
-    expect(countHiddenEvidenceEdges([a, b, c], [a])).toBe(2);
-    expect(countHiddenEvidenceEdges([a], [a])).toBe(0);
+    expect(countHiddenConnectionEdges([a, b, c], [a])).toBe(2);
+    expect(countHiddenConnectionEdges([a], [a])).toBe(0);
   });
 });
