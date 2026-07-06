@@ -232,6 +232,11 @@ export interface TopologyLinkRow {
   linkquality?: number | null;
   depth?: number | null;
   relationship?: string | null;
+  /**
+   * Route-table entries reported on this link by the raw network map.
+   * null means routes were not reported (unknown), distinct from zero.
+   */
+  route_count?: number | null;
 }
 
 export interface TopologyInventoryCounts {

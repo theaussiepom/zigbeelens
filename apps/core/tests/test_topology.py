@@ -81,6 +81,122 @@ def test_parse_networkmap_nodes_and_links():
     assert parsed.router_count >= 1
 
 
+def test_parse_networkmap_raw_bridge_response_envelope():
+    """Real bridge/response/networkmap payloads wrap the map in data.value."""
+    payload = {
+        "data": {
+            "routes": False,
+            "type": "raw",
+            "value": {
+                "nodes": [
+                    {
+                        "ieeeAddr": "0x00124B0024ABCD01",
+                        "friendlyName": "Coordinator",
+                        "type": "Coordinator",
+                    },
+                    {
+                        "ieeeAddr": "0x00124B0024ABCD02",
+                        "friendlyName": "Hall Router",
+                        "type": "Router",
+                    },
+                ],
+                "links": [
+                    {
+                        "source": {"ieeeAddr": "0x00124B0024ABCD02", "networkAddress": 4001},
+                        "target": {"ieeeAddr": "0x00124B0024ABCD01", "networkAddress": 0},
+                        "linkquality": 118,
+                        "depth": 1,
+                        "relationship": 1,
+                        "routes": [],
+                    }
+                ],
+            },
+        },
+        "status": "ok",
+    }
+    parsed = parse_networkmap_payload(payload)
+    assert len(parsed.nodes) == 2
+    assert parsed.nodes[0].ieee_address == "0x00124b0024abcd01"
+    assert parsed.link_count == 1
+    link = parsed.links[0]
+    assert link.source_ieee == "0x00124b0024abcd02"
+    assert link.target_ieee == "0x00124b0024abcd01"
+    assert link.relationship == "Child"
+    assert link.route_count == 0
+
+
+def test_parse_networkmap_route_table_entries_counted():
+    payload = {
+        "nodes": {
+            "0x01": {"type": "Coordinator"},
+            "0x02": {"type": "Router"},
+            "0x03": {"type": "Router"},
+        },
+        "links": [
+            {
+                "source": "0x02",
+                "target": "0x01",
+                "relationship": 0,
+                "routes": [
+                    {"destinationAddress": 0, "nextHop": 0, "status": "ACTIVE"},
+                    {"destinationAddress": 4002, "nextHop": 0, "status": "ACTIVE"},
+                ],
+            },
+            # No routes key at all: route evidence is unknown, not zero.
+            {"source": "0x03", "target": "0x01", "relationship": "2"},
+        ],
+    }
+    parsed = parse_networkmap_payload(payload)
+    with_routes = next(link for link in parsed.links if link.source_ieee == "0x02")
+    without_routes = next(link for link in parsed.links if link.source_ieee == "0x03")
+    assert with_routes.route_count == 2
+    assert with_routes.relationship == "Parent"
+    assert without_routes.route_count is None
+    assert without_routes.relationship == "Sibling"
+
+
+def test_topology_links_route_count_round_trip(tmp_path: Path):
+    from zigbeelens.db.connection import Database
+
+    db = Database(tmp_path / "routes.sqlite")
+    db.migrate()
+    repo = Repository(db)
+    cfg = _config(tmp_path / "routes.sqlite")
+    repo.sync_networks(cfg.networks)
+    repo.create_topology_snapshot(
+        snapshot_id="snap-routes",
+        network_id="home",
+        requested_by="test",
+        status="pending",
+        warning_acknowledged=True,
+    )
+    parsed = parse_networkmap_payload(
+        {
+            "nodes": {
+                "0x01": {"type": "Coordinator"},
+                "0x02": {"type": "Router"},
+            },
+            "links": [
+                {
+                    "source": "0x02",
+                    "target": "0x01",
+                    "linkquality": 140,
+                    "relationship": 1,
+                    "routes": [{"destinationAddress": 0, "nextHop": 0}],
+                },
+                {"source": "0x01", "target": "0x02", "linkquality": 132},
+            ],
+        }
+    )
+    repo.store_topology_parsed("snap-routes", "home", parsed, status="complete")
+    links = repo.list_topology_links("snap-routes")
+    by_source = {link["source_ieee"]: link for link in links}
+    assert by_source["0x02"]["route_count"] == 1
+    assert by_source["0x02"]["relationship"] == "Child"
+    assert by_source["0x01"]["route_count"] is None
+    db.close()
+
+
 def test_capture_blocked_without_confirmation(tmp_path: Path):
     from zigbeelens.app.context import bootstrap, reset_context
 

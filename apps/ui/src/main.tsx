@@ -12,6 +12,7 @@ import { TimelinePage } from "@/pages/TimelinePage";
 import { ReportsPage } from "@/pages/ReportsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { TopologyPage } from "@/pages/TopologyPage";
+import { TopologyGraphPage } from "@/pages/TopologyGraphPage";
 import { MonitoringGuidePage } from "@/pages/MonitoringGuidePage";
 import { detectRouterBasename } from "@/lib/base";
 import "./index.css";
@@ -33,6 +34,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="routers" element={<RoutersPage />} />
             <Route path="topology" element={<TopologyPage />} />
             <Route path="topology/:networkId" element={<TopologyPage />} />
+            <Route path="topology/:networkId/graph" element={<TopologyGraphPage />} />
             <Route path="devices" element={<DevicesPage />} />
             <Route path="devices/:networkId/:ieeeAddress" element={<DeviceDetailPage />} />
             <Route path="timeline" element={<TimelinePage />} />

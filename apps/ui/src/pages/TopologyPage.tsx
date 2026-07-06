@@ -7,6 +7,7 @@ import { Badge, Card, EmptyState, ErrorState, LoadingState, MetricPill } from "@
 import { relativeTime } from "@/lib/format";
 import { topologyRequestedByLabel, topologyStatusLabel } from "@/lib/topologyLabels";
 import { resolveTopologyDisplayCounts, snapshotSummaryLooksLimited } from "@/lib/topologyStats";
+import { TopologyViewTabs } from "@/components/meshGraph/TopologyViewTabs";
 
 const CAPTURE_WARNING =
   "Capturing a Zigbee network map asks Zigbee2MQTT to scan the mesh. On larger networks this may temporarily make Zigbee less responsive. ZigbeeLens will not change Zigbee state, but this diagnostic request can create temporary network load.";
@@ -320,6 +321,8 @@ export function TopologyPage() {
       {enabled && networks.length > 0 && activeNetworkId && (
         <>
           <NetworkTabs networks={networks} activeId={activeNetworkId} />
+
+          <TopologyViewTabs networkId={activeNetworkId} />
 
           {topology?.capture_in_progress && (
             <div className="rounded-lg border border-zl-watch/40 bg-zl-watch/10 px-4 py-3 text-sm text-zl-watch">
