@@ -82,8 +82,8 @@ export function EdgeDrawer({
 
       <DrawerSection title="Historical evidence">
         <dl>
-          <DrawerFact label="First seen" value={formatTime(edge.first_seen_at ?? undefined)} />
-          <DrawerFact label="Last seen" value={formatTime(edge.last_seen_at ?? undefined)} />
+          <DrawerFact label="First observed" value={formatTime(edge.first_seen_at ?? undefined)} />
+          <DrawerFact label="Last observed" value={formatTime(edge.last_seen_at ?? undefined)} />
           <DrawerFact label="Observed count" value={formatEvidenceCount(edge.observed_count)} />
           <DrawerFact label="Snapshot count" value={formatEvidenceCount(edge.snapshot_count)} />
           {hasLqiStats ? (
@@ -117,7 +117,19 @@ export function EdgeDrawer({
             label="Route observed count"
             value={formatEvidenceCount(edge.route_observed_count)}
           />
+          {edge.evidence_class === "historical_route" && (
+            <DrawerFact
+              label="Last route count"
+              value={formatEvidenceCount(edge.last_route_count)}
+            />
+          )}
         </dl>
+        {edge.evidence_class === "historical_route" && (
+          <p className="mt-1 text-xs text-zl-muted">
+            Route-table evidence was observed in a previous topology snapshot. This does not
+            prove current live routing.
+          </p>
+        )}
         {!edge.route_table_evidence && (
           <p className="mt-1 text-xs text-zl-muted">
             Absence of route-table evidence does not mean this link is unused; it only means no

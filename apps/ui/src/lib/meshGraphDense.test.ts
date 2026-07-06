@@ -92,18 +92,23 @@ describe("isDenseGraph", () => {
 });
 
 describe("default connection controls", () => {
-  it("matches the spec: routes/best on; issues, all and old links off", () => {
+  it("matches the spec: routes/best on; issues, all, old and previously seen links off", () => {
     expect(DENSE_DEFAULT_CONNECTION_CONTROLS).toEqual({
       routeHints: true,
       bestNeighbourLinks: true,
       devicesWithIssues: false,
       allNeighbourLinks: false,
       oldUncertainLinks: false,
+      previouslySeenLinks: false,
     });
   });
 
   it("keeps Devices with issues off by default", () => {
     expect(DENSE_DEFAULT_CONNECTION_CONTROLS.devicesWithIssues).toBe(false);
+  });
+
+  it("keeps Previously seen links off by default", () => {
+    expect(DENSE_DEFAULT_CONNECTION_CONTROLS.previouslySeenLinks).toBe(false);
   });
 });
 

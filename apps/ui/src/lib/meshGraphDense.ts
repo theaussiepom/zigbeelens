@@ -63,6 +63,12 @@ export interface ConnectionControls {
   allNeighbourLinks: boolean;
   /** Stale / low-confidence evidence already present in the model. */
   oldUncertainLinks: boolean;
+  /**
+   * "Previously seen links": historical neighbour/route evidence observed
+   * in previous topology snapshots but not in the latest snapshot. Off by
+   * default so historical lines never flood a dense graph unrequested.
+   */
+  previouslySeenLinks: boolean;
 }
 
 export const DENSE_DEFAULT_CONNECTION_CONTROLS: ConnectionControls = {
@@ -71,6 +77,7 @@ export const DENSE_DEFAULT_CONNECTION_CONTROLS: ConnectionControls = {
   devicesWithIssues: false,
   allNeighbourLinks: false,
   oldUncertainLinks: false,
+  previouslySeenLinks: false,
 };
 
 /**
@@ -189,12 +196,12 @@ export function selectVisibleConnectionEdges(
         );
       case "stale_low_confidence":
         return controls.oldUncertainLinks;
-      // Historical and passive-derived classes have no dense-mode control
-      // yet ("Previously seen links" / "Suggested investigation links" are
-      // future work) and never occur in live data; they stay reachable via
-      // selection or issue links above.
       case "historical_neighbor":
       case "historical_route":
+        return controls.previouslySeenLinks;
+      // Passive-derived associations have no dense-mode control yet
+      // ("Suggested investigation links" is future work); they stay
+      // reachable via selection or issue links above.
       case "passive_derived_association":
         return false;
     }

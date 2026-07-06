@@ -41,7 +41,10 @@ type PassiveFilterMode = "issue_related" | "all" | "off";
 interface EvidenceFilters {
   latestSnapshot: boolean;
   route: boolean;
+  /** Sample-mode visibility of historical fixture evidence. */
   historical: boolean;
+  /** Live-mode "Previously seen links" — off by default per spec. */
+  previouslySeenLive: boolean;
   passive: PassiveFilterMode;
   staleLowConfidence: boolean;
 }
@@ -50,16 +53,27 @@ const DEFAULT_FILTERS: EvidenceFilters = {
   latestSnapshot: true,
   route: true,
   historical: true,
+  // Previously seen links are off by default in live mode.
+  previouslySeenLive: false,
   // Passive-derived hints default to issue-related edges only.
   passive: "issue_related",
   // Stale / low-confidence evidence is off by default.
   staleLowConfidence: false,
 };
 
+const PREVIOUSLY_SEEN_HELPER =
+  "Links observed in previous topology snapshots but not observed in the latest snapshot.";
+const NO_PREVIOUSLY_SEEN_COPY =
+  "No previously seen links in the selected history window.";
+
 const LIMITED_LAYOUT_COPY =
   "Topology snapshot was captured, but Zigbee2MQTT did not provide usable node/link layout data. Device health still comes from passive MQTT inventory and state updates.";
 
-function edgeVisible(edge: MeshEvidenceEdge, filters: EvidenceFilters): boolean {
+function edgeVisible(
+  edge: MeshEvidenceEdge,
+  filters: EvidenceFilters,
+  liveMode: boolean,
+): boolean {
   switch (edge.evidence_class) {
     case "latest_snapshot_neighbor":
       return filters.latestSnapshot;
@@ -67,7 +81,9 @@ function edgeVisible(edge: MeshEvidenceEdge, filters: EvidenceFilters): boolean 
       return filters.route;
     case "historical_neighbor":
     case "historical_route":
-      return filters.historical;
+      // Live historical evidence is opt-in (off by default); sample fixtures
+      // keep their own toggle so the prototype grammar stays visible.
+      return liveMode ? filters.previouslySeenLive : filters.historical;
     case "passive_derived_association":
       if (filters.passive === "off") return false;
       if (filters.passive === "all") return true;
@@ -173,8 +189,8 @@ function GraphPanel({
   const [resetNonce, setResetNonce] = useState(0);
 
   const filterVisibleEdges = useMemo(
-    () => edges.filter((edge) => edgeVisible(edge, filters)),
-    [edges, filters],
+    () => edges.filter((edge) => edgeVisible(edge, filters, liveMode)),
+    [edges, filters, liveMode],
   );
 
   const structuralEdgeCount = useMemo(
@@ -190,6 +206,15 @@ function GraphPanel({
   const bestNeighbourEdgeIds = useMemo(() => selectBestNeighbourLinks(edges), [edges]);
   const hasOldUncertainLinks = useMemo(
     () => edges.some((edge) => edge.evidence_class === "stale_low_confidence"),
+    [edges],
+  );
+  const hasPreviouslySeenLinks = useMemo(
+    () =>
+      edges.some(
+        (edge) =>
+          edge.evidence_class === "historical_neighbor" ||
+          edge.evidence_class === "historical_route",
+      ),
     [edges],
   );
 
@@ -221,6 +246,7 @@ function GraphPanel({
     "selected device links",
     controls.devicesWithIssues ? "devices with issues" : null,
     controls.oldUncertainLinks ? "old or uncertain links" : null,
+    controls.previouslySeenLinks ? "previously seen links" : null,
   ].filter((label): label is string => label !== null);
 
   const setControl = (key: keyof ConnectionControls) => (value: boolean) =>
@@ -373,9 +399,10 @@ function GraphPanel({
             />
             <ConnectionCheckbox
               label="Previously seen links"
-              helper="Coming later — historical topology links observed in previous snapshots but not in the latest snapshot."
-              checked={false}
-              disabled
+              helper={hasPreviouslySeenLinks ? PREVIOUSLY_SEEN_HELPER : NO_PREVIOUSLY_SEEN_COPY}
+              checked={hasPreviouslySeenLinks && controls.previouslySeenLinks}
+              disabled={!hasPreviouslySeenLinks}
+              onChange={setControl("previouslySeenLinks")}
             />
             <ConnectionCheckbox
               label="Suggested investigation links"
@@ -407,11 +434,24 @@ function GraphPanel({
               onChange={(v) => setFilters((f) => ({ ...f, route: v }))}
             />
             <FilterCheckbox
-              label="Historical evidence"
-              checked={liveMode ? false : filters.historical}
-              disabled={liveMode}
-              onChange={(v) => setFilters((f) => ({ ...f, historical: v }))}
+              label="Previously seen links"
+              checked={
+                liveMode
+                  ? hasPreviouslySeenLinks && filters.previouslySeenLive
+                  : filters.historical
+              }
+              disabled={liveMode && !hasPreviouslySeenLinks}
+              onChange={(v) =>
+                setFilters((f) =>
+                  liveMode ? { ...f, previouslySeenLive: v } : { ...f, historical: v },
+                )
+              }
             />
+            <p className="pl-6 text-[11px] leading-snug text-zl-muted">
+              {liveMode && !hasPreviouslySeenLinks
+                ? NO_PREVIOUSLY_SEEN_COPY
+                : PREVIOUSLY_SEEN_HELPER}
+            </p>
             <label
               className={`block text-sm ${liveMode ? "text-zl-muted/60" : "text-zl-text"}`}
             >
@@ -437,8 +477,8 @@ function GraphPanel({
             />
             {liveMode && (
               <p className="text-[11px] leading-snug text-zl-muted">
-                Historical, passive-derived and stale evidence classes are not produced from live
-                snapshot data yet. They remain available in prototype sample data.
+                Passive-derived and stale evidence classes are not produced from live snapshot
+                data yet. They remain available in prototype sample data.
               </p>
             )}
             <p className="text-[11px] leading-snug text-zl-muted">
@@ -467,7 +507,7 @@ export function TopologyGraphPage() {
   const detail = useLiveResource(
     () =>
       networkId
-        ? api.topologyNetwork(networkId)
+        ? api.topologyEvidenceGraph(networkId)
         : Promise.reject(new Error("No network selected")),
     [networkId],
     { enabled: liveMode && Boolean(networkId) },
@@ -673,8 +713,19 @@ export function TopologyGraphPage() {
               <MetricPill label="Observed topology nodes" value={detail.data?.nodes?.length ?? 0} />
               <MetricPill
                 label="Snapshot evidence links"
-                value={liveEvidence.edges.length}
+                value={
+                  liveEvidence.edges.filter((edge) => edge.in_latest_snapshot).length
+                }
               />
+              {detail.data?.counts && (
+                <MetricPill
+                  label="Previously seen links"
+                  value={
+                    detail.data.counts.historical_neighbor_edges +
+                    detail.data.counts.historical_route_edges
+                  }
+                />
+              )}
               {detail.data?.inventory && (
                 <MetricPill label="Known devices" value={detail.data.inventory.device_count} />
               )}
