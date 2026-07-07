@@ -1,4 +1,8 @@
-import { EVIDENCE_CLASSES, evidenceClassLabel, type EvidenceClass } from "@/lib/meshEvidence";
+import {
+  LIVE_EVIDENCE_CLASSES,
+  evidenceClassLabel,
+  type EvidenceClass,
+} from "@/lib/meshEvidence";
 import { evidenceEdgeStyle } from "@/components/meshGraph/evidenceStyles";
 
 function LegendLine({ cls }: { cls: EvidenceClass }) {
@@ -28,7 +32,7 @@ export function GraphLegend() {
         Link evidence
       </h3>
       <ul className="space-y-2">
-        {EVIDENCE_CLASSES.map((cls) => (
+        {LIVE_EVIDENCE_CLASSES.map((cls) => (
           <li key={cls} className="flex items-center gap-2 text-xs text-zl-text">
             <LegendLine cls={cls} />
             <span>{evidenceClassLabel(cls)}</span>

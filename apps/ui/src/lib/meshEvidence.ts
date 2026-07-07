@@ -16,13 +16,17 @@ export type EvidenceClass =
   | "passive_derived_association"
   | "stale_low_confidence";
 
-export const EVIDENCE_CLASSES: EvidenceClass[] = [
+/**
+ * The evidence classes live snapshot data can actually produce today.
+ * Passive-derived and stale classes stay in the model (types, styles and
+ * drawer wording) for future phases but are not drawn or listed in the
+ * legend until a live source exists for them.
+ */
+export const LIVE_EVIDENCE_CLASSES: EvidenceClass[] = [
   "latest_snapshot_neighbor",
   "latest_snapshot_route",
   "historical_neighbor",
   "historical_route",
-  "passive_derived_association",
-  "stale_low_confidence",
 ];
 
 export type EvidenceConfidence = "high" | "medium" | "low";
@@ -133,18 +137,9 @@ export interface MeshEvidenceDevice {
   interpretation: string;
   /**
    * Summary of previously-seen topology links touching this device within
-   * the history window. Undefined when historical data was not evaluated
-   * (e.g. prototype sample fixtures).
+   * the history window. Undefined when historical data was not evaluated.
    */
   historical_topology_summary?: string | null;
-}
-
-export interface MeshEvidenceGraphFixture {
-  network_id: string;
-  network_name: string;
-  latest_snapshot_captured_at: string;
-  devices: MeshEvidenceDevice[];
-  edges: MeshEvidenceEdge[];
 }
 
 /* ------------------------------------------------------------------------ */
@@ -295,15 +290,6 @@ export const GRAPH_SAFETY_COPY_LIVE =
   "This graph combines the latest topology snapshot with recent historical topology evidence. " +
   "Solid links are latest snapshot evidence. Dotted links are recent previous evidence " +
   "and should not be treated as proof of current live routing.";
-
-/**
- * The safety copy for the prototype sample dataset, which still demonstrates
- * historical, passive-derived and stale fixture evidence classes.
- */
-export const GRAPH_SAFETY_COPY =
-  "This graph combines topology snapshots with historical and passive observations. " +
-  "Solid links are direct snapshot evidence. Dotted or faint links are historical or derived " +
-  "and should be treated as investigation hints, not proof of current live routing.";
 
 /** Copy describing missing latest-snapshot presence for an edge. */
 export function latestSnapshotStatusCopy(edge: MeshEvidenceEdge): string {

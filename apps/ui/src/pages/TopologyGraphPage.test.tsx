@@ -4,16 +4,14 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeviceSummary } from "@zigbeelens/shared";
 import { TopologyGraphPage } from "@/pages/TopologyGraphPage";
-import { meshEvidenceGraphFixture } from "@/fixtures/meshEvidenceGraph";
 import type {
   HistoricalEdgeAggregate,
   TopologyEvidenceGraphDetail,
   TopologyNetworkDetail,
 } from "@/lib/api";
 import {
-  EVIDENCE_CLASSES,
+  LIVE_EVIDENCE_CLASSES,
   evidenceClassLabel,
-  GRAPH_SAFETY_COPY,
   GRAPH_SAFETY_COPY_LIVE,
 } from "@/lib/meshEvidence";
 import { positionStorageKey } from "@/lib/meshGraphSmartLayout";
@@ -375,32 +373,22 @@ async function renderLiveAndWaitForLayout(networkId = "home") {
   return result;
 }
 
-async function switchToSample(user: ReturnType<typeof userEvent.setup>) {
-  await user.selectOptions(screen.getByRole("combobox", { name: /data source/i }), "sample");
-  await screen.findByText("Living room plug");
-}
-
 describe("TopologyGraphPage live mode", () => {
-  it("defaults to live snapshot data and labels it as live", async () => {
+  it("labels the graph as live snapshot data with no sample-data option", async () => {
     await renderLiveAndWaitForLayout();
     expect(screen.getByTestId("graph-mode-badge")).toHaveTextContent("Live topology snapshot");
-    expect(screen.queryByText("Prototype — sample data")).not.toBeInTheDocument();
+    // Sample mode has been removed: no data source selector, no prototype copy.
+    expect(screen.queryByRole("combobox", { name: /data source/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/sample data/i)).not.toBeInTheDocument();
     expect(screen.getByText("Snapshot status")).toBeInTheDocument();
     expect(screen.getByText("Captured")).toBeInTheDocument();
   });
 
-  it("renders live devices and never fixture devices in live mode", async () => {
+  it("renders the live devices from the evidence API", async () => {
     await renderLiveAndWaitForLayout();
     expect(screen.getByText("Live Coordinator")).toBeInTheDocument();
     expect(screen.getByText("Live Lamp")).toBeInTheDocument();
     expect(screen.getByText("Live Sleepy Sensor")).toBeInTheDocument();
-    // Scope to node title elements: role labels like "Coordinator" legitimately
-    // appear on live nodes and would collide with fixture device names.
-    for (const fixtureDevice of meshEvidenceGraphFixture.devices) {
-      expect(
-        screen.queryByText(fixtureDevice.friendly_name, { selector: ".truncate" }),
-      ).not.toBeInTheDocument();
-    }
   });
 
   it("maps neighbour links to latest_snapshot_neighbor edges, merging directions", async () => {
@@ -430,18 +418,19 @@ describe("TopologyGraphPage live mode", () => {
     expect(container.querySelectorAll(".mesh-edge--stale_low_confidence")).toHaveLength(0);
   });
 
-  it("disables non-live evidence filters in live mode", async () => {
+  it("only offers evidence filters that live data can produce", async () => {
     await renderLiveAndWaitForLayout();
-    // No historical evidence in this fixture: recent missing links disabled.
+    // No historical evidence in this response: recent missing links disabled.
     expect(screen.getByRole("checkbox", { name: /recent missing links/i })).toBeDisabled();
     expect(screen.queryByText(/previously seen/i)).not.toBeInTheDocument();
     expect(
       screen.getByText("No recent missing links in the selected history window."),
     ).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /stale \/ low-confidence/i })).toBeDisabled();
+    // Passive-derived and stale controls are gone with sample mode.
     expect(
-      screen.getByText(/are not produced from live snapshot data yet/i),
-    ).toBeInTheDocument();
+      screen.queryByRole("checkbox", { name: /stale \/ low-confidence/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/passive-derived hints/i)).not.toBeInTheDocument();
   });
 
   it("opens the neighbour edge drawer with snapshot facts and safe wording", async () => {
@@ -511,7 +500,7 @@ describe("TopologyGraphPage live mode", () => {
     expect(within(drawer).queryByText(/incident detected/i)).not.toBeInTheDocument();
   });
 
-  it("shows an honest limited state without fake zeroes or sample fallback", async () => {
+  it("shows an honest limited state without fake zeroes", async () => {
     mockDetail = liveDetailLimited;
     const { container } = renderGraphPage("home2");
     expect(
@@ -523,14 +512,12 @@ describe("TopologyGraphPage live mode", () => {
     expect(observedLinks.nextElementSibling).toHaveTextContent("—");
     expect(screen.getByText("102")).toBeInTheDocument();
     expect(screen.getByText(/missing topology data is not an incident by itself/i)).toBeInTheDocument();
-    // No graph, no fixture fallback.
+    // No graph, no fabricated fallback data.
     expect(container.querySelectorAll(".mesh-edge")).toHaveLength(0);
     expect(screen.queryByTestId("mesh-evidence-graph")).not.toBeInTheDocument();
-    expect(screen.queryByText("Living room plug")).not.toBeInTheDocument();
-    expect(screen.queryByText("Prototype — sample data")).not.toBeInTheDocument();
   });
 
-  it("shows a waiting state when no snapshot exists instead of falling back to sample", async () => {
+  it("shows a waiting state when no snapshot exists", async () => {
     mockDetail = {
       network_id: "home2",
       network_name: "Home 2",
@@ -545,7 +532,6 @@ describe("TopologyGraphPage live mode", () => {
     expect(
       screen.getByText(/missing topology data is not an incident by itself/i),
     ).toBeInTheDocument();
-    expect(screen.queryByText("Living room plug")).not.toBeInTheDocument();
   });
 
   it("creates a clearly labelled placeholder node for a link endpoint unknown to inventory and node list", async () => {
@@ -688,75 +674,6 @@ describe("TopologyGraphPage layout modes", () => {
       expect(nodePosition(container, "0xr1")).not.toContain("translate(4321px,1234px)");
     });
     expect(localStorage.getItem(positionStorageKey("home", "smart"))).toBeNull();
-  });
-});
-
-describe("TopologyGraphPage sample mode", () => {
-  it("is explicitly labelled and never presented as live data", async () => {
-    const user = userEvent.setup();
-    await renderLiveAndWaitForLayout();
-    await switchToSample(user);
-    expect(screen.getByTestId("graph-mode-badge")).toHaveTextContent("Prototype — sample data");
-    expect(screen.getByTestId("graph-mode-badge")).not.toHaveTextContent(
-      "Live topology snapshot",
-    );
-    expect(
-      screen.getByText(/sample evidence data for design validation — not data from your network/i),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/it does not represent network/i)).toBeInTheDocument();
-  });
-
-  it("renders the full fixture evidence grammar in sample mode", async () => {
-    const user = userEvent.setup();
-    const { container } = await renderLiveAndWaitForLayout();
-    await switchToSample(user);
-    await waitFor(() => {
-      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(5);
-    });
-    expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(2);
-    expect(container.querySelectorAll(".mesh-edge--passive_derived_association")).toHaveLength(2);
-  });
-
-  it("still frames passive-derived sample edges as investigation hints, never routes", async () => {
-    const user = userEvent.setup();
-    await renderLiveAndWaitForLayout();
-    await switchToSample(user);
-    const edge = await screen.findByLabelText(
-      "Passive-derived association between Hallway repeater and Kitchen motion",
-    );
-    fireEvent.click(edge);
-    const drawer = screen.getByRole("dialog", { name: /link evidence/i });
-    expect(within(drawer).getByText("Investigation hint")).toBeInTheDocument();
-    expect(within(drawer).getAllByText(/is not a route/i).length).toBeGreaterThan(0);
-    expect(within(drawer).queryByText(/routes via/i)).not.toBeInTheDocument();
-    expect(within(drawer).queryByText(/currently connected/i)).not.toBeInTheDocument();
-  });
-
-  it("does not claim a current route for historical sample evidence", async () => {
-    const user = userEvent.setup();
-    await renderLiveAndWaitForLayout();
-    await switchToSample(user);
-    const edge = await screen.findByLabelText(
-      "Recent missing neighbour link between Hallway repeater and Bedroom temp sensor",
-    );
-    fireEvent.click(edge);
-    const drawer = screen.getByRole("dialog", { name: /link evidence/i });
-    expect(
-      within(drawer).getAllByText(/does not prove current live routing/i).length,
-    ).toBeGreaterThan(0);
-    expect(within(drawer).queryByText(/currently connected/i)).not.toBeInTheDocument();
-  });
-
-  it("re-enables historical/passive/stale filters in sample mode", async () => {
-    const user = userEvent.setup();
-    const { container } = await renderLiveAndWaitForLayout();
-    await switchToSample(user);
-    const staleToggle = screen.getByRole("checkbox", { name: /stale \/ low-confidence/i });
-    expect(staleToggle).toBeEnabled();
-    await user.click(staleToggle);
-    await waitFor(() => {
-      expect(container.querySelectorAll(".mesh-edge--stale_low_confidence")).toHaveLength(1);
-    });
   });
 });
 
@@ -1320,26 +1237,23 @@ describe("TopologyGraphPage historical evidence in dense mode", () => {
 });
 
 describe("TopologyGraphPage shared chrome", () => {
-  it("renders the legend with every evidence class", async () => {
+  it("renders the legend with every evidence class live data can produce", async () => {
     await renderLiveAndWaitForLayout();
     const legend = screen.getByRole("group", { name: /link evidence legend/i });
-    for (const cls of EVIDENCE_CLASSES) {
+    for (const cls of LIVE_EVIDENCE_CLASSES) {
       expect(within(legend).getByText(evidenceClassLabel(cls))).toBeInTheDocument();
     }
+    // Classes without a live source stay out of the legend.
+    expect(within(legend).queryByText(/passive-derived/i)).not.toBeInTheDocument();
+    expect(within(legend).queryByText(/stale/i)).not.toBeInTheDocument();
   });
 
-  it("renders mode-specific safety banners: live copy never claims passive links are active", async () => {
-    const user = userEvent.setup();
+  it("renders a safety banner that never claims passive links are active", async () => {
     await renderLiveAndWaitForLayout();
     const note = screen.getByRole("note", { name: /evidence safety note/i });
     expect(note).toHaveTextContent(GRAPH_SAFETY_COPY_LIVE);
     // Live mode has no passive-derived edges, so the banner must not imply them.
     expect(note).not.toHaveTextContent(/passive/i);
     expect(note).toHaveTextContent(/should not be treated as proof of current live routing/i);
-    await switchToSample(user);
-    // Sample mode still demonstrates passive-derived fixture evidence.
-    expect(screen.getByRole("note", { name: /evidence safety note/i })).toHaveTextContent(
-      GRAPH_SAFETY_COPY,
-    );
   });
 });
