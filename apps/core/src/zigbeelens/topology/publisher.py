@@ -13,6 +13,11 @@ from zigbeelens.topology.topics import validate_topology_request_topic
 
 logger = logging.getLogger(__name__)
 
+# Ask Zigbee2MQTT to include route-table entries in the raw map. Without
+# "routes": true every link comes back with an empty routes array, which
+# leaves route_count at 0 and the graph without any route-hint evidence.
+NETWORKMAP_REQUEST_PAYLOAD = '{"type":"raw","routes":true}'
+
 
 @dataclass
 class TopologyPublishRecord:
@@ -58,7 +63,7 @@ class TopologyRequestPublisher:
         self._client.disconnect()
         self._connected = False
 
-    def publish_networkmap_request(self, topic: str, payload: str = '{"type":"raw"}') -> None:
+    def publish_networkmap_request(self, topic: str, payload: str = NETWORKMAP_REQUEST_PAYLOAD) -> None:
         validate_topology_request_topic(topic, allowed_base_topics=self._base_topics)
         with self._lock:
             self._records.append(TopologyPublishRecord(topic=topic, payload=payload))
@@ -82,6 +87,6 @@ class FakeTopologyRequestPublisher:
     def disconnect(self) -> None:
         return None
 
-    def publish_networkmap_request(self, topic: str, payload: str = '{"type":"raw"}') -> None:
+    def publish_networkmap_request(self, topic: str, payload: str = NETWORKMAP_REQUEST_PAYLOAD) -> None:
         validate_topology_request_topic(topic, allowed_base_topics=self._base_topics)
         self.published.append(TopologyPublishRecord(topic=topic, payload=payload))

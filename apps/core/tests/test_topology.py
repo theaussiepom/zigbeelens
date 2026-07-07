@@ -285,6 +285,23 @@ def test_no_automatic_capture_on_startup(tmp_path: Path):
     reset_context()
 
 
+def test_capture_request_asks_for_route_tables(tmp_path: Path):
+    """The networkmap request must include routes so route hints get evidence."""
+    from zigbeelens.app.context import bootstrap, reset_context
+
+    reset_context()
+    cfg = _config(tmp_path / "routes.sqlite")
+    publisher = FakeTopologyRequestPublisher(cfg)
+    with patch("zigbeelens.app.context.start_discovery", return_value=None):
+        ctx = bootstrap(config=cfg)
+    service = TopologyService(ctx, publisher=publisher)
+    service.request_capture("home", confirmed=True)
+    assert len(publisher.published) == 1
+    payload = json.loads(publisher.published[0].payload)
+    assert payload == {"type": "raw", "routes": True}
+    reset_context()
+
+
 def test_topology_response_stored(tmp_path: Path):
     from zigbeelens.app.context import bootstrap, reset_context
 
