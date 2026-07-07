@@ -17,16 +17,18 @@ export type EvidenceClass =
   | "stale_low_confidence";
 
 /**
- * The evidence classes live snapshot data can actually produce today.
- * Passive-derived and stale classes stay in the model (types, styles and
- * drawer wording) for future phases but are not drawn or listed in the
- * legend until a live source exists for them.
+ * The evidence classes live data can actually produce today: snapshot
+ * evidence, recent-missing historical evidence, and passive-derived
+ * investigation hints. The stale class stays in the model (types, styles
+ * and drawer wording) but is not drawn or listed in the legend until a
+ * live source exists for it.
  */
 export const LIVE_EVIDENCE_CLASSES: EvidenceClass[] = [
   "latest_snapshot_neighbor",
   "latest_snapshot_route",
   "historical_neighbor",
   "historical_route",
+  "passive_derived_association",
 ];
 
 export type EvidenceConfidence = "high" | "medium" | "low";
@@ -87,6 +89,10 @@ export interface MeshEvidenceEdge {
    */
   latest_layout_limited?: boolean | null;
   passive_corroboration?: PassiveCorroboration | null;
+  /** Named rules a passive-derived hint matched (backend rule ids). */
+  rules_matched?: string[] | null;
+  /** Concise backend-supplied facts supporting a passive-derived hint. */
+  supporting_observations?: string[] | null;
   limitations: string[];
   suggested_investigation: string[];
 }
@@ -140,6 +146,11 @@ export interface MeshEvidenceDevice {
    * the history window. Undefined when historical data was not evaluated.
    */
   historical_topology_summary?: string | null;
+  /**
+   * Summary of passive-derived investigation hints touching this device.
+   * Undefined when passive hints were not evaluated.
+   */
+  passive_hint_summary?: string | null;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -157,7 +168,7 @@ export function evidenceClassLabel(cls: EvidenceClass): string {
     case "historical_route":
       return "Recent missing route hint";
     case "passive_derived_association":
-      return "Passive-derived association";
+      return "Suggested investigation link";
     case "stale_low_confidence":
       return "Stale / low-confidence evidence";
   }
@@ -178,7 +189,7 @@ export function evidenceClassDescription(cls: EvidenceClass): string {
     case "historical_route":
       return "Route-table evidence was observed in a recent previous topology snapshot. This does not prove current live routing.";
     case "passive_derived_association":
-      return "Investigation hint derived from passive observations over time, such as correlated availability changes or overlapping stale windows. This is not topology evidence and is not a route.";
+      return "Passive-derived hint, not topology evidence. ZigbeeLens found passive observations, such as repeated instability around the same time, that may make these devices worth investigating together. This does not prove these devices are connected and does not prove current live routing.";
     case "stale_low_confidence":
       return "Old or weakly supported evidence. Treat this as background context, not as a description of the current mesh.";
   }
@@ -282,14 +293,16 @@ export function formatLqi(value: number | null | undefined): string {
 
 /**
  * The safety copy shown above the graph in live mode. Describes only the
- * evidence classes live snapshot data actually produces today — passive-
- * derived associations are not implemented in live mode and must not be
- * implied to be active.
+ * evidence classes live data actually produces today, and qualifies
+ * passive-derived hints as opt-in ("if enabled") — they are never implied
+ * to be always drawn or to be topology evidence.
  */
 export const GRAPH_SAFETY_COPY_LIVE =
   "This graph combines the latest topology snapshot with recent historical topology evidence. " +
   "Solid links are latest snapshot evidence. Dotted links are recent previous evidence " +
-  "and should not be treated as proof of current live routing.";
+  "and should not be treated as proof of current live routing. " +
+  "If enabled, suggested investigation links are passive-derived hints only. " +
+  "They are not topology links and do not prove current live routing.";
 
 /** Copy describing missing latest-snapshot presence for an edge. */
 export function latestSnapshotStatusCopy(edge: MeshEvidenceEdge): string {

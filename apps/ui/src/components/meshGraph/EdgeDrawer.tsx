@@ -20,6 +20,121 @@ function deviceName(devices: MeshEvidenceDevice[], ieee: string): string {
   return devices.find((d) => d.ieee_address === ieee)?.friendly_name ?? ieee;
 }
 
+/** Human wording for the backend passive-hint rule ids. */
+function passiveRuleReason(rule: string): string {
+  switch (rule) {
+    case "shared_instability_window":
+      return "These devices repeatedly showed instability around the same time.";
+    case "topology_neighbourhood_corroboration":
+      return "Recent topology evidence also places these devices in a related router neighbourhood.";
+    case "current_issue_relevance":
+      return "One or more of these devices currently needs attention, and recent passive observations show related instability timing.";
+    default:
+      return rule;
+  }
+}
+
+/**
+ * Drawer body for a passive-derived investigation hint. The structure keeps
+ * the "what this means / why / limitations" framing front and centre: a
+ * hint is only "worth investigating together", never topology evidence,
+ * never a route, never proof of current connectivity.
+ */
+function PassiveHintDrawer({
+  edge,
+  devices,
+  onClose,
+}: {
+  edge: MeshEvidenceEdge;
+  devices: MeshEvidenceDevice[];
+  onClose: () => void;
+}) {
+  const sourceName = deviceName(devices, edge.source);
+  const targetName = deviceName(devices, edge.target);
+
+  return (
+    <DrawerShell label="Suggested investigation link" onClose={onClose}>
+      <div>
+        <span className="inline-flex items-center rounded-full border border-zl-watch/30 bg-zl-watch/10 px-2.5 py-0.5 text-xs font-medium text-zl-watch">
+          {evidenceClassShortLabel(edge.evidence_class)}
+        </span>
+        <p className="mt-2 text-base font-semibold text-zl-text">
+          {sourceName} ↔ {targetName}
+        </p>
+        <p className="text-xs text-zl-muted">
+          Network {edge.network_id} · no direction implied
+        </p>
+      </div>
+
+      <DrawerSection title="What this means">
+        <p>
+          ZigbeeLens found passive observations that may make these devices worth investigating
+          together. This is a passive-derived hint, not topology evidence.
+        </p>
+      </DrawerSection>
+
+      <DrawerSection title="Why ZigbeeLens suggested this">
+        {edge.rules_matched?.length ? (
+          <ul className="list-disc space-y-1 pl-4">
+            {edge.rules_matched.map((rule) => (
+              <li key={rule}>{passiveRuleReason(rule)}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-zl-muted">No rule details were recorded for this hint.</p>
+        )}
+      </DrawerSection>
+
+      <DrawerSection title="Supporting observations">
+        {edge.supporting_observations?.length ? (
+          <ul className="list-disc space-y-1 pl-4 text-zl-muted">
+            {edge.supporting_observations.map((item, i) => (
+              <li key={i}>{item}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-zl-muted">No supporting observations were recorded.</p>
+        )}
+        <dl className="mt-2">
+          <DrawerFact label="First observed" value={formatTime(edge.first_seen_at ?? undefined)} />
+          <DrawerFact label="Last observed" value={formatTime(edge.last_seen_at ?? undefined)} />
+          <DrawerFact
+            label="Related instability windows"
+            value={formatEvidenceCount(edge.observed_count)}
+          />
+        </dl>
+      </DrawerSection>
+
+      <DrawerSection title="Confidence">
+        <p>
+          {confidenceLabel(edge.confidence)} confidence — based on how often the passive pattern
+          repeated and whether independent signals corroborated it, not on live measurements.
+        </p>
+      </DrawerSection>
+
+      <DrawerSection title="Limitations">
+        <ul className="list-disc space-y-1 pl-4 text-zl-muted">
+          {edge.limitations.map((item, i) => (
+            <li key={i}>{item}</li>
+          ))}
+        </ul>
+      </DrawerSection>
+
+      <DrawerSection title="Suggested investigation">
+        {edge.suggested_investigation.length === 0 ? (
+          <p className="text-zl-muted">No investigation suggested for this hint.</p>
+        ) : (
+          <ul className="list-disc space-y-1 pl-4">
+            {edge.suggested_investigation.map((item, i) => (
+              <li key={i}>{item}</li>
+            ))}
+          </ul>
+        )}
+      </DrawerSection>
+    </DrawerShell>
+  );
+}
+
 /**
  * Evidence drawer for one edge. Every section presents the edge as an
  * evidence claim: what was observed, when, with what confidence, and what
@@ -34,6 +149,12 @@ export function EdgeDrawer({
   devices: MeshEvidenceDevice[];
   onClose: () => void;
 }) {
+  // Passive-derived hints get a dedicated drawer: their evidence story is
+  // "worth investigating together", not snapshot/route/LQI facts.
+  if (edge.evidence_class === "passive_derived_association") {
+    return <PassiveHintDrawer edge={edge} devices={devices} onClose={onClose} />;
+  }
+
   const sourceName = deviceName(devices, edge.source);
   const targetName = deviceName(devices, edge.target);
   const passive = edge.passive_corroboration;
@@ -165,12 +286,6 @@ export function EdgeDrawer({
           </dl>
         ) : (
           <p className="text-zl-muted">No passive corroboration recorded for this link.</p>
-        )}
-        {edge.evidence_class === "passive_derived_association" && (
-          <p className="mt-2 rounded-lg border border-zl-watch/30 bg-zl-watch/10 p-2 text-xs text-zl-watch">
-            This is an investigation hint derived from passive observations. It is not a route and
-            does not prove current live routing.
-          </p>
         )}
       </DrawerSection>
 

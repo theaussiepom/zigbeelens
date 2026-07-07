@@ -1,6 +1,7 @@
 import type { DeviceSummary, LensBucket } from "@zigbeelens/shared";
 import type {
   HistoricalEdgeAggregate,
+  PassiveHintAggregate,
   TopologyEvidenceGraphDetail,
   TopologyLinkRow,
   TopologyNetworkDetail,
@@ -19,11 +20,13 @@ import { relativeTime } from "@/lib/format";
  * Map real topology data + device inventory into the mesh evidence model.
  *
  * This mapper produces `latest_snapshot_neighbor` / `latest_snapshot_route`
- * evidence from the latest snapshot, plus `historical_neighbor` /
+ * evidence from the latest snapshot, `historical_neighbor` /
  * `historical_route` evidence from backend-aggregated previous complete
- * snapshots when present. Passive-derived and stale/low-confidence classes
- * require inference that does not exist yet and must never be fabricated
- * from snapshots or inventory data.
+ * snapshots, and `passive_derived_association` investigation hints from the
+ * backend passive rule engine when present. Passive hints are mapped
+ * one-to-one from backend output — they must never be fabricated from
+ * snapshots or inventory data. The stale/low-confidence class has no live
+ * source yet.
  */
 
 export const LIVE_NEIGHBOR_SAFE_COPY =
@@ -162,6 +165,58 @@ function historicalSummaryFor(
   return parts.join(" ");
 }
 
+/**
+ * Node-drawer summary of passive-derived investigation hints touching one
+ * device. Only produced when passive hints were actually evaluated.
+ */
+function passiveHintSummaryFor(passiveEdges: MeshEvidenceEdge[], ieee: string): string {
+  const touching = passiveEdges.filter((edge) => edge.source === ieee || edge.target === ieee);
+  if (touching.length === 0) {
+    return "No passive-derived investigation hints in the selected window.";
+  }
+  return `${touching.length} passive-derived investigation hint${
+    touching.length === 1 ? "" : "s"
+  } involve${touching.length === 1 ? "s" : ""} this device. These are not topology links or proof of live routing.`;
+}
+
+/** Map one backend passive hint into a mesh evidence edge, one-to-one. */
+function buildPassiveHintEdge(hint: PassiveHintAggregate, networkId: string): MeshEvidenceEdge {
+  const source = normalizeIeee(hint.source_ieee);
+  const target = normalizeIeee(hint.target_ieee);
+  return {
+    id: `passive-hint-${[source, target].sort().join("|")}`,
+    network_id: networkId,
+    source,
+    target,
+    evidence_class: "passive_derived_association",
+    confidence: hint.confidence,
+    // Passive hints are never directional: no route or next-hop is implied.
+    directional: false,
+    issue_related: hint.issue_related,
+    in_latest_snapshot: false,
+    captured_at: null,
+    observed_relationship: null,
+    first_seen_at: hint.first_seen_at ?? null,
+    last_seen_at: hint.last_seen_at ?? null,
+    observed_count: hint.observed_count ?? null,
+    snapshot_count: null,
+    lqi_latest: null,
+    lqi_min: null,
+    lqi_median: null,
+    lqi_max: null,
+    route_table_evidence: null,
+    next_hop_evidence: null,
+    route_observed_count: null,
+    last_route_count: null,
+    latest_layout_limited: null,
+    passive_corroboration: null,
+    rules_matched: hint.rules_matched,
+    supporting_observations: hint.supporting_observations,
+    limitations: hint.limitations,
+    suggested_investigation: hint.suggested_investigation,
+  };
+}
+
 function buildDevice(
   ieee: string,
   networkId: string,
@@ -266,7 +321,12 @@ export type LiveTopologyDetail = TopologyNetworkDetail &
   Partial<
     Pick<
       TopologyEvidenceGraphDetail,
-      "historical_neighbors" | "historical_routes" | "history_window" | "limitations"
+      | "historical_neighbors"
+      | "historical_routes"
+      | "history_window"
+      | "limitations"
+      | "passive_hints"
+      | "passive_hint_window"
     >
   >;
 
@@ -415,6 +475,15 @@ export function buildLiveMeshEvidence(
   const latestLayoutLimited = historicalEdges.some((edge) => edge.latest_layout_limited);
   edges.push(...historicalEdges);
 
+  // Passive-derived investigation hints — mapped one-to-one from the
+  // backend rule engine. Never fabricated client-side, never directional,
+  // never route evidence.
+  const passiveEvaluated = detail.passive_hints !== undefined;
+  const passiveEdges = (detail.passive_hints ?? []).map((hint) =>
+    buildPassiveHintEdge(hint, networkId),
+  );
+  edges.push(...passiveEdges);
+
   // Devices: full inventory plus any topology-only nodes, distinction kept.
   // Link endpoints are included too: a snapshot can reference an endpoint in
   // its link table that appears in neither inventory nor the node list, and
@@ -441,6 +510,9 @@ export function buildLiveMeshEvidence(
         ieee,
         latestLayoutLimited,
       );
+    }
+    if (passiveEvaluated) {
+      device.passive_hint_summary = passiveHintSummaryFor(passiveEdges, ieee);
     }
     devices.push(device);
   }

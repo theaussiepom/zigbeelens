@@ -50,6 +50,12 @@ export interface ConnectionControls {
    * — never a forever-history dump.
    */
   recentMissingLinks: boolean;
+  /**
+   * "Suggested investigation links": passive-derived hints from the backend
+   * rule engine. Not topology evidence and never proof of live routing.
+   * Off by default, and even when on only a focused, capped subset renders.
+   */
+  suggestedInvestigationLinks: boolean;
 }
 
 export const DEFAULT_CONNECTION_CONTROLS: ConnectionControls = {
@@ -59,6 +65,7 @@ export const DEFAULT_CONNECTION_CONTROLS: ConnectionControls = {
   allNeighbourLinks: false,
   oldUncertainLinks: false,
   recentMissingLinks: false,
+  suggestedInvestigationLinks: false,
 };
 
 /* ------------------------------------------------------------------------ */
@@ -117,6 +124,15 @@ export function clearConnectionControls(networkId: string): void {
  */
 export const MAX_RECENT_MISSING_LINKS_TOTAL = 100;
 export const MAX_RECENT_MISSING_LINKS_PER_NODE = 3;
+
+/**
+ * Caps for passive-derived investigation hints. Hints are already capped
+ * backend-side; these rendering caps additionally keep the drawn subset
+ * focused so enabling the control never creates a new hairball. Hints over
+ * the cap stay in the model and remain reachable by selecting an endpoint.
+ */
+export const MAX_PASSIVE_HINTS_TOTAL = 100;
+export const MAX_PASSIVE_HINTS_PER_NODE = 3;
 
 /**
  * Existing issue/health signals that mark a device as "with issues" for the
@@ -300,11 +316,78 @@ export function selectRecentMissingEdges(
   return chosen;
 }
 
+const CONFIDENCE_RANK = { high: 2, medium: 1, low: 0 } as const;
+
+export interface PassiveHintSelectionInput {
+  /** Devices already flagged by ZigbeeLens (existing fields, no new inference). */
+  issueDeviceIds: Set<string>;
+  /** The currently selected device, whose hints are prioritised. */
+  selectedNodeId: string | null;
+}
+
+/**
+ * The focused subset of passive-derived hints rendered when "Suggested
+ * investigation links" is on.
+ *
+ * Deterministic priority: selected-device hints first, then hints involving
+ * devices with existing issue signals, then higher confidence, then more
+ * recent, then edge id. Capped per node and in total; hints over the cap
+ * stay in the model and remain reachable by selecting an endpoint device
+ * (selection always reveals the full neighbourhood via
+ * {@link selectVisibleConnectionEdges}).
+ */
+export function selectPassiveHintEdges(
+  edges: MeshEvidenceEdge[],
+  input: PassiveHintSelectionInput,
+  totalCap: number = MAX_PASSIVE_HINTS_TOTAL,
+  perNodeCap: number = MAX_PASSIVE_HINTS_PER_NODE,
+): Set<string> {
+  const candidates = edges.filter(
+    (edge) => edge.evidence_class === "passive_derived_association",
+  );
+
+  const touchesSelected = (edge: MeshEvidenceEdge): boolean =>
+    input.selectedNodeId !== null &&
+    (edge.source === input.selectedNodeId || edge.target === input.selectedNodeId);
+  const touchesIssue = (edge: MeshEvidenceEdge): boolean =>
+    edge.issue_related === true ||
+    input.issueDeviceIds.has(edge.source) ||
+    input.issueDeviceIds.has(edge.target);
+
+  const ordered = [...candidates].sort((a, b) => {
+    const selected = Number(touchesSelected(b)) - Number(touchesSelected(a));
+    if (selected !== 0) return selected;
+    const issue = Number(touchesIssue(b)) - Number(touchesIssue(a));
+    if (issue !== 0) return issue;
+    const confidence = CONFIDENCE_RANK[b.confidence] - CONFIDENCE_RANK[a.confidence];
+    if (confidence !== 0) return confidence;
+    const aSeen = a.last_seen_at ?? "";
+    const bSeen = b.last_seen_at ?? "";
+    if (aSeen !== bSeen) return bSeen.localeCompare(aSeen);
+    return a.id.localeCompare(b.id);
+  });
+
+  const chosen = new Set<string>();
+  const perNode = new Map<string, number>();
+  for (const edge of ordered) {
+    if (chosen.size >= totalCap) break;
+    const sourceCount = perNode.get(edge.source) ?? 0;
+    const targetCount = perNode.get(edge.target) ?? 0;
+    if (sourceCount >= perNodeCap || targetCount >= perNodeCap) continue;
+    chosen.add(edge.id);
+    perNode.set(edge.source, sourceCount + 1);
+    perNode.set(edge.target, targetCount + 1);
+  }
+  return chosen;
+}
+
 export interface ConnectionEdgeContext {
   /** Edge ids picked by {@link selectBestNeighbourLinks}. */
   bestNeighbourEdgeIds: Set<string>;
   /** Edge ids picked by {@link selectRecentMissingEdges}. */
   recentMissingEdgeIds?: Set<string>;
+  /** Edge ids picked by {@link selectPassiveHintEdges}. */
+  passiveHintEdgeIds?: Set<string>;
   selectedNodeId: string | null;
   selectedEdge?: MeshEvidenceEdge | null;
 }
@@ -356,11 +439,14 @@ export function selectVisibleConnectionEdges(
           controls.recentMissingLinks &&
           (context.recentMissingEdgeIds?.has(edge.id) ?? false)
         );
-      // Passive-derived associations have no connection control yet
-      // ("Suggested investigation links" is future work); they stay
-      // reachable via selection or issue links above.
+      // Passive-derived hints render only the focused/capped subset chosen
+      // by selectPassiveHintEdges — never every hint at once. Hints over
+      // the cap stay reachable via device selection above.
       case "passive_derived_association":
-        return false;
+        return (
+          controls.suggestedInvestigationLinks &&
+          (context.passiveHintEdgeIds?.has(edge.id) ?? false)
+        );
     }
   });
 }

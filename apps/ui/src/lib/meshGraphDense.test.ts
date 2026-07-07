@@ -3,6 +3,8 @@ import type { MeshEvidenceDevice, MeshEvidenceEdge } from "@/lib/meshEvidence";
 import {
   DEFAULT_CONNECTION_CONTROLS,
   MAX_NEIGHBOUR_LINKS_PER_DEVICE,
+  MAX_PASSIVE_HINTS_PER_NODE,
+  MAX_PASSIVE_HINTS_TOTAL,
   MAX_RECENT_MISSING_LINKS_PER_NODE,
   MAX_RECENT_MISSING_LINKS_TOTAL,
   MIN_NEIGHBOUR_LINKS_PER_DEVICE,
@@ -15,6 +17,7 @@ import {
   saveConnectionControls,
   selectAdaptiveBestNeighbourLinks,
   selectBestNeighbourLinks,
+  selectPassiveHintEdges,
   selectRecentMissingEdges,
   selectVisibleConnectionEdges,
   type ConnectionControls,
@@ -81,7 +84,7 @@ const emptyContext = {
 };
 
 describe("default connection controls", () => {
-  it("matches the spec: routes/best on; issues, all, old and recent missing links off", () => {
+  it("matches the spec: routes/best on; issues, all, old, recent missing and investigation links off", () => {
     expect(DEFAULT_CONNECTION_CONTROLS).toEqual({
       routeHints: true,
       bestNeighbourLinks: true,
@@ -89,6 +92,7 @@ describe("default connection controls", () => {
       allNeighbourLinks: false,
       oldUncertainLinks: false,
       recentMissingLinks: false,
+      suggestedInvestigationLinks: false,
     });
   });
 
@@ -98,6 +102,10 @@ describe("default connection controls", () => {
 
   it("keeps Recent missing links off by default", () => {
     expect(DEFAULT_CONNECTION_CONTROLS.recentMissingLinks).toBe(false);
+  });
+
+  it("keeps Suggested investigation links off by default", () => {
+    expect(DEFAULT_CONNECTION_CONTROLS.suggestedInvestigationLinks).toBe(false);
   });
 });
 
@@ -556,5 +564,141 @@ describe("selectVisibleConnectionEdges", () => {
       selectedNodeId: "r5",
     });
     for (const e of visible) expect(all).toContain(e);
+  });
+
+  it("passive hints render only the focused subset when the control is on", () => {
+    const inSubset = passiveHint("p1", "p2", { id: "hint-in" });
+    const overCap = passiveHint("p3", "p4", { id: "hint-out" });
+    const withHints = [...all, inSubset, overCap];
+    const hintContext = { ...context, passiveHintEdgeIds: new Set(["hint-in"]) };
+
+    const off = selectVisibleConnectionEdges(withHints, controls(), hintContext);
+    expect(off).not.toContain(inSubset);
+    expect(off).not.toContain(overCap);
+
+    const on = selectVisibleConnectionEdges(
+      withHints,
+      controls({ suggestedInvestigationLinks: true }),
+      hintContext,
+    );
+    expect(on).toContain(inSubset);
+    expect(on).not.toContain(overCap);
+  });
+
+  it("selecting a device reveals its passive hints even over the cap", () => {
+    const overCap = passiveHint("p3", "p4", { id: "hint-out" });
+    const visible = selectVisibleConnectionEdges([...all, overCap], controls(), {
+      ...context,
+      passiveHintEdgeIds: new Set<string>(),
+      selectedNodeId: "p3",
+    });
+    expect(visible).toContain(overCap);
+  });
+});
+
+function passiveHint(
+  source: string,
+  target: string,
+  overrides: Partial<MeshEvidenceEdge> = {},
+): MeshEvidenceEdge {
+  return edge(source, target, {
+    evidence_class: "passive_derived_association",
+    confidence: "medium",
+    in_latest_snapshot: false,
+    ...overrides,
+  });
+}
+
+describe("selectPassiveHintEdges", () => {
+  const noInput = {
+    issueDeviceIds: new Set<string>(),
+    selectedNodeId: null,
+  };
+
+  it("only considers passive-derived hints", () => {
+    const chosen = selectPassiveHintEdges(
+      [edge("a", "b", { id: "live" }), passiveHint("c", "d", { id: "hint" })],
+      noInput,
+    );
+    expect(chosen).toEqual(new Set(["hint"]));
+  });
+
+  it("caps passive hints per node", () => {
+    const edges = Array.from({ length: MAX_PASSIVE_HINTS_PER_NODE + 4 }, (_, i) =>
+      passiveHint("hub", `leaf-${i}`, { id: `p-${i}` }),
+    );
+    const chosen = selectPassiveHintEdges(edges, noInput);
+    expect(chosen.size).toBe(MAX_PASSIVE_HINTS_PER_NODE);
+  });
+
+  it("caps passive hints in total", () => {
+    const edges = Array.from({ length: MAX_PASSIVE_HINTS_TOTAL + 50 }, (_, i) =>
+      passiveHint(`a-${i}`, `b-${i}`, { id: `p-${i}` }),
+    );
+    const chosen = selectPassiveHintEdges(edges, noInput);
+    expect(chosen.size).toBe(MAX_PASSIVE_HINTS_TOTAL);
+  });
+
+  it("prioritises hints touching the selected device", () => {
+    const edges = [
+      passiveHint("hub", "other-1", { id: "o1", confidence: "high" }),
+      passiveHint("hub", "other-2", { id: "o2", confidence: "high" }),
+      passiveHint("hub", "other-3", { id: "o3", confidence: "high" }),
+      passiveHint("hub", "selected", { id: "sel", confidence: "low" }),
+    ];
+    const chosen = selectPassiveHintEdges(edges, { ...noInput, selectedNodeId: "selected" });
+    // Lower confidence, but touches the selected device: wins a slot.
+    expect(chosen.has("sel")).toBe(true);
+  });
+
+  it("prioritises hints involving devices with existing issues", () => {
+    const edges = [
+      passiveHint("hub", "plain-1", { id: "p1", confidence: "high" }),
+      passiveHint("hub", "plain-2", { id: "p2", confidence: "high" }),
+      passiveHint("hub", "plain-3", { id: "p3", confidence: "high" }),
+      passiveHint("hub", "flagged", { id: "flagged", confidence: "low" }),
+    ];
+    const chosen = selectPassiveHintEdges(edges, {
+      ...noInput,
+      issueDeviceIds: new Set(["flagged"]),
+    });
+    expect(chosen.has("flagged")).toBe(true);
+    expect(chosen.size).toBe(MAX_PASSIVE_HINTS_PER_NODE);
+  });
+
+  it("prioritises higher-confidence and more recent hints", () => {
+    const edges = [
+      passiveHint("hub", "low-old", {
+        id: "low-old",
+        confidence: "low",
+        last_seen_at: "2026-07-01T00:00:00Z",
+      }),
+      passiveHint("hub", "high", { id: "high", confidence: "high" }),
+      passiveHint("hub", "med-recent", {
+        id: "med-recent",
+        confidence: "medium",
+        last_seen_at: "2026-07-06T00:00:00Z",
+      }),
+      passiveHint("hub", "med-old", {
+        id: "med-old",
+        confidence: "medium",
+        last_seen_at: "2026-07-01T00:00:00Z",
+      }),
+    ];
+    const chosen = selectPassiveHintEdges(edges, noInput);
+    expect(chosen.size).toBe(MAX_PASSIVE_HINTS_PER_NODE);
+    expect(chosen.has("high")).toBe(true);
+    expect(chosen.has("med-recent")).toBe(true);
+    expect(chosen.has("med-old")).toBe(true);
+    expect(chosen.has("low-old")).toBe(false);
+  });
+
+  it("is deterministic regardless of input order", () => {
+    const edges = Array.from({ length: 30 }, (_, i) =>
+      passiveHint(`a-${i % 10}`, `b-${i}`, { id: `p-${i}` }),
+    );
+    const first = selectPassiveHintEdges(edges, noInput);
+    const second = selectPassiveHintEdges([...edges].reverse(), noInput);
+    expect(second).toEqual(first);
   });
 });

@@ -295,6 +295,35 @@ export interface TopologyHistoryWindow {
   latest_captured_at?: string | null;
 }
 
+/**
+ * One passive-derived investigation hint from the backend. A hint means
+ * only "worth investigating together": it is not topology evidence, not a
+ * route, and never proof of current connectivity.
+ */
+export interface PassiveHintAggregate {
+  source_ieee: string;
+  target_ieee: string;
+  evidence_class: "passive_derived_association";
+  directional: false;
+  confidence: "high" | "medium" | "low";
+  first_seen_at?: string | null;
+  last_seen_at?: string | null;
+  /** Number of correlated instability windows observed. */
+  observed_count?: number | null;
+  /** Whether an endpoint has an existing ZigbeeLens issue signal. */
+  issue_related: boolean;
+  rules_matched: string[];
+  supporting_observations: string[];
+  limitations: string[];
+  suggested_investigation: string[];
+}
+
+export interface PassiveHintWindow {
+  days: number;
+  event_window_minutes: number;
+  min_repeated_windows: number;
+}
+
 export interface TopologyEvidenceGraphCounts {
   latest_snapshot_neighbor_edges: number;
   latest_snapshot_route_edges: number;
@@ -302,6 +331,12 @@ export interface TopologyEvidenceGraphCounts {
   historical_route_edges: number;
   /** Total recent missing links available in the history window. */
   recent_missing_link_count_total: number;
+  /** Passive hints that qualified in the lookback window, before caps. */
+  passive_hint_count_available: number;
+  /** Passive hints returned after backend caps. */
+  passive_hint_count_total: number;
+  /** Rendering subsets are chosen client-side; the API reports null. */
+  passive_hint_count_drawn: number | null;
   /** Rendering subsets are chosen client-side; the API reports null. */
   hidden_for_readability: number | null;
   known_inventory_devices: number;
@@ -315,6 +350,8 @@ export interface TopologyEvidenceGraphDetail extends TopologyNetworkDetail {
   history_window: TopologyHistoryWindow;
   historical_neighbors: HistoricalEdgeAggregate[];
   historical_routes: HistoricalEdgeAggregate[];
+  passive_hints: PassiveHintAggregate[];
+  passive_hint_window: PassiveHintWindow;
   limitations: string[];
   counts: TopologyEvidenceGraphCounts;
 }

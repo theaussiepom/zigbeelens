@@ -24,6 +24,7 @@ import {
   loadConnectionControls,
   saveConnectionControls,
   selectAdaptiveBestNeighbourLinks,
+  selectPassiveHintEdges,
   selectRecentMissingEdges,
   selectVisibleConnectionEdges,
   type ConnectionControls,
@@ -38,6 +39,11 @@ import {
 const RECENT_MISSING_HELPER =
   "Draw recent links observed in previous topology snapshots but not present in the latest usable snapshot.";
 const NO_RECENT_MISSING_COPY = "No recent missing links in the selected history window.";
+
+const SUGGESTED_INVESTIGATION_HELPER =
+  "Draw cautious investigation hints suggested by passive observations. These are not topology links or proof of live routing.";
+const NO_PASSIVE_HINTS_COPY =
+  "No passive-derived investigation hints are available for this network yet.";
 
 const LIMITED_LAYOUT_COPY =
   "Topology snapshot was captured, but Zigbee2MQTT did not provide usable node/link layout data. Device health still comes from passive MQTT inventory and state updates.";
@@ -60,7 +66,7 @@ function evidenceClassEnabled(edge: MeshEvidenceEdge, controls: ConnectionContro
     case "stale_low_confidence":
       return controls.oldUncertainLinks;
     case "passive_derived_association":
-      return false;
+      return controls.suggestedInvestigationLinks;
   }
 }
 
@@ -145,6 +151,11 @@ function GraphPanel({
     [edges],
   );
   const hasRecentMissingLinks = recentMissingEdges.length > 0;
+  const passiveHintEdges = useMemo(
+    () => edges.filter((edge) => edge.evidence_class === "passive_derived_association"),
+    [edges],
+  );
+  const hasPassiveHints = passiveHintEdges.length > 0;
 
   // Focused subset of recent missing links: relevance rules (existing issue
   // flags, endpoints without latest neighbour evidence, limited latest
@@ -167,6 +178,18 @@ function GraphPanel({
     });
   }, [devices, edges, recentMissingEdges]);
 
+  // Focused subset of passive-derived hints: selected-device hints first,
+  // then issue-related, higher-confidence and recent hints, capped per node
+  // and in total so hints never form a new hairball.
+  const passiveHintEdgeIds = useMemo(
+    () =>
+      selectPassiveHintEdges(edges, {
+        issueDeviceIds: collectIssueDeviceIds(devices),
+        selectedNodeId,
+      }),
+    [edges, devices, selectedNodeId],
+  );
+
   // Connection controls change only which evidence edges are *rendered*,
   // never which evidence exists: undrawn edges stay in the model/drawers and
   // remain reachable by selecting an endpoint device or "All neighbour links".
@@ -175,10 +198,19 @@ function GraphPanel({
       selectVisibleConnectionEdges(edges, controls, {
         bestNeighbourEdgeIds,
         recentMissingEdgeIds,
+        passiveHintEdgeIds,
         selectedNodeId,
         selectedEdge,
       }),
-    [edges, controls, bestNeighbourEdgeIds, recentMissingEdgeIds, selectedNodeId, selectedEdge],
+    [
+      edges,
+      controls,
+      bestNeighbourEdgeIds,
+      recentMissingEdgeIds,
+      passiveHintEdgeIds,
+      selectedNodeId,
+      selectedEdge,
+    ],
   );
 
   // Focused view: enabled evidence exists that this view is not drawing
@@ -282,7 +314,7 @@ function GraphPanel({
 
       <div className="space-y-4">
         <Card>
-          <GraphLegend />
+          <GraphLegend hasPassiveHints={hasPassiveHints} />
         </Card>
         <Card>
           <div role="group" aria-label="Connections to show" className="space-y-3">
@@ -366,6 +398,13 @@ function GraphPanel({
               checked={hasRecentMissingLinks && controls.recentMissingLinks}
               disabled={!hasRecentMissingLinks}
               onChange={setControl("recentMissingLinks")}
+            />
+            <ConnectionCheckbox
+              label="Suggested investigation links"
+              helper={hasPassiveHints ? SUGGESTED_INVESTIGATION_HELPER : NO_PASSIVE_HINTS_COPY}
+              checked={hasPassiveHints && controls.suggestedInvestigationLinks}
+              disabled={!hasPassiveHints}
+              onChange={setControl("suggestedInvestigationLinks")}
             />
             <p className="text-[11px] leading-snug text-zl-muted">
               Turning a connection type off only changes what is drawn — it never means a
