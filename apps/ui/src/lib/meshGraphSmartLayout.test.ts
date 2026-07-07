@@ -91,14 +91,30 @@ describe("layout modes", () => {
     expect(DEFAULT_LAYOUT_MODE).toBe("smart");
   });
 
+  it("every mode has a short dropdown hint and a full description", () => {
+    for (const mode of MESH_LAYOUT_MODES) {
+      expect(mode.hint.length).toBeGreaterThan(0);
+      expect(mode.description.length).toBeGreaterThan(mode.hint.length);
+    }
+  });
+
   it("manual layout copy mentions browser-local saved positions", () => {
     const manual = MESH_LAYOUT_MODES.find((m) => m.id === "manual");
-    expect(manual?.description).toContain("remembers your positions on this browser");
+    expect(manual?.description).toContain("saved positions");
+    expect(manual?.description).toContain("browser");
+    expect(manual?.hint).toBe("Use saved positions");
   });
 
   it("router clusters copy does not claim live routing", () => {
     const clusters = MESH_LAYOUT_MODES.find((m) => m.id === "clusters");
     expect(clusters?.description).toContain("does not prove current live routing");
+  });
+
+  it("no mode copy claims parentage or current routes", () => {
+    for (const mode of MESH_LAYOUT_MODES) {
+      const copy = `${mode.label} ${mode.hint} ${mode.description}`.toLowerCase();
+      expect(copy).not.toMatch(/parent router|current route|actual route|preferred path/);
+    }
   });
 });
 

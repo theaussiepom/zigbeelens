@@ -15,6 +15,7 @@ import { relativeTime } from "@/lib/format";
 import { topologyStatusLabel } from "@/lib/topologyLabels";
 import {
   GRAPH_SAFETY_COPY,
+  GRAPH_SAFETY_COPY_LIVE,
   type MeshEvidenceDevice,
   type MeshEvidenceEdge,
 } from "@/lib/meshEvidence";
@@ -22,7 +23,6 @@ import { buildStructuralLayoutEdges } from "@/lib/meshGraphLayout";
 import {
   DENSE_DEFAULT_CONNECTION_CONTROLS,
   collectIssueDeviceIds,
-  countHiddenConnectionEdges,
   isDenseGraph,
   selectBestNeighbourLinks,
   selectRecentMissingEdges,
@@ -64,7 +64,7 @@ const DEFAULT_FILTERS: EvidenceFilters = {
 };
 
 const RECENT_MISSING_HELPER =
-  "Show recent links that were observed before but are missing from the latest snapshot.";
+  "Draw recent links observed in previous topology snapshots but not present in the latest usable snapshot.";
 const NO_RECENT_MISSING_COPY = "No recent missing links in the selected history window.";
 
 const LIMITED_LAYOUT_COPY =
@@ -263,8 +263,6 @@ function GraphPanel({
     selectedEdge,
   ]);
 
-  const hiddenEdgeCount = countHiddenConnectionEdges(edges, visibleEdges);
-
   const recentMissingShownCount = useMemo(
     () =>
       visibleEdges.filter(
@@ -274,19 +272,6 @@ function GraphPanel({
       ).length,
     [visibleEdges],
   );
-  const recentMissingHiddenCount = Math.max(
-    0,
-    recentMissingEdges.length - recentMissingShownCount,
-  );
-
-  const enabledConnectionLabels = [
-    controls.routeHints ? "route hints" : null,
-    controls.bestNeighbourLinks ? "best neighbour links" : null,
-    "selected device links",
-    controls.devicesWithIssues ? "devices with issues" : null,
-    controls.oldUncertainLinks ? "old or uncertain links" : null,
-    controls.recentMissingLinks ? "recent missing links" : null,
-  ].filter((label): label is string => label !== null);
 
   const setControl = (key: keyof ConnectionControls) => (value: boolean) =>
     setControls((c) => ({ ...c, [key]: value }));
@@ -314,7 +299,7 @@ function GraphPanel({
             >
               {MESH_LAYOUT_MODES.map((mode) => (
                 <option key={mode.id} value={mode.id}>
-                  {mode.label}
+                  {mode.label} — {mode.hint}
                 </option>
               ))}
             </select>
@@ -339,30 +324,33 @@ function GraphPanel({
       {denseMode && (
         <div
           role="note"
-          aria-label="Dense graph mode"
+          aria-label="Focused view"
           data-testid="dense-graph-banner"
           className="space-y-1 rounded-lg border border-zl-border bg-zl-surface px-4 py-3 text-sm"
         >
-          <p className="font-medium text-zl-text">Dense graph mode</p>
+          <p className="font-medium text-zl-text">Focused view</p>
+          <p className="text-zl-muted">
+            This network has many overlapping topology links, so ZigbeeLens starts by drawing a
+            focused set of connections.
+          </p>
           <p className="text-zl-muted" data-testid="dense-graph-counts">
-            {edges.length} evidence links available · {visibleEdges.length} shown ·{" "}
-            {hiddenEdgeCount} hidden for readability
+            {edges.length} evidence links available · {visibleEdges.length} drawn in this view
           </p>
           {controls.recentMissingLinks && hasRecentMissingLinks && (
             <p className="text-zl-muted" data-testid="recent-missing-counts">
               {recentMissingEdges.length} recent missing link
               {recentMissingEdges.length === 1 ? "" : "s"} available · {recentMissingShownCount}{" "}
-              shown · {recentMissingHiddenCount} hidden for readability
+              drawn in this view
             </p>
           )}
           {controls.allNeighbourLinks ? (
-            <p className="text-zl-muted">
-              Showing all neighbour links may be hard to read on dense networks.
+            <p className="text-zl-muted" data-testid="all-neighbour-links-warning">
+              All neighbour links is on. Dense networks may become hard to read.
             </p>
           ) : (
             <p className="text-zl-muted">
-              Showing a readable subset: {enabledConnectionLabels.join(", ")}. Turn on “All
-              neighbour links” to show the full snapshot evidence.
+              Select a device to reveal its full neighbourhood, or use “Connections to show” to
+              draw more link types.
             </p>
           )}
         </div>
@@ -404,19 +392,19 @@ function GraphPanel({
             </h3>
             <ConnectionCheckbox
               label="Route hints"
-              helper="Route-table evidence observed in the latest snapshot. This suggests possible next-hop evidence at capture time, not guaranteed live routing."
+              helper="Route-table evidence from the latest snapshot. This suggests possible next-hop evidence at capture time, not guaranteed live routing."
               checked={controls.routeHints}
               onChange={setControl("routeHints")}
             />
             <ConnectionCheckbox
               label="Best neighbour links"
-              helper="A readable subset of observed neighbour links, chosen to keep dense networks understandable."
+              helper="A focused set of observed neighbour links chosen to keep dense networks understandable."
               checked={controls.bestNeighbourLinks}
               onChange={setControl("bestNeighbourLinks")}
             />
             <ConnectionCheckbox
               label="Selected device links"
-              helper="Always on — selecting a device reveals its full neighbourhood."
+              helper="Always on — selecting a device draws its full evidence neighbourhood."
               checked
               disabled
             />
@@ -428,7 +416,7 @@ function GraphPanel({
             />
             <ConnectionCheckbox
               label="All neighbour links"
-              helper="Show every observed neighbour link. This may be hard to read on dense networks."
+              helper="Draw every observed neighbour link from the latest snapshot. Dense networks may become hard to read."
               checked={controls.allNeighbourLinks}
               onChange={setControl("allNeighbourLinks")}
             />
@@ -436,7 +424,7 @@ function GraphPanel({
               label="Old or uncertain links"
               helper={
                 hasOldUncertainLinks
-                  ? "Show old or low-confidence evidence that may be useful for investigation but should not be treated as current."
+                  ? "Draw stale or low-confidence evidence that may help investigation but should not be treated as current."
                   : "No old or uncertain links in this snapshot."
               }
               checked={hasOldUncertainLinks && controls.oldUncertainLinks}
@@ -452,13 +440,13 @@ function GraphPanel({
             />
             <ConnectionCheckbox
               label="Suggested investigation links"
-              helper="Coming later — possible relationships suggested by passive observations. These are investigation hints, not topology evidence."
+              helper="Coming later — possible relationships suggested by passive observations."
               checked={false}
               disabled
             />
             <p className="text-[11px] leading-snug text-zl-muted">
-              Turning a connection type off only hides evidence for readability — it never means
-              a relationship is gone. Hidden links stay reachable by selecting a device or
+              Turning a connection type off only changes what is drawn — it never means a
+              relationship is gone. All evidence remains available by selecting a device or
               turning on “All neighbour links”.
             </p>
           </div>
@@ -512,7 +500,7 @@ function GraphPanel({
               >
                 <option value="issue_related">Issue-related only (default)</option>
                 <option value="all">All passive hints</option>
-                <option value="off">Hidden</option>
+                <option value="off">Off</option>
               </select>
             </label>
             <FilterCheckbox
@@ -528,8 +516,8 @@ function GraphPanel({
               </p>
             )}
             <p className="text-[11px] leading-snug text-zl-muted">
-              Hiding an evidence class only hides claims — it never means the relationship is
-              gone.
+              Turning an evidence class off only changes what is drawn — it never means the
+              relationship is gone.
             </p>
           </div>
         </Card>
@@ -658,7 +646,7 @@ export function TopologyGraphPage() {
         aria-label="Evidence safety note"
         className="rounded-lg border border-zl-accent/40 bg-zl-accent/10 px-4 py-3 text-sm leading-relaxed text-zl-text"
       >
-        {GRAPH_SAFETY_COPY}
+        {liveMode ? GRAPH_SAFETY_COPY_LIVE : GRAPH_SAFETY_COPY}
       </div>
 
       {liveMode ? (
@@ -756,12 +744,17 @@ export function TopologyGraphPage() {
                 <MetricPill label="Captured" value={relativeTime(snapshot.captured_at)} />
               )}
               <MetricPill label="Snapshot status" value={topologyStatusLabel(snapshot.status)} />
-              <MetricPill label="Observed topology nodes" value={detail.data?.nodes?.length ?? 0} />
+              <MetricPill
+                label="Observed topology nodes"
+                value={detail.data?.nodes?.length ?? 0}
+                description="Devices present in the latest parsed topology snapshot."
+              />
               <MetricPill
                 label="Snapshot evidence links"
                 value={
                   liveEvidence.edges.filter((edge) => edge.in_latest_snapshot).length
                 }
+                description="Links reported in the latest topology snapshot."
               />
               {detail.data?.counts && (
                 <MetricPill
@@ -770,10 +763,15 @@ export function TopologyGraphPage() {
                     detail.data.counts.historical_neighbor_edges +
                     detail.data.counts.historical_route_edges
                   }
+                  description="Links seen in recent previous topology snapshots but not present in the latest usable snapshot."
                 />
               )}
               {detail.data?.inventory && (
-                <MetricPill label="Known devices" value={detail.data.inventory.device_count} />
+                <MetricPill
+                  label="Known devices"
+                  value={detail.data.inventory.device_count}
+                  description="Devices ZigbeeLens knows from Zigbee2MQTT inventory."
+                />
               )}
             </div>
             <GraphPanel

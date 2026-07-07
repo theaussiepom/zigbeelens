@@ -156,13 +156,18 @@ export function MetricPill({
   label,
   value,
   severity,
+  description,
 }: {
   label: string;
   value: string | number;
   severity?: Severity;
+  /** Plain-language explanation surfaced as a tooltip and accessible label. */
+  description?: string;
 }) {
   return (
     <span
+      title={description}
+      aria-label={description ? `${label}: ${value}. ${description}` : undefined}
       className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
         severity && severity !== "healthy"
           ? severityBg(severity)

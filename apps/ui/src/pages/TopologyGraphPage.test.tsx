@@ -10,7 +10,12 @@ import type {
   TopologyEvidenceGraphDetail,
   TopologyNetworkDetail,
 } from "@/lib/api";
-import { EVIDENCE_CLASSES, evidenceClassLabel, GRAPH_SAFETY_COPY } from "@/lib/meshEvidence";
+import {
+  EVIDENCE_CLASSES,
+  evidenceClassLabel,
+  GRAPH_SAFETY_COPY,
+  GRAPH_SAFETY_COPY_LIVE,
+} from "@/lib/meshEvidence";
 import { positionStorageKey } from "@/lib/meshGraphSmartLayout";
 import { mockReactFlow } from "@/test/mockReactFlow";
 
@@ -572,22 +577,22 @@ describe("TopologyGraphPage live mode", () => {
 });
 
 describe("TopologyGraphPage layout modes", () => {
-  it("renders the five human-named layout modes with Smart layout as default", async () => {
+  it("renders the five human-named layout modes with short hints, Smart layout as default", async () => {
     await renderLiveAndWaitForLayout();
     const selector = screen.getByRole("combobox", { name: /layout/i });
     const labels = within(selector)
       .getAllByRole("option")
       .map((o) => o.textContent);
     expect(labels).toEqual([
-      "Smart layout",
-      "Router backbone",
-      "Router clusters",
-      "Health focus",
-      "Manual layout",
+      "Smart layout — Best overall view",
+      "Router backbone — Infrastructure first",
+      "Router clusters — Group by router evidence",
+      "Health focus — Find problem devices",
+      "Manual layout — Use saved positions",
     ]);
     expect(selector).toHaveValue("smart");
     expect(screen.getByTestId("layout-mode-description")).toHaveTextContent(
-      /coordinator, router backbone, end devices/i,
+      /best overall view.*coordinator, router backbone, end devices/i,
     );
   });
 
@@ -623,8 +628,25 @@ describe("TopologyGraphPage layout modes", () => {
     await renderLiveAndWaitForLayout();
     await user.selectOptions(screen.getByRole("combobox", { name: /layout/i }), "manual");
     expect(screen.getByTestId("layout-mode-description")).toHaveTextContent(
-      /remembers your positions on this browser/i,
+      /uses your saved positions.*in this browser/i,
     );
+  });
+
+  it("shows an updated explanation for every layout mode", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    const selector = screen.getByRole("combobox", { name: /layout/i });
+    const expected: Array<[string, RegExp]> = [
+      ["backbone", /mesh infrastructure first.*routers forming the main structure/i],
+      ["clusters", /observed router neighbourhoods.*does not prove current live routing/i],
+      ["health", /devices needing attention easier to find/i],
+      ["manual", /uses your saved positions/i],
+      ["smart", /best overall view/i],
+    ];
+    for (const [mode, pattern] of expected) {
+      await user.selectOptions(selector, mode);
+      expect(screen.getByTestId("layout-mode-description")).toHaveTextContent(pattern);
+    }
   });
 
   it("applies saved manual positions from localStorage over the generated layout", async () => {
@@ -809,7 +831,15 @@ describe("TopologyGraphPage dense graph mode", () => {
     expect(selectedLinks).toBeChecked();
     expect(selectedLinks).toBeDisabled();
     expect(
-      panel.getByText(/always on — selecting a device reveals its full neighbourhood/i),
+      panel.getByText(/always on — selecting a device draws its full evidence neighbourhood/i),
+    ).toBeInTheDocument();
+
+    // Helper copy explains what each type draws.
+    expect(
+      panel.getByText(/a focused set of observed neighbour links/i),
+    ).toBeInTheDocument();
+    expect(
+      panel.getByText(/draw every observed neighbour link from the latest snapshot/i),
     ).toBeInTheDocument();
 
     // No route-hint copy may claim live routing.
@@ -840,19 +870,25 @@ describe("TopologyGraphPage dense graph mode", () => {
     expect(panel.getAllByText(/coming later/i)).toHaveLength(1);
   });
 
-  it("shows a readable subset by default — not empty, not the full hairball", async () => {
+  it("shows a focused view by default — not empty, not the full hairball", async () => {
     const { container } = renderGraphPage();
     const banner = await screen.findByTestId("dense-graph-banner");
     await screen.findByTestId("mesh-node-0xr5");
 
-    expect(banner).toHaveTextContent("Dense graph mode");
+    expect(banner).toHaveTextContent("Focused view");
+    expect(banner).toHaveTextContent(/starts by drawing a focused set of connections/i);
     expect(screen.getByTestId("dense-graph-counts")).toHaveTextContent(
-      /437 evidence links available · \d+ shown · \d+ hidden for readability/,
+      /437 evidence links available · \d+ drawn in this view/,
     );
-    expect(banner).toHaveTextContent(/showing a readable subset/i);
-    expect(banner).toHaveTextContent(/turn on “all neighbour links”/i);
+    expect(banner).toHaveTextContent(/select a device to reveal its full neighbourhood/i);
+    expect(banner).toHaveTextContent(/use “connections to show” to draw more link types/i);
+    // No concealment or debug-style language.
+    expect(banner).not.toHaveTextContent(/hidden for readability/i);
     expect(banner).not.toHaveTextContent(/ignored/i);
+    expect(banner).not.toHaveTextContent(/discarded/i);
     expect(banner).not.toHaveTextContent(/not relevant/i);
+    // The warning only appears when All neighbour links is enabled.
+    expect(screen.queryByTestId("all-neighbour-links-warning")).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(1);
@@ -937,8 +973,8 @@ describe("TopologyGraphPage dense graph mode", () => {
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(436);
     });
-    expect(screen.getByTestId("dense-graph-banner")).toHaveTextContent(
-      /showing all neighbour links may be hard to read on dense networks/i,
+    expect(screen.getByTestId("all-neighbour-links-warning")).toHaveTextContent(
+      "All neighbour links is on. Dense networks may become hard to read.",
     );
     // Route hints stay visible alongside.
     expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(1);
@@ -949,6 +985,8 @@ describe("TopologyGraphPage dense graph mode", () => {
         subsetCount,
       );
     });
+    // The warning disappears once All neighbour links is off again.
+    expect(screen.queryByTestId("all-neighbour-links-warning")).not.toBeInTheDocument();
     // Connection toggles never move nodes.
     expect(nodePosition(container, "0xr5")).toBe(beforePos);
   });
@@ -1017,6 +1055,24 @@ describe("TopologyGraphPage historical evidence (live)", () => {
     await renderLiveAndWaitForLayout();
     const pill = screen.getByText("Recent missing links", { selector: ".uppercase" });
     expect(pill.nextElementSibling).toHaveTextContent("2");
+  });
+
+  it("metric chips carry plain-language accessible descriptions", async () => {
+    await renderLiveAndWaitForLayout();
+    expect(
+      screen.getByTitle("Devices present in the latest parsed topology snapshot."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTitle("Links reported in the latest topology snapshot."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTitle(
+        "Links seen in recent previous topology snapshots but not present in the latest usable snapshot.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTitle("Devices ZigbeeLens knows from Zigbee2MQTT inventory."),
+    ).toBeInTheDocument();
   });
 
   it("frames the historical neighbour drawer as previous-snapshot evidence, never live routing", async () => {
@@ -1190,15 +1246,17 @@ describe("TopologyGraphPage historical evidence in dense mode", () => {
     mockDevices = dense.devices;
   });
 
-  it("keeps historical edges hidden by default and counts them as hidden for readability", async () => {
+  it("keeps historical edges out of the default focused view but in the available counts", async () => {
     const { container } = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
     expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
-    // Historical edges are part of the available/hidden counts (439 = 436 latest + 2 historical + ghost pair merge).
+    // Historical edges are part of the available counts (439 = 436 latest + 2 historical + ghost pair merge).
     expect(screen.getByTestId("dense-graph-counts")).toHaveTextContent(
-      /439 evidence links available/,
+      /439 evidence links available · \d+ drawn in this view/,
     );
-    expect(screen.getByTestId("dense-graph-counts")).toHaveTextContent(/hidden for readability/);
+    expect(screen.getByTestId("dense-graph-counts")).not.toHaveTextContent(
+      /hidden for readability/i,
+    );
     // The recent-missing count line only appears when the control is on.
     expect(screen.queryByTestId("recent-missing-counts")).not.toBeInTheDocument();
   });
@@ -1215,7 +1273,7 @@ describe("TopologyGraphPage historical evidence in dense mode", () => {
     expect(panel.queryByText(/previously seen/i)).not.toBeInTheDocument();
     expect(
       panel.getByText(
-        "Show recent links that were observed before but are missing from the latest snapshot.",
+        "Draw recent links observed in previous topology snapshots but not present in the latest usable snapshot.",
       ),
     ).toBeInTheDocument();
 
@@ -1230,7 +1288,7 @@ describe("TopologyGraphPage historical evidence in dense mode", () => {
     });
   });
 
-  it("caps recent missing links per node and reports honest hidden counts", async () => {
+  it("caps recent missing links per node and reports honest available/drawn counts", async () => {
     // Six historical links all touching 0xr1: the per-node cap (3) applies.
     const dense = makeDenseWithHistory(
       [20, 21, 22, 23, 24, 25].map((i) =>
@@ -1250,11 +1308,31 @@ describe("TopologyGraphPage historical evidence in dense mode", () => {
       expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(3);
     });
     expect(screen.getByTestId("recent-missing-counts")).toHaveTextContent(
-      "6 recent missing links available · 3 shown · 3 hidden for readability",
+      "6 recent missing links available · 3 drawn in this view",
     );
     expect(screen.getByTestId("recent-missing-counts")).not.toHaveTextContent(
-      /ignored|irrelevant|discarded/i,
+      /hidden for readability|ignored|irrelevant|discarded/i,
     );
+  });
+
+  it("renders no concealment or live-routing phrasing anywhere on the page", async () => {
+    const user = userEvent.setup();
+    const { container } = renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
+    await user.click(panel.getByRole("checkbox", { name: /recent missing links/i }));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(2);
+    });
+
+    const text = document.body.textContent ?? "";
+    expect(text).not.toMatch(/hidden for readability/i);
+    expect(text).not.toMatch(/\bignored\b/i);
+    expect(text).not.toMatch(/\bdiscarded\b/i);
+    expect(text).not.toMatch(/\birrelevant\b/i);
+    expect(text).not.toMatch(/parent router/i);
+    expect(text).not.toMatch(/currently routed/i);
+    expect(text).not.toMatch(/current route\b/i);
   });
 
   it("selecting a device reveals its recent missing links without moving the layout", async () => {
@@ -1288,12 +1366,16 @@ describe("TopologyGraphPage shared chrome", () => {
     }
   });
 
-  it("renders the safety banner in both modes", async () => {
+  it("renders mode-specific safety banners: live copy never claims passive links are active", async () => {
     const user = userEvent.setup();
     await renderLiveAndWaitForLayout();
     const note = screen.getByRole("note", { name: /evidence safety note/i });
-    expect(note).toHaveTextContent(GRAPH_SAFETY_COPY);
+    expect(note).toHaveTextContent(GRAPH_SAFETY_COPY_LIVE);
+    // Live mode has no passive-derived edges, so the banner must not imply them.
+    expect(note).not.toHaveTextContent(/passive/i);
+    expect(note).toHaveTextContent(/should not be treated as proof of current live routing/i);
     await switchToSample(user);
+    // Sample mode still demonstrates passive-derived fixture evidence.
     expect(screen.getByRole("note", { name: /evidence safety note/i })).toHaveTextContent(
       GRAPH_SAFETY_COPY,
     );
