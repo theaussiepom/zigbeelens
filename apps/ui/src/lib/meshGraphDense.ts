@@ -1,49 +1,29 @@
 import type { MeshEvidenceDevice, MeshEvidenceEdge, MeshNodeFlag } from "@/lib/meshEvidence";
 
 /**
- * Dense graph mode: readability policy for large meshes.
+ * Progressive focused view: readability policy for the mesh graph.
  *
- * On a real dense network (the reference `home` network has ~106 devices and
- * ~843 undirected neighbour pairs) drawing every evidence edge produces an
- * unreadable hairball. Dense mode reduces what is *rendered* by default via
- * user-facing connection-type controls — it never removes evidence from the
- * model, never changes edge semantics, and the UI must always state how many
- * links are available vs shown vs hidden for readability.
+ * There is no hard dense/non-dense split. One connection-control model works
+ * for every graph size; the "Best neighbour links" subset adapts to the
+ * graph via a per-node link budget, so small graphs naturally draw all of
+ * their enabled evidence and large graphs (the reference `home` network has
+ * ~106 devices and ~843 undirected neighbour pairs) naturally start focused.
+ * Focusing only reduces what is *rendered* — it never removes evidence from
+ * the model, never changes edge semantics, and the UI must always state how
+ * many links are available vs drawn in the current view.
  */
 
-/** Dense mode triggers when total evidence edges exceed this. */
-export const DENSE_EVIDENCE_EDGE_THRESHOLD = 250;
-/** ...or when deduplicated structural layout edges exceed this. */
-export const DENSE_STRUCTURAL_EDGE_THRESHOLD = 400;
-/** ...or when both node and edge counts are high. */
-export const DENSE_NODE_THRESHOLD = 80;
-export const DENSE_NODE_EDGE_THRESHOLD = 300;
-
 /**
- * "Best neighbour links": up to this many strongest observed neighbour links
- * are kept per device in the readable default subset. Tune here if dev
- * screenshots show the default is still too dense (1) or too sparse (3).
+ * The adaptive link budget targets roughly this many drawn neighbour links
+ * per observed node. Tune here if real networks look too dense or too sparse.
  */
-export const BEST_NEIGHBOUR_LINKS_PER_DEVICE = 2;
-
-export interface DenseGraphInput {
-  nodeCount: number;
-  evidenceEdgeCount: number;
-  structuralEdgeCount: number;
-}
-
-export function isDenseGraph({
-  nodeCount,
-  evidenceEdgeCount,
-  structuralEdgeCount,
-}: DenseGraphInput): boolean {
-  if (evidenceEdgeCount > DENSE_EVIDENCE_EDGE_THRESHOLD) return true;
-  if (structuralEdgeCount > DENSE_STRUCTURAL_EDGE_THRESHOLD) return true;
-  return nodeCount > DENSE_NODE_THRESHOLD && evidenceEdgeCount > DENSE_NODE_EDGE_THRESHOLD;
-}
+export const TARGET_VISIBLE_LINKS_PER_NODE = 1.5;
+/** Per-device neighbour-link bounds for the adaptive budget. */
+export const MIN_NEIGHBOUR_LINKS_PER_DEVICE = 1;
+export const MAX_NEIGHBOUR_LINKS_PER_DEVICE = 4;
 
 /**
- * User-facing connection-type controls for dense mode.
+ * User-facing connection-type controls.
  * "Selected device links" is always on and therefore not represented here:
  * selecting a device always reveals its full evidence neighbourhood.
  */
@@ -67,12 +47,12 @@ export interface ConnectionControls {
    * "Recent missing links": historical neighbour/route evidence observed in
    * recent previous topology snapshots but missing from the latest snapshot.
    * Off by default, and even when on only a focused, capped subset renders
-   * in dense graphs — never a forever-history dump.
+   * — never a forever-history dump.
    */
   recentMissingLinks: boolean;
 }
 
-export const DENSE_DEFAULT_CONNECTION_CONTROLS: ConnectionControls = {
+export const DEFAULT_CONNECTION_CONTROLS: ConnectionControls = {
   routeHints: true,
   bestNeighbourLinks: true,
   devicesWithIssues: false,
@@ -81,11 +61,59 @@ export const DENSE_DEFAULT_CONNECTION_CONTROLS: ConnectionControls = {
   recentMissingLinks: false,
 };
 
+/* ------------------------------------------------------------------------ */
+/* Per-network persistence of connection-control choices                     */
+/* ------------------------------------------------------------------------ */
+
+export function connectionControlsStorageKey(networkId: string): string {
+  return `zigbeelens.meshGraph.connectionControls.v1.${networkId}`;
+}
+
 /**
- * Caps for recent missing links in dense graphs. Historical evidence is
- * gap-filling context; these caps keep it from becoming a hairball even
- * when the control is on. Edges over the cap stay in the model and remain
- * reachable by selecting an endpoint device.
+ * Restore the user's saved connection choices for a network. Only known
+ * boolean keys are read; unknown future keys are ignored and corrupt or
+ * missing storage falls back to the defaults.
+ */
+export function loadConnectionControls(networkId: string): ConnectionControls {
+  try {
+    const raw = localStorage.getItem(connectionControlsStorageKey(networkId));
+    if (!raw) return { ...DEFAULT_CONNECTION_CONTROLS };
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return { ...DEFAULT_CONNECTION_CONTROLS };
+    }
+    const stored = parsed as Record<string, unknown>;
+    const controls = { ...DEFAULT_CONNECTION_CONTROLS };
+    for (const key of Object.keys(DEFAULT_CONNECTION_CONTROLS) as (keyof ConnectionControls)[]) {
+      if (typeof stored[key] === "boolean") controls[key] = stored[key];
+    }
+    return controls;
+  } catch {
+    return { ...DEFAULT_CONNECTION_CONTROLS };
+  }
+}
+
+export function saveConnectionControls(networkId: string, controls: ConnectionControls): void {
+  try {
+    localStorage.setItem(connectionControlsStorageKey(networkId), JSON.stringify(controls));
+  } catch {
+    // Storage full/unavailable: choices simply don't persist.
+  }
+}
+
+export function clearConnectionControls(networkId: string): void {
+  try {
+    localStorage.removeItem(connectionControlsStorageKey(networkId));
+  } catch {
+    // Nothing to clear.
+  }
+}
+
+/**
+ * Caps for recent missing links. Historical evidence is gap-filling
+ * context; these caps keep it from becoming a hairball even when the
+ * control is on. Edges over the cap stay in the model and remain reachable
+ * by selecting an endpoint device.
  */
 export const MAX_RECENT_MISSING_LINKS_TOTAL = 100;
 export const MAX_RECENT_MISSING_LINKS_PER_NODE = 3;
@@ -134,7 +162,7 @@ export function collectIssueDeviceIds(devices: MeshEvidenceDevice[]): Set<string
  */
 export function selectBestNeighbourLinks(
   edges: MeshEvidenceEdge[],
-  linksPerDevice: number = BEST_NEIGHBOUR_LINKS_PER_DEVICE,
+  linksPerDevice: number,
 ): Set<string> {
   const byDevice = new Map<string, MeshEvidenceEdge[]>();
   for (const edge of edges) {
@@ -161,6 +189,42 @@ export function selectBestNeighbourLinks(
   return chosen;
 }
 
+export interface AdaptiveBestNeighbourSelection {
+  edgeIds: Set<string>;
+  /** The per-device neighbour count the budget settled on. */
+  linksPerDevice: number;
+}
+
+/**
+ * Adaptive "best neighbour links" subset: instead of a fixed per-device
+ * count, choose the largest per-device N (between
+ * {@link MIN_NEIGHBOUR_LINKS_PER_DEVICE} and
+ * {@link MAX_NEIGHBOUR_LINKS_PER_DEVICE}) whose selection stays within a
+ * budget of {@link TARGET_VISIBLE_LINKS_PER_NODE} drawn links per node.
+ *
+ * Small graphs therefore keep all (or nearly all) of their neighbour
+ * evidence naturally, while large graphs settle on a focused subset. If even
+ * N = 1 exceeds the budget, N = 1 is still used — every device keeps its
+ * strongest link. Selection stays deterministic: it reuses
+ * {@link selectBestNeighbourLinks} ordering (recorded LQI first — missing
+ * LQI is unknown, never zero — then edge id).
+ */
+export function selectAdaptiveBestNeighbourLinks(
+  edges: MeshEvidenceEdge[],
+  nodeCount: number,
+): AdaptiveBestNeighbourSelection {
+  const budget = Math.ceil(Math.max(nodeCount, 1) * TARGET_VISIBLE_LINKS_PER_NODE);
+  let fallback: AdaptiveBestNeighbourSelection | null = null;
+  for (let n = MAX_NEIGHBOUR_LINKS_PER_DEVICE; n >= MIN_NEIGHBOUR_LINKS_PER_DEVICE; n -= 1) {
+    const edgeIds = selectBestNeighbourLinks(edges, n);
+    if (edgeIds.size <= budget) return { edgeIds, linksPerDevice: n };
+    fallback = { edgeIds, linksPerDevice: n };
+  }
+  // Even one link per device exceeds the budget: keep N = 1 anyway so no
+  // device is stranded without its strongest observed link.
+  return fallback ?? { edgeIds: new Set(), linksPerDevice: MIN_NEIGHBOUR_LINKS_PER_DEVICE };
+}
+
 function isRecentMissingEdge(edge: MeshEvidenceEdge): boolean {
   return (
     edge.evidence_class === "historical_neighbor" || edge.evidence_class === "historical_route"
@@ -177,8 +241,8 @@ export interface RecentMissingSelectionInput {
 }
 
 /**
- * The focused subset of recent missing (historical) edges rendered in dense
- * graphs when "Recent missing links" is on.
+ * The focused subset of recent missing (historical) edges rendered when
+ * "Recent missing links" is on.
  *
  * Relevance rules — an edge qualifies for priority when at least one holds:
  * - an endpoint has a current real issue flag ZigbeeLens already computed;
@@ -246,10 +310,10 @@ export interface ConnectionEdgeContext {
 }
 
 /**
- * The evidence edges rendered in dense mode for a given set of connection
- * controls. Purely a *render* subset: hidden edges stay in the model and
- * drawers, and every hidden edge remains reachable by selecting one of its
- * endpoint devices or enabling "All neighbour links".
+ * The evidence edges rendered for a given set of connection controls.
+ * Purely a *render* subset: undrawn edges stay in the model and drawers,
+ * and every undrawn edge remains reachable by selecting one of its endpoint
+ * devices or enabling "All neighbour links".
  */
 export function selectVisibleConnectionEdges(
   edges: MeshEvidenceEdge[],
@@ -292,19 +356,11 @@ export function selectVisibleConnectionEdges(
           controls.recentMissingLinks &&
           (context.recentMissingEdgeIds?.has(edge.id) ?? false)
         );
-      // Passive-derived associations have no dense-mode control yet
+      // Passive-derived associations have no connection control yet
       // ("Suggested investigation links" is future work); they stay
       // reachable via selection or issue links above.
       case "passive_derived_association":
         return false;
     }
   });
-}
-
-/** Evidence edges hidden from the canvas for readability (never removed). */
-export function countHiddenConnectionEdges(
-  availableEdges: MeshEvidenceEdge[],
-  renderedEdges: MeshEvidenceEdge[],
-): number {
-  return Math.max(0, availableEdges.length - renderedEdges.length);
 }

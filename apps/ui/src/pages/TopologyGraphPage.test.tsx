@@ -606,7 +606,7 @@ describe("TopologyGraphPage layout modes", () => {
     expect(screen.getByTestId("layout-mode-description")).toHaveTextContent(
       /does not prove current live routing/i,
     );
-    expect(screen.getByRole("group", { name: /evidence filters/i })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: /connections to show/i })).toBeInTheDocument();
   });
 
   it("manual layout mode explains browser-local saved positions", async () => {
@@ -644,7 +644,7 @@ describe("TopologyGraphPage layout modes", () => {
     expect(nodePosition(container, "0xr1")).toContain("translate(4321px,1234px)");
   });
 
-  it("keeps saved positions applied across filter toggles and drawer open/close", async () => {
+  it("keeps saved positions applied across connection toggles and drawer open/close", async () => {
     const user = userEvent.setup();
     localStorage.setItem(
       positionStorageKey("home", "smart"),
@@ -652,7 +652,7 @@ describe("TopologyGraphPage layout modes", () => {
     );
     const { container } = await renderLiveAndWaitForLayout();
 
-    await user.click(screen.getByRole("checkbox", { name: /route evidence/i }));
+    await user.click(screen.getByRole("checkbox", { name: /route hints/i }));
     expect(nodePosition(container, "0xr1")).toContain("translate(4321px,1234px)");
 
     fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
@@ -700,14 +700,14 @@ describe("TopologyGraphPage layout stability", () => {
     expect(view.container.querySelector(".react-flow")).toBe(flowEl);
   });
 
-  it("does not move nodes when filters change or a drawer opens", async () => {
+  it("does not move nodes when connection controls change or a drawer opens", async () => {
     const user = userEvent.setup();
     const { container } = renderGraphPage();
     await screen.findByText("Live Hall Router");
     const flowEl = container.querySelector(".react-flow");
     const before = nodePosition(container, "0xr1");
 
-    await user.click(screen.getByRole("checkbox", { name: /route evidence/i }));
+    await user.click(screen.getByRole("checkbox", { name: /route hints/i }));
     fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
     await screen.findByRole("dialog", { name: /device details/i });
 
@@ -717,7 +717,7 @@ describe("TopologyGraphPage layout stability", () => {
   });
 });
 
-describe("TopologyGraphPage dense graph mode", () => {
+describe("TopologyGraphPage focused view on large graphs", () => {
   beforeEach(() => {
     const dense = makeDenseNetwork();
     mockDetail = dense.detail;
@@ -779,9 +779,15 @@ describe("TopologyGraphPage dense graph mode", () => {
     const { container } = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
 
+    // No standalone banner — the focused-view note lives in the panel and
+    // states available vs drawn without concealment language.
     expect(screen.queryByTestId("dense-graph-banner")).not.toBeInTheDocument();
-    expect(screen.queryByText("Focused view")).not.toBeInTheDocument();
-    expect(screen.queryByText(/drawn in this view/i)).not.toBeInTheDocument();
+    const note = screen.getByTestId("focused-view-note");
+    expect(note).toHaveTextContent(/drawing a focused set of connections/i);
+    expect(screen.getByTestId("focused-view-counts")).toHaveTextContent(
+      /\d+ evidence links available · \d+ drawn in this view/,
+    );
+    expect(screen.queryByTestId("all-drawn-note")).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(1);
@@ -898,16 +904,80 @@ describe("TopologyGraphPage dense graph mode", () => {
     expect(within(drawer).queryByText(/currently connected/i)).not.toBeInTheDocument();
   });
 
-  it("stays off for small graphs, which keep the evidence filter panel", async () => {
+  it("small graphs use the same connection panel and draw all enabled evidence", async () => {
     mockDetail = liveDetailHome;
     mockDevices = liveDevices;
-    renderGraphPage();
+    const { container } = renderGraphPage();
     await screen.findByText("Live Hall Router");
-    expect(screen.queryByTestId("dense-graph-banner")).not.toBeInTheDocument();
+    // One control model everywhere: no separate evidence-filter panel.
+    expect(screen.getByRole("group", { name: /connections to show/i })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /evidence filters/i })).not.toBeInTheDocument();
+    // Small enough that the adaptive budget draws everything: no focused
+    // wording, just the all-drawn note.
+    expect(screen.getByTestId("all-drawn-note")).toHaveTextContent(
+      "All enabled evidence links are drawn.",
+    );
+    expect(screen.queryByTestId("focused-view-note")).not.toBeInTheDocument();
+    await waitFor(() => {
+      // Both merged neighbour edges and the single route edge render.
+      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(2);
+      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(1);
+    });
+  });
+
+  it("persists connection choices per network and restores them", async () => {
+    const user = userEvent.setup();
+    const first = renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    const issuesToggle = () =>
+      within(screen.getByRole("group", { name: /connections to show/i })).getByRole("checkbox", {
+        name: /devices with issues/i,
+      });
+    expect(issuesToggle()).not.toBeChecked();
+    await user.click(issuesToggle());
+    expect(issuesToggle()).toBeChecked();
+    first.unmount();
+
+    // A fresh visit to the same network restores the choice.
+    renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    expect(issuesToggle()).toBeChecked();
+  });
+
+  it("different networks keep independent connection choices", async () => {
+    localStorage.setItem(
+      "zigbeelens.meshGraph.connectionControls.v1.other",
+      JSON.stringify({ routeHints: false }),
+    );
+    renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
+    // "home" has no saved choices: defaults apply despite "other" storage.
+    expect(panel.getByRole("checkbox", { name: /route hints/i })).toBeChecked();
+  });
+
+  it("falls back to defaults when saved connection choices are corrupt", async () => {
+    localStorage.setItem("zigbeelens.meshGraph.connectionControls.v1.home", "{corrupt");
+    renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
+    expect(panel.getByRole("checkbox", { name: /route hints/i })).toBeChecked();
+    expect(panel.getByRole("checkbox", { name: /all neighbour links/i })).not.toBeChecked();
+  });
+
+  it("reset connection choices returns to the defaults", async () => {
+    const user = userEvent.setup();
+    renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    const panel = () => within(screen.getByRole("group", { name: /connections to show/i }));
+    await user.click(panel().getByRole("checkbox", { name: /devices with issues/i }));
+    expect(panel().getByRole("checkbox", { name: /devices with issues/i })).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: /reset connection choices/i }));
+    expect(panel().getByRole("checkbox", { name: /devices with issues/i })).not.toBeChecked();
     expect(
-      screen.queryByRole("group", { name: /connections to show/i }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole("group", { name: /evidence filters/i })).toBeInTheDocument();
+      localStorage.getItem("zigbeelens.meshGraph.connectionControls.v1.home"),
+    ).toBeNull();
   });
 });
 
@@ -1098,7 +1168,7 @@ describe("TopologyGraphPage historical evidence (live)", () => {
   });
 });
 
-describe("TopologyGraphPage historical evidence in dense mode", () => {
+describe("TopologyGraphPage historical evidence on large graphs", () => {
   function makeDenseWithHistory(historicalNeighbors?: HistoricalEdgeAggregate[]) {
     const dense = makeDenseNetwork();
     const neighbors = historicalNeighbors ?? [
