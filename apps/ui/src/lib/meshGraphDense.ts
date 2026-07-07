@@ -64,11 +64,12 @@ export interface ConnectionControls {
   /** Stale / low-confidence evidence already present in the model. */
   oldUncertainLinks: boolean;
   /**
-   * "Previously seen links": historical neighbour/route evidence observed
-   * in previous topology snapshots but not in the latest snapshot. Off by
-   * default so historical lines never flood a dense graph unrequested.
+   * "Recent missing links": historical neighbour/route evidence observed in
+   * recent previous topology snapshots but missing from the latest snapshot.
+   * Off by default, and even when on only a focused, capped subset renders
+   * in dense graphs — never a forever-history dump.
    */
-  previouslySeenLinks: boolean;
+  recentMissingLinks: boolean;
 }
 
 export const DENSE_DEFAULT_CONNECTION_CONTROLS: ConnectionControls = {
@@ -77,8 +78,17 @@ export const DENSE_DEFAULT_CONNECTION_CONTROLS: ConnectionControls = {
   devicesWithIssues: false,
   allNeighbourLinks: false,
   oldUncertainLinks: false,
-  previouslySeenLinks: false,
+  recentMissingLinks: false,
 };
+
+/**
+ * Caps for recent missing links in dense graphs. Historical evidence is
+ * gap-filling context; these caps keep it from becoming a hairball even
+ * when the control is on. Edges over the cap stay in the model and remain
+ * reachable by selecting an endpoint device.
+ */
+export const MAX_RECENT_MISSING_LINKS_TOTAL = 100;
+export const MAX_RECENT_MISSING_LINKS_PER_NODE = 3;
 
 /**
  * Existing issue/health signals that mark a device as "with issues" for the
@@ -151,9 +161,86 @@ export function selectBestNeighbourLinks(
   return chosen;
 }
 
+function isRecentMissingEdge(edge: MeshEvidenceEdge): boolean {
+  return (
+    edge.evidence_class === "historical_neighbor" || edge.evidence_class === "historical_route"
+  );
+}
+
+export interface RecentMissingSelectionInput {
+  /** Devices already flagged by ZigbeeLens (existing fields, no new inference). */
+  issueDeviceIds: Set<string>;
+  /** Devices with at least one latest-snapshot neighbour edge. */
+  devicesWithLatestNeighbourEvidence: Set<string>;
+  /** Whether the latest snapshot layout is limited/unavailable. */
+  latestLayoutLimited: boolean;
+}
+
+/**
+ * The focused subset of recent missing (historical) edges rendered in dense
+ * graphs when "Recent missing links" is on.
+ *
+ * Relevance rules — an edge qualifies for priority when at least one holds:
+ * - an endpoint has a current real issue flag ZigbeeLens already computed;
+ * - an endpoint has no latest-snapshot neighbour evidence (the edge fills a
+ *   gap the latest snapshot cannot explain);
+ * - the latest layout is limited, so historical context is all there is.
+ *
+ * Remaining capacity is filled with a deterministic representative subset
+ * (most recently observed first). Everything is capped per node and in
+ * total; edges over the cap stay in the model and remain reachable by
+ * selecting an endpoint. Selected-device edges are always revealed by
+ * {@link selectVisibleConnectionEdges} regardless of these caps.
+ */
+export function selectRecentMissingEdges(
+  edges: MeshEvidenceEdge[],
+  input: RecentMissingSelectionInput,
+  totalCap: number = MAX_RECENT_MISSING_LINKS_TOTAL,
+  perNodeCap: number = MAX_RECENT_MISSING_LINKS_PER_NODE,
+): Set<string> {
+  const candidates = edges.filter(isRecentMissingEdge);
+
+  const isRelevant = (edge: MeshEvidenceEdge): boolean => {
+    if (input.latestLayoutLimited) return true;
+    if (input.issueDeviceIds.has(edge.source) || input.issueDeviceIds.has(edge.target)) {
+      return true;
+    }
+    return (
+      !input.devicesWithLatestNeighbourEvidence.has(edge.source) ||
+      !input.devicesWithLatestNeighbourEvidence.has(edge.target)
+    );
+  };
+
+  // Deterministic order: relevant edges first, then most recently observed,
+  // then id as the tiebreaker.
+  const ordered = [...candidates].sort((a, b) => {
+    const relevance = Number(isRelevant(b)) - Number(isRelevant(a));
+    if (relevance !== 0) return relevance;
+    const aSeen = a.last_seen_at ?? "";
+    const bSeen = b.last_seen_at ?? "";
+    if (aSeen !== bSeen) return bSeen.localeCompare(aSeen);
+    return a.id.localeCompare(b.id);
+  });
+
+  const chosen = new Set<string>();
+  const perNode = new Map<string, number>();
+  for (const edge of ordered) {
+    if (chosen.size >= totalCap) break;
+    const sourceCount = perNode.get(edge.source) ?? 0;
+    const targetCount = perNode.get(edge.target) ?? 0;
+    if (sourceCount >= perNodeCap || targetCount >= perNodeCap) continue;
+    chosen.add(edge.id);
+    perNode.set(edge.source, sourceCount + 1);
+    perNode.set(edge.target, targetCount + 1);
+  }
+  return chosen;
+}
+
 export interface ConnectionEdgeContext {
   /** Edge ids picked by {@link selectBestNeighbourLinks}. */
   bestNeighbourEdgeIds: Set<string>;
+  /** Edge ids picked by {@link selectRecentMissingEdges}. */
+  recentMissingEdgeIds?: Set<string>;
   selectedNodeId: string | null;
   selectedEdge?: MeshEvidenceEdge | null;
 }
@@ -196,9 +283,15 @@ export function selectVisibleConnectionEdges(
         );
       case "stale_low_confidence":
         return controls.oldUncertainLinks;
+      // Recent missing links render only the focused/capped subset chosen
+      // by selectRecentMissingEdges — never every historical edge. Edges
+      // over the cap stay reachable via device selection above.
       case "historical_neighbor":
       case "historical_route":
-        return controls.previouslySeenLinks;
+        return (
+          controls.recentMissingLinks &&
+          (context.recentMissingEdgeIds?.has(edge.id) ?? false)
+        );
       // Passive-derived associations have no dense-mode control yet
       // ("Suggested investigation links" is future work); they stay
       // reachable via selection or issue links above.

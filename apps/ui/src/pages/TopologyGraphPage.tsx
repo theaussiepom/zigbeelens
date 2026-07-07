@@ -21,9 +21,11 @@ import {
 import { buildStructuralLayoutEdges } from "@/lib/meshGraphLayout";
 import {
   DENSE_DEFAULT_CONNECTION_CONTROLS,
+  collectIssueDeviceIds,
   countHiddenConnectionEdges,
   isDenseGraph,
   selectBestNeighbourLinks,
+  selectRecentMissingEdges,
   selectVisibleConnectionEdges,
   type ConnectionControls,
 } from "@/lib/meshGraphDense";
@@ -43,8 +45,8 @@ interface EvidenceFilters {
   route: boolean;
   /** Sample-mode visibility of historical fixture evidence. */
   historical: boolean;
-  /** Live-mode "Previously seen links" — off by default per spec. */
-  previouslySeenLive: boolean;
+  /** Live-mode "Recent missing links" — off by default per spec. */
+  recentMissingLive: boolean;
   passive: PassiveFilterMode;
   staleLowConfidence: boolean;
 }
@@ -53,18 +55,17 @@ const DEFAULT_FILTERS: EvidenceFilters = {
   latestSnapshot: true,
   route: true,
   historical: true,
-  // Previously seen links are off by default in live mode.
-  previouslySeenLive: false,
+  // Recent missing links are off by default in live mode.
+  recentMissingLive: false,
   // Passive-derived hints default to issue-related edges only.
   passive: "issue_related",
   // Stale / low-confidence evidence is off by default.
   staleLowConfidence: false,
 };
 
-const PREVIOUSLY_SEEN_HELPER =
-  "Links observed in previous topology snapshots but not observed in the latest snapshot.";
-const NO_PREVIOUSLY_SEEN_COPY =
-  "No previously seen links in the selected history window.";
+const RECENT_MISSING_HELPER =
+  "Show recent links that were observed before but are missing from the latest snapshot.";
+const NO_RECENT_MISSING_COPY = "No recent missing links in the selected history window.";
 
 const LIMITED_LAYOUT_COPY =
   "Topology snapshot was captured, but Zigbee2MQTT did not provide usable node/link layout data. Device health still comes from passive MQTT inventory and state updates.";
@@ -83,7 +84,7 @@ function edgeVisible(
     case "historical_route":
       // Live historical evidence is opt-in (off by default); sample fixtures
       // keep their own toggle so the prototype grammar stays visible.
-      return liveMode ? filters.previouslySeenLive : filters.historical;
+      return liveMode ? filters.recentMissingLive : filters.historical;
     case "passive_derived_association":
       if (filters.passive === "off") return false;
       if (filters.passive === "all") return true;
@@ -208,15 +209,37 @@ function GraphPanel({
     () => edges.some((edge) => edge.evidence_class === "stale_low_confidence"),
     [edges],
   );
-  const hasPreviouslySeenLinks = useMemo(
+  const recentMissingEdges = useMemo(
     () =>
-      edges.some(
+      edges.filter(
         (edge) =>
           edge.evidence_class === "historical_neighbor" ||
           edge.evidence_class === "historical_route",
       ),
     [edges],
   );
+  const hasRecentMissingLinks = recentMissingEdges.length > 0;
+
+  // Focused subset of recent missing links for dense graphs: relevance
+  // rules (existing issue flags, endpoints without latest neighbour
+  // evidence, limited latest layout) plus deterministic per-node/total caps.
+  const recentMissingEdgeIds = useMemo(() => {
+    const issueDeviceIds = collectIssueDeviceIds(devices);
+    const devicesWithLatestNeighbourEvidence = new Set<string>();
+    for (const edge of edges) {
+      if (edge.evidence_class !== "latest_snapshot_neighbor") continue;
+      devicesWithLatestNeighbourEvidence.add(edge.source);
+      devicesWithLatestNeighbourEvidence.add(edge.target);
+    }
+    const latestLayoutLimited = recentMissingEdges.some(
+      (edge) => edge.latest_layout_limited === true,
+    );
+    return selectRecentMissingEdges(edges, {
+      issueDeviceIds,
+      devicesWithLatestNeighbourEvidence,
+      latestLayoutLimited,
+    });
+  }, [devices, edges, recentMissingEdges]);
 
   // Dense mode changes which evidence edges are *rendered*, never which
   // evidence exists: hidden edges stay in the model/drawers and remain
@@ -225,6 +248,7 @@ function GraphPanel({
     if (!denseMode) return filterVisibleEdges;
     return selectVisibleConnectionEdges(edges, controls, {
       bestNeighbourEdgeIds,
+      recentMissingEdgeIds,
       selectedNodeId,
       selectedEdge,
     });
@@ -234,11 +258,26 @@ function GraphPanel({
     edges,
     controls,
     bestNeighbourEdgeIds,
+    recentMissingEdgeIds,
     selectedNodeId,
     selectedEdge,
   ]);
 
   const hiddenEdgeCount = countHiddenConnectionEdges(edges, visibleEdges);
+
+  const recentMissingShownCount = useMemo(
+    () =>
+      visibleEdges.filter(
+        (edge) =>
+          edge.evidence_class === "historical_neighbor" ||
+          edge.evidence_class === "historical_route",
+      ).length,
+    [visibleEdges],
+  );
+  const recentMissingHiddenCount = Math.max(
+    0,
+    recentMissingEdges.length - recentMissingShownCount,
+  );
 
   const enabledConnectionLabels = [
     controls.routeHints ? "route hints" : null,
@@ -246,7 +285,7 @@ function GraphPanel({
     "selected device links",
     controls.devicesWithIssues ? "devices with issues" : null,
     controls.oldUncertainLinks ? "old or uncertain links" : null,
-    controls.previouslySeenLinks ? "previously seen links" : null,
+    controls.recentMissingLinks ? "recent missing links" : null,
   ].filter((label): label is string => label !== null);
 
   const setControl = (key: keyof ConnectionControls) => (value: boolean) =>
@@ -309,6 +348,13 @@ function GraphPanel({
             {edges.length} evidence links available · {visibleEdges.length} shown ·{" "}
             {hiddenEdgeCount} hidden for readability
           </p>
+          {controls.recentMissingLinks && hasRecentMissingLinks && (
+            <p className="text-zl-muted" data-testid="recent-missing-counts">
+              {recentMissingEdges.length} recent missing link
+              {recentMissingEdges.length === 1 ? "" : "s"} available · {recentMissingShownCount}{" "}
+              shown · {recentMissingHiddenCount} hidden for readability
+            </p>
+          )}
           {controls.allNeighbourLinks ? (
             <p className="text-zl-muted">
               Showing all neighbour links may be hard to read on dense networks.
@@ -398,11 +444,11 @@ function GraphPanel({
               onChange={setControl("oldUncertainLinks")}
             />
             <ConnectionCheckbox
-              label="Previously seen links"
-              helper={hasPreviouslySeenLinks ? PREVIOUSLY_SEEN_HELPER : NO_PREVIOUSLY_SEEN_COPY}
-              checked={hasPreviouslySeenLinks && controls.previouslySeenLinks}
-              disabled={!hasPreviouslySeenLinks}
-              onChange={setControl("previouslySeenLinks")}
+              label="Recent missing links"
+              helper={hasRecentMissingLinks ? RECENT_MISSING_HELPER : NO_RECENT_MISSING_COPY}
+              checked={hasRecentMissingLinks && controls.recentMissingLinks}
+              disabled={!hasRecentMissingLinks}
+              onChange={setControl("recentMissingLinks")}
             />
             <ConnectionCheckbox
               label="Suggested investigation links"
@@ -434,23 +480,23 @@ function GraphPanel({
               onChange={(v) => setFilters((f) => ({ ...f, route: v }))}
             />
             <FilterCheckbox
-              label="Previously seen links"
+              label="Recent missing links"
               checked={
                 liveMode
-                  ? hasPreviouslySeenLinks && filters.previouslySeenLive
+                  ? hasRecentMissingLinks && filters.recentMissingLive
                   : filters.historical
               }
-              disabled={liveMode && !hasPreviouslySeenLinks}
+              disabled={liveMode && !hasRecentMissingLinks}
               onChange={(v) =>
                 setFilters((f) =>
-                  liveMode ? { ...f, previouslySeenLive: v } : { ...f, historical: v },
+                  liveMode ? { ...f, recentMissingLive: v } : { ...f, historical: v },
                 )
               }
             />
             <p className="pl-6 text-[11px] leading-snug text-zl-muted">
-              {liveMode && !hasPreviouslySeenLinks
-                ? NO_PREVIOUSLY_SEEN_COPY
-                : PREVIOUSLY_SEEN_HELPER}
+              {liveMode && !hasRecentMissingLinks
+                ? NO_RECENT_MISSING_COPY
+                : RECENT_MISSING_HELPER}
             </p>
             <label
               className={`block text-sm ${liveMode ? "text-zl-muted/60" : "text-zl-text"}`}
@@ -719,7 +765,7 @@ export function TopologyGraphPage() {
               />
               {detail.data?.counts && (
                 <MetricPill
-                  label="Previously seen links"
+                  label="Recent missing links"
                   value={
                     detail.data.counts.historical_neighbor_edges +
                     detail.data.counts.historical_route_edges

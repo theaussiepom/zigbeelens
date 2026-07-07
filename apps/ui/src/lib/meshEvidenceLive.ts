@@ -129,7 +129,7 @@ function interpretationFor(
 }
 
 /**
- * Node-drawer summary of previously-seen links touching one device.
+ * Node-drawer summary of recent missing links touching one device.
  * Only produced when historical data was actually evaluated.
  */
 function historicalSummaryFor(
@@ -141,7 +141,7 @@ function historicalSummaryFor(
     (edge) => edge.source === ieee || edge.target === ieee,
   );
   if (touching.length === 0) {
-    return "No previously seen topology links in the selected history window.";
+    return "No recent missing topology links in the selected history window.";
   }
   const lastSeen = touching
     .map((edge) => edge.last_seen_at)
@@ -149,10 +149,10 @@ function historicalSummaryFor(
     .sort()
     .at(-1);
   const parts = [
-    `${touching.length} previously seen link${touching.length === 1 ? "" : "s"} in the selected history window.`,
+    `${touching.length} recent missing link${touching.length === 1 ? "" : "s"} in the selected history window.`,
   ];
   if (lastSeen) {
-    parts.push(`Last historical link observed ${relativeTime(lastSeen)}.`);
+    parts.push(`Last seen in topology evidence ${relativeTime(lastSeen)}.`);
   }
   if (latestLayoutLimited) {
     parts.push(
@@ -274,7 +274,7 @@ export type LiveTopologyDetail = TopologyNetworkDetail &
  * Build the live evidence set from the latest snapshot plus inventory.
  * Neighbour entries reported in both directions collapse into one
  * non-directional edge; route-table entries produce directional route edges.
- * Backend-aggregated historical (previously seen) evidence maps to
+ * Backend-aggregated historical (recent missing) evidence maps to
  * historical_neighbor / historical_route edges.
  */
 export function buildLiveMeshEvidence(
@@ -400,9 +400,9 @@ export function buildLiveMeshEvidence(
     });
   }
 
-  // Historical (previously seen) evidence — backend-aggregated from previous
-  // complete snapshots; latest-snapshot relationships are already excluded
-  // backend-side, so no live edge is ever duplicated as historical.
+  // Historical (recent missing) evidence — backend-aggregated from recent
+  // previous complete snapshots; latest-snapshot relationships are already
+  // excluded backend-side, so no live edge is ever duplicated as historical.
   const historicalAggregates = [
     ...(detail.historical_neighbors ?? []),
     ...(detail.historical_routes ?? []),

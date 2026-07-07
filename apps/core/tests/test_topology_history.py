@@ -1,4 +1,4 @@
-"""Historical topology evidence aggregation tests."""
+"""Recent-missing topology evidence aggregation tests."""
 
 from __future__ import annotations
 
@@ -12,11 +12,12 @@ from zigbeelens.db.connection import Database
 from zigbeelens.storage.repository import Repository
 from zigbeelens.topology.history import (
     HISTORICAL_NEIGHBOR_LIMITATION,
+    HISTORICAL_NEIGHBOR_LIMITED_LIMITATION,
     HISTORICAL_ROUTE_LIMITATION,
-    HISTORY_MAX_SNAPSHOTS,
-    HISTORY_WINDOW_DAYS,
     LATEST_LAYOUT_LIMITED_LIMITATION,
     NOT_IN_LATEST_LIMITATION,
+    RECENT_HISTORY_MAX_SNAPSHOTS,
+    RECENT_HISTORY_WINDOW_DAYS,
     aggregate_historical_evidence,
 )
 from zigbeelens.topology.parser import parse_networkmap_payload
@@ -269,7 +270,9 @@ def test_limited_latest_snapshot_does_not_overclaim_missing_evidence(tmp_path: P
     assert LATEST_LAYOUT_LIMITED_LIMITATION in result["limitations"]
     edge = result["historical_neighbors"][0]
     assert edge["latest_layout_limited"] is True
-    assert LATEST_LAYOUT_LIMITED_LIMITATION in edge["limitations"]
+    # Limited layout gets the qualified copy, never a "missing from latest" claim.
+    assert HISTORICAL_NEIGHBOR_LIMITED_LIMITATION in edge["limitations"]
+    assert HISTORICAL_NEIGHBOR_LIMITATION not in edge["limitations"]
     assert NOT_IN_LATEST_LIMITATION not in edge["limitations"]
 
 
@@ -282,10 +285,11 @@ def test_incomplete_and_out_of_window_snapshots_are_ignored(tmp_path: Path):
         links=[{"source": "0x02", "target": "0x04", "linkquality": 70}],
         status="failed",
     )
+    # Outside the recent window: contributes nothing (no forever history).
     _store_snapshot(
         repo,
         "snap-too-old",
-        captured_at=NOW - timedelta(days=HISTORY_WINDOW_DAYS + 5),
+        captured_at=NOW - timedelta(days=RECENT_HISTORY_WINDOW_DAYS + 2),
         links=[{"source": "0x03", "target": "0x04", "linkquality": 70}],
     )
     _store_snapshot(
@@ -304,7 +308,7 @@ def test_incomplete_and_out_of_window_snapshots_are_ignored(tmp_path: Path):
 
 def test_history_window_caps_snapshot_count(tmp_path: Path):
     repo = _repo(tmp_path)
-    for i in range(HISTORY_MAX_SNAPSHOTS + 3):
+    for i in range(RECENT_HISTORY_MAX_SNAPSHOTS + 3):
         _store_snapshot(
             repo,
             f"snap-{i}",
@@ -319,9 +323,42 @@ def test_history_window_caps_snapshot_count(tmp_path: Path):
     )
 
     result = aggregate_historical_evidence(repo, "home", now=NOW)
-    assert result["history_window"]["snapshots_considered"] == HISTORY_MAX_SNAPSHOTS
+    assert result["history_window"]["snapshots_considered"] == RECENT_HISTORY_MAX_SNAPSHOTS
     edge = result["historical_neighbors"][0]
-    assert edge["snapshot_count"] == HISTORY_MAX_SNAPSHOTS
+    assert edge["snapshot_count"] == RECENT_HISTORY_MAX_SNAPSHOTS
+
+
+def test_recent_window_is_recent_not_forever_history(tmp_path: Path):
+    """Snapshots older than the recent window never contribute, even when
+    still stored: the feature explains recent gaps, not forever history."""
+    repo = _repo(tmp_path)
+    _store_snapshot(
+        repo,
+        "snap-ancient",
+        captured_at=NOW - timedelta(days=RECENT_HISTORY_WINDOW_DAYS + 10),
+        links=[{"source": "0x03", "target": "0x04", "linkquality": 90}],
+    )
+    _store_snapshot(
+        repo,
+        "snap-recent",
+        captured_at=NOW - timedelta(days=2),
+        links=[{"source": "0x02", "target": "0x04", "linkquality": 70}],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW - timedelta(hours=1),
+        links=[{"source": "0x02", "target": "0x01", "linkquality": 100}],
+    )
+
+    result = aggregate_historical_evidence(repo, "home", now=NOW)
+    pairs = {
+        frozenset((e["source_ieee"], e["target_ieee"])) for e in result["historical_neighbors"]
+    }
+    assert frozenset(("0x02", "0x04")) in pairs
+    assert frozenset(("0x03", "0x04")) not in pairs
+    assert result["history_window"]["days"] == RECENT_HISTORY_WINDOW_DAYS
+    assert result["history_window"]["snapshots_considered"] == 1
 
 
 def test_evidence_graph_api_includes_historical_counts(topology_client: TestClient):
@@ -364,12 +401,14 @@ def test_evidence_graph_api_includes_historical_counts(topology_client: TestClie
     assert body["network_id"] == "home"
     assert body["data_source"] == "latest_snapshot_plus_history"
     assert body["latest_snapshot"]["snapshot_id"] == "snap-latest"
-    assert body["history_window"]["days"] == HISTORY_WINDOW_DAYS
+    assert body["history_window"]["days"] == RECENT_HISTORY_WINDOW_DAYS
     assert body["history_window"]["snapshots_considered"] == 1
+    assert body["latest_layout_limited"] is False
     assert body["counts"]["latest_snapshot_neighbor_edges"] == 1
     assert body["counts"]["latest_snapshot_route_edges"] == 1
     assert body["counts"]["historical_neighbor_edges"] == 2
     assert body["counts"]["historical_route_edges"] == 1
+    assert body["counts"]["recent_missing_link_count_total"] == 3
     # Rendering subsets are a client decision: unknown, never zero.
     assert body["counts"]["hidden_for_readability"] is None
     assert body["counts"]["observed_topology_nodes"] == len(body["nodes"])

@@ -300,6 +300,8 @@ export interface TopologyEvidenceGraphCounts {
   latest_snapshot_route_edges: number;
   historical_neighbor_edges: number;
   historical_route_edges: number;
+  /** Total recent missing links available in the history window. */
+  recent_missing_link_count_total: number;
   /** Rendering subsets are chosen client-side; the API reports null. */
   hidden_for_readability: number | null;
   known_inventory_devices: number;
@@ -309,6 +311,7 @@ export interface TopologyEvidenceGraphCounts {
 /** Response of GET /api/topology/{network_id}/evidence-graph. */
 export interface TopologyEvidenceGraphDetail extends TopologyNetworkDetail {
   data_source: string;
+  latest_layout_limited?: boolean;
   history_window: TopologyHistoryWindow;
   historical_neighbors: HistoricalEdgeAggregate[];
   historical_routes: HistoricalEdgeAggregate[];
