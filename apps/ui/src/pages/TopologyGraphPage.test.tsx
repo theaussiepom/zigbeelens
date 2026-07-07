@@ -826,14 +826,6 @@ describe("TopologyGraphPage dense graph mode", () => {
     expect(panel.getByRole("checkbox", { name: /all neighbour links/i })).not.toBeChecked();
     expect(panel.getByRole("checkbox", { name: /old or uncertain links/i })).not.toBeChecked();
 
-    // Selected device links is always on and locked.
-    const selectedLinks = panel.getByRole("checkbox", { name: /selected device links/i });
-    expect(selectedLinks).toBeChecked();
-    expect(selectedLinks).toBeDisabled();
-    expect(
-      panel.getByText(/always on — selecting a device draws its full evidence neighbourhood/i),
-    ).toBeInTheDocument();
-
     // Helper copy explains what each type draws.
     expect(
       panel.getByText(/a focused set of observed neighbour links/i),
@@ -846,7 +838,7 @@ describe("TopologyGraphPage dense graph mode", () => {
     expect(panel.getByText(/not guaranteed live routing/i)).toBeInTheDocument();
   });
 
-  it("disables old/uncertain and recent missing links when the data has none, and future controls with coming-later copy", async () => {
+  it("disables old/uncertain and recent missing links when the data has none", async () => {
     renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
     const panel = connectionsPanel();
@@ -862,12 +854,8 @@ describe("TopologyGraphPage dense graph mode", () => {
     expect(
       panel.getByText("No recent missing links in the selected history window."),
     ).toBeInTheDocument();
-
-    // Passive-derived investigation links remain future work.
-    expect(
-      panel.getByRole("checkbox", { name: /suggested investigation links/i }),
-    ).toBeDisabled();
-    expect(panel.getAllByText(/coming later/i)).toHaveLength(1);
+    expect(panel.queryByRole("checkbox", { name: /selected device links/i })).not.toBeInTheDocument();
+    expect(panel.queryByRole("checkbox", { name: /suggested investigation links/i })).not.toBeInTheDocument();
   });
 
   it("draws a focused subset by default — not empty, not the full hairball", async () => {

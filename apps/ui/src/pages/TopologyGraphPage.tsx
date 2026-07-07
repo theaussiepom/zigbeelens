@@ -359,12 +359,6 @@ function GraphPanel({
               onChange={setControl("bestNeighbourLinks")}
             />
             <ConnectionCheckbox
-              label="Selected device links"
-              helper="Always on — selecting a device draws its full evidence neighbourhood."
-              checked
-              disabled
-            />
-            <ConnectionCheckbox
               label="Devices with issues"
               helper="Highlight devices already marked by ZigbeeLens as needing attention."
               checked={controls.devicesWithIssues}
@@ -401,12 +395,6 @@ function GraphPanel({
               checked={hasRecentMissingLinks && controls.recentMissingLinks}
               disabled={!hasRecentMissingLinks}
               onChange={setControl("recentMissingLinks")}
-            />
-            <ConnectionCheckbox
-              label="Suggested investigation links"
-              helper="Coming later — possible relationships suggested by passive observations."
-              checked={false}
-              disabled
             />
             <p className="text-[11px] leading-snug text-zl-muted">
               Turning a connection type off only changes what is drawn — it never means a
