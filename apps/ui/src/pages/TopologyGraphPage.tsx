@@ -9,22 +9,21 @@ import { MeshEvidenceGraph } from "@/components/meshGraph/MeshEvidenceGraph";
 import { EdgeDrawer } from "@/components/meshGraph/EdgeDrawer";
 import { NodeDrawer } from "@/components/meshGraph/NodeDrawer";
 import { TopologyViewTabs } from "@/components/meshGraph/TopologyViewTabs";
-import { meshEvidenceGraphFixture } from "@/fixtures/meshEvidenceGraph";
 import { buildLiveMeshEvidence } from "@/lib/meshEvidenceLive";
 import { relativeTime } from "@/lib/format";
 import { topologyStatusLabel } from "@/lib/topologyLabels";
 import {
-  GRAPH_SAFETY_COPY,
   GRAPH_SAFETY_COPY_LIVE,
   type MeshEvidenceDevice,
   type MeshEvidenceEdge,
 } from "@/lib/meshEvidence";
-import { buildStructuralLayoutEdges } from "@/lib/meshGraphLayout";
 import {
-  DENSE_DEFAULT_CONNECTION_CONTROLS,
+  DEFAULT_CONNECTION_CONTROLS,
+  clearConnectionControls,
   collectIssueDeviceIds,
-  isDenseGraph,
-  selectBestNeighbourLinks,
+  loadConnectionControls,
+  saveConnectionControls,
+  selectAdaptiveBestNeighbourLinks,
   selectRecentMissingEdges,
   selectVisibleConnectionEdges,
   type ConnectionControls,
@@ -36,33 +35,6 @@ import {
   type MeshLayoutMode,
 } from "@/lib/meshGraphSmartLayout";
 
-type GraphDataSource = "live" | "sample";
-
-type PassiveFilterMode = "issue_related" | "all" | "off";
-
-interface EvidenceFilters {
-  latestSnapshot: boolean;
-  route: boolean;
-  /** Sample-mode visibility of historical fixture evidence. */
-  historical: boolean;
-  /** Live-mode "Recent missing links" — off by default per spec. */
-  recentMissingLive: boolean;
-  passive: PassiveFilterMode;
-  staleLowConfidence: boolean;
-}
-
-const DEFAULT_FILTERS: EvidenceFilters = {
-  latestSnapshot: true,
-  route: true,
-  historical: true,
-  // Recent missing links are off by default in live mode.
-  recentMissingLive: false,
-  // Passive-derived hints default to issue-related edges only.
-  passive: "issue_related",
-  // Stale / low-confidence evidence is off by default.
-  staleLowConfidence: false,
-};
-
 const RECENT_MISSING_HELPER =
   "Draw recent links observed in previous topology snapshots but not present in the latest usable snapshot.";
 const NO_RECENT_MISSING_COPY = "No recent missing links in the selected history window.";
@@ -70,60 +42,29 @@ const NO_RECENT_MISSING_COPY = "No recent missing links in the selected history 
 const LIMITED_LAYOUT_COPY =
   "Topology snapshot was captured, but Zigbee2MQTT did not provide usable node/link layout data. Device health still comes from passive MQTT inventory and state updates.";
 
-function edgeVisible(
-  edge: MeshEvidenceEdge,
-  filters: EvidenceFilters,
-  liveMode: boolean,
-): boolean {
+/**
+ * Whether an evidence class is enabled by the current connection controls,
+ * ignoring the adaptive budget and caps. Used to tell "focused" (enabled
+ * evidence exists that this view is not drawing) apart from "everything the
+ * user asked for is drawn".
+ */
+function evidenceClassEnabled(edge: MeshEvidenceEdge, controls: ConnectionControls): boolean {
   switch (edge.evidence_class) {
     case "latest_snapshot_neighbor":
-      return filters.latestSnapshot;
+      return controls.bestNeighbourLinks || controls.allNeighbourLinks;
     case "latest_snapshot_route":
-      return filters.route;
+      return controls.routeHints;
     case "historical_neighbor":
     case "historical_route":
-      // Live historical evidence is opt-in (off by default); sample fixtures
-      // keep their own toggle so the prototype grammar stays visible.
-      return liveMode ? filters.recentMissingLive : filters.historical;
-    case "passive_derived_association":
-      if (filters.passive === "off") return false;
-      if (filters.passive === "all") return true;
-      return Boolean(edge.issue_related);
+      return controls.recentMissingLinks;
     case "stale_low_confidence":
-      return filters.staleLowConfidence;
+      return controls.oldUncertainLinks;
+    case "passive_derived_association":
+      return false;
   }
 }
 
-function FilterCheckbox({
-  label,
-  checked,
-  onChange,
-  disabled,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <label
-      className={`flex min-h-0 items-center gap-2 text-sm ${
-        disabled ? "cursor-not-allowed text-zl-muted/60" : "cursor-pointer text-zl-text"
-      }`}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-        className="h-4 w-4 accent-[#5b9fd4]"
-      />
-      {label}
-    </label>
-  );
-}
-
-/** Connection-type checkbox with helper copy for the dense-mode panel. */
+/** Connection-type checkbox with helper copy. */
 function ConnectionCheckbox({
   label,
   helper,
@@ -161,9 +102,6 @@ function ConnectionCheckbox({
 function GraphPanel({
   devices,
   edges,
-  filters,
-  setFilters,
-  liveMode,
   signatureSeed,
   positionStorageId,
   onSelectEdge,
@@ -173,9 +111,6 @@ function GraphPanel({
 }: {
   devices: MeshEvidenceDevice[];
   edges: MeshEvidenceEdge[];
-  filters: EvidenceFilters;
-  setFilters: (update: (f: EvidenceFilters) => EvidenceFilters) => void;
-  liveMode: boolean;
   signatureSeed: string;
   positionStorageId: string;
   onSelectEdge: (edge: MeshEvidenceEdge) => void;
@@ -183,28 +118,19 @@ function GraphPanel({
   selectedNodeId: string | null;
   selectedEdge: MeshEvidenceEdge | null;
 }) {
-  const [controls, setControls] = useState<ConnectionControls>(
-    DENSE_DEFAULT_CONNECTION_CONTROLS,
+  // Connection choices are restored per network and persisted on change.
+  const [controls, setControls] = useState<ConnectionControls>(() =>
+    loadConnectionControls(positionStorageId),
   );
   const [layoutMode, setLayoutMode] = useState<MeshLayoutMode>(DEFAULT_LAYOUT_MODE);
   const [resetNonce, setResetNonce] = useState(0);
 
-  const filterVisibleEdges = useMemo(
-    () => edges.filter((edge) => edgeVisible(edge, filters, liveMode)),
-    [edges, filters, liveMode],
+  // Adaptive budget: the largest per-device neighbour count whose selection
+  // stays within ~1.5 drawn links per node. Small graphs keep everything.
+  const bestNeighbourEdgeIds = useMemo(
+    () => selectAdaptiveBestNeighbourLinks(edges, devices.length).edgeIds,
+    [edges, devices.length],
   );
-
-  const structuralEdgeCount = useMemo(
-    () => buildStructuralLayoutEdges(devices, edges).length,
-    [devices, edges],
-  );
-  const denseMode = isDenseGraph({
-    nodeCount: devices.length,
-    evidenceEdgeCount: edges.length,
-    structuralEdgeCount,
-  });
-
-  const bestNeighbourEdgeIds = useMemo(() => selectBestNeighbourLinks(edges), [edges]);
   const hasOldUncertainLinks = useMemo(
     () => edges.some((edge) => edge.evidence_class === "stale_low_confidence"),
     [edges],
@@ -220,9 +146,9 @@ function GraphPanel({
   );
   const hasRecentMissingLinks = recentMissingEdges.length > 0;
 
-  // Focused subset of recent missing links for dense graphs: relevance
-  // rules (existing issue flags, endpoints without latest neighbour
-  // evidence, limited latest layout) plus deterministic per-node/total caps.
+  // Focused subset of recent missing links: relevance rules (existing issue
+  // flags, endpoints without latest neighbour evidence, limited latest
+  // layout) plus deterministic per-node/total caps.
   const recentMissingEdgeIds = useMemo(() => {
     const issueDeviceIds = collectIssueDeviceIds(devices);
     const devicesWithLatestNeighbourEvidence = new Set<string>();
@@ -241,40 +167,48 @@ function GraphPanel({
     });
   }, [devices, edges, recentMissingEdges]);
 
-  // Dense mode changes which evidence edges are *rendered*, never which
-  // evidence exists: hidden edges stay in the model/drawers and remain
-  // reachable by selecting an endpoint device or "All neighbour links".
-  const visibleEdges = useMemo(() => {
-    if (!denseMode) return filterVisibleEdges;
-    return selectVisibleConnectionEdges(edges, controls, {
-      bestNeighbourEdgeIds,
-      recentMissingEdgeIds,
-      selectedNodeId,
-      selectedEdge,
-    });
-  }, [
-    denseMode,
-    filterVisibleEdges,
-    edges,
-    controls,
-    bestNeighbourEdgeIds,
-    recentMissingEdgeIds,
-    selectedNodeId,
-    selectedEdge,
-  ]);
-
-  const recentMissingShownCount = useMemo(
+  // Connection controls change only which evidence edges are *rendered*,
+  // never which evidence exists: undrawn edges stay in the model/drawers and
+  // remain reachable by selecting an endpoint device or "All neighbour links".
+  const visibleEdges = useMemo(
     () =>
-      visibleEdges.filter(
+      selectVisibleConnectionEdges(edges, controls, {
+        bestNeighbourEdgeIds,
+        recentMissingEdgeIds,
+        selectedNodeId,
+        selectedEdge,
+      }),
+    [edges, controls, bestNeighbourEdgeIds, recentMissingEdgeIds, selectedNodeId, selectedEdge],
+  );
+
+  // Focused view: enabled evidence exists that this view is not drawing
+  // (adaptive neighbour budget or recent-missing caps). User-disabled
+  // classes don't count — that is a choice, not focusing.
+  const { enabledAvailableCount, focusedView, drawnRecentMissingCount } = useMemo(() => {
+    const visibleIds = new Set(visibleEdges.map((edge) => edge.id));
+    const enabled = edges.filter((edge) => evidenceClassEnabled(edge, controls));
+    return {
+      enabledAvailableCount: enabled.length,
+      focusedView: enabled.some((edge) => !visibleIds.has(edge.id)),
+      drawnRecentMissingCount: visibleEdges.filter(
         (edge) =>
           edge.evidence_class === "historical_neighbor" ||
           edge.evidence_class === "historical_route",
       ).length,
-    [visibleEdges],
-  );
+    };
+  }, [edges, controls, visibleEdges]);
 
   const setControl = (key: keyof ConnectionControls) => (value: boolean) =>
-    setControls((c) => ({ ...c, [key]: value }));
+    setControls((c) => {
+      const next = { ...c, [key]: value };
+      saveConnectionControls(positionStorageId, next);
+      return next;
+    });
+
+  const resetConnectionChoices = () => {
+    clearConnectionControls(positionStorageId);
+    setControls({ ...DEFAULT_CONNECTION_CONTROLS });
+  };
 
   const layoutModeInfo = MESH_LAYOUT_MODES.find((m) => m.id === layoutMode);
 
@@ -321,40 +255,6 @@ function GraphPanel({
           </p>
         )}
       </div>
-      {denseMode && (
-        <div
-          role="note"
-          aria-label="Focused view"
-          data-testid="dense-graph-banner"
-          className="space-y-1 rounded-lg border border-zl-border bg-zl-surface px-4 py-3 text-sm"
-        >
-          <p className="font-medium text-zl-text">Focused view</p>
-          <p className="text-zl-muted">
-            This network has many overlapping topology links, so ZigbeeLens starts by drawing a
-            focused set of connections.
-          </p>
-          <p className="text-zl-muted" data-testid="dense-graph-counts">
-            {edges.length} evidence links available · {visibleEdges.length} drawn in this view
-          </p>
-          {controls.recentMissingLinks && hasRecentMissingLinks && (
-            <p className="text-zl-muted" data-testid="recent-missing-counts">
-              {recentMissingEdges.length} recent missing link
-              {recentMissingEdges.length === 1 ? "" : "s"} available · {recentMissingShownCount}{" "}
-              drawn in this view
-            </p>
-          )}
-          {controls.allNeighbourLinks ? (
-            <p className="text-zl-muted" data-testid="all-neighbour-links-warning">
-              All neighbour links is on. Dense networks may become hard to read.
-            </p>
-          ) : (
-            <p className="text-zl-muted">
-              Select a device to reveal its full neighbourhood, or use “Connections to show” to
-              draw more link types.
-            </p>
-          )}
-        </div>
-      )}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch">
       {/* The graph stretches to the full grid row: at least the viewport
           (minus app chrome) and never shorter than the sidebar column, so
@@ -384,12 +284,39 @@ function GraphPanel({
         <Card>
           <GraphLegend />
         </Card>
-        {denseMode ? (
         <Card>
           <div role="group" aria-label="Connections to show" className="space-y-3">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-zl-muted">
               Connections to show
             </h3>
+            {focusedView ? (
+              <div
+                className="space-y-1 text-[11px] leading-snug text-zl-muted"
+                data-testid="focused-view-note"
+              >
+                <p>
+                  This network has many overlapping topology links, so ZigbeeLens starts by
+                  drawing a focused set of connections.
+                </p>
+                <p data-testid="focused-view-counts">
+                  {enabledAvailableCount} evidence links available · {visibleEdges.length} drawn
+                  in this view
+                </p>
+                {controls.recentMissingLinks && hasRecentMissingLinks && (
+                  <p data-testid="recent-missing-counts">
+                    {recentMissingEdges.length} recent missing links available ·{" "}
+                    {drawnRecentMissingCount} drawn in this view
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p
+                className="text-[11px] leading-snug text-zl-muted"
+                data-testid="all-drawn-note"
+              >
+                All enabled evidence links are drawn.
+              </p>
+            )}
             <ConnectionCheckbox
               label="Route hints"
               helper="Route-table evidence from the latest snapshot. This suggests possible next-hop evidence at capture time, not guaranteed live routing."
@@ -398,15 +325,9 @@ function GraphPanel({
             />
             <ConnectionCheckbox
               label="Best neighbour links"
-              helper="A focused set of observed neighbour links chosen to keep dense networks understandable."
+              helper="A focused set of observed neighbour links chosen to keep the graph understandable."
               checked={controls.bestNeighbourLinks}
               onChange={setControl("bestNeighbourLinks")}
-            />
-            <ConnectionCheckbox
-              label="Selected device links"
-              helper="Always on — selecting a device draws its full evidence neighbourhood."
-              checked
-              disabled
             />
             <ConnectionCheckbox
               label="Devices with issues"
@@ -420,6 +341,14 @@ function GraphPanel({
               checked={controls.allNeighbourLinks}
               onChange={setControl("allNeighbourLinks")}
             />
+            {controls.allNeighbourLinks && (
+              <p
+                className="pl-6 text-[11px] leading-snug text-zl-muted"
+                data-testid="all-neighbour-links-warning"
+              >
+                All neighbour links is on. Dense networks may become hard to read.
+              </p>
+            )}
             <ConnectionCheckbox
               label="Old or uncertain links"
               helper={
@@ -438,90 +367,20 @@ function GraphPanel({
               disabled={!hasRecentMissingLinks}
               onChange={setControl("recentMissingLinks")}
             />
-            <ConnectionCheckbox
-              label="Suggested investigation links"
-              helper="Coming later — possible relationships suggested by passive observations."
-              checked={false}
-              disabled
-            />
             <p className="text-[11px] leading-snug text-zl-muted">
               Turning a connection type off only changes what is drawn — it never means a
               relationship is gone. All evidence remains available by selecting a device or
               turning on “All neighbour links”.
             </p>
-          </div>
-        </Card>
-        ) : (
-        <Card>
-          <div role="group" aria-label="Evidence filters" className="space-y-2.5">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-zl-muted">
-              Show evidence
-            </h3>
-            <FilterCheckbox
-              label="Latest snapshot evidence"
-              checked={filters.latestSnapshot}
-              onChange={(v) => setFilters((f) => ({ ...f, latestSnapshot: v }))}
-            />
-            <FilterCheckbox
-              label="Route evidence"
-              checked={filters.route}
-              onChange={(v) => setFilters((f) => ({ ...f, route: v }))}
-            />
-            <FilterCheckbox
-              label="Recent missing links"
-              checked={
-                liveMode
-                  ? hasRecentMissingLinks && filters.recentMissingLive
-                  : filters.historical
-              }
-              disabled={liveMode && !hasRecentMissingLinks}
-              onChange={(v) =>
-                setFilters((f) =>
-                  liveMode ? { ...f, recentMissingLive: v } : { ...f, historical: v },
-                )
-              }
-            />
-            <p className="pl-6 text-[11px] leading-snug text-zl-muted">
-              {liveMode && !hasRecentMissingLinks
-                ? NO_RECENT_MISSING_COPY
-                : RECENT_MISSING_HELPER}
-            </p>
-            <label
-              className={`block text-sm ${liveMode ? "text-zl-muted/60" : "text-zl-text"}`}
+            <button
+              type="button"
+              onClick={resetConnectionChoices}
+              className="text-[11px] text-zl-accent hover:underline"
             >
-              <span className="mb-1 block">Passive-derived hints</span>
-              <select
-                value={liveMode ? "off" : filters.passive}
-                disabled={liveMode}
-                onChange={(e) =>
-                  setFilters((f) => ({ ...f, passive: e.target.value as PassiveFilterMode }))
-                }
-                className="w-full rounded-lg border border-zl-border bg-zl-surface-2 px-2 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <option value="issue_related">Issue-related only (default)</option>
-                <option value="all">All passive hints</option>
-                <option value="off">Off</option>
-              </select>
-            </label>
-            <FilterCheckbox
-              label="Stale / low-confidence evidence"
-              checked={liveMode ? false : filters.staleLowConfidence}
-              disabled={liveMode}
-              onChange={(v) => setFilters((f) => ({ ...f, staleLowConfidence: v }))}
-            />
-            {liveMode && (
-              <p className="text-[11px] leading-snug text-zl-muted">
-                Passive-derived and stale evidence classes are not produced from live snapshot
-                data yet. They remain available in prototype sample data.
-              </p>
-            )}
-            <p className="text-[11px] leading-snug text-zl-muted">
-              Turning an evidence class off only changes what is drawn — it never means the
-              relationship is gone.
-            </p>
+              Reset connection choices
+            </button>
           </div>
         </Card>
-        )}
       </div>
       </div>
     </div>
@@ -531,12 +390,8 @@ function GraphPanel({
 export function TopologyGraphPage() {
   const { status, scenario } = useScenario();
   const { networkId } = useParams<{ networkId?: string }>();
-  const [source, setSource] = useState<GraphDataSource>("live");
-  const [filters, setFilters] = useState<EvidenceFilters>(DEFAULT_FILTERS);
   const [selectedEdge, setSelectedEdge] = useState<MeshEvidenceEdge | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<MeshEvidenceDevice | null>(null);
-
-  const liveMode = source === "live";
 
   const detail = useLiveResource(
     () =>
@@ -544,12 +399,12 @@ export function TopologyGraphPage() {
         ? api.topologyEvidenceGraph(networkId)
         : Promise.reject(new Error("No network selected")),
     [networkId],
-    { enabled: liveMode && Boolean(networkId) },
+    { enabled: Boolean(networkId) },
   );
   const inventory = useLiveResource(
     () => api.devices(scenario || undefined, networkId),
     [networkId, scenario],
-    { enabled: liveMode && Boolean(networkId) },
+    { enabled: Boolean(networkId) },
   );
 
   const liveEvidence = useMemo(() => {
@@ -557,7 +412,6 @@ export function TopologyGraphPage() {
     return buildLiveMeshEvidence(detail.data, inventory.data?.items ?? []);
   }, [detail.data, inventory.data]);
 
-  const fixture = meshEvidenceGraphFixture;
   const snapshot = detail.data?.latest_snapshot;
   const layoutAvailable = Boolean(
     detail.data?.layout_available ??
@@ -565,13 +419,12 @@ export function TopologyGraphPage() {
   );
   const topologyEnabled = status?.topology?.enabled ?? true;
 
-  // Stable data identity for layout caching: network + mode + snapshot only.
+  // Stable data identity for layout caching: network + snapshot only.
   // Refetch timestamps, filters, selection and drawer state must never be in
   // here — layout recomputes only when this (plus graph content) changes.
   const liveSignatureSeed = `live|${networkId ?? "none"}|${
     snapshot?.snapshot_id ?? snapshot?.captured_at ?? "no-snapshot"
   }`;
-  const sampleSignatureSeed = `sample|${fixture.network_id}|${fixture.latest_snapshot_captured_at}`;
 
   const selectEdge = (edge: MeshEvidenceEdge) => {
     setSelectedDevice(null);
@@ -582,75 +435,37 @@ export function TopologyGraphPage() {
     setSelectedDevice(device);
   };
 
-  const changeSource = (next: GraphDataSource) => {
-    setSource(next);
-    setSelectedEdge(null);
-    setSelectedDevice(null);
-  };
-
   return (
     <div className="max-w-7xl space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Mesh evidence graph</h1>
           <p className="mt-1 text-zl-muted">
-            {liveMode ? (
-              <>
-                Latest topology snapshot evidence for network{" "}
-                <span className="font-mono">{networkId ?? "—"}</span>
-                {detail.data?.network_name ? ` (${detail.data.network_name})` : ""}.
-              </>
-            ) : (
-              <>Sample evidence data for design validation — not data from your network.</>
-            )}
+            Latest topology snapshot evidence for network{" "}
+            <span className="font-mono">{networkId ?? "—"}</span>
+            {detail.data?.network_name ? ` (${detail.data.network_name})` : ""}.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {liveMode ? (
-            <span
-              data-testid="graph-mode-badge"
-              className="inline-flex items-center gap-1.5 rounded-full border border-zl-healthy/40 bg-zl-healthy/10 px-3 py-1 text-xs font-medium text-zl-healthy"
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-zl-healthy" aria-hidden="true" />
-              Live topology snapshot
-            </span>
-          ) : (
-            <span
-              data-testid="graph-mode-badge"
-              className="inline-flex items-center rounded-full border border-zl-watch/40 bg-zl-watch/10 px-3 py-1 text-xs font-medium text-zl-watch"
-            >
-              Prototype — sample data
-            </span>
-          )}
-          <label className="flex items-center gap-2 text-sm">
-            <span className="text-zl-muted" id="graph-source-label">
-              Data source
-            </span>
-            <select
-              value={source}
-              onChange={(e) => changeSource(e.target.value as GraphDataSource)}
-              aria-labelledby="graph-source-label"
-              className="rounded-lg border border-zl-border bg-zl-surface-2 px-2 py-1.5 text-sm"
-            >
-              <option value="live">Live topology snapshot</option>
-              <option value="sample">Prototype sample data</option>
-            </select>
-          </label>
-        </div>
+        <span
+          data-testid="graph-mode-badge"
+          className="inline-flex items-center gap-1.5 rounded-full border border-zl-healthy/40 bg-zl-healthy/10 px-3 py-1 text-xs font-medium text-zl-healthy"
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-zl-healthy" aria-hidden="true" />
+          Live topology snapshot
+        </span>
       </header>
 
-      <TopologyViewTabs networkId={networkId ?? fixture.network_id} />
+      {networkId && <TopologyViewTabs networkId={networkId} />}
 
       <div
         role="note"
         aria-label="Evidence safety note"
         className="rounded-lg border border-zl-accent/40 bg-zl-accent/10 px-4 py-3 text-sm leading-relaxed text-zl-text"
       >
-        {liveMode ? GRAPH_SAFETY_COPY_LIVE : GRAPH_SAFETY_COPY}
+        {GRAPH_SAFETY_COPY_LIVE}
       </div>
 
-      {liveMode ? (
-        !networkId ? (
+      {!networkId ? (
           <Card title="No network selected">
             <p className="text-sm text-zl-muted">
               Open the graph from a network on the{" "}
@@ -664,7 +479,7 @@ export function TopologyGraphPage() {
           <Card title="Topology disabled">
             <p className="text-sm text-zl-muted">
               Topology capture is disabled in configuration, so no live snapshot evidence is
-              available. Prototype sample data remains available from the data source selector.
+              available.
             </p>
           </Card>
         ) : detail.loading || (inventory.loading && !detail.data) ? (
@@ -775,11 +590,11 @@ export function TopologyGraphPage() {
               )}
             </div>
             <GraphPanel
+              // Remount per network so persisted connection choices and
+              // layout state are restored for the network being viewed.
+              key={networkId ?? "unknown-network"}
               devices={liveEvidence.devices}
               edges={liveEvidence.edges}
-              filters={filters}
-              setFilters={setFilters}
-              liveMode
               signatureSeed={liveSignatureSeed}
               positionStorageId={networkId ?? "unknown-network"}
               onSelectEdge={selectEdge}
@@ -788,35 +603,12 @@ export function TopologyGraphPage() {
               selectedEdge={selectedEdge}
             />
           </>
-        ) : null
-      ) : (
-        <>
-          <p className="text-xs text-zl-muted">
-            This prototype sample dataset demonstrates the full evidence grammar, including
-            historical, passive-derived and stale evidence classes that live snapshot data cannot
-            produce yet. It does not represent network{" "}
-            <span className="font-mono">{networkId ?? fixture.network_id}</span>.
-          </p>
-          <GraphPanel
-            devices={fixture.devices}
-            edges={fixture.edges}
-            filters={filters}
-            setFilters={setFilters}
-            liveMode={false}
-            signatureSeed={sampleSignatureSeed}
-            positionStorageId={`sample-${fixture.network_id}`}
-            onSelectEdge={selectEdge}
-            onSelectNode={selectNode}
-            selectedNodeId={selectedDevice?.ieee_address ?? null}
-            selectedEdge={selectedEdge}
-          />
-        </>
-      )}
+      ) : null}
 
       {selectedEdge && (
         <EdgeDrawer
           edge={selectedEdge}
-          devices={liveMode && liveEvidence ? liveEvidence.devices : fixture.devices}
+          devices={liveEvidence?.devices ?? []}
           onClose={() => setSelectedEdge(null)}
         />
       )}

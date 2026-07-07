@@ -4,16 +4,14 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeviceSummary } from "@zigbeelens/shared";
 import { TopologyGraphPage } from "@/pages/TopologyGraphPage";
-import { meshEvidenceGraphFixture } from "@/fixtures/meshEvidenceGraph";
 import type {
   HistoricalEdgeAggregate,
   TopologyEvidenceGraphDetail,
   TopologyNetworkDetail,
 } from "@/lib/api";
 import {
-  EVIDENCE_CLASSES,
+  LIVE_EVIDENCE_CLASSES,
   evidenceClassLabel,
-  GRAPH_SAFETY_COPY,
   GRAPH_SAFETY_COPY_LIVE,
 } from "@/lib/meshEvidence";
 import { positionStorageKey } from "@/lib/meshGraphSmartLayout";
@@ -375,32 +373,22 @@ async function renderLiveAndWaitForLayout(networkId = "home") {
   return result;
 }
 
-async function switchToSample(user: ReturnType<typeof userEvent.setup>) {
-  await user.selectOptions(screen.getByRole("combobox", { name: /data source/i }), "sample");
-  await screen.findByText("Living room plug");
-}
-
 describe("TopologyGraphPage live mode", () => {
-  it("defaults to live snapshot data and labels it as live", async () => {
+  it("labels the graph as live snapshot data with no sample-data option", async () => {
     await renderLiveAndWaitForLayout();
     expect(screen.getByTestId("graph-mode-badge")).toHaveTextContent("Live topology snapshot");
-    expect(screen.queryByText("Prototype — sample data")).not.toBeInTheDocument();
+    // Sample mode has been removed: no data source selector, no prototype copy.
+    expect(screen.queryByRole("combobox", { name: /data source/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/sample data/i)).not.toBeInTheDocument();
     expect(screen.getByText("Snapshot status")).toBeInTheDocument();
     expect(screen.getByText("Captured")).toBeInTheDocument();
   });
 
-  it("renders live devices and never fixture devices in live mode", async () => {
+  it("renders the live devices from the evidence API", async () => {
     await renderLiveAndWaitForLayout();
     expect(screen.getByText("Live Coordinator")).toBeInTheDocument();
     expect(screen.getByText("Live Lamp")).toBeInTheDocument();
     expect(screen.getByText("Live Sleepy Sensor")).toBeInTheDocument();
-    // Scope to node title elements: role labels like "Coordinator" legitimately
-    // appear on live nodes and would collide with fixture device names.
-    for (const fixtureDevice of meshEvidenceGraphFixture.devices) {
-      expect(
-        screen.queryByText(fixtureDevice.friendly_name, { selector: ".truncate" }),
-      ).not.toBeInTheDocument();
-    }
   });
 
   it("maps neighbour links to latest_snapshot_neighbor edges, merging directions", async () => {
@@ -430,18 +418,19 @@ describe("TopologyGraphPage live mode", () => {
     expect(container.querySelectorAll(".mesh-edge--stale_low_confidence")).toHaveLength(0);
   });
 
-  it("disables non-live evidence filters in live mode", async () => {
+  it("only offers evidence filters that live data can produce", async () => {
     await renderLiveAndWaitForLayout();
-    // No historical evidence in this fixture: recent missing links disabled.
+    // No historical evidence in this response: recent missing links disabled.
     expect(screen.getByRole("checkbox", { name: /recent missing links/i })).toBeDisabled();
     expect(screen.queryByText(/previously seen/i)).not.toBeInTheDocument();
     expect(
       screen.getByText("No recent missing links in the selected history window."),
     ).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /stale \/ low-confidence/i })).toBeDisabled();
+    // Passive-derived and stale controls are gone with sample mode.
     expect(
-      screen.getByText(/are not produced from live snapshot data yet/i),
-    ).toBeInTheDocument();
+      screen.queryByRole("checkbox", { name: /stale \/ low-confidence/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/passive-derived hints/i)).not.toBeInTheDocument();
   });
 
   it("opens the neighbour edge drawer with snapshot facts and safe wording", async () => {
@@ -511,7 +500,7 @@ describe("TopologyGraphPage live mode", () => {
     expect(within(drawer).queryByText(/incident detected/i)).not.toBeInTheDocument();
   });
 
-  it("shows an honest limited state without fake zeroes or sample fallback", async () => {
+  it("shows an honest limited state without fake zeroes", async () => {
     mockDetail = liveDetailLimited;
     const { container } = renderGraphPage("home2");
     expect(
@@ -523,14 +512,12 @@ describe("TopologyGraphPage live mode", () => {
     expect(observedLinks.nextElementSibling).toHaveTextContent("—");
     expect(screen.getByText("102")).toBeInTheDocument();
     expect(screen.getByText(/missing topology data is not an incident by itself/i)).toBeInTheDocument();
-    // No graph, no fixture fallback.
+    // No graph, no fabricated fallback data.
     expect(container.querySelectorAll(".mesh-edge")).toHaveLength(0);
     expect(screen.queryByTestId("mesh-evidence-graph")).not.toBeInTheDocument();
-    expect(screen.queryByText("Living room plug")).not.toBeInTheDocument();
-    expect(screen.queryByText("Prototype — sample data")).not.toBeInTheDocument();
   });
 
-  it("shows a waiting state when no snapshot exists instead of falling back to sample", async () => {
+  it("shows a waiting state when no snapshot exists", async () => {
     mockDetail = {
       network_id: "home2",
       network_name: "Home 2",
@@ -545,7 +532,6 @@ describe("TopologyGraphPage live mode", () => {
     expect(
       screen.getByText(/missing topology data is not an incident by itself/i),
     ).toBeInTheDocument();
-    expect(screen.queryByText("Living room plug")).not.toBeInTheDocument();
   });
 
   it("creates a clearly labelled placeholder node for a link endpoint unknown to inventory and node list", async () => {
@@ -620,7 +606,7 @@ describe("TopologyGraphPage layout modes", () => {
     expect(screen.getByTestId("layout-mode-description")).toHaveTextContent(
       /does not prove current live routing/i,
     );
-    expect(screen.getByRole("group", { name: /evidence filters/i })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: /connections to show/i })).toBeInTheDocument();
   });
 
   it("manual layout mode explains browser-local saved positions", async () => {
@@ -658,7 +644,7 @@ describe("TopologyGraphPage layout modes", () => {
     expect(nodePosition(container, "0xr1")).toContain("translate(4321px,1234px)");
   });
 
-  it("keeps saved positions applied across filter toggles and drawer open/close", async () => {
+  it("keeps saved positions applied across connection toggles and drawer open/close", async () => {
     const user = userEvent.setup();
     localStorage.setItem(
       positionStorageKey("home", "smart"),
@@ -666,7 +652,7 @@ describe("TopologyGraphPage layout modes", () => {
     );
     const { container } = await renderLiveAndWaitForLayout();
 
-    await user.click(screen.getByRole("checkbox", { name: /route evidence/i }));
+    await user.click(screen.getByRole("checkbox", { name: /route hints/i }));
     expect(nodePosition(container, "0xr1")).toContain("translate(4321px,1234px)");
 
     fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
@@ -688,75 +674,6 @@ describe("TopologyGraphPage layout modes", () => {
       expect(nodePosition(container, "0xr1")).not.toContain("translate(4321px,1234px)");
     });
     expect(localStorage.getItem(positionStorageKey("home", "smart"))).toBeNull();
-  });
-});
-
-describe("TopologyGraphPage sample mode", () => {
-  it("is explicitly labelled and never presented as live data", async () => {
-    const user = userEvent.setup();
-    await renderLiveAndWaitForLayout();
-    await switchToSample(user);
-    expect(screen.getByTestId("graph-mode-badge")).toHaveTextContent("Prototype — sample data");
-    expect(screen.getByTestId("graph-mode-badge")).not.toHaveTextContent(
-      "Live topology snapshot",
-    );
-    expect(
-      screen.getByText(/sample evidence data for design validation — not data from your network/i),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/it does not represent network/i)).toBeInTheDocument();
-  });
-
-  it("renders the full fixture evidence grammar in sample mode", async () => {
-    const user = userEvent.setup();
-    const { container } = await renderLiveAndWaitForLayout();
-    await switchToSample(user);
-    await waitFor(() => {
-      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(5);
-    });
-    expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(2);
-    expect(container.querySelectorAll(".mesh-edge--passive_derived_association")).toHaveLength(2);
-  });
-
-  it("still frames passive-derived sample edges as investigation hints, never routes", async () => {
-    const user = userEvent.setup();
-    await renderLiveAndWaitForLayout();
-    await switchToSample(user);
-    const edge = await screen.findByLabelText(
-      "Passive-derived association between Hallway repeater and Kitchen motion",
-    );
-    fireEvent.click(edge);
-    const drawer = screen.getByRole("dialog", { name: /link evidence/i });
-    expect(within(drawer).getByText("Investigation hint")).toBeInTheDocument();
-    expect(within(drawer).getAllByText(/is not a route/i).length).toBeGreaterThan(0);
-    expect(within(drawer).queryByText(/routes via/i)).not.toBeInTheDocument();
-    expect(within(drawer).queryByText(/currently connected/i)).not.toBeInTheDocument();
-  });
-
-  it("does not claim a current route for historical sample evidence", async () => {
-    const user = userEvent.setup();
-    await renderLiveAndWaitForLayout();
-    await switchToSample(user);
-    const edge = await screen.findByLabelText(
-      "Recent missing neighbour link between Hallway repeater and Bedroom temp sensor",
-    );
-    fireEvent.click(edge);
-    const drawer = screen.getByRole("dialog", { name: /link evidence/i });
-    expect(
-      within(drawer).getAllByText(/does not prove current live routing/i).length,
-    ).toBeGreaterThan(0);
-    expect(within(drawer).queryByText(/currently connected/i)).not.toBeInTheDocument();
-  });
-
-  it("re-enables historical/passive/stale filters in sample mode", async () => {
-    const user = userEvent.setup();
-    const { container } = await renderLiveAndWaitForLayout();
-    await switchToSample(user);
-    const staleToggle = screen.getByRole("checkbox", { name: /stale \/ low-confidence/i });
-    expect(staleToggle).toBeEnabled();
-    await user.click(staleToggle);
-    await waitFor(() => {
-      expect(container.querySelectorAll(".mesh-edge--stale_low_confidence")).toHaveLength(1);
-    });
   });
 });
 
@@ -783,14 +700,14 @@ describe("TopologyGraphPage layout stability", () => {
     expect(view.container.querySelector(".react-flow")).toBe(flowEl);
   });
 
-  it("does not move nodes when filters change or a drawer opens", async () => {
+  it("does not move nodes when connection controls change or a drawer opens", async () => {
     const user = userEvent.setup();
     const { container } = renderGraphPage();
     await screen.findByText("Live Hall Router");
     const flowEl = container.querySelector(".react-flow");
     const before = nodePosition(container, "0xr1");
 
-    await user.click(screen.getByRole("checkbox", { name: /route evidence/i }));
+    await user.click(screen.getByRole("checkbox", { name: /route hints/i }));
     fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
     await screen.findByRole("dialog", { name: /device details/i });
 
@@ -800,7 +717,7 @@ describe("TopologyGraphPage layout stability", () => {
   });
 });
 
-describe("TopologyGraphPage dense graph mode", () => {
+describe("TopologyGraphPage focused view on large graphs", () => {
   beforeEach(() => {
     const dense = makeDenseNetwork();
     mockDetail = dense.detail;
@@ -826,14 +743,6 @@ describe("TopologyGraphPage dense graph mode", () => {
     expect(panel.getByRole("checkbox", { name: /all neighbour links/i })).not.toBeChecked();
     expect(panel.getByRole("checkbox", { name: /old or uncertain links/i })).not.toBeChecked();
 
-    // Selected device links is always on and locked.
-    const selectedLinks = panel.getByRole("checkbox", { name: /selected device links/i });
-    expect(selectedLinks).toBeChecked();
-    expect(selectedLinks).toBeDisabled();
-    expect(
-      panel.getByText(/always on — selecting a device draws its full evidence neighbourhood/i),
-    ).toBeInTheDocument();
-
     // Helper copy explains what each type draws.
     expect(
       panel.getByText(/a focused set of observed neighbour links/i),
@@ -846,7 +755,7 @@ describe("TopologyGraphPage dense graph mode", () => {
     expect(panel.getByText(/not guaranteed live routing/i)).toBeInTheDocument();
   });
 
-  it("disables old/uncertain and recent missing links when the data has none, and future controls with coming-later copy", async () => {
+  it("disables old/uncertain and recent missing links when the data has none", async () => {
     renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
     const panel = connectionsPanel();
@@ -862,33 +771,23 @@ describe("TopologyGraphPage dense graph mode", () => {
     expect(
       panel.getByText("No recent missing links in the selected history window."),
     ).toBeInTheDocument();
-
-    // Passive-derived investigation links remain future work.
-    expect(
-      panel.getByRole("checkbox", { name: /suggested investigation links/i }),
-    ).toBeDisabled();
-    expect(panel.getAllByText(/coming later/i)).toHaveLength(1);
+    expect(panel.queryByRole("checkbox", { name: /selected device links/i })).not.toBeInTheDocument();
+    expect(panel.queryByRole("checkbox", { name: /suggested investigation links/i })).not.toBeInTheDocument();
   });
 
-  it("shows a focused view by default — not empty, not the full hairball", async () => {
+  it("draws a focused subset by default — not empty, not the full hairball", async () => {
     const { container } = renderGraphPage();
-    const banner = await screen.findByTestId("dense-graph-banner");
     await screen.findByTestId("mesh-node-0xr5");
 
-    expect(banner).toHaveTextContent("Focused view");
-    expect(banner).toHaveTextContent(/starts by drawing a focused set of connections/i);
-    expect(screen.getByTestId("dense-graph-counts")).toHaveTextContent(
-      /437 evidence links available · \d+ drawn in this view/,
+    // No standalone banner — the focused-view note lives in the panel and
+    // states available vs drawn without concealment language.
+    expect(screen.queryByTestId("dense-graph-banner")).not.toBeInTheDocument();
+    const note = screen.getByTestId("focused-view-note");
+    expect(note).toHaveTextContent(/drawing a focused set of connections/i);
+    expect(screen.getByTestId("focused-view-counts")).toHaveTextContent(
+      /\d+ evidence links available · \d+ drawn in this view/,
     );
-    expect(banner).toHaveTextContent(/select a device to reveal its full neighbourhood/i);
-    expect(banner).toHaveTextContent(/use “connections to show” to draw more link types/i);
-    // No concealment or debug-style language.
-    expect(banner).not.toHaveTextContent(/hidden for readability/i);
-    expect(banner).not.toHaveTextContent(/ignored/i);
-    expect(banner).not.toHaveTextContent(/discarded/i);
-    expect(banner).not.toHaveTextContent(/not relevant/i);
-    // The warning only appears when All neighbour links is enabled.
-    expect(screen.queryByTestId("all-neighbour-links-warning")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("all-drawn-note")).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(1);
@@ -973,7 +872,7 @@ describe("TopologyGraphPage dense graph mode", () => {
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(436);
     });
-    expect(screen.getByTestId("all-neighbour-links-warning")).toHaveTextContent(
+    expect(connectionsPanel().getByTestId("all-neighbour-links-warning")).toHaveTextContent(
       "All neighbour links is on. Dense networks may become hard to read.",
     );
     // Route hints stay visible alongside.
@@ -1005,16 +904,80 @@ describe("TopologyGraphPage dense graph mode", () => {
     expect(within(drawer).queryByText(/currently connected/i)).not.toBeInTheDocument();
   });
 
-  it("stays off for small graphs, which keep the evidence filter panel", async () => {
+  it("small graphs use the same connection panel and draw all enabled evidence", async () => {
     mockDetail = liveDetailHome;
     mockDevices = liveDevices;
-    renderGraphPage();
+    const { container } = renderGraphPage();
     await screen.findByText("Live Hall Router");
-    expect(screen.queryByTestId("dense-graph-banner")).not.toBeInTheDocument();
+    // One control model everywhere: no separate evidence-filter panel.
+    expect(screen.getByRole("group", { name: /connections to show/i })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /evidence filters/i })).not.toBeInTheDocument();
+    // Small enough that the adaptive budget draws everything: no focused
+    // wording, just the all-drawn note.
+    expect(screen.getByTestId("all-drawn-note")).toHaveTextContent(
+      "All enabled evidence links are drawn.",
+    );
+    expect(screen.queryByTestId("focused-view-note")).not.toBeInTheDocument();
+    await waitFor(() => {
+      // Both merged neighbour edges and the single route edge render.
+      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(2);
+      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(1);
+    });
+  });
+
+  it("persists connection choices per network and restores them", async () => {
+    const user = userEvent.setup();
+    const first = renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    const issuesToggle = () =>
+      within(screen.getByRole("group", { name: /connections to show/i })).getByRole("checkbox", {
+        name: /devices with issues/i,
+      });
+    expect(issuesToggle()).not.toBeChecked();
+    await user.click(issuesToggle());
+    expect(issuesToggle()).toBeChecked();
+    first.unmount();
+
+    // A fresh visit to the same network restores the choice.
+    renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    expect(issuesToggle()).toBeChecked();
+  });
+
+  it("different networks keep independent connection choices", async () => {
+    localStorage.setItem(
+      "zigbeelens.meshGraph.connectionControls.v1.other",
+      JSON.stringify({ routeHints: false }),
+    );
+    renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
+    // "home" has no saved choices: defaults apply despite "other" storage.
+    expect(panel.getByRole("checkbox", { name: /route hints/i })).toBeChecked();
+  });
+
+  it("falls back to defaults when saved connection choices are corrupt", async () => {
+    localStorage.setItem("zigbeelens.meshGraph.connectionControls.v1.home", "{corrupt");
+    renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
+    expect(panel.getByRole("checkbox", { name: /route hints/i })).toBeChecked();
+    expect(panel.getByRole("checkbox", { name: /all neighbour links/i })).not.toBeChecked();
+  });
+
+  it("reset connection choices returns to the defaults", async () => {
+    const user = userEvent.setup();
+    renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    const panel = () => within(screen.getByRole("group", { name: /connections to show/i }));
+    await user.click(panel().getByRole("checkbox", { name: /devices with issues/i }));
+    expect(panel().getByRole("checkbox", { name: /devices with issues/i })).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: /reset connection choices/i }));
+    expect(panel().getByRole("checkbox", { name: /devices with issues/i })).not.toBeChecked();
     expect(
-      screen.queryByRole("group", { name: /connections to show/i }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole("group", { name: /evidence filters/i })).toBeInTheDocument();
+      localStorage.getItem("zigbeelens.meshGraph.connectionControls.v1.home"),
+    ).toBeNull();
   });
 });
 
@@ -1205,7 +1168,7 @@ describe("TopologyGraphPage historical evidence (live)", () => {
   });
 });
 
-describe("TopologyGraphPage historical evidence in dense mode", () => {
+describe("TopologyGraphPage historical evidence on large graphs", () => {
   function makeDenseWithHistory(historicalNeighbors?: HistoricalEdgeAggregate[]) {
     const dense = makeDenseNetwork();
     const neighbors = historicalNeighbors ?? [
@@ -1246,19 +1209,11 @@ describe("TopologyGraphPage historical evidence in dense mode", () => {
     mockDevices = dense.devices;
   });
 
-  it("keeps historical edges out of the default focused view but in the available counts", async () => {
+  it("keeps historical edges out of the default focused view", async () => {
     const { container } = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
     expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
-    // Historical edges are part of the available counts (439 = 436 latest + 2 historical + ghost pair merge).
-    expect(screen.getByTestId("dense-graph-counts")).toHaveTextContent(
-      /439 evidence links available · \d+ drawn in this view/,
-    );
-    expect(screen.getByTestId("dense-graph-counts")).not.toHaveTextContent(
-      /hidden for readability/i,
-    );
-    // The recent-missing count line only appears when the control is on.
-    expect(screen.queryByTestId("recent-missing-counts")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("dense-graph-banner")).not.toBeInTheDocument();
   });
 
   it("shows historical edges in dense mode only when Recent missing links is enabled", async () => {
@@ -1288,7 +1243,7 @@ describe("TopologyGraphPage historical evidence in dense mode", () => {
     });
   });
 
-  it("caps recent missing links per node and reports honest available/drawn counts", async () => {
+  it("caps recent missing links per node in dense mode", async () => {
     // Six historical links all touching 0xr1: the per-node cap (3) applies.
     const dense = makeDenseWithHistory(
       [20, 21, 22, 23, 24, 25].map((i) =>
@@ -1307,12 +1262,6 @@ describe("TopologyGraphPage historical evidence in dense mode", () => {
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(3);
     });
-    expect(screen.getByTestId("recent-missing-counts")).toHaveTextContent(
-      "6 recent missing links available · 3 drawn in this view",
-    );
-    expect(screen.getByTestId("recent-missing-counts")).not.toHaveTextContent(
-      /hidden for readability|ignored|irrelevant|discarded/i,
-    );
   });
 
   it("renders no concealment or live-routing phrasing anywhere on the page", async () => {
@@ -1358,26 +1307,23 @@ describe("TopologyGraphPage historical evidence in dense mode", () => {
 });
 
 describe("TopologyGraphPage shared chrome", () => {
-  it("renders the legend with every evidence class", async () => {
+  it("renders the legend with every evidence class live data can produce", async () => {
     await renderLiveAndWaitForLayout();
     const legend = screen.getByRole("group", { name: /link evidence legend/i });
-    for (const cls of EVIDENCE_CLASSES) {
+    for (const cls of LIVE_EVIDENCE_CLASSES) {
       expect(within(legend).getByText(evidenceClassLabel(cls))).toBeInTheDocument();
     }
+    // Classes without a live source stay out of the legend.
+    expect(within(legend).queryByText(/passive-derived/i)).not.toBeInTheDocument();
+    expect(within(legend).queryByText(/stale/i)).not.toBeInTheDocument();
   });
 
-  it("renders mode-specific safety banners: live copy never claims passive links are active", async () => {
-    const user = userEvent.setup();
+  it("renders a safety banner that never claims passive links are active", async () => {
     await renderLiveAndWaitForLayout();
     const note = screen.getByRole("note", { name: /evidence safety note/i });
     expect(note).toHaveTextContent(GRAPH_SAFETY_COPY_LIVE);
     // Live mode has no passive-derived edges, so the banner must not imply them.
     expect(note).not.toHaveTextContent(/passive/i);
     expect(note).toHaveTextContent(/should not be treated as proof of current live routing/i);
-    await switchToSample(user);
-    // Sample mode still demonstrates passive-derived fixture evidence.
-    expect(screen.getByRole("note", { name: /evidence safety note/i })).toHaveTextContent(
-      GRAPH_SAFETY_COPY,
-    );
   });
 });

@@ -1,13 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { MeshEvidenceDevice, MeshEvidenceEdge } from "@/lib/meshEvidence";
 import {
-  DENSE_DEFAULT_CONNECTION_CONTROLS,
+  DEFAULT_CONNECTION_CONTROLS,
+  MAX_NEIGHBOUR_LINKS_PER_DEVICE,
   MAX_RECENT_MISSING_LINKS_PER_NODE,
   MAX_RECENT_MISSING_LINKS_TOTAL,
+  MIN_NEIGHBOUR_LINKS_PER_DEVICE,
+  TARGET_VISIBLE_LINKS_PER_NODE,
+  clearConnectionControls,
   collectIssueDeviceIds,
-  countHiddenConnectionEdges,
+  connectionControlsStorageKey,
   deviceHasIssue,
-  isDenseGraph,
+  loadConnectionControls,
+  saveConnectionControls,
+  selectAdaptiveBestNeighbourLinks,
   selectBestNeighbourLinks,
   selectRecentMissingEdges,
   selectVisibleConnectionEdges,
@@ -53,7 +59,20 @@ function device(ieee: string, overrides: Partial<MeshEvidenceDevice> = {}): Mesh
 }
 
 function controls(overrides: Partial<ConnectionControls> = {}): ConnectionControls {
-  return { ...DENSE_DEFAULT_CONNECTION_CONTROLS, ...overrides };
+  return { ...DEFAULT_CONNECTION_CONTROLS, ...overrides };
+}
+
+/** A complete graph over `n` nodes with deterministic distinct LQI values. */
+function completeGraph(n: number): MeshEvidenceEdge[] {
+  const edges: MeshEvidenceEdge[] = [];
+  let lqi = 250;
+  for (let i = 0; i < n; i += 1) {
+    for (let j = i + 1; j < n; j += 1) {
+      edges.push(edge(`n${i}`, `n${j}`, { id: `n${i}-n${j}`, lqi_latest: lqi }));
+      lqi -= 1;
+    }
+  }
+  return edges;
 }
 
 const emptyContext = {
@@ -61,42 +80,9 @@ const emptyContext = {
   selectedNodeId: null,
 };
 
-describe("isDenseGraph", () => {
-  it("stays off for small graphs", () => {
-    expect(
-      isDenseGraph({ nodeCount: 20, evidenceEdgeCount: 40, structuralEdgeCount: 30 }),
-    ).toBe(false);
-  });
-
-  it("triggers on total evidence edge count", () => {
-    expect(
-      isDenseGraph({ nodeCount: 20, evidenceEdgeCount: 251, structuralEdgeCount: 100 }),
-    ).toBe(true);
-    expect(
-      isDenseGraph({ nodeCount: 20, evidenceEdgeCount: 250, structuralEdgeCount: 100 }),
-    ).toBe(false);
-  });
-
-  it("triggers on structural layout edge count", () => {
-    expect(
-      isDenseGraph({ nodeCount: 20, evidenceEdgeCount: 100, structuralEdgeCount: 401 }),
-    ).toBe(true);
-  });
-
-  it("triggers on combined node and edge counts", () => {
-    expect(
-      isDenseGraph({ nodeCount: 81, evidenceEdgeCount: 240, structuralEdgeCount: 100 }),
-    ).toBe(false);
-    // The reference dense network shape: many nodes and many links.
-    expect(
-      isDenseGraph({ nodeCount: 106, evidenceEdgeCount: 843, structuralEdgeCount: 843 }),
-    ).toBe(true);
-  });
-});
-
 describe("default connection controls", () => {
   it("matches the spec: routes/best on; issues, all, old and recent missing links off", () => {
-    expect(DENSE_DEFAULT_CONNECTION_CONTROLS).toEqual({
+    expect(DEFAULT_CONNECTION_CONTROLS).toEqual({
       routeHints: true,
       bestNeighbourLinks: true,
       devicesWithIssues: false,
@@ -107,11 +93,114 @@ describe("default connection controls", () => {
   });
 
   it("keeps Devices with issues off by default", () => {
-    expect(DENSE_DEFAULT_CONNECTION_CONTROLS.devicesWithIssues).toBe(false);
+    expect(DEFAULT_CONNECTION_CONTROLS.devicesWithIssues).toBe(false);
   });
 
   it("keeps Recent missing links off by default", () => {
-    expect(DENSE_DEFAULT_CONNECTION_CONTROLS.recentMissingLinks).toBe(false);
+    expect(DEFAULT_CONNECTION_CONTROLS.recentMissingLinks).toBe(false);
+  });
+});
+
+describe("selectAdaptiveBestNeighbourLinks", () => {
+  it("keeps the maximum per-device count and all edges on small graphs", () => {
+    // K4: 6 neighbour edges, budget = ceil(4 * 1.5) = 6.
+    const edges = completeGraph(4);
+    const selection = selectAdaptiveBestNeighbourLinks(edges, 4);
+    expect(selection.linksPerDevice).toBe(MAX_NEIGHBOUR_LINKS_PER_DEVICE);
+    expect(selection.edgeIds.size).toBe(edges.length);
+  });
+
+  it("chooses a lower per-device count for dense graphs to stay within budget", () => {
+    // K12: 66 neighbour edges, budget = ceil(12 * 1.5) = 18.
+    const edges = completeGraph(12);
+    const budget = Math.ceil(12 * TARGET_VISIBLE_LINKS_PER_NODE);
+    const selection = selectAdaptiveBestNeighbourLinks(edges, 12);
+    expect(selection.linksPerDevice).toBeLessThan(MAX_NEIGHBOUR_LINKS_PER_DEVICE);
+    expect(selection.linksPerDevice).toBeGreaterThanOrEqual(MIN_NEIGHBOUR_LINKS_PER_DEVICE);
+    expect(selection.edgeIds.size).toBeLessThanOrEqual(budget);
+    expect(selection.edgeIds.size).toBeGreaterThan(0);
+  });
+
+  it("chooses a higher per-device count for smaller graphs than for dense ones", () => {
+    const sparse = selectAdaptiveBestNeighbourLinks(completeGraph(4), 4);
+    const dense = selectAdaptiveBestNeighbourLinks(completeGraph(12), 12);
+    expect(sparse.linksPerDevice).toBeGreaterThan(dense.linksPerDevice);
+  });
+
+  it("falls back to one link per device when even that exceeds the budget", () => {
+    // Six endpoints in the edge list but only two counted nodes: the budget
+    // (3) is below even the N=1 selection, so N=1 is used regardless — no
+    // device is stranded without its strongest link.
+    const edges = completeGraph(6);
+    const selection = selectAdaptiveBestNeighbourLinks(edges, 2);
+    expect(selection.linksPerDevice).toBe(MIN_NEIGHBOUR_LINKS_PER_DEVICE);
+    expect(selection.edgeIds.size).toBeGreaterThan(0);
+  });
+
+  it("is deterministic regardless of input order", () => {
+    const edges = completeGraph(12);
+    const forward = selectAdaptiveBestNeighbourLinks(edges, 12);
+    const reversed = selectAdaptiveBestNeighbourLinks([...edges].reverse(), 12);
+    expect(reversed.linksPerDevice).toBe(forward.linksPerDevice);
+    expect(reversed.edgeIds).toEqual(forward.edgeIds);
+  });
+
+  it("ignores non-neighbour evidence classes", () => {
+    const routeOnly = [
+      edge("a", "b", { id: "route", evidence_class: "latest_snapshot_route", directional: true }),
+    ];
+    const selection = selectAdaptiveBestNeighbourLinks(routeOnly, 2);
+    expect(selection.edgeIds.size).toBe(0);
+  });
+});
+
+describe("connection-control persistence", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("round-trips saved choices per network", () => {
+    const saved = controls({ recentMissingLinks: true, routeHints: false });
+    saveConnectionControls("home", saved);
+    expect(loadConnectionControls("home")).toEqual(saved);
+  });
+
+  it("keeps different choices for different networks", () => {
+    saveConnectionControls("home", controls({ allNeighbourLinks: true }));
+    saveConnectionControls("office", controls({ devicesWithIssues: true }));
+    expect(loadConnectionControls("home").allNeighbourLinks).toBe(true);
+    expect(loadConnectionControls("home").devicesWithIssues).toBe(false);
+    expect(loadConnectionControls("office").allNeighbourLinks).toBe(false);
+    expect(loadConnectionControls("office").devicesWithIssues).toBe(true);
+  });
+
+  it("falls back to defaults for missing or corrupt storage", () => {
+    expect(loadConnectionControls("home")).toEqual(DEFAULT_CONNECTION_CONTROLS);
+    localStorage.setItem(connectionControlsStorageKey("home"), "not json {");
+    expect(loadConnectionControls("home")).toEqual(DEFAULT_CONNECTION_CONTROLS);
+    localStorage.setItem(connectionControlsStorageKey("home"), JSON.stringify([1, 2]));
+    expect(loadConnectionControls("home")).toEqual(DEFAULT_CONNECTION_CONTROLS);
+  });
+
+  it("ignores unknown keys and non-boolean values safely", () => {
+    localStorage.setItem(
+      connectionControlsStorageKey("home"),
+      JSON.stringify({
+        routeHints: false,
+        futureControl: true,
+        allNeighbourLinks: "yes",
+      }),
+    );
+    const loaded = loadConnectionControls("home");
+    expect(loaded.routeHints).toBe(false);
+    expect(loaded.allNeighbourLinks).toBe(false);
+    expect("futureControl" in loaded).toBe(false);
+  });
+
+  it("clears saved choices", () => {
+    saveConnectionControls("home", controls({ recentMissingLinks: true }));
+    clearConnectionControls("home");
+    expect(loadConnectionControls("home")).toEqual(DEFAULT_CONNECTION_CONTROLS);
   });
 });
 
@@ -467,15 +556,5 @@ describe("selectVisibleConnectionEdges", () => {
       selectedNodeId: "r5",
     });
     for (const e of visible) expect(all).toContain(e);
-  });
-});
-
-describe("countHiddenConnectionEdges", () => {
-  it("reports how many available edges are hidden for readability", () => {
-    const a = edge("a", "b");
-    const b = edge("c", "d");
-    const c = edge("e", "f");
-    expect(countHiddenConnectionEdges([a, b, c], [a])).toBe(2);
-    expect(countHiddenConnectionEdges([a], [a])).toBe(0);
   });
 });
