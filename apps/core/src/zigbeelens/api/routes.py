@@ -421,10 +421,15 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
     Historical edges are aggregated backend-side from recent previous
     complete snapshots only and never duplicate relationships present in the
     latest snapshot — this is gap-filling context, not forever history.
-    ``hidden_for_readability`` is a client rendering decision and therefore
-    reported as null here, never zero.
+    Passive-derived investigation hints come only from passive observations
+    already stored (availability transitions, existing incidents); topology
+    evidence corroborates them but never creates them, and they are never
+    routes. ``hidden_for_readability`` and ``passive_hint_count_drawn`` are
+    client rendering decisions and therefore reported as null here, never
+    zero.
     """
     from zigbeelens.topology.history import aggregate_historical_evidence
+    from zigbeelens.topology.passive_hints import aggregate_passive_hints
 
     network = ctx.repo.get_network(network_id)
     if network is None:
@@ -433,6 +438,7 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
     nodes = ctx.repo.list_topology_nodes(latest["snapshot_id"]) if latest else []
     links = ctx.repo.list_topology_links(latest["snapshot_id"]) if latest else []
     history = aggregate_historical_evidence(ctx.repo, network_id)
+    passive = aggregate_passive_hints(ctx.repo, network_id)
 
     latest_neighbor_pairs = {
         tuple(sorted((link["source_ieee"].lower(), link["target_ieee"].lower())))
@@ -457,6 +463,8 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
         "history_window": history["history_window"],
         "historical_neighbors": history["historical_neighbors"],
         "historical_routes": history["historical_routes"],
+        "passive_hints": passive["hints"],
+        "passive_hint_window": passive["window"],
         "limitations": history["limitations"],
         "counts": {
             "latest_snapshot_neighbor_edges": len(latest_neighbor_pairs),
@@ -465,7 +473,10 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
             "historical_route_edges": len(history["historical_routes"]),
             "recent_missing_link_count_total": len(history["historical_neighbors"])
             + len(history["historical_routes"]),
+            "passive_hint_count_available": passive["available_count"],
+            "passive_hint_count_total": len(passive["hints"]),
             # Rendering subsets are chosen client-side; unknown here, not zero.
+            "passive_hint_count_drawn": None,
             "hidden_for_readability": None,
             "known_inventory_devices": inventory["device_count"],
             "observed_topology_nodes": len(nodes),

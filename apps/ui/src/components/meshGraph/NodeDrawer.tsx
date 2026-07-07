@@ -74,6 +74,12 @@ export function NodeDrawer({
         </DrawerSection>
       )}
 
+      {device.passive_hint_summary != null && (
+        <DrawerSection title="Suggested investigation links">
+          <p>{device.passive_hint_summary}</p>
+        </DrawerSection>
+      )}
+
       <DrawerSection title="Passive observations">
         <p>{device.passive_observation_summary}</p>
       </DrawerSection>

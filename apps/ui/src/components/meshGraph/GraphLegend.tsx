@@ -24,18 +24,31 @@ function LegendLine({ cls }: { cls: EvidenceClass }) {
   );
 }
 
-/** Legend for the edge visual grammar; must list every evidence class. */
-export function GraphLegend() {
+/**
+ * Legend for the edge visual grammar. Lists every live evidence class; the
+ * passive-derived entry appears only when the current data actually
+ * contains passive hints, so the legend never advertises evidence the
+ * graph cannot show.
+ */
+export function GraphLegend({ hasPassiveHints = false }: { hasPassiveHints?: boolean }) {
+  const classes = LIVE_EVIDENCE_CLASSES.filter(
+    (cls) => cls !== "passive_derived_association" || hasPassiveHints,
+  );
   return (
     <div aria-label="Link evidence legend" role="group">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zl-muted">
         Link evidence
       </h3>
       <ul className="space-y-2">
-        {LIVE_EVIDENCE_CLASSES.map((cls) => (
+        {classes.map((cls) => (
           <li key={cls} className="flex items-center gap-2 text-xs text-zl-text">
             <LegendLine cls={cls} />
             <span>{evidenceClassLabel(cls)}</span>
+            {cls === "passive_derived_association" && (
+              <span className="text-[10px] text-zl-muted">
+                Passive-derived hint, not topology evidence
+              </span>
+            )}
           </li>
         ))}
       </ul>

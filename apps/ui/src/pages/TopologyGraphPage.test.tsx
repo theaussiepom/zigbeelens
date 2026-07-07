@@ -6,6 +6,7 @@ import type { DeviceSummary } from "@zigbeelens/shared";
 import { TopologyGraphPage } from "@/pages/TopologyGraphPage";
 import type {
   HistoricalEdgeAggregate,
+  PassiveHintAggregate,
   TopologyEvidenceGraphDetail,
   TopologyNetworkDetail,
 } from "@/lib/api";
@@ -210,6 +211,8 @@ const liveDetailWithHistory: TopologyEvidenceGraphDetail = {
       limitations: HISTORICAL_ROUTE_LIMITATIONS,
     }),
   ],
+  passive_hints: [],
+  passive_hint_window: { days: 7, event_window_minutes: 5, min_repeated_windows: 2 },
   limitations: [],
   counts: {
     latest_snapshot_neighbor_edges: 2,
@@ -217,9 +220,54 @@ const liveDetailWithHistory: TopologyEvidenceGraphDetail = {
     historical_neighbor_edges: 1,
     historical_route_edges: 1,
     recent_missing_link_count_total: 2,
+    passive_hint_count_available: 0,
+    passive_hint_count_total: 0,
+    passive_hint_count_drawn: null,
     hidden_for_readability: null,
     known_inventory_devices: 4,
     observed_topology_nodes: 3,
+  },
+};
+
+const PASSIVE_HINT_LIMITATIONS = [
+  "This is not topology evidence.",
+  "This does not prove these devices are connected.",
+  "This does not prove current live routing.",
+  "This does not identify which device, if any, is responsible.",
+];
+
+function makePassiveHint(overrides: Partial<PassiveHintAggregate>): PassiveHintAggregate {
+  return {
+    source_ieee: "0xe1",
+    target_ieee: "0xe2",
+    evidence_class: "passive_derived_association",
+    directional: false,
+    confidence: "medium",
+    first_seen_at: "2026-07-03T10:00:00+00:00",
+    last_seen_at: "2026-07-05T22:00:00+00:00",
+    observed_count: 3,
+    issue_related: false,
+    rules_matched: ["shared_instability_window", "topology_neighbourhood_corroboration"],
+    supporting_observations: [
+      "3 related instability windows in the last 7 days.",
+      "Recent topology evidence also involved a related router neighbourhood.",
+    ],
+    limitations: PASSIVE_HINT_LIMITATIONS,
+    suggested_investigation: [
+      "Review both devices' recent availability history around the correlated windows.",
+    ],
+    ...overrides,
+  };
+}
+
+/** The home network plus one passive-derived investigation hint. */
+const liveDetailWithPassiveHints: TopologyEvidenceGraphDetail = {
+  ...liveDetailWithHistory,
+  passive_hints: [makePassiveHint({})],
+  counts: {
+    ...liveDetailWithHistory.counts,
+    passive_hint_count_available: 1,
+    passive_hint_count_total: 1,
   },
 };
 
@@ -426,11 +474,20 @@ describe("TopologyGraphPage live mode", () => {
     expect(
       screen.getByText("No recent missing links in the selected history window."),
     ).toBeInTheDocument();
-    // Passive-derived and stale controls are gone with sample mode.
+    // No passive hints in this response: suggested investigation links
+    // disabled with honest empty copy.
+    expect(
+      screen.getByRole("checkbox", { name: /suggested investigation links/i }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(
+        "No passive-derived investigation hints are available for this network yet.",
+      ),
+    ).toBeInTheDocument();
+    // The stale control is gone with sample mode.
     expect(
       screen.queryByRole("checkbox", { name: /stale \/ low-confidence/i }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByText(/passive-derived hints/i)).not.toBeInTheDocument();
   });
 
   it("opens the neighbour edge drawer with snapshot facts and safe wording", async () => {
@@ -772,7 +829,16 @@ describe("TopologyGraphPage focused view on large graphs", () => {
       panel.getByText("No recent missing links in the selected history window."),
     ).toBeInTheDocument();
     expect(panel.queryByRole("checkbox", { name: /selected device links/i })).not.toBeInTheDocument();
-    expect(panel.queryByRole("checkbox", { name: /suggested investigation links/i })).not.toBeInTheDocument();
+
+    // No passive hints in this fixture: disabled with honest empty copy.
+    expect(
+      panel.getByRole("checkbox", { name: /suggested investigation links/i }),
+    ).toBeDisabled();
+    expect(
+      panel.getByText(
+        "No passive-derived investigation hints are available for this network yet.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("draws a focused subset by default — not empty, not the full hairball", async () => {
@@ -1188,6 +1254,8 @@ describe("TopologyGraphPage historical evidence on large graphs", () => {
       },
       historical_neighbors: neighbors,
       historical_routes: [],
+      passive_hints: [],
+      passive_hint_window: { days: 7, event_window_minutes: 5, min_repeated_windows: 2 },
       limitations: [],
       counts: {
         latest_snapshot_neighbor_edges: 435,
@@ -1195,6 +1263,9 @@ describe("TopologyGraphPage historical evidence on large graphs", () => {
         historical_neighbor_edges: neighbors.length,
         historical_route_edges: 0,
         recent_missing_link_count_total: neighbors.length,
+        passive_hint_count_available: 0,
+        passive_hint_count_total: 0,
+        passive_hint_count_drawn: null,
         hidden_for_readability: null,
         known_inventory_devices: dense.devices.length,
         observed_topology_nodes: 31,
@@ -1306,24 +1377,217 @@ describe("TopologyGraphPage historical evidence on large graphs", () => {
   });
 });
 
+describe("TopologyGraphPage passive-derived investigation hints", () => {
+  beforeEach(() => {
+    mockDetail = liveDetailWithPassiveHints;
+    mockDevices = liveDevices;
+  });
+
+  const investigationToggle = () =>
+    screen.getByRole("checkbox", { name: /suggested investigation links/i });
+
+  it("enables the control when passive hints exist, off by default", async () => {
+    const { container } = await renderLiveAndWaitForLayout();
+    expect(investigationToggle()).toBeEnabled();
+    expect(investigationToggle()).not.toBeChecked();
+    expect(
+      screen.getByText(
+        "Draw cautious investigation hints suggested by passive observations. These are not topology links or proof of live routing.",
+      ),
+    ).toBeInTheDocument();
+    // Off by default: no passive edges rendered.
+    expect(container.querySelectorAll(".mesh-edge--passive_derived_association")).toHaveLength(
+      0,
+    );
+  });
+
+  it("draws ghost passive edges without arrowheads when enabled", async () => {
+    const user = userEvent.setup();
+    const { container } = await renderLiveAndWaitForLayout();
+    await user.click(investigationToggle());
+    await waitFor(() => {
+      expect(
+        container.querySelectorAll(".mesh-edge--passive_derived_association"),
+      ).toHaveLength(1);
+    });
+    const path = container.querySelector(
+      ".mesh-edge--passive_derived_association .react-flow__edge-path",
+    ) as SVGPathElement;
+    expect(path).not.toBeNull();
+    // Ghost / faint investigation styling: fainter and thinner than every
+    // topology evidence style, subtle dotted dash.
+    expect(path.style.opacity).toBe("0.45");
+    expect(path.style.strokeDasharray).toBe("1 8");
+    // Never a route arrowhead: passive hints are not directional.
+    expect(path.getAttribute("marker-end")).toBeNull();
+
+    // Toggling off removes them again.
+    await user.click(investigationToggle());
+    await waitFor(() => {
+      expect(
+        container.querySelectorAll(".mesh-edge--passive_derived_association"),
+      ).toHaveLength(0);
+    });
+  });
+
+  it("opens a drawer that explains the hint without topology or routing claims", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    await user.click(investigationToggle());
+    const edge = await screen.findByLabelText(
+      "Suggested investigation link between Live Lamp and Live Sleepy Sensor",
+    );
+    fireEvent.click(edge);
+    const drawer = screen.getByRole("dialog", { name: /suggested investigation link/i });
+    // Required sections.
+    expect(within(drawer).getByText("What this means")).toBeInTheDocument();
+    expect(within(drawer).getByText("Why ZigbeeLens suggested this")).toBeInTheDocument();
+    expect(within(drawer).getByText("Supporting observations")).toBeInTheDocument();
+    expect(within(drawer).getByText("Confidence")).toBeInTheDocument();
+    expect(within(drawer).getByText("Limitations")).toBeInTheDocument();
+    expect(within(drawer).getByText("Suggested investigation")).toBeInTheDocument();
+    // Cautious framing.
+    expect(
+      within(drawer).getByText(/worth investigating together/i),
+    ).toBeInTheDocument();
+    expect(within(drawer).getByText("This is not topology evidence.")).toBeInTheDocument();
+    expect(
+      within(drawer).getByText("This does not prove current live routing."),
+    ).toBeInTheDocument();
+    expect(
+      within(drawer).getByText(/repeatedly showed instability around the same time/i),
+    ).toBeInTheDocument();
+    expect(
+      within(drawer).getByText(
+        /recent topology evidence also places these devices in a related router neighbourhood/i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(drawer).getByText(/3 related instability windows in the last 7 days/i),
+    ).toBeInTheDocument();
+    // No forbidden wording.
+    const text = drawer.textContent ?? "";
+    expect(text).not.toMatch(/parent router/i);
+    expect(text).not.toMatch(/child device/i);
+    expect(text).not.toMatch(/current route\b/i);
+    expect(text).not.toMatch(/currently routed/i);
+    expect(text).not.toMatch(/actual path/i);
+    expect(text).not.toMatch(/connected through/i);
+    expect(text).not.toMatch(/caused by/i);
+    expect(text).not.toMatch(/failed because/i);
+    expect(text).not.toMatch(/broken link/i);
+    expect(text).not.toMatch(/lost link/i);
+    expect(text).not.toMatch(/same parent/i);
+  });
+
+  it("adds a suggested investigation section to the node drawer when hints touch a device", async () => {
+    await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(within(drawer).getByText("Suggested investigation links")).toBeInTheDocument();
+    expect(
+      within(drawer).getByText(
+        /1 passive-derived investigation hint involves this device\. These are not topology links or proof of live routing\./i,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("says so plainly when a device has no passive hints", async () => {
+    await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xc0"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(
+      within(drawer).getByText(
+        "No passive-derived investigation hints in the selected window.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("includes the legend entry only when passive hints exist", async () => {
+    await renderLiveAndWaitForLayout();
+    const legend = screen.getByRole("group", { name: /link evidence legend/i });
+    expect(within(legend).getByText("Suggested investigation link")).toBeInTheDocument();
+    expect(
+      within(legend).getByText("Passive-derived hint, not topology evidence"),
+    ).toBeInTheDocument();
+  });
+
+  it("selecting a device reveals its passive hints even when the control is off", async () => {
+    const { container } = await renderLiveAndWaitForLayout();
+    expect(container.querySelectorAll(".mesh-edge--passive_derived_association")).toHaveLength(
+      0,
+    );
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    await waitFor(() => {
+      expect(
+        container.querySelectorAll(".mesh-edge--passive_derived_association"),
+      ).toHaveLength(1);
+    });
+  });
+
+  it("caps drawn passive hints per node in large graphs", async () => {
+    // Many hints all touching one hub device: the per-node cap (3) applies.
+    mockDetail = {
+      ...liveDetailWithPassiveHints,
+      passive_hints: ["0xe2", "0xr1", "0xc0", "0xe3", "0xe4", "0xe5"].map((other) =>
+        makePassiveHint({ source_ieee: "0xe1", target_ieee: other }),
+      ),
+    };
+    const user = userEvent.setup();
+    const { container } = await renderLiveAndWaitForLayout();
+    await user.click(investigationToggle());
+    await waitFor(() => {
+      expect(
+        container.querySelectorAll(".mesh-edge--passive_derived_association").length,
+      ).toBeGreaterThan(0);
+    });
+    expect(
+      container.querySelectorAll(".mesh-edge--passive_derived_association").length,
+    ).toBeLessThanOrEqual(3);
+  });
+
+  it("renders no forbidden wording anywhere with passive hints enabled", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    await user.click(investigationToggle());
+    const text = document.body.textContent ?? "";
+    expect(text).not.toMatch(/parent router/i);
+    expect(text).not.toMatch(/currently routed/i);
+    expect(text).not.toMatch(/current route\b/i);
+    expect(text).not.toMatch(/caused by/i);
+    expect(text).not.toMatch(/connected through/i);
+  });
+});
+
 describe("TopologyGraphPage shared chrome", () => {
-  it("renders the legend with every evidence class live data can produce", async () => {
+  it("renders the legend with topology classes, omitting passive when no hints exist", async () => {
     await renderLiveAndWaitForLayout();
     const legend = screen.getByRole("group", { name: /link evidence legend/i });
     for (const cls of LIVE_EVIDENCE_CLASSES) {
+      if (cls === "passive_derived_association") continue;
       expect(within(legend).getByText(evidenceClassLabel(cls))).toBeInTheDocument();
     }
-    // Classes without a live source stay out of the legend.
+    // No passive hints in this data: the legend must not advertise them.
+    expect(
+      within(legend).queryByText("Suggested investigation link"),
+    ).not.toBeInTheDocument();
     expect(within(legend).queryByText(/passive-derived/i)).not.toBeInTheDocument();
+    // Classes without a live source stay out of the legend.
     expect(within(legend).queryByText(/stale/i)).not.toBeInTheDocument();
   });
 
-  it("renders a safety banner that never claims passive links are active", async () => {
+  it("renders a safety banner that qualifies passive hints, never presenting them as topology", async () => {
     await renderLiveAndWaitForLayout();
     const note = screen.getByRole("note", { name: /evidence safety note/i });
     expect(note).toHaveTextContent(GRAPH_SAFETY_COPY_LIVE);
-    // Live mode has no passive-derived edges, so the banner must not imply them.
-    expect(note).not.toHaveTextContent(/passive/i);
+    // Passive hints are qualified: opt-in, not topology, not live routing.
+    expect(note).toHaveTextContent(/if enabled/i);
+    expect(note).toHaveTextContent(/passive-derived hints only/i);
+    expect(note).toHaveTextContent(
+      /not topology links and do not prove current live routing/i,
+    );
     expect(note).toHaveTextContent(/should not be treated as proof of current live routing/i);
+    // Never implies passive hints are always drawn or are topology facts.
+    expect(note).not.toHaveTextContent(/passive hints are drawn/i);
   });
 });

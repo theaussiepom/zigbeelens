@@ -904,6 +904,36 @@ class Repository:
         )
         return [dict(row) for row in cur.fetchall()]
 
+    def list_availability_changes_since(
+        self, network_id: str, since_iso: str
+    ) -> list[dict[str, Any]]:
+        """All availability transitions for a network since a cutoff,
+        oldest first. Read-only passive data already recorded by MQTT
+        ingestion; used for passive-derived investigation hints."""
+        cur = self.db.conn.execute(
+            """
+            SELECT ieee_address, from_state, to_state, changed_at
+            FROM availability_changes
+            WHERE network_id = ? AND changed_at >= ?
+            ORDER BY changed_at ASC
+            """,
+            (network_id, since_iso),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+    def list_active_incident_device_addresses(self, network_id: str) -> list[str]:
+        """IEEE addresses linked to open/watching incidents in a network."""
+        cur = self.db.conn.execute(
+            """
+            SELECT DISTINCT d.ieee_address
+            FROM incident_devices d
+            JOIN incidents i ON i.id = d.incident_id
+            WHERE d.network_id = ? AND i.lifecycle_state IN ('open', 'watching')
+            """,
+            (network_id,),
+        )
+        return [row[0] for row in cur.fetchall()]
+
     def list_metric_samples(
         self, network_id: str, ieee_address: str, limit: int = 50
     ) -> list[dict[str, Any]]:
