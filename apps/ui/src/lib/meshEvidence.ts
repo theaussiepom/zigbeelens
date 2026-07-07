@@ -158,9 +158,9 @@ export function evidenceClassLabel(cls: EvidenceClass): string {
     case "latest_snapshot_route":
       return "Latest route-table / next-hop evidence";
     case "historical_neighbor":
-      return "Previously seen neighbour link";
+      return "Recent missing neighbour link";
     case "historical_route":
-      return "Previously seen route hint";
+      return "Recent missing route hint";
     case "passive_derived_association":
       return "Passive-derived association";
     case "stale_low_confidence":
@@ -179,9 +179,9 @@ export function evidenceClassDescription(cls: EvidenceClass): string {
     case "latest_snapshot_route":
       return "Route-table / next-hop entry from the most recent topology snapshot. Zigbee routes change over time; this does not prove current live routing.";
     case "historical_neighbor":
-      return "Link observed in previous topology snapshots but not observed in the latest snapshot. This does not prove current live routing, and its absence from the latest snapshot does not prove a failure.";
+      return "This neighbour link was observed in a recent previous topology snapshot but is not shown in the latest usable snapshot. This does not prove current live routing, and its absence from the latest snapshot does not prove a failure.";
     case "historical_route":
-      return "Route-table evidence observed in previous topology snapshots but not observed in the latest snapshot. This does not prove current live routing.";
+      return "Route-table evidence was observed in a recent previous topology snapshot. This does not prove current live routing.";
     case "passive_derived_association":
       return "Investigation hint derived from passive observations over time, such as correlated availability changes or overlapping stale windows. This is not topology evidence and is not a route.";
     case "stale_low_confidence":
@@ -197,9 +197,9 @@ export function evidenceClassShortLabel(cls: EvidenceClass): string {
     case "latest_snapshot_route":
       return "Snapshot route";
     case "historical_neighbor":
-      return "Previously seen link";
+      return "Recent missing link";
     case "historical_route":
-      return "Previously seen route";
+      return "Recent missing route";
     case "passive_derived_association":
       return "Investigation hint";
     case "stale_low_confidence":
@@ -300,7 +300,7 @@ export function latestSnapshotStatusCopy(edge: MeshEvidenceEdge): string {
     return "Present in the latest topology snapshot.";
   }
   if (edge.latest_layout_limited) {
-    return "Latest snapshot layout is limited, so absence from the latest snapshot cannot be treated as meaningful.";
+    return "The latest snapshot layout is limited, so absence from the latest graph is not meaningful by itself.";
   }
   return "Not observed in the latest topology snapshot. This alone does not prove the link is gone or that a device has failed.";
 }

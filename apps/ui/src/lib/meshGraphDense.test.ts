@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { MeshEvidenceDevice, MeshEvidenceEdge } from "@/lib/meshEvidence";
 import {
   DENSE_DEFAULT_CONNECTION_CONTROLS,
+  MAX_RECENT_MISSING_LINKS_PER_NODE,
+  MAX_RECENT_MISSING_LINKS_TOTAL,
   collectIssueDeviceIds,
   countHiddenConnectionEdges,
   deviceHasIssue,
   isDenseGraph,
   selectBestNeighbourLinks,
+  selectRecentMissingEdges,
   selectVisibleConnectionEdges,
   type ConnectionControls,
 } from "@/lib/meshGraphDense";
@@ -92,14 +95,14 @@ describe("isDenseGraph", () => {
 });
 
 describe("default connection controls", () => {
-  it("matches the spec: routes/best on; issues, all, old and previously seen links off", () => {
+  it("matches the spec: routes/best on; issues, all, old and recent missing links off", () => {
     expect(DENSE_DEFAULT_CONNECTION_CONTROLS).toEqual({
       routeHints: true,
       bestNeighbourLinks: true,
       devicesWithIssues: false,
       allNeighbourLinks: false,
       oldUncertainLinks: false,
-      previouslySeenLinks: false,
+      recentMissingLinks: false,
     });
   });
 
@@ -107,8 +110,8 @@ describe("default connection controls", () => {
     expect(DENSE_DEFAULT_CONNECTION_CONTROLS.devicesWithIssues).toBe(false);
   });
 
-  it("keeps Previously seen links off by default", () => {
-    expect(DENSE_DEFAULT_CONNECTION_CONTROLS.previouslySeenLinks).toBe(false);
+  it("keeps Recent missing links off by default", () => {
+    expect(DENSE_DEFAULT_CONNECTION_CONTROLS.recentMissingLinks).toBe(false);
   });
 });
 
@@ -203,6 +206,103 @@ describe("deviceHasIssue / collectIssueDeviceIds", () => {
       device("b", { flags: ["needs_attention"] }),
     ]);
     expect(ids).toEqual(new Set(["b"]));
+  });
+});
+
+describe("selectRecentMissingEdges", () => {
+  const noInput = {
+    issueDeviceIds: new Set<string>(),
+    devicesWithLatestNeighbourEvidence: new Set<string>(),
+    latestLayoutLimited: false,
+  };
+
+  function historical(
+    source: string,
+    target: string,
+    overrides: Partial<MeshEvidenceEdge> = {},
+  ): MeshEvidenceEdge {
+    return edge(source, target, {
+      evidence_class: "historical_neighbor",
+      in_latest_snapshot: false,
+      ...overrides,
+    });
+  }
+
+  it("only considers historical evidence classes", () => {
+    const chosen = selectRecentMissingEdges(
+      [edge("a", "b", { id: "live" }), historical("c", "d", { id: "hist" })],
+      noInput,
+    );
+    expect(chosen).toEqual(new Set(["hist"]));
+  });
+
+  it("caps historical links per node", () => {
+    const edges = Array.from({ length: MAX_RECENT_MISSING_LINKS_PER_NODE + 4 }, (_, i) =>
+      historical("hub", `leaf-${i}`, { id: `h-${i}` }),
+    );
+    const chosen = selectRecentMissingEdges(edges, noInput);
+    expect(chosen.size).toBe(MAX_RECENT_MISSING_LINKS_PER_NODE);
+  });
+
+  it("caps historical links in total", () => {
+    const edges = Array.from({ length: MAX_RECENT_MISSING_LINKS_TOTAL + 50 }, (_, i) =>
+      historical(`a-${i}`, `b-${i}`, { id: `h-${i}` }),
+    );
+    const chosen = selectRecentMissingEdges(edges, noInput);
+    expect(chosen.size).toBe(MAX_RECENT_MISSING_LINKS_TOTAL);
+  });
+
+  it("prioritises edges touching devices with existing issue flags", () => {
+    const edges = [
+      historical("hub", "plain-1", { id: "plain-1", last_seen_at: "2026-07-06T00:00:00Z" }),
+      historical("hub", "plain-2", { id: "plain-2", last_seen_at: "2026-07-06T00:00:00Z" }),
+      historical("hub", "plain-3", { id: "plain-3", last_seen_at: "2026-07-06T00:00:00Z" }),
+      historical("hub", "flagged", { id: "flagged", last_seen_at: "2026-01-01T00:00:00Z" }),
+    ];
+    const chosen = selectRecentMissingEdges(edges, {
+      ...noInput,
+      issueDeviceIds: new Set(["flagged"]),
+      // Everything has latest evidence, so only the issue flag grants priority.
+      devicesWithLatestNeighbourEvidence: new Set([
+        "hub",
+        "plain-1",
+        "plain-2",
+        "plain-3",
+        "flagged",
+      ]),
+    });
+    // "flagged" is older but relevant, so it wins a slot under hub's cap.
+    expect(chosen.has("flagged")).toBe(true);
+    expect(chosen.size).toBe(MAX_RECENT_MISSING_LINKS_PER_NODE);
+  });
+
+  it("prioritises edges whose endpoint has no latest neighbour evidence", () => {
+    const edges = [
+      historical("hub", "covered-1", { id: "c1", last_seen_at: "2026-07-06T00:00:00Z" }),
+      historical("hub", "covered-2", { id: "c2", last_seen_at: "2026-07-06T00:00:00Z" }),
+      historical("hub", "covered-3", { id: "c3", last_seen_at: "2026-07-06T00:00:00Z" }),
+      historical("hub", "orphan", { id: "orphan", last_seen_at: "2026-01-01T00:00:00Z" }),
+    ];
+    const chosen = selectRecentMissingEdges(edges, {
+      ...noInput,
+      devicesWithLatestNeighbourEvidence: new Set(["hub", "covered-1", "covered-2", "covered-3"]),
+    });
+    expect(chosen.has("orphan")).toBe(true);
+  });
+
+  it("treats every edge as relevant when the latest layout is limited", () => {
+    const edges = [historical("a", "b", { id: "h1" }), historical("c", "d", { id: "h2" })];
+    const chosen = selectRecentMissingEdges(edges, { ...noInput, latestLayoutLimited: true });
+    expect(chosen).toEqual(new Set(["h1", "h2"]));
+  });
+
+  it("is deterministic for the same input", () => {
+    const edges = Array.from({ length: 30 }, (_, i) =>
+      historical(`a-${i % 10}`, `b-${i}`, { id: `h-${i}` }),
+    );
+    const first = selectRecentMissingEdges(edges, noInput);
+    const second = selectRecentMissingEdges([...edges].reverse(), noInput);
+    expect(second).toEqual(first);
   });
 });
 
@@ -317,6 +417,48 @@ describe("selectVisibleConnectionEdges", () => {
       selectedEdge: staleEdge,
     });
     expect(visible).toContain(staleEdge);
+  });
+
+  it("recent missing links render only the focused subset, never all history", () => {
+    const inSubset = edge("h1", "h2", {
+      id: "hist-in",
+      evidence_class: "historical_neighbor",
+      in_latest_snapshot: false,
+    });
+    const overCap = edge("h3", "h4", {
+      id: "hist-out",
+      evidence_class: "historical_route",
+      directional: true,
+      in_latest_snapshot: false,
+    });
+    const withHistory = [...all, inSubset, overCap];
+    const historyContext = { ...context, recentMissingEdgeIds: new Set(["hist-in"]) };
+
+    const off = selectVisibleConnectionEdges(withHistory, controls(), historyContext);
+    expect(off).not.toContain(inSubset);
+    expect(off).not.toContain(overCap);
+
+    const on = selectVisibleConnectionEdges(
+      withHistory,
+      controls({ recentMissingLinks: true }),
+      historyContext,
+    );
+    expect(on).toContain(inSubset);
+    expect(on).not.toContain(overCap);
+  });
+
+  it("selecting a device reveals its recent missing links even over the cap", () => {
+    const overCap = edge("h3", "h4", {
+      id: "hist-out",
+      evidence_class: "historical_neighbor",
+      in_latest_snapshot: false,
+    });
+    const visible = selectVisibleConnectionEdges([...all, overCap], controls(), {
+      ...context,
+      recentMissingEdgeIds: new Set<string>(),
+      selectedNodeId: "h3",
+    });
+    expect(visible).toContain(overCap);
   });
 
   it("never invents or removes evidence — output is a subset of input", () => {

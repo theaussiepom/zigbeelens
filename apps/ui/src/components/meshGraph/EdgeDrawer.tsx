@@ -126,8 +126,8 @@ export function EdgeDrawer({
         </dl>
         {edge.evidence_class === "historical_route" && (
           <p className="mt-1 text-xs text-zl-muted">
-            Route-table evidence was observed in a previous topology snapshot. This does not
-            prove current live routing.
+            Route-table evidence was observed in a recent previous topology snapshot. This does
+            not prove current live routing.
           </p>
         )}
         {!edge.route_table_evidence && (

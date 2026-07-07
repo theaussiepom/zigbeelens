@@ -69,7 +69,7 @@ export function NodeDrawer({
       </DrawerSection>
 
       {device.historical_topology_summary != null && (
-        <DrawerSection title="Historical topology evidence">
+        <DrawerSection title="Recent missing topology evidence">
           <p>{device.historical_topology_summary}</p>
         </DrawerSection>
       )}

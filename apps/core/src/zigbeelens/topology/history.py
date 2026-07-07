@@ -1,7 +1,12 @@
-"""Historical topology evidence aggregation.
+"""Recent missing topology evidence aggregation.
 
-Builds "previously seen" neighbour and route evidence from complete topology
-snapshots already stored by ZigbeeLens, for the Mesh Evidence Graph.
+Builds "recent missing" neighbour and route evidence — links observed in
+recent previous complete topology snapshots but absent from the latest one —
+for the Mesh Evidence Graph.
+
+The intent is gap-filling context ("what was seen recently before, but is not
+shown in the latest snapshot?"), never a forever-history dump of everything
+ever observed.
 
 Safety rules enforced here:
 
@@ -27,19 +32,25 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from zigbeelens.storage.repository import Repository
 
-# Conservative history window: previous complete snapshots are considered
-# only if captured within this many days, capped at this many snapshots.
-# Default snapshot retention (max_snapshots_per_network=5, 7-day storage
-# purge) is usually stricter; these caps bound cost on long-retention setups.
-HISTORY_WINDOW_DAYS = 30
-HISTORY_MAX_SNAPSHOTS = 20
+# Recent history window: previous complete snapshots contribute only if
+# captured within this many days, capped at this many snapshots. Kept
+# deliberately narrow so historical edges explain recent gaps rather than
+# reconstructing forever history.
+RECENT_HISTORY_WINDOW_DAYS = 7
+RECENT_HISTORY_MAX_SNAPSHOTS = 3
 
 HISTORICAL_NEIGHBOR_LIMITATION = (
-    "This link was observed in previous topology snapshots. "
-    "It does not prove current live routing."
+    "This neighbour link was observed in a recent previous topology snapshot "
+    "but is not shown in the latest usable snapshot. "
+    "This does not prove current live routing."
+)
+HISTORICAL_NEIGHBOR_LIMITED_LIMITATION = (
+    "This neighbour link was observed in a recent previous topology snapshot. "
+    "The latest snapshot layout is limited, so absence from the latest graph "
+    "is not meaningful by itself."
 )
 HISTORICAL_ROUTE_LIMITATION = (
-    "Route-table evidence was observed in previous topology snapshots. "
+    "Route-table evidence was observed in a recent previous topology snapshot. "
     "This does not prove current live routing."
 )
 NOT_IN_LATEST_LIMITATION = (
@@ -47,8 +58,8 @@ NOT_IN_LATEST_LIMITATION = (
     "is gone or that a device has failed."
 )
 LATEST_LAYOUT_LIMITED_LIMITATION = (
-    "Latest snapshot layout is limited, so absence from the latest snapshot "
-    "cannot be treated as meaningful."
+    "The latest snapshot layout is limited, so absence from the latest graph "
+    "is not meaningful by itself."
 )
 
 
@@ -136,13 +147,16 @@ def aggregate_historical_evidence(
     *,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Aggregate previously-seen neighbour/route evidence for a network.
+    """Aggregate recent-missing neighbour/route evidence for a network.
 
     Returns history window metadata, graph-ready historical edge aggregates
-    (latest-snapshot relationships excluded) and top-level limitations.
+    (latest-snapshot relationships excluded) and top-level limitations. The
+    window is deliberately recent (RECENT_HISTORY_WINDOW_DAYS /
+    RECENT_HISTORY_MAX_SNAPSHOTS) so output explains recent gaps rather than
+    accumulating forever history.
     """
     now = now or datetime.now(timezone.utc)
-    cutoff = now - timedelta(days=HISTORY_WINDOW_DAYS)
+    cutoff = now - timedelta(days=RECENT_HISTORY_WINDOW_DAYS)
 
     latest = repo.get_latest_topology_snapshot(network_id)
     latest_snapshot_id = latest["snapshot_id"] if latest else None
@@ -173,7 +187,7 @@ def aggregate_historical_evidence(
         if captured is None or captured < cutoff:
             continue
         candidates.append(snapshot)
-    candidates = candidates[:HISTORY_MAX_SNAPSHOTS]
+    candidates = candidates[:RECENT_HISTORY_MAX_SNAPSHOTS]
     # Process oldest-first so "last observed" fields track the newest data.
     candidates.reverse()
 
@@ -192,8 +206,15 @@ def aggregate_historical_evidence(
                 routes.setdefault((source, target), _RouteAccumulator()).add(link, snapshot)
 
     limited_extra = [LATEST_LAYOUT_LIMITED_LIMITATION] if not latest_layout_available else []
-    latest_status = (
-        [NOT_IN_LATEST_LIMITATION] if latest_layout_available else [LATEST_LAYOUT_LIMITED_LIMITATION]
+    neighbor_limitations = (
+        [HISTORICAL_NEIGHBOR_LIMITATION, NOT_IN_LATEST_LIMITATION]
+        if latest_layout_available
+        else [HISTORICAL_NEIGHBOR_LIMITED_LIMITATION]
+    )
+    route_limitations = (
+        [HISTORICAL_ROUTE_LIMITATION, NOT_IN_LATEST_LIMITATION]
+        if latest_layout_available
+        else [HISTORICAL_ROUTE_LIMITATION, LATEST_LAYOUT_LIMITED_LIMITATION]
     )
 
     historical_neighbors: list[dict[str, Any]] = []
@@ -223,7 +244,7 @@ def aggregate_historical_evidence(
                 "not_seen_in_latest_snapshot": True,
                 "latest_layout_limited": not latest_layout_available,
                 "confidence": _confidence(snapshot_count),
-                "limitations": [HISTORICAL_NEIGHBOR_LIMITATION, *latest_status],
+                "limitations": list(neighbor_limitations),
             }
         )
 
@@ -254,7 +275,7 @@ def aggregate_historical_evidence(
                 "not_seen_in_latest_snapshot": True,
                 "latest_layout_limited": not latest_layout_available,
                 "confidence": _confidence(snapshot_count),
-                "limitations": [HISTORICAL_ROUTE_LIMITATION, *latest_status],
+                "limitations": list(route_limitations),
             }
         )
 
@@ -262,15 +283,15 @@ def aggregate_historical_evidence(
     if not candidates:
         limitations.append(
             "No previous complete topology snapshots are available in the "
-            f"selected history window ({HISTORY_WINDOW_DAYS} days, up to "
-            f"{HISTORY_MAX_SNAPSHOTS} snapshots)."
+            f"selected history window ({RECENT_HISTORY_WINDOW_DAYS} days, up to "
+            f"{RECENT_HISTORY_MAX_SNAPSHOTS} snapshots)."
         )
     limitations.extend(limited_extra)
 
     return {
         "history_window": {
-            "days": HISTORY_WINDOW_DAYS,
-            "max_snapshots": HISTORY_MAX_SNAPSHOTS,
+            "days": RECENT_HISTORY_WINDOW_DAYS,
+            "max_snapshots": RECENT_HISTORY_MAX_SNAPSHOTS,
             "snapshots_considered": len(candidates),
             "earliest_captured_at": candidates[0]["captured_at"] if candidates else None,
             "latest_captured_at": candidates[-1]["captured_at"] if candidates else None,

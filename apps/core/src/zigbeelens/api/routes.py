@@ -416,12 +416,13 @@ def topology_network(network_id: str, ctx: AppContext = Depends(ctx_dep)) -> dic
 @router.get("/topology/{network_id}/evidence-graph")
 def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep)) -> dict:
     """Graph-ready topology evidence: latest snapshot plus aggregated
-    previously-seen (historical) neighbour/route evidence.
+    recent-missing (historical) neighbour/route evidence.
 
-    Historical edges are aggregated backend-side from previous complete
-    snapshots in the history window and never duplicate relationships present
-    in the latest snapshot. ``hidden_for_readability`` is a client rendering
-    decision and therefore reported as null here, never zero.
+    Historical edges are aggregated backend-side from recent previous
+    complete snapshots only and never duplicate relationships present in the
+    latest snapshot — this is gap-filling context, not forever history.
+    ``hidden_for_readability`` is a client rendering decision and therefore
+    reported as null here, never zero.
     """
     from zigbeelens.topology.history import aggregate_historical_evidence
 
@@ -451,6 +452,7 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
         "nodes": nodes,
         "links": links,
         "layout_available": bool(nodes or links),
+        "latest_layout_limited": not bool(nodes or links),
         "inventory": inventory,
         "history_window": history["history_window"],
         "historical_neighbors": history["historical_neighbors"],
@@ -461,6 +463,8 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
             "latest_snapshot_route_edges": latest_route_edges,
             "historical_neighbor_edges": len(history["historical_neighbors"]),
             "historical_route_edges": len(history["historical_routes"]),
+            "recent_missing_link_count_total": len(history["historical_neighbors"])
+            + len(history["historical_routes"]),
             # Rendering subsets are chosen client-side; unknown here, not zero.
             "hidden_for_readability": None,
             "known_inventory_devices": inventory["device_count"],
