@@ -173,6 +173,10 @@ export const api = {
   topology: () => fetchJson<TopologyOverview>("api/topology"),
   topologyNetwork: (networkId: string) =>
     fetchJson<TopologyNetworkDetail>(`api/topology/${encodeURIComponent(networkId)}`),
+  topologyEvidenceGraph: (networkId: string) =>
+    fetchJson<TopologyEvidenceGraphDetail>(
+      `api/topology/${encodeURIComponent(networkId)}/evidence-graph`,
+    ),
   captureTopology: (networkId: string) =>
     fetchJson<{ snapshot_id: string; status: string }>(
       `api/topology/${networkId}/capture`,
@@ -253,6 +257,63 @@ export interface TopologyNetworkDetail {
   links: TopologyLinkRow[];
   inventory?: TopologyInventoryCounts | null;
   layout_available?: boolean;
+}
+
+/**
+ * One aggregated previously-seen relationship from the backend history
+ * window. Unknown values are null — never zero.
+ */
+export interface HistoricalEdgeAggregate {
+  source_ieee: string;
+  target_ieee: string;
+  evidence_class: "historical_neighbor" | "historical_route";
+  directional: boolean;
+  first_seen_at?: string | null;
+  last_seen_at?: string | null;
+  observed_count?: number | null;
+  snapshot_count?: number | null;
+  lqi_latest?: number | null;
+  lqi_min?: number | null;
+  lqi_median?: number | null;
+  lqi_max?: number | null;
+  route_observed_count?: number | null;
+  last_route_count?: number | null;
+  last_relationship?: string | null;
+  last_snapshot_id?: string | null;
+  last_captured_at?: string | null;
+  not_seen_in_latest_snapshot: boolean;
+  latest_layout_limited: boolean;
+  confidence: "high" | "medium" | "low";
+  limitations: string[];
+}
+
+export interface TopologyHistoryWindow {
+  days: number;
+  max_snapshots: number;
+  snapshots_considered: number;
+  earliest_captured_at?: string | null;
+  latest_captured_at?: string | null;
+}
+
+export interface TopologyEvidenceGraphCounts {
+  latest_snapshot_neighbor_edges: number;
+  latest_snapshot_route_edges: number;
+  historical_neighbor_edges: number;
+  historical_route_edges: number;
+  /** Rendering subsets are chosen client-side; the API reports null. */
+  hidden_for_readability: number | null;
+  known_inventory_devices: number;
+  observed_topology_nodes: number;
+}
+
+/** Response of GET /api/topology/{network_id}/evidence-graph. */
+export interface TopologyEvidenceGraphDetail extends TopologyNetworkDetail {
+  data_source: string;
+  history_window: TopologyHistoryWindow;
+  historical_neighbors: HistoricalEdgeAggregate[];
+  historical_routes: HistoricalEdgeAggregate[];
+  limitations: string[];
+  counts: TopologyEvidenceGraphCounts;
 }
 
 export type { MockScenarioId };

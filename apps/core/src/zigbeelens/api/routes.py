@@ -413,6 +413,62 @@ def topology_network(network_id: str, ctx: AppContext = Depends(ctx_dep)) -> dic
     }
 
 
+@router.get("/topology/{network_id}/evidence-graph")
+def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep)) -> dict:
+    """Graph-ready topology evidence: latest snapshot plus aggregated
+    previously-seen (historical) neighbour/route evidence.
+
+    Historical edges are aggregated backend-side from previous complete
+    snapshots in the history window and never duplicate relationships present
+    in the latest snapshot. ``hidden_for_readability`` is a client rendering
+    decision and therefore reported as null here, never zero.
+    """
+    from zigbeelens.topology.history import aggregate_historical_evidence
+
+    network = ctx.repo.get_network(network_id)
+    if network is None:
+        raise HTTPException(status_code=404, detail="Network not found")
+    latest = ctx.repo.get_latest_topology_snapshot(network_id)
+    nodes = ctx.repo.list_topology_nodes(latest["snapshot_id"]) if latest else []
+    links = ctx.repo.list_topology_links(latest["snapshot_id"]) if latest else []
+    history = aggregate_historical_evidence(ctx.repo, network_id)
+
+    latest_neighbor_pairs = {
+        tuple(sorted((link["source_ieee"].lower(), link["target_ieee"].lower())))
+        for link in links
+        if link["source_ieee"].lower() != link["target_ieee"].lower()
+    }
+    latest_route_edges = sum(
+        1 for link in links if link.get("route_count") is not None and link["route_count"] > 0
+    )
+    inventory = _topology_inventory_counts(ctx, network_id)
+
+    return {
+        "network_id": network_id,
+        "network_name": network.name,
+        "data_source": "latest_snapshot_plus_history",
+        "latest_snapshot": latest,
+        "nodes": nodes,
+        "links": links,
+        "layout_available": bool(nodes or links),
+        "inventory": inventory,
+        "history_window": history["history_window"],
+        "historical_neighbors": history["historical_neighbors"],
+        "historical_routes": history["historical_routes"],
+        "limitations": history["limitations"],
+        "counts": {
+            "latest_snapshot_neighbor_edges": len(latest_neighbor_pairs),
+            "latest_snapshot_route_edges": latest_route_edges,
+            "historical_neighbor_edges": len(history["historical_neighbors"]),
+            "historical_route_edges": len(history["historical_routes"]),
+            # Rendering subsets are chosen client-side; unknown here, not zero.
+            "hidden_for_readability": None,
+            "known_inventory_devices": inventory["device_count"],
+            "observed_topology_nodes": len(nodes),
+        },
+    }
+
+
 @router.get("/topology/{network_id}/snapshots")
 def topology_snapshots(network_id: str, ctx: AppContext = Depends(ctx_dep)) -> dict:
     if ctx.repo.get_network(network_id) is None:

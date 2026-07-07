@@ -1,5 +1,11 @@
 import type { DeviceSummary, LensBucket } from "@zigbeelens/shared";
-import type { TopologyNetworkDetail, TopologyLinkRow, TopologyNodeRow } from "@/lib/api";
+import type {
+  HistoricalEdgeAggregate,
+  TopologyEvidenceGraphDetail,
+  TopologyLinkRow,
+  TopologyNetworkDetail,
+  TopologyNodeRow,
+} from "@/lib/api";
 import type {
   MeshEvidenceDevice,
   MeshEvidenceEdge,
@@ -7,15 +13,17 @@ import type {
   MeshNodeFlag,
   MeshRole,
 } from "@/lib/meshEvidence";
+import { relativeTime } from "@/lib/format";
 
 /**
- * Map real latest-snapshot topology data + device inventory into the mesh
- * evidence model.
+ * Map real topology data + device inventory into the mesh evidence model.
  *
- * This mapper only ever produces `latest_snapshot_neighbor` and
- * `latest_snapshot_route` evidence. Historical, passive-derived and
- * stale/low-confidence classes require inference that does not exist yet and
- * must never be fabricated from a single snapshot or from inventory data.
+ * This mapper produces `latest_snapshot_neighbor` / `latest_snapshot_route`
+ * evidence from the latest snapshot, plus `historical_neighbor` /
+ * `historical_route` evidence from backend-aggregated previous complete
+ * snapshots when present. Passive-derived and stale/low-confidence classes
+ * require inference that does not exist yet and must never be fabricated
+ * from snapshots or inventory data.
  */
 
 export const LIVE_NEIGHBOR_SAFE_COPY =
@@ -120,6 +128,40 @@ function interpretationFor(
   return "This device appears in the latest topology snapshot and its passive health signals look normal.";
 }
 
+/**
+ * Node-drawer summary of previously-seen links touching one device.
+ * Only produced when historical data was actually evaluated.
+ */
+function historicalSummaryFor(
+  historicalEdges: MeshEvidenceEdge[],
+  ieee: string,
+  latestLayoutLimited: boolean,
+): string {
+  const touching = historicalEdges.filter(
+    (edge) => edge.source === ieee || edge.target === ieee,
+  );
+  if (touching.length === 0) {
+    return "No previously seen topology links in the selected history window.";
+  }
+  const lastSeen = touching
+    .map((edge) => edge.last_seen_at)
+    .filter((v): v is string => Boolean(v))
+    .sort()
+    .at(-1);
+  const parts = [
+    `${touching.length} previously seen link${touching.length === 1 ? "" : "s"} in the selected history window.`,
+  ];
+  if (lastSeen) {
+    parts.push(`Last historical link observed ${relativeTime(lastSeen)}.`);
+  }
+  if (latestLayoutLimited) {
+    parts.push(
+      "Historical evidence is available, but the latest snapshot layout is limited, so absence from the latest graph is not meaningful by itself.",
+    );
+  }
+  return parts.join(" ");
+}
+
 function buildDevice(
   ieee: string,
   networkId: string,
@@ -173,13 +215,70 @@ interface NeighborAccumulator {
   bothDirections: boolean;
 }
 
+/** Map one backend historical aggregate into a mesh evidence edge. */
+function buildHistoricalEdge(
+  aggregate: HistoricalEdgeAggregate,
+  networkId: string,
+): MeshEvidenceEdge {
+  const source = normalizeIeee(aggregate.source_ieee);
+  const target = normalizeIeee(aggregate.target_ieee);
+  const isRoute = aggregate.evidence_class === "historical_route";
+  const id = isRoute
+    ? `hist-route-${source}-${target}`
+    : `hist-neighbor-${[source, target].sort().join("|")}`;
+  return {
+    id,
+    network_id: networkId,
+    source,
+    target,
+    evidence_class: aggregate.evidence_class,
+    confidence: aggregate.confidence,
+    directional: aggregate.directional,
+    issue_related: false,
+    in_latest_snapshot: false,
+    captured_at: aggregate.last_captured_at ?? null,
+    observed_relationship: aggregate.last_relationship ?? null,
+    first_seen_at: aggregate.first_seen_at ?? null,
+    last_seen_at: aggregate.last_seen_at ?? null,
+    observed_count: aggregate.observed_count ?? null,
+    snapshot_count: aggregate.snapshot_count ?? null,
+    lqi_latest: aggregate.lqi_latest ?? null,
+    lqi_min: aggregate.lqi_min ?? null,
+    lqi_median: aggregate.lqi_median ?? null,
+    lqi_max: aggregate.lqi_max ?? null,
+    route_table_evidence: isRoute ? true : null,
+    next_hop_evidence: isRoute ? true : null,
+    route_observed_count: aggregate.route_observed_count ?? null,
+    last_route_count: aggregate.last_route_count ?? null,
+    latest_layout_limited: aggregate.latest_layout_limited,
+    passive_corroboration: null,
+    limitations: aggregate.limitations,
+    suggested_investigation: [],
+  };
+}
+
+/**
+ * Live detail for the evidence graph: the latest-snapshot payload, plus the
+ * backend-aggregated historical evidence when the evidence-graph endpoint
+ * supplied it.
+ */
+export type LiveTopologyDetail = TopologyNetworkDetail &
+  Partial<
+    Pick<
+      TopologyEvidenceGraphDetail,
+      "historical_neighbors" | "historical_routes" | "history_window" | "limitations"
+    >
+  >;
+
 /**
  * Build the live evidence set from the latest snapshot plus inventory.
  * Neighbour entries reported in both directions collapse into one
  * non-directional edge; route-table entries produce directional route edges.
+ * Backend-aggregated historical (previously seen) evidence maps to
+ * historical_neighbor / historical_route edges.
  */
 export function buildLiveMeshEvidence(
-  detail: TopologyNetworkDetail,
+  detail: LiveTopologyDetail,
   inventoryDevices: DeviceSummary[],
 ): LiveMeshEvidence {
   const networkId = detail.network_id;
@@ -228,7 +327,6 @@ export function buildLiveMeshEvidence(
     const limitations = [
       LIVE_NEIGHBOR_SAFE_COPY,
       "Neighbour tables are point-in-time; entries can appear or disappear between snapshots without any fault.",
-      "Only the latest snapshot is considered in this view; historical link tracking is a future feature.",
     ];
     if (bothDirections) {
       limitations.push(
@@ -302,6 +400,21 @@ export function buildLiveMeshEvidence(
     });
   }
 
+  // Historical (previously seen) evidence — backend-aggregated from previous
+  // complete snapshots; latest-snapshot relationships are already excluded
+  // backend-side, so no live edge is ever duplicated as historical.
+  const historicalAggregates = [
+    ...(detail.historical_neighbors ?? []),
+    ...(detail.historical_routes ?? []),
+  ];
+  const historicalEdges = historicalAggregates.map((aggregate) =>
+    buildHistoricalEdge(aggregate, networkId),
+  );
+  const historicalEvaluated =
+    detail.historical_neighbors !== undefined || detail.historical_routes !== undefined;
+  const latestLayoutLimited = historicalEdges.some((edge) => edge.latest_layout_limited);
+  edges.push(...historicalEdges);
+
   // Devices: full inventory plus any topology-only nodes, distinction kept.
   // Link endpoints are included too: a snapshot can reference an endpoint in
   // its link table that appears in neither inventory nor the node list, and
@@ -315,15 +428,21 @@ export function buildLiveMeshEvidence(
   }
   const devices: MeshEvidenceDevice[] = [];
   for (const ieee of allIeee) {
-    devices.push(
-      buildDevice(
-        ieee,
-        networkId,
-        summaryByIeee.get(ieee),
-        nodeByIeee.get(ieee),
-        neighborCounts.get(ieee) ?? 0,
-      ),
+    const device = buildDevice(
+      ieee,
+      networkId,
+      summaryByIeee.get(ieee),
+      nodeByIeee.get(ieee),
+      neighborCounts.get(ieee) ?? 0,
     );
+    if (historicalEvaluated) {
+      device.historical_topology_summary = historicalSummaryFor(
+        historicalEdges,
+        ieee,
+        latestLayoutLimited,
+      );
+    }
+    devices.push(device);
   }
   devices.sort((a, b) => a.friendly_name.localeCompare(b.friendly_name));
 

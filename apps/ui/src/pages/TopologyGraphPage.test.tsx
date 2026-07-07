@@ -5,7 +5,11 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeviceSummary } from "@zigbeelens/shared";
 import { TopologyGraphPage } from "@/pages/TopologyGraphPage";
 import { meshEvidenceGraphFixture } from "@/fixtures/meshEvidenceGraph";
-import type { TopologyNetworkDetail } from "@/lib/api";
+import type {
+  HistoricalEdgeAggregate,
+  TopologyEvidenceGraphDetail,
+  TopologyNetworkDetail,
+} from "@/lib/api";
 import { EVIDENCE_CLASSES, evidenceClassLabel, GRAPH_SAFETY_COPY } from "@/lib/meshEvidence";
 import { positionStorageKey } from "@/lib/meshGraphSmartLayout";
 import { mockReactFlow } from "@/test/mockReactFlow";
@@ -131,6 +135,87 @@ const liveDetailLimited: TopologyNetworkDetail = {
   links: [],
   inventory: { device_count: 102, router_count: 14, end_device_count: 88 },
   layout_available: false,
+};
+
+const HISTORICAL_NEIGHBOR_LIMITATIONS = [
+  "This link was observed in previous topology snapshots. It does not prove current live routing.",
+  "Not observed in the latest snapshot. This alone does not prove the link is gone or that a device has failed.",
+];
+
+const HISTORICAL_ROUTE_LIMITATIONS = [
+  "Route-table evidence was observed in previous topology snapshots. This does not prove current live routing.",
+  "Not observed in the latest snapshot. This alone does not prove the link is gone or that a device has failed.",
+];
+
+function makeHistoricalAggregate(
+  overrides: Partial<HistoricalEdgeAggregate>,
+): HistoricalEdgeAggregate {
+  return {
+    source_ieee: "0xe1",
+    target_ieee: "0xe2",
+    evidence_class: "historical_neighbor",
+    directional: false,
+    first_seen_at: "2026-07-01T10:00:00+00:00",
+    last_seen_at: "2026-07-04T10:00:00+00:00",
+    observed_count: 5,
+    snapshot_count: 3,
+    lqi_latest: 80,
+    lqi_min: 60,
+    lqi_median: 75,
+    lqi_max: 90,
+    route_observed_count: null,
+    last_route_count: null,
+    last_relationship: "Sibling",
+    last_snapshot_id: "snap-old",
+    last_captured_at: "2026-07-04T10:00:00+00:00",
+    not_seen_in_latest_snapshot: true,
+    latest_layout_limited: false,
+    confidence: "medium",
+    limitations: HISTORICAL_NEIGHBOR_LIMITATIONS,
+    ...overrides,
+  };
+}
+
+/** The home network plus backend-aggregated previously-seen evidence. */
+const liveDetailWithHistory: TopologyEvidenceGraphDetail = {
+  ...liveDetailHome,
+  data_source: "latest_snapshot_plus_history",
+  history_window: {
+    days: 30,
+    max_snapshots: 20,
+    snapshots_considered: 3,
+    earliest_captured_at: "2026-07-01T10:00:00+00:00",
+    latest_captured_at: "2026-07-04T10:00:00+00:00",
+  },
+  historical_neighbors: [makeHistoricalAggregate({})],
+  historical_routes: [
+    makeHistoricalAggregate({
+      source_ieee: "0xr1",
+      target_ieee: "0xe1",
+      evidence_class: "historical_route",
+      directional: true,
+      lqi_latest: null,
+      lqi_min: null,
+      lqi_median: null,
+      lqi_max: null,
+      observed_count: 2,
+      snapshot_count: 2,
+      route_observed_count: 2,
+      last_route_count: 3,
+      last_relationship: "Child",
+      limitations: HISTORICAL_ROUTE_LIMITATIONS,
+    }),
+  ],
+  limitations: [],
+  counts: {
+    latest_snapshot_neighbor_edges: 2,
+    latest_snapshot_route_edges: 1,
+    historical_neighbor_edges: 1,
+    historical_route_edges: 1,
+    hidden_for_readability: null,
+    known_inventory_devices: 4,
+    observed_topology_nodes: 3,
+  },
 };
 
 // Same snapshot, but the link table references an endpoint that appears in
@@ -340,7 +425,11 @@ describe("TopologyGraphPage live mode", () => {
 
   it("disables non-live evidence filters in live mode", async () => {
     await renderLiveAndWaitForLayout();
-    expect(screen.getByRole("checkbox", { name: /historical evidence/i })).toBeDisabled();
+    // No historical evidence in this fixture: previously seen links disabled.
+    expect(screen.getByRole("checkbox", { name: /previously seen links/i })).toBeDisabled();
+    expect(
+      screen.getByText("No previously seen links in the selected history window."),
+    ).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /stale \/ low-confidence/i })).toBeDisabled();
     expect(
       screen.getByText(/are not produced from live snapshot data yet/i),
@@ -623,7 +712,7 @@ describe("TopologyGraphPage sample mode", () => {
     await renderLiveAndWaitForLayout();
     await switchToSample(user);
     const edge = await screen.findByLabelText(
-      "Historically observed link between Hallway repeater and Bedroom temp sensor",
+      "Previously seen neighbour link between Hallway repeater and Bedroom temp sensor",
     );
     fireEvent.click(edge);
     const drawer = screen.getByRole("dialog", { name: /link evidence/i });
@@ -724,7 +813,7 @@ describe("TopologyGraphPage dense graph mode", () => {
     expect(panel.getByText(/not guaranteed live routing/i)).toBeInTheDocument();
   });
 
-  it("disables old/uncertain links when the snapshot has none, and future controls with coming-later copy", async () => {
+  it("disables old/uncertain and previously seen links when the data has none, and future controls with coming-later copy", async () => {
     renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
     const panel = connectionsPanel();
@@ -734,11 +823,17 @@ describe("TopologyGraphPage dense graph mode", () => {
       panel.getByText("No old or uncertain links in this snapshot."),
     ).toBeInTheDocument();
 
+    // No historical evidence in this fixture: disabled with honest copy.
     expect(panel.getByRole("checkbox", { name: /previously seen links/i })).toBeDisabled();
+    expect(
+      panel.getByText("No previously seen links in the selected history window."),
+    ).toBeInTheDocument();
+
+    // Passive-derived investigation links remain future work.
     expect(
       panel.getByRole("checkbox", { name: /suggested investigation links/i }),
     ).toBeDisabled();
-    expect(panel.getAllByText(/coming later/i)).toHaveLength(2);
+    expect(panel.getAllByText(/coming later/i)).toHaveLength(1);
   });
 
   it("shows a readable subset by default — not empty, not the full hairball", async () => {
@@ -878,6 +973,202 @@ describe("TopologyGraphPage dense graph mode", () => {
       screen.queryByRole("group", { name: /connections to show/i }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("group", { name: /evidence filters/i })).toBeInTheDocument();
+  });
+});
+
+describe("TopologyGraphPage historical evidence (live)", () => {
+  beforeEach(() => {
+    mockDetail = liveDetailWithHistory;
+    mockDevices = liveDevices;
+  });
+
+  it("enables Previously seen links when historical evidence exists, default off", async () => {
+    const { container } = await renderLiveAndWaitForLayout();
+    const checkbox = screen.getByRole("checkbox", { name: /previously seen links/i });
+    expect(checkbox).toBeEnabled();
+    expect(checkbox).not.toBeChecked();
+    // Off by default: no historical edges rendered.
+    expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
+    expect(container.querySelectorAll(".mesh-edge--historical_route")).toHaveLength(0);
+    // No passive-derived edges are ever created from live data.
+    expect(container.querySelectorAll(".mesh-edge--passive_derived_association")).toHaveLength(0);
+  });
+
+  it("renders dotted historical edges when Previously seen links is enabled", async () => {
+    const user = userEvent.setup();
+    const { container } = await renderLiveAndWaitForLayout();
+    await user.click(screen.getByRole("checkbox", { name: /previously seen links/i }));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(1);
+    });
+    expect(container.querySelectorAll(".mesh-edge--historical_route")).toHaveLength(1);
+    // Latest edges are never duplicated as historical.
+    expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(2);
+    expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(1);
+  });
+
+  it("shows the previously seen links count pill from API counts", async () => {
+    await renderLiveAndWaitForLayout();
+    const pill = screen.getByText("Previously seen links", { selector: ".uppercase" });
+    expect(pill.nextElementSibling).toHaveTextContent("2");
+  });
+
+  it("frames the historical neighbour drawer as previous-snapshot evidence, never live routing", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    await user.click(screen.getByRole("checkbox", { name: /previously seen links/i }));
+    const edge = await screen.findByLabelText(
+      "Previously seen neighbour link between Live Lamp and Live Sleepy Sensor",
+    );
+    fireEvent.click(edge);
+    const drawer = screen.getByRole("dialog", { name: /link evidence/i });
+    expect(within(drawer).getByText("Previously seen link")).toBeInTheDocument();
+    expect(
+      within(drawer).getAllByText(/observed in previous topology snapshots/i).length,
+    ).toBeGreaterThan(0);
+    expect(
+      within(drawer).getAllByText(/does not prove current live routing/i).length,
+    ).toBeGreaterThan(0);
+    expect(
+      within(drawer).getByText(/not observed in the latest topology snapshot/i),
+    ).toBeInTheDocument();
+    // Historical aggregate facts.
+    expect(within(drawer).getByText("First observed")).toBeInTheDocument();
+    expect(within(drawer).getByText("Last observed")).toBeInTheDocument();
+    expect(within(drawer).getByText("Observed count").nextElementSibling).toHaveTextContent("5");
+    expect(within(drawer).getByText("Snapshot count").nextElementSibling).toHaveTextContent("3");
+    expect(within(drawer).getByText("LQI min").nextElementSibling).toHaveTextContent("60");
+    expect(within(drawer).getByText("LQI median").nextElementSibling).toHaveTextContent("75");
+    expect(within(drawer).getByText("LQI max").nextElementSibling).toHaveTextContent("90");
+    // Unknown route evidence stays "Not recorded", never zero.
+    expect(
+      within(drawer).getByText("Route observed count").nextElementSibling,
+    ).toHaveTextContent("Not recorded");
+    // No live-routing claims.
+    expect(within(drawer).queryByText(/currently connected/i)).not.toBeInTheDocument();
+    expect(within(drawer).queryByText(/lost connection/i)).not.toBeInTheDocument();
+    expect(within(drawer).queryByText(/broken link/i)).not.toBeInTheDocument();
+  });
+
+  it("frames the historical route drawer with previous route-table evidence and counts", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    await user.click(screen.getByRole("checkbox", { name: /previously seen links/i }));
+    const edge = await screen.findByLabelText(
+      "Previously seen route hint from Live Hall Router to Live Lamp",
+    );
+    fireEvent.click(edge);
+    const drawer = screen.getByRole("dialog", { name: /link evidence/i });
+    expect(within(drawer).getByText("Previously seen route")).toBeInTheDocument();
+    expect(
+      within(drawer).getByText(
+        /route-table evidence was observed in a previous topology snapshot/i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(drawer).getAllByText(/does not prove current live routing/i).length,
+    ).toBeGreaterThan(0);
+    expect(
+      within(drawer).getByText("Route observed count").nextElementSibling,
+    ).toHaveTextContent("2");
+    expect(within(drawer).getByText("Last route count").nextElementSibling).toHaveTextContent(
+      "3",
+    );
+    expect(within(drawer).queryByText(/current route/i)).not.toBeInTheDocument();
+  });
+
+  it("adds a historical topology section to the node drawer", async () => {
+    await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(within(drawer).getByText("Historical topology evidence")).toBeInTheDocument();
+    // 0xe1 touches the historical neighbour and the historical route.
+    expect(
+      within(drawer).getByText(/2 previously seen links in the selected history window/i),
+    ).toBeInTheDocument();
+    expect(within(drawer).getByText(/last historical link observed/i)).toBeInTheDocument();
+  });
+
+  it("says so plainly when a device has no historical links", async () => {
+    await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xc0"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(
+      within(drawer).getByText(
+        "No previously seen topology links in the selected history window.",
+      ),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("TopologyGraphPage historical evidence in dense mode", () => {
+  function makeDenseWithHistory() {
+    const dense = makeDenseNetwork();
+    const detail: TopologyEvidenceGraphDetail = {
+      ...dense.detail,
+      data_source: "latest_snapshot_plus_history",
+      history_window: {
+        days: 30,
+        max_snapshots: 20,
+        snapshots_considered: 2,
+        earliest_captured_at: "2026-07-01T10:00:00+00:00",
+        latest_captured_at: "2026-07-04T10:00:00+00:00",
+      },
+      historical_neighbors: [
+        makeHistoricalAggregate({ source_ieee: "0xr1", target_ieee: "0xr20" }),
+        makeHistoricalAggregate({ source_ieee: "0xr2", target_ieee: "0xr21" }),
+      ],
+      historical_routes: [],
+      limitations: [],
+      counts: {
+        latest_snapshot_neighbor_edges: 435,
+        latest_snapshot_route_edges: 1,
+        historical_neighbor_edges: 2,
+        historical_route_edges: 0,
+        hidden_for_readability: null,
+        known_inventory_devices: dense.devices.length,
+        observed_topology_nodes: 31,
+      },
+    };
+    return { detail, devices: dense.devices };
+  }
+
+  beforeEach(() => {
+    const dense = makeDenseWithHistory();
+    mockDetail = dense.detail;
+    mockDevices = dense.devices;
+  });
+
+  it("keeps historical edges hidden by default and counts them as hidden for readability", async () => {
+    const { container } = renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
+    // Historical edges are part of the available/hidden counts (439 = 436 latest + 2 historical + ghost pair merge).
+    expect(screen.getByTestId("dense-graph-counts")).toHaveTextContent(
+      /439 evidence links available/,
+    );
+    expect(screen.getByTestId("dense-graph-counts")).toHaveTextContent(/hidden for readability/);
+  });
+
+  it("shows historical edges in dense mode only when Previously seen links is enabled", async () => {
+    const user = userEvent.setup();
+    const { container } = renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
+
+    const checkbox = panel.getByRole("checkbox", { name: /previously seen links/i });
+    expect(checkbox).toBeEnabled();
+    expect(checkbox).not.toBeChecked();
+
+    await user.click(checkbox);
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(2);
+    });
+
+    await user.click(checkbox);
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
+    });
   });
 });
 

@@ -68,6 +68,12 @@ export function NodeDrawer({
         <p>{device.topology_evidence_summary}</p>
       </DrawerSection>
 
+      {device.historical_topology_summary != null && (
+        <DrawerSection title="Historical topology evidence">
+          <p>{device.historical_topology_summary}</p>
+        </DrawerSection>
+      )}
+
       <DrawerSection title="Passive observations">
         <p>{device.passive_observation_summary}</p>
       </DrawerSection>
