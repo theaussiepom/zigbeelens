@@ -263,16 +263,6 @@ function GraphPanel({
     selectedEdge,
   ]);
 
-  const recentMissingShownCount = useMemo(
-    () =>
-      visibleEdges.filter(
-        (edge) =>
-          edge.evidence_class === "historical_neighbor" ||
-          edge.evidence_class === "historical_route",
-      ).length,
-    [visibleEdges],
-  );
-
   const setControl = (key: keyof ConnectionControls) => (value: boolean) =>
     setControls((c) => ({ ...c, [key]: value }));
 
@@ -321,40 +311,6 @@ function GraphPanel({
           </p>
         )}
       </div>
-      {denseMode && (
-        <div
-          role="note"
-          aria-label="Focused view"
-          data-testid="dense-graph-banner"
-          className="space-y-1 rounded-lg border border-zl-border bg-zl-surface px-4 py-3 text-sm"
-        >
-          <p className="font-medium text-zl-text">Focused view</p>
-          <p className="text-zl-muted">
-            This network has many overlapping topology links, so ZigbeeLens starts by drawing a
-            focused set of connections.
-          </p>
-          <p className="text-zl-muted" data-testid="dense-graph-counts">
-            {edges.length} evidence links available · {visibleEdges.length} drawn in this view
-          </p>
-          {controls.recentMissingLinks && hasRecentMissingLinks && (
-            <p className="text-zl-muted" data-testid="recent-missing-counts">
-              {recentMissingEdges.length} recent missing link
-              {recentMissingEdges.length === 1 ? "" : "s"} available · {recentMissingShownCount}{" "}
-              drawn in this view
-            </p>
-          )}
-          {controls.allNeighbourLinks ? (
-            <p className="text-zl-muted" data-testid="all-neighbour-links-warning">
-              All neighbour links is on. Dense networks may become hard to read.
-            </p>
-          ) : (
-            <p className="text-zl-muted">
-              Select a device to reveal its full neighbourhood, or use “Connections to show” to
-              draw more link types.
-            </p>
-          )}
-        </div>
-      )}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-stretch">
       {/* The graph stretches to the full grid row: at least the viewport
           (minus app chrome) and never shorter than the sidebar column, so
@@ -420,6 +376,14 @@ function GraphPanel({
               checked={controls.allNeighbourLinks}
               onChange={setControl("allNeighbourLinks")}
             />
+            {controls.allNeighbourLinks && (
+              <p
+                className="pl-6 text-[11px] leading-snug text-zl-muted"
+                data-testid="all-neighbour-links-warning"
+              >
+                All neighbour links is on. Dense networks may become hard to read.
+              </p>
+            )}
             <ConnectionCheckbox
               label="Old or uncertain links"
               helper={

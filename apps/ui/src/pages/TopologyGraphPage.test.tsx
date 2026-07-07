@@ -870,25 +870,13 @@ describe("TopologyGraphPage dense graph mode", () => {
     expect(panel.getAllByText(/coming later/i)).toHaveLength(1);
   });
 
-  it("shows a focused view by default — not empty, not the full hairball", async () => {
+  it("draws a focused subset by default — not empty, not the full hairball", async () => {
     const { container } = renderGraphPage();
-    const banner = await screen.findByTestId("dense-graph-banner");
     await screen.findByTestId("mesh-node-0xr5");
 
-    expect(banner).toHaveTextContent("Focused view");
-    expect(banner).toHaveTextContent(/starts by drawing a focused set of connections/i);
-    expect(screen.getByTestId("dense-graph-counts")).toHaveTextContent(
-      /437 evidence links available · \d+ drawn in this view/,
-    );
-    expect(banner).toHaveTextContent(/select a device to reveal its full neighbourhood/i);
-    expect(banner).toHaveTextContent(/use “connections to show” to draw more link types/i);
-    // No concealment or debug-style language.
-    expect(banner).not.toHaveTextContent(/hidden for readability/i);
-    expect(banner).not.toHaveTextContent(/ignored/i);
-    expect(banner).not.toHaveTextContent(/discarded/i);
-    expect(banner).not.toHaveTextContent(/not relevant/i);
-    // The warning only appears when All neighbour links is enabled.
-    expect(screen.queryByTestId("all-neighbour-links-warning")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("dense-graph-banner")).not.toBeInTheDocument();
+    expect(screen.queryByText("Focused view")).not.toBeInTheDocument();
+    expect(screen.queryByText(/drawn in this view/i)).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(1);
@@ -973,7 +961,7 @@ describe("TopologyGraphPage dense graph mode", () => {
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(436);
     });
-    expect(screen.getByTestId("all-neighbour-links-warning")).toHaveTextContent(
+    expect(connectionsPanel().getByTestId("all-neighbour-links-warning")).toHaveTextContent(
       "All neighbour links is on. Dense networks may become hard to read.",
     );
     // Route hints stay visible alongside.
@@ -1246,19 +1234,11 @@ describe("TopologyGraphPage historical evidence in dense mode", () => {
     mockDevices = dense.devices;
   });
 
-  it("keeps historical edges out of the default focused view but in the available counts", async () => {
+  it("keeps historical edges out of the default focused view", async () => {
     const { container } = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
     expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
-    // Historical edges are part of the available counts (439 = 436 latest + 2 historical + ghost pair merge).
-    expect(screen.getByTestId("dense-graph-counts")).toHaveTextContent(
-      /439 evidence links available · \d+ drawn in this view/,
-    );
-    expect(screen.getByTestId("dense-graph-counts")).not.toHaveTextContent(
-      /hidden for readability/i,
-    );
-    // The recent-missing count line only appears when the control is on.
-    expect(screen.queryByTestId("recent-missing-counts")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("dense-graph-banner")).not.toBeInTheDocument();
   });
 
   it("shows historical edges in dense mode only when Recent missing links is enabled", async () => {
@@ -1288,7 +1268,7 @@ describe("TopologyGraphPage historical evidence in dense mode", () => {
     });
   });
 
-  it("caps recent missing links per node and reports honest available/drawn counts", async () => {
+  it("caps recent missing links per node in dense mode", async () => {
     // Six historical links all touching 0xr1: the per-node cap (3) applies.
     const dense = makeDenseWithHistory(
       [20, 21, 22, 23, 24, 25].map((i) =>
@@ -1307,12 +1287,6 @@ describe("TopologyGraphPage historical evidence in dense mode", () => {
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(3);
     });
-    expect(screen.getByTestId("recent-missing-counts")).toHaveTextContent(
-      "6 recent missing links available · 3 drawn in this view",
-    );
-    expect(screen.getByTestId("recent-missing-counts")).not.toHaveTextContent(
-      /hidden for readability|ignored|irrelevant|discarded/i,
-    );
   });
 
   it("renders no concealment or live-routing phrasing anywhere on the page", async () => {
