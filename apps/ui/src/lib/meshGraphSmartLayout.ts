@@ -23,6 +23,9 @@ export type MeshLayoutMode = "smart" | "backbone" | "clusters" | "health" | "man
 export interface MeshLayoutModeInfo {
   id: MeshLayoutMode;
   label: string;
+  /** Short hint rendered next to the label in the dropdown option. */
+  hint: string;
+  /** Full explanation shown for the selected mode near the control. */
   description: string;
 }
 
@@ -30,32 +33,37 @@ export const MESH_LAYOUT_MODES: MeshLayoutModeInfo[] = [
   {
     id: "smart",
     label: "Smart layout",
+    hint: "Best overall view",
     description:
-      "ZigbeeLens arranges the coordinator, router backbone, end devices and limited-evidence devices into a readable mesh evidence view.",
+      "Best overall view. Arranges the coordinator, router backbone, end devices and limited-evidence devices into a readable mesh.",
   },
   {
     id: "backbone",
     label: "Router backbone",
+    hint: "Infrastructure first",
     description:
-      "Infrastructure first: the coordinator and routers form the primary band, with end devices grouped quietly below.",
+      "Shows the mesh infrastructure first, with routers forming the main structure.",
   },
   {
     id: "clusters",
     label: "Router clusters",
+    hint: "Group by router evidence",
     description:
       "Groups devices around observed router neighbourhoods where evidence is available. This does not prove current live routing.",
   },
   {
     id: "health",
     label: "Health focus",
+    hint: "Find problem devices",
     description:
-      "Devices already flagged by ZigbeeLens are placed prominently and highlighted; healthy devices stay present but quieter.",
+      "Makes devices needing attention easier to find without drawing every related link.",
   },
   {
     id: "manual",
     label: "Manual layout",
+    hint: "Use saved positions",
     description:
-      "Drag devices to arrange the graph. ZigbeeLens remembers your positions on this browser.",
+      "Uses your saved positions. Drag devices to arrange the graph in this browser.",
   },
 ];
 

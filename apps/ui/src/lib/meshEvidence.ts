@@ -285,7 +285,21 @@ export function formatLqi(value: number | null | undefined): string {
   return String(value);
 }
 
-/** The safety copy shown above the graph. */
+/**
+ * The safety copy shown above the graph in live mode. Describes only the
+ * evidence classes live snapshot data actually produces today — passive-
+ * derived associations are not implemented in live mode and must not be
+ * implied to be active.
+ */
+export const GRAPH_SAFETY_COPY_LIVE =
+  "This graph combines the latest topology snapshot with recent historical topology evidence. " +
+  "Solid links are latest snapshot evidence. Dotted links are recent previous evidence " +
+  "and should not be treated as proof of current live routing.";
+
+/**
+ * The safety copy for the prototype sample dataset, which still demonstrates
+ * historical, passive-derived and stale fixture evidence classes.
+ */
 export const GRAPH_SAFETY_COPY =
   "This graph combines topology snapshots with historical and passive observations. " +
   "Solid links are direct snapshot evidence. Dotted or faint links are historical or derived " +
