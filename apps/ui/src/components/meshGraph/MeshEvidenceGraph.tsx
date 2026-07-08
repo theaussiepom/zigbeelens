@@ -49,11 +49,35 @@ function edgeAriaLabel(
 
 type EdgeFocus = "normal" | "focused" | "muted";
 
-function edgeFocusFor(edge: MeshEvidenceEdge, selectedNodeId: string | null): EdgeFocus {
-  if (!selectedNodeId) return "normal";
-  return edge.source === selectedNodeId || edge.target === selectedNodeId
-    ? "focused"
-    : "muted";
+/**
+ * Investigation focus: a purely visual highlight driven by "Where to look
+ * first" cards. Involved nodes get a highlight ring, involved edges render
+ * stronger, and the unrelated graph stays visible but quieter. It never
+ * changes evidence-class styling, layout, or saved positions.
+ */
+export interface InvestigationFocus {
+  deviceIds: Set<string>;
+  edgeIds: Set<string>;
+}
+
+function edgeFocusFor(
+  edge: MeshEvidenceEdge,
+  selectedNodeId: string | null,
+  investigationFocus: InvestigationFocus | null,
+): EdgeFocus {
+  if (selectedNodeId) {
+    return edge.source === selectedNodeId || edge.target === selectedNodeId
+      ? "focused"
+      : "muted";
+  }
+  if (investigationFocus) {
+    const involved =
+      investigationFocus.edgeIds.has(edge.id) ||
+      (investigationFocus.deviceIds.has(edge.source) &&
+        investigationFocus.deviceIds.has(edge.target));
+    return involved ? "focused" : "muted";
+  }
+  return "normal";
 }
 
 function buildFlowEdge(
@@ -132,6 +156,7 @@ export function MeshEvidenceGraph({
   positionStorageId,
   resetNonce,
   selectedNodeId,
+  investigationFocus = null,
   onSelectEdge,
   onSelectNode,
   onClearSelection,
@@ -144,6 +169,7 @@ export function MeshEvidenceGraph({
   positionStorageId: string;
   resetNonce: number;
   selectedNodeId: string | null;
+  investigationFocus?: InvestigationFocus | null;
   onSelectEdge: (edge: MeshEvidenceEdge) => void;
   onSelectNode: (device: MeshEvidenceDevice) => void;
   onClearSelection: () => void;
@@ -189,10 +215,23 @@ export function MeshEvidenceGraph({
         const mutedBySelection = selectionNeighbourhood !== null && !inNeighbourhood;
         const mutedByHealth =
           layoutMode === "health" && !isIssue && device.role !== "coordinator";
+        // Investigation focus is visual only: involved devices get a highlight
+        // ring; the rest of the graph stays visible but quieter.
+        const inInvestigation =
+          investigationFocus?.deviceIds.has(device.ieee_address) ?? false;
+        const mutedByInvestigation =
+          investigationFocus !== null && !inInvestigation && !mutedBySelection;
 
         const classNames = ["mesh-node"];
         if (isIssue) classNames.push("mesh-node--issue-highlight");
-        if (mutedBySelection || mutedByHealth) classNames.push("mesh-node--muted");
+        if (inInvestigation) classNames.push("mesh-node--investigation-focus");
+        if (mutedBySelection || mutedByHealth || mutedByInvestigation) {
+          classNames.push("mesh-node--muted");
+        }
+
+        const rings: string[] = [];
+        if (isIssue) rings.push("0 0 0 3px rgba(230, 116, 74, 0.65)");
+        if (inInvestigation) rings.push("0 0 0 5px rgba(91, 159, 212, 0.55)");
 
         return {
           id: device.ieee_address,
@@ -204,15 +243,27 @@ export function MeshEvidenceGraph({
           selected: device.ieee_address === selectedNodeId,
           className: classNames.join(" "),
           style: {
-            opacity: mutedBySelection ? 0.35 : mutedByHealth ? 0.55 : 1,
-            ...(isIssue
-              ? { boxShadow: "0 0 0 3px rgba(230, 116, 74, 0.65)", borderRadius: 10 }
-              : {}),
+            opacity: mutedBySelection
+              ? 0.35
+              : mutedByInvestigation
+                ? 0.45
+                : mutedByHealth
+                  ? 0.55
+                  : 1,
+            ...(rings.length ? { boxShadow: rings.join(", "), borderRadius: 10 } : {}),
           },
           data: { device },
         } satisfies Node;
       }),
-    [devices, positions, selectedNodeId, issueIds, selectionNeighbourhood, layoutMode],
+    [
+      devices,
+      positions,
+      selectedNodeId,
+      issueIds,
+      selectionNeighbourhood,
+      layoutMode,
+      investigationFocus,
+    ],
   );
 
   const [nodes, setNodes] = useState<Node[]>(computedNodes);
@@ -242,10 +293,10 @@ export function MeshEvidenceGraph({
           edge,
           positions,
           (ieee) => nameById.get(ieee) ?? ieee,
-          edgeFocusFor(edge, selectedNodeId),
+          edgeFocusFor(edge, selectedNodeId, investigationFocus),
         ),
       ),
-    [visibleEdges, positions, nameById, selectedNodeId],
+    [visibleEdges, positions, nameById, selectedNodeId, investigationFocus],
   );
 
   return (
