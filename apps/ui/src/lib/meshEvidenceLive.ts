@@ -166,13 +166,16 @@ function historicalSummaryFor(
 }
 
 /**
- * Node-drawer summary of passive-derived investigation hints touching one
- * device. Only produced when passive hints were actually evaluated.
+ * Node-drawer summary when passive hints touch this device. Returns null when
+ * none do — the drawer omits the section rather than showing empty copy.
  */
-function passiveHintSummaryFor(passiveEdges: MeshEvidenceEdge[], ieee: string): string {
+function passiveHintSummaryFor(
+  passiveEdges: MeshEvidenceEdge[],
+  ieee: string,
+): string | null {
   const touching = passiveEdges.filter((edge) => edge.source === ieee || edge.target === ieee);
   if (touching.length === 0) {
-    return "No passive-derived investigation hints in the selected window.";
+    return null;
   }
   return `${touching.length} passive-derived investigation hint${
     touching.length === 1 ? "" : "s"
@@ -512,7 +515,8 @@ export function buildLiveMeshEvidence(
       );
     }
     if (passiveEvaluated) {
-      device.passive_hint_summary = passiveHintSummaryFor(passiveEdges, ieee);
+      const summary = passiveHintSummaryFor(passiveEdges, ieee);
+      if (summary) device.passive_hint_summary = summary;
     }
     devices.push(device);
   }
