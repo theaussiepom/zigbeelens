@@ -6,6 +6,7 @@ import type { EvidenceClass, MeshHealthBucket } from "@/lib/meshEvidence";
  * Solid      → latest topology neighbour evidence
  * Dashed     → latest route-table / next-hop evidence
  * Dotted     → historical topology evidence not seen in latest snapshot
+ * Dash-dot   → last known link (device linkless in the latest snapshot)
  * Ghost/faint→ passive-derived association / investigation hint
  * Muted      → stale or low-confidence evidence
  *
@@ -44,6 +45,14 @@ export function evidenceEdgeStyle(cls: EvidenceClass): EvidenceEdgeStyle {
         strokeWidth: 1.6,
         strokeDasharray: "2 6",
         opacity: 0.7,
+        strokeLinecap: "round",
+      };
+    case "last_known_link":
+      return {
+        stroke: ZL_MUTED,
+        strokeWidth: 1.5,
+        strokeDasharray: "9 4 2 4",
+        opacity: 0.6,
         strokeLinecap: "round",
       };
     case "passive_derived_association":

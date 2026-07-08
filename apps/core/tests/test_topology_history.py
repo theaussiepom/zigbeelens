@@ -14,11 +14,14 @@ from zigbeelens.topology.history import (
     HISTORICAL_NEIGHBOR_LIMITATION,
     HISTORICAL_NEIGHBOR_LIMITED_LIMITATION,
     HISTORICAL_ROUTE_LIMITATION,
+    LAST_KNOWN_LINK_LIMITATION,
+    LAST_KNOWN_LINKS_PER_DEVICE,
     LATEST_LAYOUT_LIMITED_LIMITATION,
     NOT_IN_LATEST_LIMITATION,
     RECENT_HISTORY_MAX_SNAPSHOTS,
     RECENT_HISTORY_WINDOW_DAYS,
     aggregate_historical_evidence,
+    aggregate_last_known_links,
 )
 from zigbeelens.topology.parser import parse_networkmap_payload
 
@@ -361,6 +364,147 @@ def test_recent_window_is_recent_not_forever_history(tmp_path: Path):
     assert result["history_window"]["snapshots_considered"] == 1
 
 
+def test_last_known_links_for_devices_absent_from_latest_snapshot(tmp_path: Path):
+    """A device with no links in the latest snapshot gets its most recent
+    stored link evidence, clearly marked as last known and not currently
+    reported. This is the sleepy-end-device case: the device is healthy but
+    its entries aged out of router neighbour tables."""
+    repo = _repo(tmp_path)
+    _store_snapshot(
+        repo,
+        "snap-older",
+        captured_at=NOW - timedelta(days=5),
+        links=[{"source": "0x03", "target": "0x04", "linkquality": 40}],
+    )
+    _store_snapshot(
+        repo,
+        "snap-newer",
+        captured_at=NOW - timedelta(days=2),
+        links=[
+            {"source": "0x02", "target": "0x04", "linkquality": 90},
+            {"source": "0x03", "target": "0x04", "linkquality": 60},
+            {"source": "0x01", "target": "0x04", "linkquality": 30},
+        ],
+    )
+    # 0x04 has no links at all in the latest snapshot.
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW - timedelta(hours=1),
+        links=[{"source": "0x02", "target": "0x01", "linkquality": 120}],
+    )
+
+    result = aggregate_last_known_links(repo, "home")
+    edges = result["last_known_links"]
+    pairs = {frozenset((e["source_ieee"], e["target_ieee"])) for e in edges}
+    # Strongest links from the most recent snapshot that mentioned 0x04,
+    # capped per device — the weakest of the three is left out.
+    assert len(edges) == LAST_KNOWN_LINKS_PER_DEVICE
+    assert frozenset(("0x02", "0x04")) in pairs
+    assert frozenset(("0x03", "0x04")) in pairs
+    for edge in edges:
+        assert edge["evidence_class"] == "last_known_link"
+        assert edge["directional"] is False
+        assert edge["confidence"] == "low"
+        assert edge["not_seen_in_latest_snapshot"] is True
+        assert edge["last_reported_at"] == (NOW - timedelta(days=2)).isoformat()
+        assert LAST_KNOWN_LINK_LIMITATION in edge["limitations"]
+    # Devices linked in the latest snapshot contribute nothing.
+    assert frozenset(("0x02", "0x01")) not in pairs
+
+
+def test_last_known_links_come_from_newest_mentioning_snapshot_only(tmp_path: Path):
+    """Older snapshots never override the newest one that mentioned the
+    device — "last known" is the most recent stored evidence, not a merge of
+    everything ever observed."""
+    repo = _repo(tmp_path)
+    _store_snapshot(
+        repo,
+        "snap-older",
+        captured_at=NOW - timedelta(days=6),
+        links=[{"source": "0x02", "target": "0x04", "linkquality": 200}],
+    )
+    _store_snapshot(
+        repo,
+        "snap-newer",
+        captured_at=NOW - timedelta(days=2),
+        links=[{"source": "0x03", "target": "0x04", "linkquality": 50}],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW - timedelta(hours=1),
+        links=[{"source": "0x02", "target": "0x01", "linkquality": 120}],
+    )
+
+    result = aggregate_last_known_links(repo, "home")
+    pairs = {frozenset((e["source_ieee"], e["target_ieee"])) for e in result["last_known_links"]}
+    assert frozenset(("0x03", "0x04")) in pairs
+    # The stronger-but-older link is not "last known".
+    assert frozenset(("0x02", "0x04")) not in pairs
+
+
+def test_last_known_links_skip_incomplete_snapshots(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _store_snapshot(
+        repo,
+        "snap-failed",
+        captured_at=NOW - timedelta(days=1),
+        links=[{"source": "0x02", "target": "0x04", "linkquality": 70}],
+        status="failed",
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW - timedelta(hours=1),
+        links=[{"source": "0x02", "target": "0x01", "linkquality": 120}],
+    )
+    result = aggregate_last_known_links(repo, "home")
+    assert result["last_known_links"] == []
+
+
+def test_last_known_links_empty_when_latest_layout_limited(tmp_path: Path):
+    """When the latest layout is limited, "linkless in the latest snapshot"
+    is meaningless, so no last known links are claimed."""
+    repo = _repo(tmp_path)
+    _store_snapshot(
+        repo,
+        "snap-old",
+        captured_at=NOW - timedelta(days=2),
+        links=[{"source": "0x02", "target": "0x04", "linkquality": 70}],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW - timedelta(hours=1),
+        links=[],
+        nodes={},
+    )
+    result = aggregate_last_known_links(repo, "home")
+    assert result["last_known_links"] == []
+    assert any("limited" in item for item in result["limitations"])
+
+
+def test_last_known_link_wording_never_claims_current_connectivity(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _store_snapshot(
+        repo,
+        "snap-old",
+        captured_at=NOW - timedelta(days=2),
+        links=[{"source": "0x02", "target": "0x04", "linkquality": 70}],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW - timedelta(hours=1),
+        links=[{"source": "0x02", "target": "0x01", "linkquality": 120}],
+    )
+    result = aggregate_last_known_links(repo, "home")
+    text = str(result).lower()
+    for forbidden in ["parent router", "current route", "currently routed", "actual path"]:
+        assert forbidden not in text
+
+
 def test_evidence_graph_api_includes_historical_counts(topology_client: TestClient):
     from zigbeelens.app.context import get_context
 
@@ -409,6 +553,13 @@ def test_evidence_graph_api_includes_historical_counts(topology_client: TestClie
     assert body["counts"]["historical_neighbor_edges"] == 2
     assert body["counts"]["historical_route_edges"] == 1
     assert body["counts"]["recent_missing_link_count_total"] == 3
+    # 0x03 and 0x04 have no links in the latest snapshot: each contributes
+    # its most recent stored evidence as last known links.
+    assert isinstance(body["last_known_links"], list)
+    assert body["counts"]["last_known_link_count"] == len(body["last_known_links"])
+    assert body["counts"]["last_known_link_count"] > 0
+    for edge in body["last_known_links"]:
+        assert edge["evidence_class"] == "last_known_link"
     # Rendering subsets are a client decision: unknown, never zero.
     assert body["counts"]["hidden_for_readability"] is None
     assert body["counts"]["observed_topology_nodes"] == len(body["nodes"])

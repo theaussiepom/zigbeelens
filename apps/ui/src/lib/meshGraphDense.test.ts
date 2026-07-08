@@ -85,13 +85,14 @@ const emptyContext = {
 };
 
 describe("default connection controls", () => {
-  it("matches the spec: routes/best on; all, old, recent missing and investigation links off", () => {
+  it("matches the spec: routes/best/last-known on; all, old, recent missing and investigation links off", () => {
     expect(DEFAULT_CONNECTION_CONTROLS).toEqual({
       routeHints: true,
       bestNeighbourLinks: true,
       allNeighbourLinks: false,
       oldUncertainLinks: false,
       recentMissingLinks: false,
+      lastKnownLinks: true,
       suggestedInvestigationLinks: false,
     });
   });

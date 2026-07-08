@@ -1,6 +1,7 @@
 import type { DeviceSummary, LensBucket } from "@zigbeelens/shared";
 import type {
   HistoricalEdgeAggregate,
+  LastKnownLinkAggregate,
   PassiveHintAggregate,
   TopologyEvidenceGraphDetail,
   TopologyLinkRow,
@@ -182,6 +183,44 @@ function passiveHintSummaryFor(
   } involve${touching.length === 1 ? "s" : ""} this device. These are not topology links or proof of live routing.`;
 }
 
+/** Map one backend last-known link into a mesh evidence edge, one-to-one. */
+function buildLastKnownEdge(
+  aggregate: LastKnownLinkAggregate,
+  networkId: string,
+): MeshEvidenceEdge {
+  const source = normalizeIeee(aggregate.source_ieee);
+  const target = normalizeIeee(aggregate.target_ieee);
+  return {
+    id: `last-known-${[source, target].sort().join("|")}`,
+    network_id: networkId,
+    source,
+    target,
+    evidence_class: "last_known_link",
+    confidence: "low",
+    directional: false,
+    issue_related: false,
+    in_latest_snapshot: false,
+    captured_at: aggregate.last_reported_at,
+    observed_relationship: aggregate.last_relationship ?? null,
+    first_seen_at: null,
+    last_seen_at: aggregate.last_reported_at,
+    observed_count: null,
+    snapshot_count: null,
+    lqi_latest: aggregate.lqi_latest ?? null,
+    lqi_min: null,
+    lqi_median: null,
+    lqi_max: null,
+    route_table_evidence: null,
+    next_hop_evidence: null,
+    route_observed_count: null,
+    last_route_count: null,
+    latest_layout_limited: null,
+    passive_corroboration: null,
+    limitations: aggregate.limitations,
+    suggested_investigation: [],
+  };
+}
+
 /** Map one backend passive hint into a mesh evidence edge, one-to-one. */
 function buildPassiveHintEdge(hint: PassiveHintAggregate, networkId: string): MeshEvidenceEdge {
   const source = normalizeIeee(hint.source_ieee);
@@ -327,6 +366,8 @@ export type LiveTopologyDetail = TopologyNetworkDetail &
       | "historical_neighbors"
       | "historical_routes"
       | "history_window"
+      | "last_known_links"
+      | "last_known_window"
       | "limitations"
       | "passive_hints"
       | "passive_hint_window"
@@ -477,6 +518,15 @@ export function buildLiveMeshEvidence(
     detail.historical_neighbors !== undefined || detail.historical_routes !== undefined;
   const latestLayoutLimited = historicalEdges.some((edge) => edge.latest_layout_limited);
   edges.push(...historicalEdges);
+
+  // Last known links — most recent stored evidence for devices with no links
+  // in the latest snapshot, mapped one-to-one from the backend. Clearly
+  // "last known", never presented as currently reported.
+  edges.push(
+    ...(detail.last_known_links ?? []).map((aggregate) =>
+      buildLastKnownEdge(aggregate, networkId),
+    ),
+  );
 
   // Passive-derived investigation hints — mapped one-to-one from the
   // backend rule engine. Never fabricated client-side, never directional,

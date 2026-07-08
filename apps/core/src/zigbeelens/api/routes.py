@@ -421,14 +421,21 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
     Historical edges are aggregated backend-side from recent previous
     complete snapshots only and never duplicate relationships present in the
     latest snapshot — this is gap-filling context, not forever history.
-    Passive-derived investigation hints come only from passive observations
-    already stored (availability transitions, existing incidents); topology
-    evidence corroborates them but never creates them, and they are never
-    routes. ``hidden_for_readability`` and ``passive_hint_count_drawn`` are
-    client rendering decisions and therefore reported as null here, never
-    zero.
+    Last known links cover only devices with no link entries at all in the
+    latest usable snapshot (typically sleepy battery devices whose entries
+    aged out of router neighbour tables): each gets its most recently stored
+    link evidence, clearly marked as last known rather than currently
+    reported. Passive-derived investigation hints come only from passive
+    observations already stored (availability transitions, existing
+    incidents); topology evidence corroborates them but never creates them,
+    and they are never routes. ``hidden_for_readability`` and
+    ``passive_hint_count_drawn`` are client rendering decisions and
+    therefore reported as null here, never zero.
     """
-    from zigbeelens.topology.history import aggregate_historical_evidence
+    from zigbeelens.topology.history import (
+        aggregate_historical_evidence,
+        aggregate_last_known_links,
+    )
     from zigbeelens.topology.passive_hints import aggregate_passive_hints
 
     network = ctx.repo.get_network(network_id)
@@ -438,6 +445,7 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
     nodes = ctx.repo.list_topology_nodes(latest["snapshot_id"]) if latest else []
     links = ctx.repo.list_topology_links(latest["snapshot_id"]) if latest else []
     history = aggregate_historical_evidence(ctx.repo, network_id)
+    last_known = aggregate_last_known_links(ctx.repo, network_id)
     passive = aggregate_passive_hints(ctx.repo, network_id)
 
     latest_neighbor_pairs = {
@@ -463,6 +471,8 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
         "history_window": history["history_window"],
         "historical_neighbors": history["historical_neighbors"],
         "historical_routes": history["historical_routes"],
+        "last_known_links": last_known["last_known_links"],
+        "last_known_window": last_known["last_known_window"],
         "passive_hints": passive["hints"],
         "passive_hint_window": passive["window"],
         "limitations": history["limitations"],
@@ -473,6 +483,7 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
             "historical_route_edges": len(history["historical_routes"]),
             "recent_missing_link_count_total": len(history["historical_neighbors"])
             + len(history["historical_routes"]),
+            "last_known_link_count": len(last_known["last_known_links"]),
             "passive_hint_count_available": passive["available_count"],
             "passive_hint_count_total": len(passive["hints"]),
             # Rendering subsets are chosen client-side; unknown here, not zero.

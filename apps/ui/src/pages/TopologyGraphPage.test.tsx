@@ -6,6 +6,7 @@ import type { DeviceSummary } from "@zigbeelens/shared";
 import { TopologyGraphPage } from "@/pages/TopologyGraphPage";
 import type {
   HistoricalEdgeAggregate,
+  LastKnownLinkAggregate,
   PassiveHintAggregate,
   TopologyEvidenceGraphDetail,
   TopologyNetworkDetail,
@@ -211,6 +212,12 @@ const liveDetailWithHistory: TopologyEvidenceGraphDetail = {
       limitations: HISTORICAL_ROUTE_LIMITATIONS,
     }),
   ],
+  last_known_links: [],
+  last_known_window: {
+    snapshots_considered: 3,
+    earliest_captured_at: "2026-07-01T10:00:00+00:00",
+    latest_captured_at: "2026-07-04T10:00:00+00:00",
+  },
   passive_hints: [],
   passive_hint_window: { days: 7, event_window_minutes: 5, min_repeated_windows: 2 },
   limitations: [],
@@ -220,12 +227,45 @@ const liveDetailWithHistory: TopologyEvidenceGraphDetail = {
     historical_neighbor_edges: 1,
     historical_route_edges: 1,
     recent_missing_link_count_total: 2,
+    last_known_link_count: 0,
     passive_hint_count_available: 0,
     passive_hint_count_total: 0,
     passive_hint_count_drawn: null,
     hidden_for_readability: null,
     known_inventory_devices: 4,
     observed_topology_nodes: 3,
+  },
+};
+
+const LAST_KNOWN_LIMITATIONS = [
+  "This is the most recent stored link evidence for a device that reported no links in the latest snapshot. It is last known evidence, not a currently reported link, and does not prove current connectivity or live routing.",
+  "Sleepy battery devices routinely age out of router neighbour tables; a missing link in the latest snapshot is not, by itself, evidence of a fault.",
+];
+
+function makeLastKnownLink(overrides: Partial<LastKnownLinkAggregate>): LastKnownLinkAggregate {
+  return {
+    source_ieee: "0xr1",
+    target_ieee: "0xsleepy",
+    evidence_class: "last_known_link",
+    directional: false,
+    last_reported_at: "2026-07-04T10:00:00+00:00",
+    last_snapshot_id: "snap-old",
+    lqi_latest: 88,
+    last_relationship: "Child",
+    not_seen_in_latest_snapshot: true,
+    confidence: "low",
+    limitations: LAST_KNOWN_LIMITATIONS,
+    ...overrides,
+  };
+}
+
+/** The home network plus one last known link for a linkless sleepy device. */
+const liveDetailWithLastKnown: TopologyEvidenceGraphDetail = {
+  ...liveDetailWithHistory,
+  last_known_links: [makeLastKnownLink({})],
+  counts: {
+    ...liveDetailWithHistory.counts,
+    last_known_link_count: 1,
   },
 };
 
@@ -1315,6 +1355,12 @@ describe("TopologyGraphPage historical evidence on large graphs", () => {
       },
       historical_neighbors: neighbors,
       historical_routes: [],
+      last_known_links: [],
+      last_known_window: {
+        snapshots_considered: 2,
+        earliest_captured_at: "2026-07-01T10:00:00+00:00",
+        latest_captured_at: "2026-07-04T10:00:00+00:00",
+      },
       passive_hints: [],
       passive_hint_window: { days: 7, event_window_minutes: 5, min_repeated_windows: 2 },
       limitations: [],
@@ -1324,6 +1370,7 @@ describe("TopologyGraphPage historical evidence on large graphs", () => {
         historical_neighbor_edges: neighbors.length,
         historical_route_edges: 0,
         recent_missing_link_count_total: neighbors.length,
+        last_known_link_count: 0,
         passive_hint_count_available: 0,
         passive_hint_count_total: 0,
         passive_hint_count_drawn: null,
@@ -1614,12 +1661,97 @@ describe("TopologyGraphPage passive-derived investigation hints", () => {
   });
 });
 
+describe("TopologyGraphPage last known links", () => {
+  beforeEach(() => {
+    mockDetail = liveDetailWithLastKnown;
+  });
+
+  it("draws last known links by default in a distinct dash-dot style without arrowheads", async () => {
+    const { container } = await renderLiveAndWaitForLayout();
+    const edges = container.querySelectorAll(".mesh-edge--last_known_link");
+    expect(edges).toHaveLength(1);
+    const path = edges[0].querySelector("path.react-flow__edge-path");
+    expect(path?.getAttribute("style") ?? "").toContain("stroke-dasharray");
+    // Non-directional: last known evidence never implies a route.
+    expect(path?.getAttribute("marker-end") ?? "").toBe("");
+    // The control is on by default and enabled.
+    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
+    const checkbox = panel.getByRole("checkbox", { name: /last known links/i });
+    expect(checkbox).toBeEnabled();
+    expect(checkbox).toBeChecked();
+  });
+
+  it("turning the control off removes the drawn edge", async () => {
+    const user = userEvent.setup();
+    const { container } = await renderLiveAndWaitForLayout();
+    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
+    await user.click(panel.getByRole("checkbox", { name: /last known links/i }));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--last_known_link")).toHaveLength(0);
+    });
+  });
+
+  it("includes the legend entry only when last known links exist", async () => {
+    await renderLiveAndWaitForLayout();
+    const legend = screen.getByRole("group", { name: /link evidence legend/i });
+    expect(within(legend).getByText("Last known link")).toBeInTheDocument();
+    expect(
+      within(legend).getByText("Last known evidence, not currently reported"),
+    ).toBeInTheDocument();
+  });
+
+  it("opens a drawer that presents last known evidence without claiming current connectivity", async () => {
+    const { container } = await renderLiveAndWaitForLayout();
+    fireEvent.click(container.querySelector(".mesh-edge--last_known_link")!);
+    const drawer = await screen.findByRole("dialog", { name: /link evidence/i });
+    expect(within(drawer).getByText("Last known link")).toBeInTheDocument();
+    expect(
+      within(drawer).getAllByText(/not a currently reported link/i).length,
+    ).toBeGreaterThan(0);
+    expect(
+      within(drawer).getAllByText(/sleepy battery devices routinely age out/i).length,
+    ).toBeGreaterThan(0);
+    const text = drawer.textContent ?? "";
+    expect(text).not.toMatch(/parent router/i);
+    expect(text).not.toMatch(/current route\b/i);
+    expect(text).not.toMatch(/currently routed/i);
+  });
+
+  it("disables the control with honest copy when every device has latest link evidence", async () => {
+    mockDetail = liveDetailWithHistory;
+    await renderLiveAndWaitForLayout();
+    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
+    const checkbox = panel.getByRole("checkbox", { name: /last known links/i });
+    expect(checkbox).toBeDisabled();
+    expect(checkbox).not.toBeChecked();
+    expect(
+      panel.getByText(
+        "Every device has link evidence in the latest snapshot, so no last known links are needed.",
+      ),
+    ).toBeInTheDocument();
+    // And the legend does not advertise the entry.
+    const legend = screen.getByRole("group", { name: /link evidence legend/i });
+    expect(within(legend).queryByText("Last known link")).not.toBeInTheDocument();
+  });
+
+  it("mentions last known links in the explainer", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    await user.click(screen.getByTestId("connections-explainer-toggle"));
+    const explainer = screen.getByTestId("connections-explainer");
+    const text = explainer.textContent ?? "";
+    expect(text).toMatch(/last known links/i);
+    expect(text).toMatch(/not currently reported/i);
+    expect(text).toMatch(/sleepy battery devices/i);
+  });
+});
+
 describe("TopologyGraphPage shared chrome", () => {
-  it("renders the legend with topology classes, omitting passive when no hints exist", async () => {
+  it("renders the legend with topology classes, omitting data-dependent entries when absent", async () => {
     await renderLiveAndWaitForLayout();
     const legend = screen.getByRole("group", { name: /link evidence legend/i });
     for (const cls of LIVE_EVIDENCE_CLASSES) {
-      if (cls === "passive_derived_association") continue;
+      if (cls === "passive_derived_association" || cls === "last_known_link") continue;
       expect(within(legend).getByText(evidenceClassLabel(cls))).toBeInTheDocument();
     }
     // No passive hints in this data: the legend must not advertise them.
@@ -1627,6 +1759,8 @@ describe("TopologyGraphPage shared chrome", () => {
       within(legend).queryByText("Suggested investigation link"),
     ).not.toBeInTheDocument();
     expect(within(legend).queryByText(/passive-derived/i)).not.toBeInTheDocument();
+    // No last known links in this data either: the entry stays out.
+    expect(within(legend).queryByText("Last known link")).not.toBeInTheDocument();
     // Classes without a live source stay out of the legend.
     expect(within(legend).queryByText(/stale/i)).not.toBeInTheDocument();
   });

@@ -13,6 +13,7 @@ export type EvidenceClass =
   | "latest_snapshot_route"
   | "historical_neighbor"
   | "historical_route"
+  | "last_known_link"
   | "passive_derived_association"
   | "stale_low_confidence";
 
@@ -28,6 +29,7 @@ export const LIVE_EVIDENCE_CLASSES: EvidenceClass[] = [
   "latest_snapshot_route",
   "historical_neighbor",
   "historical_route",
+  "last_known_link",
   "passive_derived_association",
 ];
 
@@ -167,6 +169,8 @@ export function evidenceClassLabel(cls: EvidenceClass): string {
       return "Recent missing neighbour link";
     case "historical_route":
       return "Recent missing route hint";
+    case "last_known_link":
+      return "Last known link";
     case "passive_derived_association":
       return "Suggested investigation link";
     case "stale_low_confidence":
@@ -188,6 +192,8 @@ export function evidenceClassDescription(cls: EvidenceClass): string {
       return "This neighbour link was observed in a recent previous topology snapshot but is not shown in the latest usable snapshot. This does not prove current live routing, and its absence from the latest snapshot does not prove a failure.";
     case "historical_route":
       return "Route-table evidence was observed in a recent previous topology snapshot. This does not prove current live routing.";
+    case "last_known_link":
+      return "The most recent stored link evidence for a device that reported no links in the latest snapshot. Sleepy battery devices routinely age out of router neighbour tables, so this is last known evidence, not a currently reported link — it does not prove current connectivity or live routing.";
     case "passive_derived_association":
       return "Passive-derived hint, not topology evidence. ZigbeeLens found passive observations, such as repeated instability around the same time, that may make these devices worth investigating together. This does not prove these devices are connected and does not prove current live routing.";
     case "stale_low_confidence":
@@ -206,6 +212,8 @@ export function evidenceClassShortLabel(cls: EvidenceClass): string {
       return "Recent missing link";
     case "historical_route":
       return "Recent missing route";
+    case "last_known_link":
+      return "Last known";
     case "passive_derived_association":
       return "Investigation hint";
     case "stale_low_confidence":

@@ -39,6 +39,25 @@ if TYPE_CHECKING:
 RECENT_HISTORY_WINDOW_DAYS = 7
 RECENT_HISTORY_MAX_SNAPSHOTS = 3
 
+# Last known links: the most recent stored link evidence for devices that
+# report no links at all in the latest snapshot (commonly sleepy battery
+# devices whose entries age out of router neighbour tables). Bounded by the
+# stored snapshot retention plus these caps — never a forever-history
+# reconstruction.
+LAST_KNOWN_LINKS_PER_DEVICE = 2
+MAX_LAST_KNOWN_LINKS_TOTAL = 50
+
+LAST_KNOWN_LINK_LIMITATION = (
+    "This is the most recent stored link evidence for a device that reported "
+    "no links in the latest snapshot. It is last known evidence, not a "
+    "currently reported link, and does not prove current connectivity or "
+    "live routing."
+)
+LAST_KNOWN_SLEEPY_NOTE = (
+    "Sleepy battery devices routinely age out of router neighbour tables; a "
+    "missing link in the latest snapshot is not, by itself, evidence of a fault."
+)
+
 HISTORICAL_NEIGHBOR_LIMITATION = (
     "This neighbour link was observed in a recent previous topology snapshot "
     "but is not shown in the latest usable snapshot. "
@@ -300,4 +319,129 @@ def aggregate_historical_evidence(
         "historical_neighbors": historical_neighbors,
         "historical_routes": historical_routes,
         "limitations": limitations,
+    }
+
+
+def aggregate_last_known_links(repo: Repository, network_id: str) -> dict[str, Any]:
+    """Last known link evidence for devices with no links in the latest snapshot.
+
+    Sleepy battery devices routinely age out of router neighbour tables, so
+    the latest snapshot often has no link entries for them even though the
+    database remembers where they were last observed. For each device that
+    reports no links in the latest usable snapshot, this returns its most
+    recently stored link evidence (up to LAST_KNOWN_LINKS_PER_DEVICE strongest
+    links from the most recent complete snapshot that mentioned the device).
+
+    The lookback is bounded by stored snapshot retention plus
+    MAX_LAST_KNOWN_LINKS_TOTAL — this is targeted gap-filling for otherwise
+    linkless devices, never a forever-history reconstruction. If the latest
+    snapshot layout is limited, "linkless in the latest snapshot" is not
+    meaningful and nothing is returned.
+    """
+    latest = repo.get_latest_topology_snapshot(network_id)
+    latest_snapshot_id = latest["snapshot_id"] if latest else None
+    latest_links = repo.list_topology_links(latest_snapshot_id) if latest_snapshot_id else []
+    latest_nodes = repo.list_topology_nodes(latest_snapshot_id) if latest_snapshot_id else []
+    latest_layout_available = bool(latest_nodes or latest_links)
+
+    empty_window = {"snapshots_considered": 0, "earliest_captured_at": None,
+                    "latest_captured_at": None}
+    if not latest_layout_available:
+        return {
+            "last_known_window": empty_window,
+            "last_known_links": [],
+            "limitations": [
+                "The latest snapshot layout is limited, so devices cannot be "
+                "identified as missing link evidence from it."
+            ],
+        }
+
+    linked_in_latest: set[str] = set()
+    for link in latest_links:
+        linked_in_latest.add(_norm(link["source_ieee"]))
+        linked_in_latest.add(_norm(link["target_ieee"]))
+
+    # Previous complete snapshots, newest first. Bounded by stored retention.
+    previous = [
+        snapshot
+        for snapshot in repo.list_topology_snapshots(network_id)
+        if snapshot["snapshot_id"] != latest_snapshot_id
+        and snapshot.get("status") == "complete"
+    ]
+
+    # For each linkless device, links from the most recent previous snapshot
+    # that mentioned it: (last_captured_at, lqi, link, snapshot).
+    best_per_device: dict[str, list[dict[str, Any]]] = {}
+    for snapshot in previous:  # newest first
+        for link in repo.list_topology_links(snapshot["snapshot_id"]):
+            source = _norm(link["source_ieee"])
+            target = _norm(link["target_ieee"])
+            if not source or not target or source == target:
+                continue
+            for device in (source, target):
+                if device in linked_in_latest:
+                    continue
+                existing = best_per_device.get(device)
+                if existing and existing[0]["snapshot"]["snapshot_id"] != snapshot["snapshot_id"]:
+                    # A newer snapshot already supplied this device's last
+                    # known links; older observations are not "last known".
+                    continue
+                best_per_device.setdefault(device, []).append(
+                    {"link": link, "snapshot": snapshot}
+                )
+
+    def _lqi(entry: dict[str, Any]) -> int:
+        value = entry["link"].get("linkquality")
+        return int(value) if value is not None else -1
+
+    # Deterministic device order; strongest links first within a device.
+    aggregates: dict[tuple[str, str], dict[str, Any]] = {}
+    for device in sorted(best_per_device):
+        entries = sorted(
+            best_per_device[device],
+            key=lambda e: (-_lqi(e), _norm(e["link"]["source_ieee"]),
+                           _norm(e["link"]["target_ieee"])),
+        )
+        for entry in entries[:LAST_KNOWN_LINKS_PER_DEVICE]:
+            link = entry["link"]
+            snapshot = entry["snapshot"]
+            source = _norm(link["source_ieee"])
+            target = _norm(link["target_ieee"])
+            pair: tuple[str, str] = tuple(sorted((source, target)))  # type: ignore[assignment]
+            if pair in aggregates:
+                continue
+            lqi = link.get("linkquality")
+            aggregates[pair] = {
+                "source_ieee": source,
+                "target_ieee": target,
+                "evidence_class": "last_known_link",
+                "directional": False,
+                "last_reported_at": snapshot["captured_at"],
+                "last_snapshot_id": snapshot["snapshot_id"],
+                "lqi_latest": int(lqi) if lqi is not None else None,
+                "last_relationship": (
+                    str(link["relationship"]) if link.get("relationship") is not None else None
+                ),
+                "not_seen_in_latest_snapshot": True,
+                "confidence": "low",
+                "limitations": [
+                    LAST_KNOWN_LINK_LIMITATION,
+                    LAST_KNOWN_SLEEPY_NOTE,
+                ],
+            }
+
+    last_known = sorted(
+        aggregates.values(),
+        key=lambda a: (a["last_reported_at"], a["source_ieee"], a["target_ieee"]),
+        reverse=True,
+    )[:MAX_LAST_KNOWN_LINKS_TOTAL]
+
+    return {
+        "last_known_window": {
+            "snapshots_considered": len(previous),
+            "earliest_captured_at": previous[-1]["captured_at"] if previous else None,
+            "latest_captured_at": previous[0]["captured_at"] if previous else None,
+        },
+        "last_known_links": last_known,
+        "limitations": [],
     }

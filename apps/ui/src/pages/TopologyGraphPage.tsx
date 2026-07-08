@@ -42,6 +42,9 @@ const NO_ROUTE_HINTS_COPY =
 
 const NO_RECENT_MISSING_COPY = "No recent missing links in the selected history window.";
 
+const NO_LAST_KNOWN_COPY =
+  "Every device has link evidence in the latest snapshot, so no last known links are needed.";
+
 const NO_PASSIVE_HINTS_COPY = "None from recent passive observations.";
 
 /** Plain-language explainer for the two latest-snapshot evidence types. */
@@ -89,6 +92,14 @@ function ConnectionsExplainer() {
             snapshot. They help explain gaps — for example a device that dropped out of the
             latest map — but a missing link alone is not proof that a link is gone or that a
             device has failed.
+          </p>
+          <p>
+            <span className="font-semibold text-zl-text">Last known links</span> keep
+            otherwise-linkless devices on the map. Sleepy battery devices routinely age out of
+            router neighbour tables, so a device can be healthy yet have no link entries in the
+            latest snapshot. ZigbeeLens then draws its most recent stored link evidence in a
+            distinct style — last known, not currently reported, and not proof of current
+            connectivity.
           </p>
           <p>
             <span className="font-semibold text-zl-text">All neighbour links</span> draws every
@@ -209,6 +220,10 @@ function GraphPanel({
     [edges],
   );
   const hasPassiveHints = passiveHintEdges.length > 0;
+  const hasLastKnownLinks = useMemo(
+    () => edges.some((edge) => edge.evidence_class === "last_known_link"),
+    [edges],
+  );
 
   // Focused subset of recent missing links: relevance rules (existing issue
   // flags, endpoints without latest neighbour evidence, limited latest
@@ -350,7 +365,10 @@ function GraphPanel({
 
       <div className="space-y-4">
         <Card>
-          <GraphLegend hasPassiveHints={hasPassiveHints} />
+          <GraphLegend
+            hasPassiveHints={hasPassiveHints}
+            hasLastKnownLinks={hasLastKnownLinks}
+          />
         </Card>
         <Card>
           <div role="group" aria-label="Connections to show" className="space-y-3">
@@ -390,6 +408,13 @@ function GraphPanel({
               checked={hasRecentMissingLinks && controls.recentMissingLinks}
               disabled={!hasRecentMissingLinks}
               onChange={setControl("recentMissingLinks")}
+            />
+            <ConnectionCheckbox
+              label="Last known links"
+              helper={hasLastKnownLinks ? undefined : NO_LAST_KNOWN_COPY}
+              checked={hasLastKnownLinks && controls.lastKnownLinks}
+              disabled={!hasLastKnownLinks}
+              onChange={setControl("lastKnownLinks")}
             />
             <ConnectionCheckbox
               label="Suggested investigation links"
