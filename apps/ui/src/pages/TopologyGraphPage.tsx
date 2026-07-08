@@ -2,10 +2,14 @@ import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
-import { api } from "@/lib/api";
+import { api, type InvestigationCard } from "@/lib/api";
 import { Badge, Card, ErrorState, LoadingState, MetricPill } from "@/components/ui";
 import { GraphLegend } from "@/components/meshGraph/GraphLegend";
-import { MeshEvidenceGraph } from "@/components/meshGraph/MeshEvidenceGraph";
+import { InvestigationPanel } from "@/components/meshGraph/InvestigationPanel";
+import {
+  MeshEvidenceGraph,
+  type InvestigationFocus,
+} from "@/components/meshGraph/MeshEvidenceGraph";
 import { EdgeDrawer } from "@/components/meshGraph/EdgeDrawer";
 import { NodeDrawer } from "@/components/meshGraph/NodeDrawer";
 import { TopologyViewTabs } from "@/components/meshGraph/TopologyViewTabs";
@@ -163,6 +167,7 @@ function ConnectionCheckbox({
 function GraphPanel({
   devices,
   edges,
+  investigations,
   signatureSeed,
   positionStorageId,
   onSelectEdge,
@@ -173,6 +178,7 @@ function GraphPanel({
 }: {
   devices: MeshEvidenceDevice[];
   edges: MeshEvidenceEdge[];
+  investigations: InvestigationCard[];
   signatureSeed: string;
   positionStorageId: string;
   onSelectEdge: (edge: MeshEvidenceEdge) => void;
@@ -187,6 +193,12 @@ function GraphPanel({
   );
   const [layoutMode, setLayoutMode] = useState<MeshLayoutMode>(DEFAULT_LAYOUT_MODE);
   const [resetNonce, setResetNonce] = useState(0);
+  // Investigation focus is visual only: it highlights involved devices,
+  // ensures involved edges are drawn, and dims the rest. It never moves
+  // nodes, never changes connection controls, never mutates saved layout.
+  const [activeInvestigation, setActiveInvestigation] = useState<InvestigationCard | null>(
+    null,
+  );
 
   // Adaptive budget: the largest per-device neighbour count whose selection
   // stays within ~1.5 drawn links per node. Small graphs keep everything.
@@ -281,6 +293,26 @@ function GraphPanel({
     ],
   );
 
+  const investigationFocus: InvestigationFocus | null = useMemo(() => {
+    if (!activeInvestigation) return null;
+    return {
+      deviceIds: new Set(activeInvestigation.device_ieees),
+      edgeIds: new Set(activeInvestigation.edge_ids),
+    };
+  }, [activeInvestigation]);
+
+  // A focused investigation's edges are drawn even when they would normally
+  // sit outside the focused-view budget. Connection-control choices are
+  // untouched, and layout does not depend on visible edges, so nothing moves.
+  const renderedEdges = useMemo(() => {
+    if (!investigationFocus) return visibleEdges;
+    const present = new Set(visibleEdges.map((edge) => edge.id));
+    const extras = edges.filter(
+      (edge) => !present.has(edge.id) && investigationFocus.edgeIds.has(edge.id),
+    );
+    return extras.length ? [...visibleEdges, ...extras] : visibleEdges;
+  }, [visibleEdges, edges, investigationFocus]);
+
   const setControl = (key: keyof ConnectionControls) => (value: boolean) =>
     setControls((c) => {
       const next = { ...c, [key]: value };
@@ -349,13 +381,14 @@ function GraphPanel({
         >
           <MeshEvidenceGraph
             devices={devices}
-            visibleEdges={visibleEdges}
+            visibleEdges={renderedEdges}
             allEdges={edges}
             signatureSeed={signatureSeed}
             layoutMode={layoutMode}
             positionStorageId={positionStorageId}
             resetNonce={resetNonce}
             selectedNodeId={selectedNodeId}
+            investigationFocus={investigationFocus}
             onSelectEdge={onSelectEdge}
             onSelectNode={onSelectNode}
             onClearSelection={onClearSelection}
@@ -364,6 +397,14 @@ function GraphPanel({
       </Card>
 
       <div className="space-y-4">
+        <Card>
+          <InvestigationPanel
+            investigations={investigations}
+            activeInvestigationId={activeInvestigation?.id ?? null}
+            onFocus={setActiveInvestigation}
+            onClearFocus={() => setActiveInvestigation(null)}
+          />
+        </Card>
         <Card>
           <GraphLegend
             hasPassiveHints={hasPassiveHints}
@@ -655,6 +696,7 @@ export function TopologyGraphPage() {
               key={networkId ?? "unknown-network"}
               devices={liveEvidence.devices}
               edges={liveEvidence.edges}
+              investigations={detail.data?.investigations ?? []}
               signatureSeed={liveSignatureSeed}
               positionStorageId={networkId ?? "unknown-network"}
               onSelectEdge={selectEdge}

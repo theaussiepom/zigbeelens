@@ -6,6 +6,7 @@ import type { DeviceSummary } from "@zigbeelens/shared";
 import { TopologyGraphPage } from "@/pages/TopologyGraphPage";
 import type {
   HistoricalEdgeAggregate,
+  InvestigationCard,
   LastKnownLinkAggregate,
   PassiveHintAggregate,
   TopologyEvidenceGraphDetail,
@@ -220,6 +221,8 @@ const liveDetailWithHistory: TopologyEvidenceGraphDetail = {
   },
   passive_hints: [],
   passive_hint_window: { days: 7, event_window_minutes: 5, min_repeated_windows: 2 },
+  investigations: [],
+  investigation_counts: { available: 0, returned: 0 },
   limitations: [],
   counts: {
     latest_snapshot_neighbor_edges: 2,
@@ -309,6 +312,43 @@ const liveDetailWithPassiveHints: TopologyEvidenceGraphDetail = {
     passive_hint_count_available: 1,
     passive_hint_count_total: 1,
   },
+};
+
+const INVESTIGATION_GENERIC_LIMITATION =
+  "This is an investigation priority based on available ZigbeeLens evidence. It does not prove cause, parentage, live routing or current connectivity.";
+
+function makeInvestigationCard(overrides: Partial<InvestigationCard>): InvestigationCard {
+  return {
+    id: "recent-missing-0xe1",
+    type: "recent_missing_cluster",
+    priority: "Worth checking",
+    score: 8,
+    title: "Several recent missing links involve Live Lamp",
+    summary:
+      "Live Lamp has 3 links that were seen recently but are not present in the latest usable snapshot.",
+    why_it_matters:
+      "This does not prove a failure, but it may be worth checking if the device has moved, lost power, or has weak mesh conditions.",
+    supporting_evidence: ["3 recent missing links involve Live Lamp."],
+    limitations: [INVESTIGATION_GENERIC_LIMITATION],
+    suggested_next_steps: [
+      "Check device power.",
+      "Select the device to inspect its evidence drawer.",
+    ],
+    device_ieees: ["0xe1", "0xe2"],
+    edge_ids: ["hist-neighbor-0xe1|0xe2"],
+    primary_device_ieee: "0xe1",
+    primary_neighbourhood_ieee: null,
+    created_from_evidence_classes: ["historical_neighbor"],
+    latest_supporting_evidence_at: "2026-07-04T10:00:00+00:00",
+    ...overrides,
+  };
+}
+
+/** The home network plus one ranked problem-first investigation card. */
+const liveDetailWithInvestigations: TopologyEvidenceGraphDetail = {
+  ...liveDetailWithHistory,
+  investigations: [makeInvestigationCard({})],
+  investigation_counts: { available: 1, returned: 1 },
 };
 
 // Same snapshot, but the link table references an endpoint that appears in
@@ -1363,6 +1403,8 @@ describe("TopologyGraphPage historical evidence on large graphs", () => {
       },
       passive_hints: [],
       passive_hint_window: { days: 7, event_window_minutes: 5, min_repeated_windows: 2 },
+      investigations: [],
+      investigation_counts: { available: 0, returned: 0 },
       limitations: [],
       counts: {
         latest_snapshot_neighbor_edges: 435,
@@ -1778,5 +1820,172 @@ describe("TopologyGraphPage shared chrome", () => {
     expect(note).toHaveTextContent(/should not be treated as proof of current live routing/i);
     // Never implies passive hints are always drawn or are topology facts.
     expect(note).not.toHaveTextContent(/passive hints are drawn/i);
+  });
+});
+
+describe("TopologyGraphPage investigation panel", () => {
+  beforeEach(() => {
+    mockDetail = liveDetailWithInvestigations;
+  });
+
+  function focusButton() {
+    return screen.getByRole("button", { name: /focus graph on/i });
+  }
+
+  it("renders the Where to look first panel with ranked cards and priority labels", async () => {
+    await renderLiveAndWaitForLayout();
+    const panel = screen.getByRole("region", { name: /where to look first/i });
+    expect(
+      within(panel).getByText(
+        /ranked from existing zigbeelens evidence.*investigation priorities, not root-cause claims/i,
+      ),
+    ).toBeInTheDocument();
+    expect(within(panel).getAllByTestId("investigation-card")).toHaveLength(1);
+    expect(
+      within(panel).getByLabelText(/investigation priority: worth checking/i),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).getByText("Several recent missing links involve Live Lamp"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a calm empty state when no investigation patterns exist", async () => {
+    mockDetail = liveDetailWithHistory;
+    await renderLiveAndWaitForLayout();
+    expect(screen.getByTestId("investigation-empty")).toHaveTextContent(
+      "No strong investigation patterns found in the current evidence.",
+    );
+    expect(document.body.textContent).not.toMatch(/error|failure|critical/i);
+  });
+
+  it("reveals supporting evidence, limitations and next steps behind View details", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    const card = screen.getByTestId("investigation-card");
+    await user.click(within(card).getByRole("button", { name: /view details/i }));
+    expect(
+      within(card).getByText("3 recent missing links involve Live Lamp."),
+    ).toBeInTheDocument();
+    expect(within(card).getByText(INVESTIGATION_GENERIC_LIMITATION)).toBeInTheDocument();
+    expect(within(card).getByText("Check device power.")).toBeInTheDocument();
+    // Suggested steps stay within safe manual checks.
+    expect(within(card).queryByText(/re-pair|reset|heal|scan/i)).not.toBeInTheDocument();
+  });
+
+  it("Focus graph highlights involved nodes and draws involved edges without moving layout", async () => {
+    const user = userEvent.setup();
+    const { container } = await renderLiveAndWaitForLayout();
+    const beforePos = nodePosition(container, "0xe1");
+    // The card's historical edge is not drawn by default (control is off).
+    expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
+
+    await user.click(focusButton());
+    await waitFor(() => {
+      expect(container.querySelector('.react-flow__node[data-id="0xe1"]')).toHaveClass(
+        "mesh-node--investigation-focus",
+      );
+    });
+    expect(container.querySelector('.react-flow__node[data-id="0xe2"]')).toHaveClass(
+      "mesh-node--investigation-focus",
+    );
+    // Involved edges are drawn even though the connection control is off.
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(1);
+    });
+    // Unrelated devices stay visible but quieter.
+    expect(container.querySelector('.react-flow__node[data-id="0xc0"]')).toHaveClass(
+      "mesh-node--muted",
+    );
+    // Layout is untouched: no node moved.
+    expect(nodePosition(container, "0xe1")).toBe(beforePos);
+  });
+
+  it("focusing does not change connection-control choices", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    const recentMissing = screen.getByRole("checkbox", { name: /recent missing links/i });
+    expect(recentMissing).not.toBeChecked();
+    await user.click(focusButton());
+    expect(
+      screen.getByRole("checkbox", { name: /recent missing links/i }),
+    ).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /route hints/i })).toBeChecked();
+  });
+
+  it("Clear focus restores the graph without touching positions or controls", async () => {
+    const user = userEvent.setup();
+    const { container } = await renderLiveAndWaitForLayout();
+    const beforePos = nodePosition(container, "0xr1");
+    await user.click(focusButton());
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-node--investigation-focus").length).toBe(2);
+    });
+
+    await user.click(screen.getByRole("button", { name: /clear focus/i }));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(0);
+    });
+    expect(container.querySelectorAll(".mesh-node--muted")).toHaveLength(0);
+    expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
+    expect(nodePosition(container, "0xr1")).toBe(beforePos);
+    expect(
+      screen.getByRole("checkbox", { name: /recent missing links/i }),
+    ).not.toBeChecked();
+  });
+
+  it("keeps evidence-class edge styling intact while focused", async () => {
+    const user = userEvent.setup();
+    const { container } = await renderLiveAndWaitForLayout();
+    await user.click(focusButton());
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(1);
+    });
+    // Focused edges keep their evidence-class styling (dotted historical),
+    // and the route edge keeps its own class — focus never recolours classes.
+    expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(1);
+  });
+
+  it("renders cards in backend ranking order with Show more beyond the first three", async () => {
+    const user = userEvent.setup();
+    mockDetail = {
+      ...liveDetailWithInvestigations,
+      investigations: [
+        makeInvestigationCard({ id: "card-1", title: "Card One", priority: "Review first" }),
+        makeInvestigationCard({ id: "card-2", title: "Card Two" }),
+        makeInvestigationCard({ id: "card-3", title: "Card Three" }),
+        makeInvestigationCard({ id: "card-4", title: "Card Four", priority: "Context only" }),
+      ],
+      investigation_counts: { available: 4, returned: 4 },
+    };
+    await renderLiveAndWaitForLayout();
+    const panel = screen.getByRole("region", { name: /where to look first/i });
+    const titles = () =>
+      within(panel)
+        .getAllByTestId("investigation-card")
+        .map((card) => within(card).getByRole("heading").textContent);
+    expect(titles()).toEqual(["Card One", "Card Two", "Card Three"]);
+
+    await user.click(within(panel).getByRole("button", { name: /show more/i }));
+    expect(titles()).toEqual(["Card One", "Card Two", "Card Three", "Card Four"]);
+  });
+
+  it("renders no forbidden wording anywhere with investigation cards shown", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    const card = screen.getByTestId("investigation-card");
+    await user.click(within(card).getByRole("button", { name: /view details/i }));
+    const text = document.body.textContent ?? "";
+    expect(text).not.toMatch(/root cause/i);
+    expect(text).not.toMatch(/caused by/i);
+    expect(text).not.toMatch(/parent router/i);
+    expect(text).not.toMatch(/child device/i);
+    expect(text).not.toMatch(/current route\b/i);
+    expect(text).not.toMatch(/currently routed/i);
+    expect(text).not.toMatch(/actual path/i);
+    expect(text).not.toMatch(/failed because/i);
+    expect(text).not.toMatch(/broken link/i);
+    expect(text).not.toMatch(/lost link/i);
+    expect(text).not.toMatch(/same parent/i);
+    expect(text).not.toMatch(/heal network/i);
   });
 });

@@ -428,14 +428,17 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
     reported. Passive-derived investigation hints come only from passive
     observations already stored (availability transitions, existing
     incidents); topology evidence corroborates them but never creates them,
-    and they are never routes. ``hidden_for_readability`` and
+    and they are never routes.     ``hidden_for_readability`` and
     ``passive_hint_count_drawn`` are client rendering decisions and
-    therefore reported as null here, never zero.
+    therefore reported as null here, never zero. Investigations are ranked
+    problem-first cards built only from the evidence above — investigation
+    priorities, never root-cause, routing or parentage claims.
     """
     from zigbeelens.topology.history import (
         aggregate_historical_evidence,
         aggregate_last_known_links,
     )
+    from zigbeelens.topology.investigations import aggregate_investigations
     from zigbeelens.topology.passive_hints import aggregate_passive_hints
 
     network = ctx.repo.get_network(network_id)
@@ -447,6 +450,9 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
     history = aggregate_historical_evidence(ctx.repo, network_id)
     last_known = aggregate_last_known_links(ctx.repo, network_id)
     passive = aggregate_passive_hints(ctx.repo, network_id)
+    investigations = aggregate_investigations(
+        ctx.repo, network_id, history=history, passive_hints=passive["hints"]
+    )
 
     latest_neighbor_pairs = {
         tuple(sorted((link["source_ieee"].lower(), link["target_ieee"].lower())))
@@ -475,6 +481,11 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
         "last_known_window": last_known["last_known_window"],
         "passive_hints": passive["hints"],
         "passive_hint_window": passive["window"],
+        "investigations": investigations["investigations"],
+        "investigation_counts": {
+            "available": investigations["available_count"],
+            "returned": len(investigations["investigations"]),
+        },
         "limitations": history["limitations"],
         "counts": {
             "latest_snapshot_neighbor_edges": len(latest_neighbor_pairs),

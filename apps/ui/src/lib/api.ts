@@ -350,6 +350,43 @@ export interface PassiveHintWindow {
   min_repeated_windows: number;
 }
 
+/**
+ * One ranked problem-first investigation card from the backend. Cards are
+ * investigation priorities built from existing evidence only — never
+ * root-cause, routing or parentage claims.
+ */
+export interface InvestigationCard {
+  id: string;
+  type:
+    | "issue_cluster"
+    | "recent_missing_cluster"
+    | "passive_instability_group"
+    | "router_neighbourhood_review"
+    | "diagnostics_limited_group";
+  priority: "Review first" | "Worth checking" | "Context only";
+  score: number;
+  title: string;
+  summary: string;
+  why_it_matters: string;
+  supporting_evidence: string[];
+  limitations: string[];
+  suggested_next_steps: string[];
+  device_ieees: string[];
+  /** Edge ids in the UI edge-id scheme, so the graph can draw them on focus. */
+  edge_ids: string[];
+  primary_device_ieee?: string | null;
+  primary_neighbourhood_ieee?: string | null;
+  created_from_evidence_classes: string[];
+  latest_supporting_evidence_at?: string | null;
+}
+
+export interface InvestigationCounts {
+  /** Cards that qualified before the backend cap. */
+  available: number;
+  /** Cards returned after the cap. */
+  returned: number;
+}
+
 export interface TopologyEvidenceGraphCounts {
   latest_snapshot_neighbor_edges: number;
   latest_snapshot_route_edges: number;
@@ -382,6 +419,8 @@ export interface TopologyEvidenceGraphDetail extends TopologyNetworkDetail {
   last_known_window: LastKnownLinkWindow;
   passive_hints: PassiveHintAggregate[];
   passive_hint_window: PassiveHintWindow;
+  investigations: InvestigationCard[];
+  investigation_counts: InvestigationCounts;
   limitations: string[];
   counts: TopologyEvidenceGraphCounts;
 }
