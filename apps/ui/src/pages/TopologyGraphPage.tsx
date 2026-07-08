@@ -375,14 +375,6 @@ function GraphPanel({
               checked={controls.allNeighbourLinks}
               onChange={setControl("allNeighbourLinks")}
             />
-            {controls.allNeighbourLinks && (
-              <p
-                className="pl-6 text-[11px] leading-snug text-zl-muted"
-                data-testid="all-neighbour-links-warning"
-              >
-                All neighbour links is on. Dense networks may become hard to read.
-              </p>
-            )}
             <ConnectionCheckbox
               label="Old or uncertain links"
               helper={

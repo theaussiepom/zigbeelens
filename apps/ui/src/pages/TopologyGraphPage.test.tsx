@@ -990,7 +990,7 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     expect(nodePosition(container, "0xr5")).toBe(beforePos);
   });
 
-  it("All neighbour links renders the full snapshot evidence with a warning, and off restores the subset", async () => {
+  it("All neighbour links renders the full snapshot evidence, and off restores the subset", async () => {
     const user = userEvent.setup();
     const { container } = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
@@ -1004,9 +1004,8 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(436);
     });
-    expect(connectionsPanel().getByTestId("all-neighbour-links-warning")).toHaveTextContent(
-      "All neighbour links is on. Dense networks may become hard to read.",
-    );
+    // No inline warning under the checkbox — the explainer carries the copy.
+    expect(screen.queryByTestId("all-neighbour-links-warning")).not.toBeInTheDocument();
     // Route hints stay visible alongside.
     expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(1);
 
@@ -1016,8 +1015,6 @@ describe("TopologyGraphPage focused view on large graphs", () => {
         subsetCount,
       );
     });
-    // The warning disappears once All neighbour links is off again.
-    expect(screen.queryByTestId("all-neighbour-links-warning")).not.toBeInTheDocument();
     // Connection toggles never move nodes.
     expect(nodePosition(container, "0xr5")).toBe(beforePos);
   });
