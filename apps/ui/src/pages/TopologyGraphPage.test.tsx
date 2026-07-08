@@ -523,6 +523,10 @@ describe("TopologyGraphPage live mode", () => {
     expect(text).toMatch(/link quality/i);
     expect(text).toMatch(/not proof of current live routing/i);
     expect(text).toMatch(/one line per pair/i);
+    expect(text).toMatch(/recent missing links/i);
+    expect(text).toMatch(/not proof that a link is gone/i);
+    expect(text).toMatch(/suggested investigation links/i);
+    expect(text).toMatch(/all neighbour links/i);
     // Wording guardrails hold inside the explainer too.
     expect(text).not.toMatch(/parent router/i);
     expect(text).not.toMatch(/current route\b/i);
@@ -849,24 +853,18 @@ describe("TopologyGraphPage focused view on large graphs", () => {
 
     expect(panel.getByRole("checkbox", { name: /route hints/i })).toBeChecked();
     expect(panel.getByRole("checkbox", { name: /best neighbour links/i })).toBeChecked();
-    // "Devices with issues" is off by default and framed as highlighting.
-    expect(panel.getByRole("checkbox", { name: /devices with issues/i })).not.toBeChecked();
-    expect(
-      panel.getByText(/highlight devices already marked by zigbeelens as needing attention/i),
-    ).toBeInTheDocument();
     expect(panel.getByRole("checkbox", { name: /all neighbour links/i })).not.toBeChecked();
     expect(panel.getByRole("checkbox", { name: /old or uncertain links/i })).not.toBeChecked();
-
-    // Helper copy explains what each type draws.
+    // "Devices with issues" is no longer a control: issue devices are always
+    // highlighted, so the checkbox is gone.
     expect(
-      panel.getByText(/a focused set of observed neighbour links/i),
-    ).toBeInTheDocument();
-    expect(
-      panel.getByText(/draw every observed neighbour link from the latest snapshot/i),
-    ).toBeInTheDocument();
+      panel.queryByRole("checkbox", { name: /devices with issues/i }),
+    ).not.toBeInTheDocument();
 
-    // No route-hint copy may claim live routing.
-    expect(panel.getByText(/not guaranteed live routing/i)).toBeInTheDocument();
+    // Link-type explanations live in the explainer, not under the checkboxes.
+    expect(
+      panel.queryByText(/a focused set of observed neighbour links/i),
+    ).not.toBeInTheDocument();
   });
 
   it("disables old/uncertain and recent missing links when the data has none", async () => {
@@ -915,29 +913,19 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     expect(neighbourCount).toBeLessThan(436);
   });
 
-  it("Devices with issues highlights issue nodes without flooding the graph with links", async () => {
-    const user = userEvent.setup();
+  it("always highlights issue devices without flooding the graph with links", async () => {
     const { container } = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
-    const panel = connectionsPanel();
 
-    const before = container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor").length;
-    const beforePos = nodePosition(container, "0xr7");
-
-    await user.click(panel.getByRole("checkbox", { name: /devices with issues/i }));
-
-    // Node highlighting only: the flagged device 0xr7 gets the highlight
-    // class, no extra neighbour edges appear, and nothing moves.
+    // The flagged device 0xr7 is highlighted by default — no toggle needed —
+    // and issue emphasis stays node-only: no extra neighbour edges appear.
     await waitFor(() => {
       expect(
         container.querySelector('.react-flow__node[data-id="0xr7"]'),
       ).toHaveClass("mesh-node--issue-highlight");
     });
     expect(container.querySelectorAll(".mesh-node--issue-highlight")).toHaveLength(1);
-    expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(
-      before,
-    );
-    expect(nodePosition(container, "0xr7")).toBe(beforePos);
+    const before = container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor").length;
 
     // Selecting the issue node still reveals its full evidence neighbourhood.
     fireEvent.click(screen.getByTestId("mesh-node-0xr7"));
@@ -947,6 +935,35 @@ describe("TopologyGraphPage focused view on large graphs", () => {
         container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor").length,
       ).toBeGreaterThan(before);
     });
+  });
+
+  it("deselecting a node restores the graph", async () => {
+    const { container } = renderGraphPage();
+    await screen.findByTestId("mesh-node-0xr5");
+    const beforeCount = container.querySelectorAll(
+      ".mesh-edge--latest_snapshot_neighbor",
+    ).length;
+
+    fireEvent.click(screen.getByTestId("mesh-node-0xr5"));
+    await screen.findByRole("dialog", { name: /device details/i });
+    await waitFor(() => {
+      expect(
+        container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor").length,
+      ).toBeGreaterThan(beforeCount);
+    });
+
+    // Clicking the selected node again deselects: drawer closes, focused
+    // neighbourhood collapses back to the default subset, muting clears.
+    fireEvent.click(screen.getByTestId("mesh-node-0xr5"));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /device details/i })).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(
+        beforeCount,
+      );
+    });
+    expect(container.querySelectorAll(".mesh-node--muted")).toHaveLength(0);
   });
 
   it("selecting a node reveals its full evidence neighbourhood without moving nodes", async () => {
@@ -1041,19 +1058,19 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     const user = userEvent.setup();
     const first = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
-    const issuesToggle = () =>
+    const allLinksToggle = () =>
       within(screen.getByRole("group", { name: /connections to show/i })).getByRole("checkbox", {
-        name: /devices with issues/i,
+        name: /all neighbour links/i,
       });
-    expect(issuesToggle()).not.toBeChecked();
-    await user.click(issuesToggle());
-    expect(issuesToggle()).toBeChecked();
+    expect(allLinksToggle()).not.toBeChecked();
+    await user.click(allLinksToggle());
+    expect(allLinksToggle()).toBeChecked();
     first.unmount();
 
     // A fresh visit to the same network restores the choice.
     renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
-    expect(issuesToggle()).toBeChecked();
+    expect(allLinksToggle()).toBeChecked();
   });
 
   it("different networks keep independent connection choices", async () => {
@@ -1082,11 +1099,11 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
     const panel = () => within(screen.getByRole("group", { name: /connections to show/i }));
-    await user.click(panel().getByRole("checkbox", { name: /devices with issues/i }));
-    expect(panel().getByRole("checkbox", { name: /devices with issues/i })).toBeChecked();
+    await user.click(panel().getByRole("checkbox", { name: /all neighbour links/i }));
+    expect(panel().getByRole("checkbox", { name: /all neighbour links/i })).toBeChecked();
 
     await user.click(screen.getByRole("button", { name: /reset connection choices/i }));
-    expect(panel().getByRole("checkbox", { name: /devices with issues/i })).not.toBeChecked();
+    expect(panel().getByRole("checkbox", { name: /all neighbour links/i })).not.toBeChecked();
     expect(
       localStorage.getItem("zigbeelens.meshGraph.connectionControls.v1.home"),
     ).toBeNull();
@@ -1344,11 +1361,10 @@ describe("TopologyGraphPage historical evidence on large graphs", () => {
     expect(checkbox).toBeEnabled();
     expect(checkbox).not.toBeChecked();
     expect(panel.queryByText(/previously seen/i)).not.toBeInTheDocument();
+    // Enabled controls carry no helper copy — the explainer describes them.
     expect(
-      panel.getByText(
-        "Draw recent links observed in previous topology snapshots but not present in the latest usable snapshot.",
-      ),
-    ).toBeInTheDocument();
+      panel.queryByText(/no recent missing links in the selected history window/i),
+    ).not.toBeInTheDocument();
 
     await user.click(checkbox);
     await waitFor(() => {
@@ -1437,11 +1453,10 @@ describe("TopologyGraphPage passive-derived investigation hints", () => {
     const { container } = await renderLiveAndWaitForLayout();
     expect(investigationToggle()).toBeEnabled();
     expect(investigationToggle()).not.toBeChecked();
+    // Enabled controls carry no helper copy — the explainer describes them.
     expect(
-      screen.getByText(
-        "Draw cautious investigation hints suggested by passive observations. These are not topology links or proof of live routing.",
-      ),
-    ).toBeInTheDocument();
+      screen.queryByText("None from recent passive observations."),
+    ).not.toBeInTheDocument();
     // Off by default: no passive edges rendered.
     expect(container.querySelectorAll(".mesh-edge--passive_derived_association")).toHaveLength(
       0,

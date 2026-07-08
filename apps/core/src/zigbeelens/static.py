@@ -63,6 +63,22 @@ def mount_static_ui(app: FastAPI) -> bool:
         candidate = _safe_static_file(root, full_path)
         if candidate is not None:
             return FileResponse(candidate)
+        # The UI is built with a relative base (`./`) so it works under Home
+        # Assistant Ingress. On a deep-link refresh (e.g. /topology/home/graph)
+        # the browser therefore requests assets relative to the page path
+        # (/topology/home/assets/…). Serve such requests from the real static
+        # tree instead of falling back to index.html, which would hand the
+        # browser HTML where it expects a module script and blank the page.
+        if "assets/" in full_path:
+            asset_path = "assets/" + full_path.rsplit("assets/", 1)[1]
+            candidate = _safe_static_file(root, asset_path)
+            if candidate is not None:
+                return FileResponse(candidate)
+        basename = full_path.rsplit("/", 1)[-1]
+        if "." in basename:
+            candidate = _safe_static_file(root, basename)
+            if candidate is not None:
+                return FileResponse(candidate)
         return FileResponse(index_path)
 
     return True

@@ -129,10 +129,10 @@ export function MeshEvidenceGraph({
   layoutMode,
   positionStorageId,
   resetNonce,
-  highlightIssueDevices,
   selectedNodeId,
   onSelectEdge,
   onSelectNode,
+  onClearSelection,
 }: {
   devices: MeshEvidenceDevice[];
   visibleEdges: MeshEvidenceEdge[];
@@ -141,10 +141,10 @@ export function MeshEvidenceGraph({
   layoutMode: MeshLayoutMode;
   positionStorageId: string;
   resetNonce: number;
-  highlightIssueDevices: boolean;
   selectedNodeId: string | null;
   onSelectEdge: (edge: MeshEvidenceEdge) => void;
   onSelectNode: (device: MeshEvidenceDevice) => void;
+  onClearSelection: () => void;
 }) {
   const [savedPositions, setSavedPositions] = useState<SavedPositions>(() =>
     loadSavedPositions(positionStorageId, layoutMode),
@@ -176,8 +176,8 @@ export function MeshEvidenceGraph({
     return ids;
   }, [allEdges, selectedNodeId]);
 
-  const emphasiseIssues = highlightIssueDevices || layoutMode === "health";
-
+  // Devices with issues are always clearly marked — the highlight is not a
+  // connection control, it reads existing ZigbeeLens issue signals only.
   const computedNodes: Node[] = useMemo(
     () =>
       devices.map((device) => {
@@ -186,10 +186,10 @@ export function MeshEvidenceGraph({
           selectionNeighbourhood?.has(device.ieee_address) ?? true;
         const mutedBySelection = selectionNeighbourhood !== null && !inNeighbourhood;
         const mutedByHealth =
-          emphasiseIssues && layoutMode === "health" && !isIssue && device.role !== "coordinator";
+          layoutMode === "health" && !isIssue && device.role !== "coordinator";
 
         const classNames = ["mesh-node"];
-        if (emphasiseIssues && isIssue) classNames.push("mesh-node--issue-highlight");
+        if (isIssue) classNames.push("mesh-node--issue-highlight");
         if (mutedBySelection || mutedByHealth) classNames.push("mesh-node--muted");
 
         return {
@@ -203,14 +203,14 @@ export function MeshEvidenceGraph({
           className: classNames.join(" "),
           style: {
             opacity: mutedBySelection ? 0.35 : mutedByHealth ? 0.55 : 1,
-            ...(emphasiseIssues && isIssue
+            ...(isIssue
               ? { boxShadow: "0 0 0 3px rgba(230, 116, 74, 0.65)", borderRadius: 10 }
               : {}),
           },
           data: { device },
         } satisfies Node;
       }),
-    [devices, positions, selectedNodeId, issueIds, selectionNeighbourhood, emphasiseIssues, layoutMode],
+    [devices, positions, selectedNodeId, issueIds, selectionNeighbourhood, layoutMode],
   );
 
   const [nodes, setNodes] = useState<Node[]>(computedNodes);
@@ -268,8 +268,12 @@ export function MeshEvidenceGraph({
         }}
         onNodeClick={(_, node) => {
           const device = (node.data as { device?: MeshEvidenceDevice } | undefined)?.device;
-          if (device) onSelectNode(device);
+          if (!device) return;
+          // Clicking the selected device again deselects it.
+          if (device.ieee_address === selectedNodeId) onClearSelection();
+          else onSelectNode(device);
         }}
+        onPaneClick={onClearSelection}
         className="!bg-zl-bg"
       >
         <Background gap={24} color="#1a2330" />

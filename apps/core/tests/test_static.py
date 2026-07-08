@@ -47,6 +47,36 @@ def test_static_ui_serves_favicon(tmp_path, monkeypatch):
     assert client.get("/favicon.svg").status_code == 200
 
 
+def test_deep_link_refresh_serves_relative_assets(tmp_path, monkeypatch):
+    """Relative-base builds request assets from the current page path.
+
+    Regression: refreshing /topology/home/graph makes the browser request
+    /topology/home/assets/index-*.js (the UI is built with base "./" for
+    Home Assistant Ingress). Serving index.html for that request blanks the
+    page — the real asset must be resolved from the static tree instead.
+    """
+    static = tmp_path / "static"
+    assets = static / "assets"
+    assets.mkdir(parents=True)
+    (static / "index.html").write_text("<html><body>ZigbeeLens UI</body></html>", encoding="utf-8")
+    (assets / "index-abc.js").write_text("console.log('ok')", encoding="utf-8")
+    (static / "favicon.ico").write_bytes(b"fake-ico")
+
+    monkeypatch.setenv("ZIGBEELENS_STATIC_DIR", str(static))
+    app = create_app()
+    assert mount_static_ui(app) is True
+
+    client = TestClient(app)
+    deep_asset = client.get("/topology/home/assets/index-abc.js")
+    assert deep_asset.status_code == 200
+    assert "console.log" in deep_asset.text
+    assert "ZigbeeLens UI" not in deep_asset.text
+    # Relative favicon from a deep link resolves to the real file too.
+    assert client.get("/topology/home/favicon.ico").content == b"fake-ico"
+    # Extensionless SPA routes still fall back to index.html.
+    assert "ZigbeeLens UI" in client.get("/topology/home/graph").text
+
+
 def test_static_path_traversal_blocked(tmp_path, monkeypatch):
     static = tmp_path / "static"
     assets = static / "assets"

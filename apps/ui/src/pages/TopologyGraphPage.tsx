@@ -37,17 +37,11 @@ import {
   type MeshLayoutMode,
 } from "@/lib/meshGraphSmartLayout";
 
-const ROUTE_HINTS_HELPER =
-  "Route-table evidence from the latest snapshot. This suggests possible next-hop evidence at capture time, not guaranteed live routing.";
 const NO_ROUTE_HINTS_COPY =
   "No route-table entries in the latest snapshot. ZigbeeLens requests route tables during topology capture, so capture a new snapshot; if routes stay empty, your Zigbee2MQTT adapter may not report routing tables.";
 
-const RECENT_MISSING_HELPER =
-  "Draw recent links observed in previous topology snapshots but not present in the latest usable snapshot.";
 const NO_RECENT_MISSING_COPY = "No recent missing links in the selected history window.";
 
-const SUGGESTED_INVESTIGATION_HELPER =
-  "Draw cautious investigation hints suggested by passive observations. These are not topology links or proof of live routing.";
 const NO_PASSIVE_HINTS_COPY = "None from recent passive observations.";
 
 /** Plain-language explainer for the two latest-snapshot evidence types. */
@@ -89,6 +83,26 @@ function ConnectionsExplainer() {
             one line per pair. The neighbour evidence is never removed: select a device to see
             its full evidence neighbourhood.
           </p>
+          <p>
+            <span className="font-semibold text-zl-text">Recent missing links</span> are links
+            observed in recent previous topology snapshots but not present in the latest usable
+            snapshot. They help explain gaps — for example a device that dropped out of the
+            latest map — but a missing link alone is not proof that a link is gone or that a
+            device has failed.
+          </p>
+          <p>
+            <span className="font-semibold text-zl-text">All neighbour links</span> draws every
+            observed neighbour link from the latest snapshot; dense networks may become hard to
+            read. <span className="font-semibold text-zl-text">Old or uncertain links</span>{" "}
+            draws stale or low-confidence evidence that may help investigation but should not
+            be treated as current.
+          </p>
+          <p>
+            <span className="font-semibold text-zl-text">Suggested investigation links</span>{" "}
+            are cautious hints from passive observations, such as devices repeatedly showing
+            instability around the same time. They are not topology evidence and do not prove
+            devices are connected or that anything is routing between them.
+          </p>
         </div>
       )}
     </div>
@@ -98,7 +112,7 @@ function ConnectionsExplainer() {
 const LIMITED_LAYOUT_COPY =
   "Topology snapshot was captured, but Zigbee2MQTT did not provide usable node/link layout data. Device health still comes from passive MQTT inventory and state updates.";
 
-/** Connection-type checkbox with helper copy. */
+/** Connection-type checkbox. Helper copy renders only when provided (e.g. why a control is unavailable). */
 function ConnectionCheckbox({
   label,
   helper,
@@ -107,7 +121,7 @@ function ConnectionCheckbox({
   disabled,
 }: {
   label: string;
-  helper: string;
+  helper?: string;
   checked: boolean;
   onChange?: (value: boolean) => void;
   disabled?: boolean;
@@ -128,7 +142,9 @@ function ConnectionCheckbox({
           {label}
         </span>
       </span>
-      <span className="mt-0.5 block pl-6 text-[11px] leading-snug text-zl-muted">{helper}</span>
+      {helper && (
+        <span className="mt-0.5 block pl-6 text-[11px] leading-snug text-zl-muted">{helper}</span>
+      )}
     </label>
   );
 }
@@ -140,6 +156,7 @@ function GraphPanel({
   positionStorageId,
   onSelectEdge,
   onSelectNode,
+  onClearSelection,
   selectedNodeId,
   selectedEdge,
 }: {
@@ -149,6 +166,7 @@ function GraphPanel({
   positionStorageId: string;
   onSelectEdge: (edge: MeshEvidenceEdge) => void;
   onSelectNode: (device: MeshEvidenceDevice) => void;
+  onClearSelection: () => void;
   selectedNodeId: string | null;
   selectedEdge: MeshEvidenceEdge | null;
 }) {
@@ -322,10 +340,10 @@ function GraphPanel({
             layoutMode={layoutMode}
             positionStorageId={positionStorageId}
             resetNonce={resetNonce}
-            highlightIssueDevices={controls.devicesWithIssues}
             selectedNodeId={selectedNodeId}
             onSelectEdge={onSelectEdge}
             onSelectNode={onSelectNode}
+            onClearSelection={onClearSelection}
           />
         </div>
       </Card>
@@ -342,26 +360,18 @@ function GraphPanel({
             <ConnectionsExplainer />
             <ConnectionCheckbox
               label="Route hints"
-              helper={hasRouteHints ? ROUTE_HINTS_HELPER : NO_ROUTE_HINTS_COPY}
+              helper={hasRouteHints ? undefined : NO_ROUTE_HINTS_COPY}
               checked={hasRouteHints && controls.routeHints}
               disabled={!hasRouteHints}
               onChange={setControl("routeHints")}
             />
             <ConnectionCheckbox
               label="Best neighbour links"
-              helper="A focused set of observed neighbour links chosen to keep the graph understandable."
               checked={controls.bestNeighbourLinks}
               onChange={setControl("bestNeighbourLinks")}
             />
             <ConnectionCheckbox
-              label="Devices with issues"
-              helper="Highlight devices already marked by ZigbeeLens as needing attention."
-              checked={controls.devicesWithIssues}
-              onChange={setControl("devicesWithIssues")}
-            />
-            <ConnectionCheckbox
               label="All neighbour links"
-              helper="Draw every observed neighbour link from the latest snapshot. Dense networks may become hard to read."
               checked={controls.allNeighbourLinks}
               onChange={setControl("allNeighbourLinks")}
             />
@@ -376,9 +386,7 @@ function GraphPanel({
             <ConnectionCheckbox
               label="Old or uncertain links"
               helper={
-                hasOldUncertainLinks
-                  ? "Draw stale or low-confidence evidence that may help investigation but should not be treated as current."
-                  : "No old or uncertain links in this snapshot."
+                hasOldUncertainLinks ? undefined : "No old or uncertain links in this snapshot."
               }
               checked={hasOldUncertainLinks && controls.oldUncertainLinks}
               disabled={!hasOldUncertainLinks}
@@ -386,14 +394,14 @@ function GraphPanel({
             />
             <ConnectionCheckbox
               label="Recent missing links"
-              helper={hasRecentMissingLinks ? RECENT_MISSING_HELPER : NO_RECENT_MISSING_COPY}
+              helper={hasRecentMissingLinks ? undefined : NO_RECENT_MISSING_COPY}
               checked={hasRecentMissingLinks && controls.recentMissingLinks}
               disabled={!hasRecentMissingLinks}
               onChange={setControl("recentMissingLinks")}
             />
             <ConnectionCheckbox
               label="Suggested investigation links"
-              helper={hasPassiveHints ? SUGGESTED_INVESTIGATION_HELPER : NO_PASSIVE_HINTS_COPY}
+              helper={hasPassiveHints ? undefined : NO_PASSIVE_HINTS_COPY}
               checked={hasPassiveHints && controls.suggestedInvestigationLinks}
               disabled={!hasPassiveHints}
               onChange={setControl("suggestedInvestigationLinks")}
@@ -464,6 +472,10 @@ export function TopologyGraphPage() {
   const selectNode = (device: MeshEvidenceDevice) => {
     setSelectedEdge(null);
     setSelectedDevice(device);
+  };
+  const clearSelection = () => {
+    setSelectedEdge(null);
+    setSelectedDevice(null);
   };
 
   return (
@@ -630,6 +642,7 @@ export function TopologyGraphPage() {
               positionStorageId={networkId ?? "unknown-network"}
               onSelectEdge={selectEdge}
               onSelectNode={selectNode}
+              onClearSelection={clearSelection}
               selectedNodeId={selectedDevice?.ieee_address ?? null}
               selectedEdge={selectedEdge}
             />

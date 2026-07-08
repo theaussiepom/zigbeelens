@@ -32,13 +32,6 @@ export interface ConnectionControls {
   routeHints: boolean;
   /** Readable subset of strongest observed neighbour links. */
   bestNeighbourLinks: boolean;
-  /**
-   * "Devices with issues": highlights devices ZigbeeLens has already
-   * flagged. Primarily node highlighting — it must never expand to every
-   * evidence edge touching issue devices (that flooded dense graphs);
-   * only edges already marked issue-related become visible.
-   */
-  devicesWithIssues: boolean;
   /** Every observed neighbour link from the latest snapshot. */
   allNeighbourLinks: boolean;
   /** Stale / low-confidence evidence already present in the model. */
@@ -61,7 +54,6 @@ export interface ConnectionControls {
 export const DEFAULT_CONNECTION_CONTROLS: ConnectionControls = {
   routeHints: true,
   bestNeighbourLinks: true,
-  devicesWithIssues: false,
   allNeighbourLinks: false,
   oldUncertainLinks: false,
   recentMissingLinks: false,
@@ -451,10 +443,11 @@ export function selectVisibleConnectionEdges(
     // evidence neighbourhood regardless of class.
     if (focusNodes.has(edge.source) || focusNodes.has(edge.target)) return true;
 
-    // "Devices with issues" highlights nodes. The only edges it reveals are
-    // ones already explicitly marked issue-related — never every evidence
-    // edge touching an issue device, which flooded dense graphs with lines.
-    if (controls.devicesWithIssues && edge.issue_related) return true;
+    // Devices with issues are always evident (highlighted nodes), and edges
+    // already explicitly marked issue-related are always drawn — but never
+    // every evidence edge touching an issue device, which flooded dense
+    // graphs with lines.
+    if (edge.issue_related) return true;
 
     switch (edge.evidence_class) {
       case "latest_snapshot_route":
