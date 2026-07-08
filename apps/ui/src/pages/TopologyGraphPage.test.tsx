@@ -480,13 +480,36 @@ describe("TopologyGraphPage live mode", () => {
       screen.getByRole("checkbox", { name: /suggested investigation links/i }),
     ).toBeDisabled();
     expect(
-      screen.getByText(
-        "No passive-derived investigation hints are available for this network yet.",
-      ),
+      screen.getByText("None from recent passive observations."),
     ).toBeInTheDocument();
     // The stale control is gone with sample mode.
     expect(
       screen.queryByRole("checkbox", { name: /stale \/ low-confidence/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("disables route hints with capture guidance when the snapshot has no route tables", async () => {
+    mockDetail = {
+      ...liveDetailHome,
+      links: liveDetailHome.links!.map((link) => ({ ...link, route_count: 0 })),
+    };
+    const { container } = await renderLiveAndWaitForLayout();
+    expect(screen.getByRole("checkbox", { name: /route hints/i })).toBeDisabled();
+    expect(
+      screen.getByText(/No route-table entries in the latest snapshot/),
+    ).toBeInTheDocument();
+    // Guidance points at capturing a new snapshot, never at live-routing claims.
+    expect(screen.getByText(/capture a new snapshot/i)).toBeInTheDocument();
+    expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(0);
+  });
+
+  it("enables route hints with the standard helper when route tables exist", async () => {
+    await renderLiveAndWaitForLayout();
+    const checkbox = screen.getByRole("checkbox", { name: /route hints/i });
+    expect(checkbox).toBeEnabled();
+    expect(checkbox).toBeChecked();
+    expect(
+      screen.queryByText(/No route-table entries in the latest snapshot/),
     ).not.toBeInTheDocument();
   });
 
@@ -835,9 +858,7 @@ describe("TopologyGraphPage focused view on large graphs", () => {
       panel.getByRole("checkbox", { name: /suggested investigation links/i }),
     ).toBeDisabled();
     expect(
-      panel.getByText(
-        "No passive-derived investigation hints are available for this network yet.",
-      ),
+      panel.getByText("None from recent passive observations."),
     ).toBeInTheDocument();
   });
 
@@ -845,14 +866,8 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     const { container } = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
 
-    // No standalone banner — the focused-view note lives in the panel and
-    // states available vs drawn without concealment language.
     expect(screen.queryByTestId("dense-graph-banner")).not.toBeInTheDocument();
-    const note = screen.getByTestId("focused-view-note");
-    expect(note).toHaveTextContent(/drawing a focused set of connections/i);
-    expect(screen.getByTestId("focused-view-counts")).toHaveTextContent(
-      /\d+ evidence links available · \d+ drawn in this view/,
-    );
+    expect(screen.queryByTestId("focused-view-note")).not.toBeInTheDocument();
     expect(screen.queryByTestId("all-drawn-note")).not.toBeInTheDocument();
 
     await waitFor(() => {
@@ -978,12 +993,8 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     // One control model everywhere: no separate evidence-filter panel.
     expect(screen.getByRole("group", { name: /connections to show/i })).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: /evidence filters/i })).not.toBeInTheDocument();
-    // Small enough that the adaptive budget draws everything: no focused
-    // wording, just the all-drawn note.
-    expect(screen.getByTestId("all-drawn-note")).toHaveTextContent(
-      "All enabled evidence links are drawn.",
-    );
     expect(screen.queryByTestId("focused-view-note")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("all-drawn-note")).not.toBeInTheDocument();
     await waitFor(() => {
       // Both merged neighbour edges and the single route edge render.
       expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(2);
@@ -1492,15 +1503,11 @@ describe("TopologyGraphPage passive-derived investigation hints", () => {
     ).toBeInTheDocument();
   });
 
-  it("says so plainly when a device has no passive hints", async () => {
+  it("omits the passive hints section when a device has none", async () => {
     await renderLiveAndWaitForLayout();
     fireEvent.click(screen.getByTestId("mesh-node-0xc0"));
     const drawer = screen.getByRole("dialog", { name: /device details/i });
-    expect(
-      within(drawer).getByText(
-        "No passive-derived investigation hints in the selected window.",
-      ),
-    ).toBeInTheDocument();
+    expect(within(drawer).queryByText("Suggested investigation links")).not.toBeInTheDocument();
   });
 
   it("includes the legend entry only when passive hints exist", async () => {

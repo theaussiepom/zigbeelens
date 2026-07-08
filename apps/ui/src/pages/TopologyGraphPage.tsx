@@ -36,39 +36,21 @@ import {
   type MeshLayoutMode,
 } from "@/lib/meshGraphSmartLayout";
 
+const ROUTE_HINTS_HELPER =
+  "Route-table evidence from the latest snapshot. This suggests possible next-hop evidence at capture time, not guaranteed live routing.";
+const NO_ROUTE_HINTS_COPY =
+  "No route-table entries in the latest snapshot. ZigbeeLens requests route tables during topology capture, so capture a new snapshot; if routes stay empty, your Zigbee2MQTT adapter may not report routing tables.";
+
 const RECENT_MISSING_HELPER =
   "Draw recent links observed in previous topology snapshots but not present in the latest usable snapshot.";
 const NO_RECENT_MISSING_COPY = "No recent missing links in the selected history window.";
 
 const SUGGESTED_INVESTIGATION_HELPER =
   "Draw cautious investigation hints suggested by passive observations. These are not topology links or proof of live routing.";
-const NO_PASSIVE_HINTS_COPY =
-  "No passive-derived investigation hints are available for this network yet.";
+const NO_PASSIVE_HINTS_COPY = "None from recent passive observations.";
 
 const LIMITED_LAYOUT_COPY =
   "Topology snapshot was captured, but Zigbee2MQTT did not provide usable node/link layout data. Device health still comes from passive MQTT inventory and state updates.";
-
-/**
- * Whether an evidence class is enabled by the current connection controls,
- * ignoring the adaptive budget and caps. Used to tell "focused" (enabled
- * evidence exists that this view is not drawing) apart from "everything the
- * user asked for is drawn".
- */
-function evidenceClassEnabled(edge: MeshEvidenceEdge, controls: ConnectionControls): boolean {
-  switch (edge.evidence_class) {
-    case "latest_snapshot_neighbor":
-      return controls.bestNeighbourLinks || controls.allNeighbourLinks;
-    case "latest_snapshot_route":
-      return controls.routeHints;
-    case "historical_neighbor":
-    case "historical_route":
-      return controls.recentMissingLinks;
-    case "stale_low_confidence":
-      return controls.oldUncertainLinks;
-    case "passive_derived_association":
-      return controls.suggestedInvestigationLinks;
-  }
-}
 
 /** Connection-type checkbox with helper copy. */
 function ConnectionCheckbox({
@@ -139,6 +121,10 @@ function GraphPanel({
   );
   const hasOldUncertainLinks = useMemo(
     () => edges.some((edge) => edge.evidence_class === "stale_low_confidence"),
+    [edges],
+  );
+  const hasRouteHints = useMemo(
+    () => edges.some((edge) => edge.evidence_class === "latest_snapshot_route"),
     [edges],
   );
   const recentMissingEdges = useMemo(
@@ -212,23 +198,6 @@ function GraphPanel({
       selectedEdge,
     ],
   );
-
-  // Focused view: enabled evidence exists that this view is not drawing
-  // (adaptive neighbour budget or recent-missing caps). User-disabled
-  // classes don't count — that is a choice, not focusing.
-  const { enabledAvailableCount, focusedView, drawnRecentMissingCount } = useMemo(() => {
-    const visibleIds = new Set(visibleEdges.map((edge) => edge.id));
-    const enabled = edges.filter((edge) => evidenceClassEnabled(edge, controls));
-    return {
-      enabledAvailableCount: enabled.length,
-      focusedView: enabled.some((edge) => !visibleIds.has(edge.id)),
-      drawnRecentMissingCount: visibleEdges.filter(
-        (edge) =>
-          edge.evidence_class === "historical_neighbor" ||
-          edge.evidence_class === "historical_route",
-      ).length,
-    };
-  }, [edges, controls, visibleEdges]);
 
   const setControl = (key: keyof ConnectionControls) => (value: boolean) =>
     setControls((c) => {
@@ -321,38 +290,11 @@ function GraphPanel({
             <h3 className="text-xs font-semibold uppercase tracking-wide text-zl-muted">
               Connections to show
             </h3>
-            {focusedView ? (
-              <div
-                className="space-y-1 text-[11px] leading-snug text-zl-muted"
-                data-testid="focused-view-note"
-              >
-                <p>
-                  This network has many overlapping topology links, so ZigbeeLens starts by
-                  drawing a focused set of connections.
-                </p>
-                <p data-testid="focused-view-counts">
-                  {enabledAvailableCount} evidence links available · {visibleEdges.length} drawn
-                  in this view
-                </p>
-                {controls.recentMissingLinks && hasRecentMissingLinks && (
-                  <p data-testid="recent-missing-counts">
-                    {recentMissingEdges.length} recent missing links available ·{" "}
-                    {drawnRecentMissingCount} drawn in this view
-                  </p>
-                )}
-              </div>
-            ) : (
-              <p
-                className="text-[11px] leading-snug text-zl-muted"
-                data-testid="all-drawn-note"
-              >
-                All enabled evidence links are drawn.
-              </p>
-            )}
             <ConnectionCheckbox
               label="Route hints"
-              helper="Route-table evidence from the latest snapshot. This suggests possible next-hop evidence at capture time, not guaranteed live routing."
-              checked={controls.routeHints}
+              helper={hasRouteHints ? ROUTE_HINTS_HELPER : NO_ROUTE_HINTS_COPY}
+              checked={hasRouteHints && controls.routeHints}
+              disabled={!hasRouteHints}
               onChange={setControl("routeHints")}
             />
             <ConnectionCheckbox
