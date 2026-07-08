@@ -85,20 +85,15 @@ const emptyContext = {
 };
 
 describe("default connection controls", () => {
-  it("matches the spec: routes/best on; issues, all, old, recent missing and investigation links off", () => {
+  it("matches the spec: routes/best on; all, old, recent missing and investigation links off", () => {
     expect(DEFAULT_CONNECTION_CONTROLS).toEqual({
       routeHints: true,
       bestNeighbourLinks: true,
-      devicesWithIssues: false,
       allNeighbourLinks: false,
       oldUncertainLinks: false,
       recentMissingLinks: false,
       suggestedInvestigationLinks: false,
     });
-  });
-
-  it("keeps Devices with issues off by default", () => {
-    expect(DEFAULT_CONNECTION_CONTROLS.devicesWithIssues).toBe(false);
   });
 
   it("keeps Recent missing links off by default", () => {
@@ -176,11 +171,11 @@ describe("connection-control persistence", () => {
 
   it("keeps different choices for different networks", () => {
     saveConnectionControls("home", controls({ allNeighbourLinks: true }));
-    saveConnectionControls("office", controls({ devicesWithIssues: true }));
+    saveConnectionControls("office", controls({ recentMissingLinks: true }));
     expect(loadConnectionControls("home").allNeighbourLinks).toBe(true);
-    expect(loadConnectionControls("home").devicesWithIssues).toBe(false);
+    expect(loadConnectionControls("home").recentMissingLinks).toBe(false);
     expect(loadConnectionControls("office").allNeighbourLinks).toBe(false);
-    expect(loadConnectionControls("office").devicesWithIssues).toBe(true);
+    expect(loadConnectionControls("office").recentMissingLinks).toBe(true);
   });
 
   it("falls back to defaults for missing or corrupt storage", () => {
@@ -486,38 +481,26 @@ describe("selectVisibleConnectionEdges", () => {
     expect(visible).toContain(staleEdge);
   });
 
-  it("Devices with issues never expands to every edge touching issue devices", () => {
-    // r3 is an issue device with a plain neighbour edge; the toggle is node
-    // highlighting, so that edge must stay hidden even when enabled.
-    const visible = selectVisibleConnectionEdges(
-      all,
-      controls({ devicesWithIssues: true }),
-      context,
-    );
+  it("issue highlighting never expands to every edge touching issue devices", () => {
+    // r3 is an issue device with a plain neighbour edge; issue emphasis is
+    // node highlighting, so that edge must stay hidden.
+    const visible = selectVisibleConnectionEdges(all, controls(), context);
     expect(visible).not.toContain(otherNeighbour);
   });
 
-  it("Devices with issues reveals only edges already marked issue-related", () => {
+  it("always draws edges already marked issue-related, and only those", () => {
     const issueEdge = edge("x", "y", { id: "issue", issue_related: true });
     const plainEdge = edge("x", "z", { id: "plain" });
-    const on = selectVisibleConnectionEdges(
-      [issueEdge, plainEdge],
-      controls({ devicesWithIssues: true }),
-      emptyContext,
-    );
-    expect(on).toContain(issueEdge);
-    expect(on).not.toContain(plainEdge);
-
-    const off = selectVisibleConnectionEdges([issueEdge, plainEdge], controls(), emptyContext);
-    expect(off).not.toContain(issueEdge);
+    const visible = selectVisibleConnectionEdges([issueEdge, plainEdge], controls(), emptyContext);
+    expect(visible).toContain(issueEdge);
+    expect(visible).not.toContain(plainEdge);
   });
 
   it("selecting an issue device still reveals its full evidence neighbourhood", () => {
-    const visible = selectVisibleConnectionEdges(
-      all,
-      controls({ devicesWithIssues: true }),
-      { ...context, selectedNodeId: "r3" },
-    );
+    const visible = selectVisibleConnectionEdges(all, controls(), {
+      ...context,
+      selectedNodeId: "r3",
+    });
     expect(visible).toContain(otherNeighbour);
   });
 
