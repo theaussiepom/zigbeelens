@@ -93,7 +93,9 @@ function buildFlowEdge(
     targetHandle: handles?.targetHandle,
     className: `mesh-edge mesh-edge--${edge.evidence_class} mesh-edge--focus-${focus}`,
     ariaLabel: edgeAriaLabel(edge, nameOf),
-    interactionWidth: 24,
+    // Keep the click target close to the visible line. A wide invisible hit
+    // area blankets dense graphs and swallows pane drags and node grabs.
+    interactionWidth: 5,
     style: {
       stroke: style.stroke,
       strokeWidth,
