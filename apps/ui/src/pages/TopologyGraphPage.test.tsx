@@ -440,7 +440,15 @@ describe("TopologyGraphPage live mode", () => {
   });
 
   it("maps neighbour links to latest_snapshot_neighbor edges, merging directions", async () => {
+    const user = userEvent.setup();
     const { container } = await renderLiveAndWaitForLayout();
+    // One line per pair: the route-covered pair (0xr1–0xc0) draws only its
+    // route edge, so a single neighbour edge (0xr1–0xe1) renders by default.
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(1);
+    });
+    // With route hints off, both merged neighbour edges draw.
+    await user.click(screen.getByRole("checkbox", { name: /route hints/i }));
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(2);
     });
@@ -503,6 +511,28 @@ describe("TopologyGraphPage live mode", () => {
     expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(0);
   });
 
+  it("explains route hints vs best neighbour links behind a click", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    expect(screen.queryByTestId("connections-explainer")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("connections-explainer-toggle"));
+    const text = screen.getByTestId("connections-explainer").textContent ?? "";
+    expect(text).toMatch(/neighbour table/i);
+    expect(text).toMatch(/routing table/i);
+    expect(text).toMatch(/link quality/i);
+    expect(text).toMatch(/not proof of current live routing/i);
+    expect(text).toMatch(/one line per pair/i);
+    // Wording guardrails hold inside the explainer too.
+    expect(text).not.toMatch(/parent router/i);
+    expect(text).not.toMatch(/current route\b/i);
+    expect(text).not.toMatch(/actual path/i);
+    expect(text).not.toMatch(/connected through/i);
+
+    await user.click(screen.getByTestId("connections-explainer-toggle"));
+    expect(screen.queryByTestId("connections-explainer")).not.toBeInTheDocument();
+  });
+
   it("enables route hints with the standard helper when route tables exist", async () => {
     await renderLiveAndWaitForLayout();
     const checkbox = screen.getByRole("checkbox", { name: /route hints/i });
@@ -514,7 +544,11 @@ describe("TopologyGraphPage live mode", () => {
   });
 
   it("opens the neighbour edge drawer with snapshot facts and safe wording", async () => {
+    const user = userEvent.setup();
     await renderLiveAndWaitForLayout();
+    // This pair is route-covered, so its neighbour line draws once route
+    // hints are off (one line per pair while both are on).
+    await user.click(screen.getByRole("checkbox", { name: /route hints/i }));
     const edge = await screen.findByLabelText(
       "Latest snapshot neighbour evidence between Live Hall Router and Live Coordinator",
     );
@@ -996,8 +1030,9 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     expect(screen.queryByTestId("focused-view-note")).not.toBeInTheDocument();
     expect(screen.queryByTestId("all-drawn-note")).not.toBeInTheDocument();
     await waitFor(() => {
-      // Both merged neighbour edges and the single route edge render.
-      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(2);
+      // One line per pair: the route-covered pair draws only its route edge,
+      // the remaining pair draws its neighbour edge.
+      expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(1);
       expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(1);
     });
   });
@@ -1086,8 +1121,9 @@ describe("TopologyGraphPage historical evidence (live)", () => {
       expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(1);
     });
     expect(container.querySelectorAll(".mesh-edge--historical_route")).toHaveLength(1);
-    // Latest edges are never duplicated as historical.
-    expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(2);
+    // Latest edges are never duplicated as historical. (One neighbour edge:
+    // the route-covered pair draws only its route edge.)
+    expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(1);
     expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(1);
   });
 

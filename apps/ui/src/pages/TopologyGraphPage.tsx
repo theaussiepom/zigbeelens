@@ -21,6 +21,7 @@ import {
   DEFAULT_CONNECTION_CONTROLS,
   clearConnectionControls,
   collectIssueDeviceIds,
+  collectRouteCoveredPairs,
   loadConnectionControls,
   saveConnectionControls,
   selectAdaptiveBestNeighbourLinks,
@@ -48,6 +49,51 @@ const NO_RECENT_MISSING_COPY = "No recent missing links in the selected history 
 const SUGGESTED_INVESTIGATION_HELPER =
   "Draw cautious investigation hints suggested by passive observations. These are not topology links or proof of live routing.";
 const NO_PASSIVE_HINTS_COPY = "None from recent passive observations.";
+
+/** Plain-language explainer for the two latest-snapshot evidence types. */
+function ConnectionsExplainer() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="text-[11px] text-zl-accent hover:underline"
+        data-testid="connections-explainer-toggle"
+      >
+        What do these mean?
+      </button>
+      {open && (
+        <div
+          className="mt-2 space-y-2 rounded-lg border border-zl-border bg-zl-surface-2 p-2 text-[11px] leading-snug text-zl-muted"
+          data-testid="connections-explainer"
+        >
+          <p>
+            <span className="font-semibold text-zl-text">Best neighbour links</span> come from
+            each device&apos;s neighbour table: the other devices it could hear over the radio,
+            with a link quality (LQI) reading. They show which connections are possible.
+            ZigbeeLens draws a focused set of the strongest links per device so dense networks
+            stay readable; “All neighbour links” draws every one.
+          </p>
+          <p>
+            <span className="font-semibold text-zl-text">Route hints</span> come from each
+            router&apos;s routing table: the next-hop entries it reported at the moment the
+            snapshot was captured. They are closer to how the mesh was operating than radio
+            audibility alone, but Zigbee routes change frequently — this is capture-time
+            evidence, not proof of current live routing.
+          </p>
+          <p>
+            In short: neighbour links show what is possible, route hints show what was being
+            used at capture time. Where a device pair has both, only the route hint is drawn —
+            one line per pair. The neighbour evidence is never removed: select a device to see
+            its full evidence neighbourhood.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const LIMITED_LAYOUT_COPY =
   "Topology snapshot was captured, but Zigbee2MQTT did not provide usable node/link layout data. Device health still comes from passive MQTT inventory and state updates.";
@@ -115,10 +161,13 @@ function GraphPanel({
 
   // Adaptive budget: the largest per-device neighbour count whose selection
   // stays within ~1.5 drawn links per node. Small graphs keep everything.
-  const bestNeighbourEdgeIds = useMemo(
-    () => selectAdaptiveBestNeighbourLinks(edges, devices.length).edgeIds,
-    [edges, devices.length],
-  );
+  // While route hints are drawn, pairs already covered by a route edge are
+  // excluded so the neighbour allowance reaches otherwise-unconnected pairs
+  // (one line per pair — never a neighbour line parallel to a route hint).
+  const bestNeighbourEdgeIds = useMemo(() => {
+    const excludePairs = controls.routeHints ? collectRouteCoveredPairs(edges) : undefined;
+    return selectAdaptiveBestNeighbourLinks(edges, devices.length, excludePairs).edgeIds;
+  }, [edges, devices.length, controls.routeHints]);
   const hasOldUncertainLinks = useMemo(
     () => edges.some((edge) => edge.evidence_class === "stale_low_confidence"),
     [edges],
@@ -290,6 +339,7 @@ function GraphPanel({
             <h3 className="text-xs font-semibold uppercase tracking-wide text-zl-muted">
               Connections to show
             </h3>
+            <ConnectionsExplainer />
             <ConnectionCheckbox
               label="Route hints"
               helper={hasRouteHints ? ROUTE_HINTS_HELPER : NO_ROUTE_HINTS_COPY}

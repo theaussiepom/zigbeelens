@@ -11,6 +11,7 @@ import {
   TARGET_VISIBLE_LINKS_PER_NODE,
   clearConnectionControls,
   collectIssueDeviceIds,
+  collectRouteCoveredPairs,
   connectionControlsStorageKey,
   deviceHasIssue,
   loadConnectionControls,
@@ -275,6 +276,31 @@ describe("selectBestNeighbourLinks", () => {
     ];
     expect(selectBestNeighbourLinks(edges, 2).size).toBe(0);
   });
+
+  it("spends the per-device allowance on pairs not covered by routes", () => {
+    // a–b is the strongest link but the pair is route-covered: with the
+    // exclusion, a's single slot goes to the weaker a–c instead.
+    const edges = [
+      edge("a", "b", { id: "ab", lqi_latest: 200 }),
+      edge("a", "c", { id: "ac", lqi_latest: 50 }),
+    ];
+    const excluded = selectBestNeighbourLinks(edges, 1, new Set(["a|b"]));
+    expect(excluded.has("ab")).toBe(false);
+    expect(excluded.has("ac")).toBe(true);
+
+    const unexcluded = selectBestNeighbourLinks(edges, 1);
+    expect(unexcluded.has("ab")).toBe(true);
+  });
+});
+
+describe("collectRouteCoveredPairs", () => {
+  it("collects route pairs direction-independently and ignores other classes", () => {
+    const pairs = collectRouteCoveredPairs([
+      edge("b", "a", { id: "route", evidence_class: "latest_snapshot_route", directional: true }),
+      edge("c", "d", { id: "neighbour" }),
+    ]);
+    expect(pairs).toEqual(new Set(["a|b"]));
+  });
 });
 
 describe("deviceHasIssue / collectIssueDeviceIds", () => {
@@ -514,6 +540,59 @@ describe("selectVisibleConnectionEdges", () => {
       selectedEdge: staleEdge,
     });
     expect(visible).toContain(staleEdge);
+  });
+
+  it("draws one line per pair: a route-covered pair suppresses its neighbour line", () => {
+    // Same pair as routeEdge (r1–c0), and even chosen as a best neighbour.
+    const pairNeighbour = edge("r1", "c0", { id: "pair-neighbour" });
+    const visible = selectVisibleConnectionEdges([routeEdge, pairNeighbour], controls(), {
+      ...emptyContext,
+      bestNeighbourEdgeIds: new Set(["pair-neighbour"]),
+    });
+    expect(visible).toContain(routeEdge);
+    expect(visible).not.toContain(pairNeighbour);
+  });
+
+  it("suppresses the neighbour line regardless of pair direction", () => {
+    const reversedNeighbour = edge("c0", "r1", { id: "reversed-neighbour" });
+    const visible = selectVisibleConnectionEdges([routeEdge, reversedNeighbour], controls(), {
+      ...emptyContext,
+      bestNeighbourEdgeIds: new Set(["reversed-neighbour"]),
+    });
+    expect(visible).not.toContain(reversedNeighbour);
+  });
+
+  it("the neighbour line returns when route hints are turned off", () => {
+    const pairNeighbour = edge("r1", "c0", { id: "pair-neighbour" });
+    const visible = selectVisibleConnectionEdges(
+      [routeEdge, pairNeighbour],
+      controls({ routeHints: false }),
+      { ...emptyContext, bestNeighbourEdgeIds: new Set(["pair-neighbour"]) },
+    );
+    expect(visible).toContain(pairNeighbour);
+    expect(visible).not.toContain(routeEdge);
+  });
+
+  it("All neighbour links deliberately draws both lines for a route-covered pair", () => {
+    const pairNeighbour = edge("r1", "c0", { id: "pair-neighbour" });
+    const visible = selectVisibleConnectionEdges(
+      [routeEdge, pairNeighbour],
+      controls({ allNeighbourLinks: true }),
+      { ...emptyContext, bestNeighbourEdgeIds: new Set<string>() },
+    );
+    expect(visible).toContain(routeEdge);
+    expect(visible).toContain(pairNeighbour);
+  });
+
+  it("selecting a device still reveals the neighbour line of a route-covered pair", () => {
+    const pairNeighbour = edge("r1", "c0", { id: "pair-neighbour" });
+    const visible = selectVisibleConnectionEdges([routeEdge, pairNeighbour], controls(), {
+      ...emptyContext,
+      bestNeighbourEdgeIds: new Set<string>(),
+      selectedNodeId: "r1",
+    });
+    expect(visible).toContain(routeEdge);
+    expect(visible).toContain(pairNeighbour);
   });
 
   it("recent missing links render only the focused subset, never all history", () => {
