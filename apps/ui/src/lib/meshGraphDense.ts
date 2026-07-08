@@ -166,6 +166,26 @@ export function collectIssueDeviceIds(devices: MeshEvidenceDevice[]): Set<string
   return ids;
 }
 
+/** Direction-independent key for a device pair. */
+function pairKey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
+/**
+ * Device pairs covered by a latest-snapshot route edge. Used to avoid
+ * drawing a neighbour line in parallel with a route hint for the same pair:
+ * the route edge is the stronger evidence, and the neighbour evidence stays
+ * in the model and remains reachable by selecting an endpoint device.
+ */
+export function collectRouteCoveredPairs(edges: MeshEvidenceEdge[]): Set<string> {
+  const pairs = new Set<string>();
+  for (const edge of edges) {
+    if (edge.evidence_class !== "latest_snapshot_route") continue;
+    pairs.add(pairKey(edge.source, edge.target));
+  }
+  return pairs;
+}
+
 /**
  * Pick the "best neighbour links" subset: for each device, up to N strongest
  * observed `latest_snapshot_neighbor` links.
@@ -175,14 +195,20 @@ export function collectIssueDeviceIds(devices: MeshEvidenceDevice[]): Set<string
  * device whose links all lack LQI still keeps up to N links rather than
  * being stranded). Ties break on edge id for determinism. An edge is kept if
  * it is in the top N of *either* endpoint.
+ *
+ * Pairs in `excludePairKeys` (typically pairs already drawn as route hints)
+ * are skipped so the per-device allowance is spent on pairs that would
+ * otherwise show no connection.
  */
 export function selectBestNeighbourLinks(
   edges: MeshEvidenceEdge[],
   linksPerDevice: number,
+  excludePairKeys?: Set<string>,
 ): Set<string> {
   const byDevice = new Map<string, MeshEvidenceEdge[]>();
   for (const edge of edges) {
     if (edge.evidence_class !== "latest_snapshot_neighbor") continue;
+    if (excludePairKeys?.has(pairKey(edge.source, edge.target))) continue;
     for (const endpoint of [edge.source, edge.target]) {
       const list = byDevice.get(endpoint);
       if (list) list.push(edge);
@@ -228,11 +254,12 @@ export interface AdaptiveBestNeighbourSelection {
 export function selectAdaptiveBestNeighbourLinks(
   edges: MeshEvidenceEdge[],
   nodeCount: number,
+  excludePairKeys?: Set<string>,
 ): AdaptiveBestNeighbourSelection {
   const budget = Math.ceil(Math.max(nodeCount, 1) * TARGET_VISIBLE_LINKS_PER_NODE);
   let fallback: AdaptiveBestNeighbourSelection | null = null;
   for (let n = MAX_NEIGHBOUR_LINKS_PER_DEVICE; n >= MIN_NEIGHBOUR_LINKS_PER_DEVICE; n -= 1) {
-    const edgeIds = selectBestNeighbourLinks(edges, n);
+    const edgeIds = selectBestNeighbourLinks(edges, n, excludePairKeys);
     if (edgeIds.size <= budget) return { edgeIds, linksPerDevice: n };
     fallback = { edgeIds, linksPerDevice: n };
   }
@@ -410,6 +437,15 @@ export function selectVisibleConnectionEdges(
     focusNodes.add(context.selectedEdge.target);
   }
 
+  // When route hints are drawn, a pair covered by a route edge does not also
+  // draw its neighbour line — one line per pair, route evidence first.
+  // "All neighbour links" deliberately draws everything, and selection still
+  // reveals the full neighbourhood, so the neighbour evidence stays reachable.
+  const routeCoveredPairs =
+    controls.routeHints && !controls.allNeighbourLinks
+      ? collectRouteCoveredPairs(edges)
+      : new Set<string>();
+
   return edges.filter((edge) => {
     // Selected device links — always on: selection reveals the full
     // evidence neighbourhood regardless of class.
@@ -424,10 +460,9 @@ export function selectVisibleConnectionEdges(
       case "latest_snapshot_route":
         return controls.routeHints;
       case "latest_snapshot_neighbor":
-        return (
-          controls.allNeighbourLinks ||
-          (controls.bestNeighbourLinks && context.bestNeighbourEdgeIds.has(edge.id))
-        );
+        if (controls.allNeighbourLinks) return true;
+        if (routeCoveredPairs.has(pairKey(edge.source, edge.target))) return false;
+        return controls.bestNeighbourLinks && context.bestNeighbourEdgeIds.has(edge.id);
       case "stale_low_confidence":
         return controls.oldUncertainLinks;
       // Recent missing links render only the focused/capped subset chosen
