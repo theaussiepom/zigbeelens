@@ -73,5 +73,5 @@ topology:
   manual_capture_enabled: false
   automatic_capture_enabled: false
   capture_on_incident: false
-  max_snapshots_per_network: 5
+  max_snapshots_per_network: 30
   warn_before_capture: true

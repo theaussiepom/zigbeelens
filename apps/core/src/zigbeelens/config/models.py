@@ -87,7 +87,10 @@ class TopologyConfig(BaseModel):
     startup_stable_delay_seconds: int = Field(default=60, ge=0)
     refresh_interval_seconds: int = Field(default=0, ge=0)
     capture_on_incident: bool = False
-    max_snapshots_per_network: int = Field(default=5, ge=1)
+    # Count cap per network; storage.retention_days bounds snapshots by age
+    # independently. 30 keeps enough history for "last known link" evidence
+    # to survive restart bursts (startup scans) at ~1 MB per snapshot.
+    max_snapshots_per_network: int = Field(default=30, ge=1)
     warn_before_capture: bool = True
 
 
