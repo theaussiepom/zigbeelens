@@ -296,6 +296,32 @@ export interface TopologyHistoryWindow {
 }
 
 /**
+ * The most recent stored link evidence for a device with no links in the
+ * latest snapshot (typically a sleepy battery device whose entries aged out
+ * of router neighbour tables). Last known evidence, never a currently
+ * reported link.
+ */
+export interface LastKnownLinkAggregate {
+  source_ieee: string;
+  target_ieee: string;
+  evidence_class: "last_known_link";
+  directional: false;
+  last_reported_at: string;
+  last_snapshot_id: string;
+  lqi_latest?: number | null;
+  last_relationship?: string | null;
+  not_seen_in_latest_snapshot: true;
+  confidence: "low";
+  limitations: string[];
+}
+
+export interface LastKnownLinkWindow {
+  snapshots_considered: number;
+  earliest_captured_at?: string | null;
+  latest_captured_at?: string | null;
+}
+
+/**
  * One passive-derived investigation hint from the backend. A hint means
  * only "worth investigating together": it is not topology evidence, not a
  * route, and never proof of current connectivity.
@@ -331,6 +357,8 @@ export interface TopologyEvidenceGraphCounts {
   historical_route_edges: number;
   /** Total recent missing links available in the history window. */
   recent_missing_link_count_total: number;
+  /** Last known links for devices absent from the latest snapshot's links. */
+  last_known_link_count: number;
   /** Passive hints that qualified in the lookback window, before caps. */
   passive_hint_count_available: number;
   /** Passive hints returned after backend caps. */
@@ -350,6 +378,8 @@ export interface TopologyEvidenceGraphDetail extends TopologyNetworkDetail {
   history_window: TopologyHistoryWindow;
   historical_neighbors: HistoricalEdgeAggregate[];
   historical_routes: HistoricalEdgeAggregate[];
+  last_known_links: LastKnownLinkAggregate[];
+  last_known_window: LastKnownLinkWindow;
   passive_hints: PassiveHintAggregate[];
   passive_hint_window: PassiveHintWindow;
   limitations: string[];

@@ -26,14 +26,22 @@ function LegendLine({ cls }: { cls: EvidenceClass }) {
 
 /**
  * Legend for the edge visual grammar. Lists every live evidence class; the
- * passive-derived entry appears only when the current data actually
- * contains passive hints, so the legend never advertises evidence the
+ * passive-derived and last-known entries appear only when the current data
+ * actually contains them, so the legend never advertises evidence the
  * graph cannot show.
  */
-export function GraphLegend({ hasPassiveHints = false }: { hasPassiveHints?: boolean }) {
-  const classes = LIVE_EVIDENCE_CLASSES.filter(
-    (cls) => cls !== "passive_derived_association" || hasPassiveHints,
-  );
+export function GraphLegend({
+  hasPassiveHints = false,
+  hasLastKnownLinks = false,
+}: {
+  hasPassiveHints?: boolean;
+  hasLastKnownLinks?: boolean;
+}) {
+  const classes = LIVE_EVIDENCE_CLASSES.filter((cls) => {
+    if (cls === "passive_derived_association") return hasPassiveHints;
+    if (cls === "last_known_link") return hasLastKnownLinks;
+    return true;
+  });
   return (
     <div aria-label="Link evidence legend" role="group">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zl-muted">
@@ -47,6 +55,11 @@ export function GraphLegend({ hasPassiveHints = false }: { hasPassiveHints?: boo
             {cls === "passive_derived_association" && (
               <span className="text-[10px] text-zl-muted">
                 Passive-derived hint, not topology evidence
+              </span>
+            )}
+            {cls === "last_known_link" && (
+              <span className="text-[10px] text-zl-muted">
+                Last known evidence, not currently reported
               </span>
             )}
           </li>

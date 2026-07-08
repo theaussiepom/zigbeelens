@@ -44,6 +44,14 @@ export interface ConnectionControls {
    */
   recentMissingLinks: boolean;
   /**
+   * "Last known links": the most recent stored link evidence for devices
+   * with no links at all in the latest snapshot (typically sleepy battery
+   * devices aged out of router neighbour tables). On by default — these
+   * exist only for otherwise-linkless devices and are capped backend-side,
+   * so they can never hairball. Clearly styled as not currently reported.
+   */
+  lastKnownLinks: boolean;
+  /**
    * "Suggested investigation links": passive-derived hints from the backend
    * rule engine. Not topology evidence and never proof of live routing.
    * Off by default, and even when on only a focused, capped subset renders.
@@ -57,6 +65,7 @@ export const DEFAULT_CONNECTION_CONTROLS: ConnectionControls = {
   allNeighbourLinks: false,
   oldUncertainLinks: false,
   recentMissingLinks: false,
+  lastKnownLinks: true,
   suggestedInvestigationLinks: false,
 };
 
@@ -467,6 +476,11 @@ export function selectVisibleConnectionEdges(
           controls.recentMissingLinks &&
           (context.recentMissingEdgeIds?.has(edge.id) ?? false)
         );
+      // Last known links only exist for devices with no links in the latest
+      // snapshot and are capped backend-side, so drawing them all when the
+      // control is on cannot hairball.
+      case "last_known_link":
+        return controls.lastKnownLinks;
       // Passive-derived hints render only the focused/capped subset chosen
       // by selectPassiveHintEdges — never every hint at once. Hints over
       // the cap stay reachable via device selection above.
