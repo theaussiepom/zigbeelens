@@ -117,6 +117,34 @@ export function deviceSearchNoResultsCopy(query: string): string {
 }
 
 /* ------------------------------------------------------------------------ */
+/* Snapshot compare                                                          */
+/* ------------------------------------------------------------------------ */
+
+export const COMPARE_BUTTON_LABEL = "Compare snapshots";
+export const COMPARE_PANEL_TITLE = "What changed";
+export const COMPARE_CLEAR_LABEL = "Clear compare";
+export const COMPARE_SUMMARY_LEAD =
+  "Compared with the previous usable snapshot, ZigbeeLens observed:";
+/** Only shown inside the compare experience, never in the normal graph view. */
+export const COMPARE_NOT_ENOUGH_HISTORY_COPY =
+  "There is not enough snapshot history to compare yet.";
+/** Only shown inside the compare experience, never in the normal graph view. */
+export const COMPARE_NO_CHANGES_COPY =
+  "No meaningful topology evidence changes between these snapshots.";
+
+/** Human group titles for compare change types. */
+export const COMPARE_GROUP_TITLES: Record<string, string> = {
+  newly_observed_device: "Newly observed devices",
+  device_no_topology_evidence: "Devices with no topology evidence in the latest snapshot",
+  new_neighbour_link: "Newly observed neighbour links",
+  missing_neighbour_link: "Neighbour links not present in the latest snapshot",
+  changed_neighbour_link: "Changed neighbour evidence",
+  new_route_hint: "New route hints",
+  missing_route_hint: "Route hints not present in the latest snapshot",
+  changed_route_hint: "Changed route-hint evidence",
+};
+
+/* ------------------------------------------------------------------------ */
 /* Investigation panel                                                       */
 /* ------------------------------------------------------------------------ */
 

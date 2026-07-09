@@ -9,9 +9,12 @@ import type {
   InvestigationCard,
   LastKnownLinkAggregate,
   PassiveHintAggregate,
+  SnapshotCompareChange,
+  SnapshotCompareDetail,
   TopologyEvidenceGraphDetail,
   TopologyNetworkDetail,
 } from "@/lib/api";
+import { api } from "@/lib/api";
 import {
   LIVE_EVIDENCE_CLASSES,
   evidenceClassLabel,
@@ -2222,5 +2225,286 @@ describe("device search", () => {
     await user.type(searchInput(), "live");
     const list = await screen.findByRole("listbox", { name: /device search results/i });
     expect(findForbiddenUserFacingPhrases(list.textContent ?? "")).toEqual([]);
+  });
+});
+
+function makeCompareChange(overrides: Partial<SnapshotCompareChange>): SnapshotCompareChange {
+  return {
+    id: "missing_neighbour_link-0xe1|0xe2",
+    type: "missing_neighbour_link",
+    title:
+      "Neighbour link not present in the latest snapshot: Live Lamp — Live Sleepy Sensor",
+    summary:
+      "This neighbour link was observed in the previous compared snapshot but is not present in the latest snapshot.",
+    device_ieees: ["0xe1", "0xe2"],
+    edge_key: "0xe1|0xe2",
+    before: { observed: true, lqi: 80 },
+    after: { observed: false, lqi: null },
+    supporting_evidence: [
+      "Recorded link quality (LQI) 80 in the previous compared snapshot.",
+    ],
+    practical_note:
+      "A neighbour link not present in the latest snapshot does not prove a failure. It can happen when devices are sleepy, temporarily unavailable, moved, or simply absent from the latest map.",
+    focus_device_ieees: ["0xe1", "0xe2"],
+    focus_edge_ids: ["hist-neighbor-0xe1|0xe2"],
+    ...overrides,
+  };
+}
+
+const compareWithChanges: SnapshotCompareDetail = {
+  network_id: "home",
+  base_snapshot: {
+    snapshot_id: "snap-old",
+    captured_at: "2026-07-04T10:00:00+00:00",
+    requested_by: "startup_scan",
+    status: "complete",
+  },
+  compare_snapshot: {
+    snapshot_id: "snap-live",
+    captured_at: "2026-07-06T00:30:00+00:00",
+    requested_by: "startup_scan",
+    status: "complete",
+  },
+  comparison_window: { usable_snapshots: 4 },
+  has_comparison: true,
+  summary: "Compared with the previous usable snapshot, ZigbeeLens observed:",
+  summary_items: [
+    "1 newly observed device",
+    "1 neighbour link not present in the latest snapshot",
+  ],
+  changes: [
+    makeCompareChange({
+      id: "newly_observed_device-0xe1",
+      type: "newly_observed_device",
+      title: "Live Lamp is newly observed in topology evidence",
+      summary:
+        "Live Lamp appears in the latest snapshot but was not observed in the previous compared snapshot.",
+      device_ieees: ["0xe1"],
+      edge_key: null,
+      before: { observed_in_topology: false },
+      after: { observed_in_topology: true },
+      supporting_evidence: [],
+      practical_note:
+        "A newly observed device appeared in the latest topology capture. This is point-in-time evidence, not a statement about when the device joined.",
+      focus_device_ieees: ["0xe1"],
+      focus_edge_ids: [],
+    }),
+    makeCompareChange({}),
+  ],
+  counts: {
+    newly_observed_devices: 1,
+    devices_no_topology_evidence: 0,
+    new_neighbour_links: 0,
+    neighbour_links_not_present_latest: 1,
+    changed_neighbour_links: 0,
+    new_route_hints: 0,
+    route_hints_not_present_latest: 0,
+    changed_route_hints: 0,
+    total_changes: 2,
+  },
+  limitations: [],
+};
+
+const compareNoChanges: SnapshotCompareDetail = {
+  ...compareWithChanges,
+  summary: "No meaningful topology evidence changes between these snapshots.",
+  summary_items: [],
+  changes: [],
+  counts: { ...compareWithChanges.counts, total_changes: 0, newly_observed_devices: 0,
+    neighbour_links_not_present_latest: 0 },
+};
+
+const compareNotEnoughHistory: SnapshotCompareDetail = {
+  ...compareNoChanges,
+  base_snapshot: null,
+  comparison_window: { usable_snapshots: 1 },
+  has_comparison: false,
+  summary: "There is not enough snapshot history to compare yet.",
+  limitations: ["There is not enough snapshot history to compare yet."],
+};
+
+describe("snapshot compare", () => {
+  let mockCompare: SnapshotCompareDetail;
+
+  beforeEach(() => {
+    mockCompare = compareWithChanges;
+    vi.spyOn(api, "topologySnapshotCompare").mockImplementation(() =>
+      Promise.resolve(mockCompare),
+    );
+  });
+
+  function compareButton() {
+    return screen.getByRole("button", { name: /compare snapshots/i });
+  }
+
+  async function openCompare() {
+    fireEvent.click(compareButton());
+    return await screen.findByRole("region", { name: /what changed/i });
+  }
+
+  it("renders the Compare snapshots control and no compare copy in the normal view", async () => {
+    await renderLiveAndWaitForLayout();
+    expect(compareButton()).toBeInTheDocument();
+    expect(screen.queryByText(/what changed/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/not enough snapshot history/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/no meaningful topology evidence changes/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opening compare shows human snapshot labels and summary of non-zero categories", async () => {
+    await renderLiveAndWaitForLayout();
+    const panel = await openCompare();
+    expect(within(panel).getByText(/^Latest snapshot — captured/)).toBeInTheDocument();
+    expect(within(panel).getByText(/^Previous snapshot — captured/)).toBeInTheDocument();
+    const summary = within(panel).getByTestId("compare-summary");
+    expect(summary).toHaveTextContent("1 newly observed device");
+    expect(summary).toHaveTextContent("1 neighbour link not present in the latest snapshot");
+    // Zero categories stay silent.
+    expect(summary.textContent).not.toMatch(/route hint/i);
+    expect(summary.textContent).not.toMatch(/\b0\b/);
+  });
+
+  it("renders change groups with human titles", async () => {
+    await renderLiveAndWaitForLayout();
+    const panel = await openCompare();
+    const groups = within(panel).getAllByTestId("compare-change-group");
+    expect(groups.map((g) => g.textContent)).toEqual([
+      expect.stringContaining("Newly observed devices"),
+      expect.stringContaining("Neighbour links not present in the latest snapshot"),
+    ]);
+  });
+
+  it("shows the not-enough-history empty state only inside compare", async () => {
+    mockCompare = compareNotEnoughHistory;
+    await renderLiveAndWaitForLayout();
+    expect(screen.queryByText(/not enough snapshot history/i)).not.toBeInTheDocument();
+    const panel = await openCompare();
+    expect(
+      await within(panel).findByText("There is not enough snapshot history to compare yet."),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the no-changes empty state only inside compare", async () => {
+    mockCompare = compareNoChanges;
+    await renderLiveAndWaitForLayout();
+    expect(
+      screen.queryByText(/no meaningful topology evidence changes/i),
+    ).not.toBeInTheDocument();
+    const panel = await openCompare();
+    expect(
+      await within(panel).findByText(
+        "No meaningful topology evidence changes between these snapshots.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("selecting a link change focuses devices, draws the evidence and opens the Link details panel", async () => {
+    mockDetail = liveDetailWithHistory;
+    const { container } = await renderLiveAndWaitForLayout();
+    const beforePos = nodePosition(container, "0xr1");
+    // The historical edge is not drawn by default (control off).
+    expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
+
+    const panel = await openCompare();
+    fireEvent.click(
+      await within(panel).findByRole("button", {
+        name: /neighbour link not present in the latest snapshot: live lamp/i,
+      }),
+    );
+
+    // The involved evidence edge is drawn with its evidence styling intact.
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(1);
+    });
+    // The Link details panel opens for the existing historical evidence.
+    expect(await screen.findByRole("dialog", { name: /link details/i })).toBeInTheDocument();
+    // Layout stable, connection controls untouched and not persisted.
+    expect(nodePosition(container, "0xr1")).toBe(beforePos);
+    expect(
+      screen.getByRole("checkbox", { name: /recent missing links/i }),
+    ).not.toBeChecked();
+    expect(localStorage.getItem(connectionControlsStorageKey("home"))).toBeNull();
+  });
+
+  it("selecting a device change highlights the device and opens the Device details panel", async () => {
+    mockDetail = liveDetailWithHistory;
+    const { container } = await renderLiveAndWaitForLayout();
+    const panel = await openCompare();
+    fireEvent.click(
+      await within(panel).findByRole("button", {
+        name: /live lamp is newly observed in topology evidence/i,
+      }),
+    );
+    const drawer = await screen.findByRole("dialog", { name: /device details/i });
+    expect(within(drawer).getByText("Live Lamp")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(container.querySelector('.react-flow__node[data-id="0xe1"]')).toHaveClass(
+        "mesh-node--investigation-focus",
+      );
+    });
+  });
+
+  it("Clear compare removes the panel and the compare focus", async () => {
+    mockDetail = liveDetailWithHistory;
+    const { container } = await renderLiveAndWaitForLayout();
+    const panel = await openCompare();
+    fireEvent.click(
+      await within(panel).findByRole("button", {
+        name: /neighbour link not present in the latest snapshot: live lamp/i,
+      }),
+    );
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(1);
+    });
+
+    fireEvent.click(within(panel).getByRole("button", { name: /clear compare/i }));
+    await waitFor(() => {
+      expect(screen.queryByRole("region", { name: /what changed/i })).not.toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("checkbox", { name: /recent missing links/i }),
+    ).not.toBeChecked();
+  });
+
+  it("search selection and compare focus do not fight", async () => {
+    mockDetail = liveDetailWithHistory;
+    const user = userEvent.setup();
+    const { container } = await renderLiveAndWaitForLayout();
+    const panel = await openCompare();
+    fireEvent.click(
+      await within(panel).findByRole("button", {
+        name: /live lamp is newly observed in topology evidence/i,
+      }),
+    );
+    await waitFor(() => {
+      expect(container.querySelector('.react-flow__node[data-id="0xe1"]')).toHaveClass(
+        "mesh-node--investigation-focus",
+      );
+    });
+
+    // Selecting a search result clears the compare focus predictably.
+    await user.type(screen.getByRole("combobox", { name: /search devices/i }), "coordinator");
+    const list = await screen.findByRole("listbox", { name: /device search results/i });
+    await user.click(within(list).getByRole("option", { name: /live coordinator/i }));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(0);
+    });
+  });
+
+  it("compare panel contains no forbidden user-facing phrases", async () => {
+    mockDetail = liveDetailWithHistory;
+    await renderLiveAndWaitForLayout();
+    const panel = await openCompare();
+    fireEvent.click(
+      await within(panel).findByRole("button", {
+        name: /neighbour link not present in the latest snapshot: live lamp/i,
+      }),
+    );
+    const text = panel.textContent ?? "";
+    expect(findForbiddenUserFacingPhrases(text)).toEqual([]);
+    expect(text).not.toMatch(/\blost\b|\bbroken\b|\bdropped\b|\bdisconnected\b/i);
   });
 });

@@ -177,6 +177,10 @@ export const api = {
     fetchJson<TopologyEvidenceGraphDetail>(
       `api/topology/${encodeURIComponent(networkId)}/evidence-graph`,
     ),
+  topologySnapshotCompare: (networkId: string) =>
+    fetchJson<SnapshotCompareDetail>(
+      `api/topology/${encodeURIComponent(networkId)}/snapshots/compare`,
+    ),
   captureTopology: (networkId: string) =>
     fetchJson<{ snapshot_id: string; status: string }>(
       `api/topology/${networkId}/capture`,
@@ -447,6 +451,71 @@ export interface DeviceStatsWindow {
   days: number;
   max_snapshots: number;
   snapshots_considered: number;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Snapshot compare                                                          */
+/* ------------------------------------------------------------------------ */
+
+export type SnapshotCompareChangeType =
+  | "newly_observed_device"
+  | "device_no_topology_evidence"
+  | "new_neighbour_link"
+  | "missing_neighbour_link"
+  | "changed_neighbour_link"
+  | "new_route_hint"
+  | "missing_route_hint"
+  | "changed_route_hint";
+
+/** One human-facing change between the compared snapshots. */
+export interface SnapshotCompareChange {
+  id: string;
+  type: SnapshotCompareChangeType;
+  title: string;
+  summary: string;
+  device_ieees: string[];
+  edge_key?: string | null;
+  /** Recorded evidence before/after; unknown values are null, never zero. */
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  supporting_evidence: string[];
+  practical_note: string;
+  focus_device_ieees: string[];
+  /** Candidate edge ids in the UI edge-id scheme, drawn when present. */
+  focus_edge_ids: string[];
+}
+
+export interface SnapshotCompareSnapshot {
+  snapshot_id: string;
+  captured_at?: string | null;
+  requested_by?: string | null;
+  status?: string | null;
+}
+
+export interface SnapshotCompareCounts {
+  newly_observed_devices: number;
+  devices_no_topology_evidence: number;
+  new_neighbour_links: number;
+  neighbour_links_not_present_latest: number;
+  changed_neighbour_links: number;
+  new_route_hints: number;
+  route_hints_not_present_latest: number;
+  changed_route_hints: number;
+  total_changes: number;
+}
+
+/** Response of GET /api/topology/{network_id}/snapshots/compare. */
+export interface SnapshotCompareDetail {
+  network_id: string;
+  base_snapshot: SnapshotCompareSnapshot | null;
+  compare_snapshot: SnapshotCompareSnapshot | null;
+  comparison_window: { usable_snapshots: number };
+  has_comparison: boolean;
+  summary: string;
+  summary_items: string[];
+  changes: SnapshotCompareChange[];
+  counts: SnapshotCompareCounts;
+  limitations: string[];
 }
 
 export type { MockScenarioId };
