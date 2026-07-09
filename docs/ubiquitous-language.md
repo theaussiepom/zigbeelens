@@ -211,34 +211,43 @@ evidence in the latest snapshot.”
 
 Avoid: not found in mesh, missing means offline.
 
-### Snapshot comparison
+### Snapshot history (device-led snapshot compare)
 
-A human-readable comparison of two usable topology snapshots — “Snapshot
-compare”. This is a comparison of two point-in-time evidence captures, never a
-live routing diagnosis. The panel leads with what is worth reviewing
-(device-centric insights) and a calm churn level; raw diff counts sit under a
-clearly labelled “Snapshot churn” section.
+Snapshot compare is device-led: it lives in the Device details panel as
+“Snapshot history”, never as a whole-network diff. It answers “how does this
+device look in the latest snapshot compared with earlier snapshots?” — a list
+of recent usable snapshots (previous usable selected by default, older ones
+selectable) and a comparison card that leads with an actionable status, then
+why, what this means, suggested checks, and collapsed evidence details.
 
-Human-facing: **Compare snapshots**, **Snapshot compare**, **seen in latest
-snapshot only**, **seen in previous snapshot only**, **changed evidence**,
-**worth reviewing**, **topology-evidence churn** (low / moderate / high)
+Comparison statuses (about the comparison only, never device health):
+**No notable change** (row label “Similar”), **Changed**, **Watch**,
+**Worth reviewing**.
 
-Required caveat, visible before any counts: “Topology snapshots are
-point-in-time evidence. Differences between snapshots are common and do not
-prove devices moved, links failed, or live routes changed.”
+Human-facing: **Snapshot history**, **links shown**, **links changed**,
+**links only in latest snapshot**, **links only in selected snapshot**,
+**route hints**, **selected snapshot**, **latest snapshot**
 
-Churn describes snapshot-to-snapshot evidence differences only. Avoid calling
-it risk, health or mesh instability.
+Availability coverage is stated directly, never as vague “limited data”:
+**Availability tracking off** (red — with “Enable Zigbee2MQTT availability and
+last-seen reporting…”), **Availability history building** (amber — tracking is
+enabled but does not cover that period), **Availability status unknown**
+(grey — coverage genuinely cannot be confirmed). Untracked periods never show
+a fake online/offline state.
 
-Avoid: lost, disappeared, broken, failed, removed, dropped, disconnected,
-edge diff, added/removed nodes, current route, parent router.
+Technical terms like “Zigbee neighbour table” may appear in detail/help text
+only, not as primary labels.
+
+Avoid: neighbour evidence, topology-evidence churn, lost, missing,
+disappeared, broken, failed, parent router, current route, currently routed,
+caused by. Healthy/Unhealthy/Bad/Risk are not comparison statuses.
 
 ### Evidence summary report
 
 A copyable/downloadable Markdown summary of the evidence the graph already
-shows: counts, what changed (when compare is active), where to look first, and
-the selected device. Read-only, generated client-side, never persisted. Empty
-sections are omitted — silence is better than unnecessary reassurance.
+shows: counts, where to look first, and the selected device. Read-only,
+generated client-side, never persisted. Empty sections are omitted — silence
+is better than unnecessary reassurance.
 
 Human-facing: **Create report**, **Copy summary**, **Download Markdown**,
 **evidence summary**

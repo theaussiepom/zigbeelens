@@ -545,6 +545,26 @@ def topology_snapshots_compare(
     )
 
 
+@router.get("/topology/{network_id}/devices/{ieee_address}/snapshot-history")
+def topology_device_snapshot_history(
+    network_id: str, ieee_address: str, ctx: AppContext = Depends(ctx_dep)
+) -> dict:
+    """Read-only device-led snapshot history: how one device looks in the
+    latest usable snapshot compared with earlier usable snapshots.
+
+    Per-device link and route-hint counts, availability tracking coverage
+    per period, and an actionable comparison of each earlier snapshot
+    against the latest (no_notable_change / changed / watch /
+    worth_reviewing). Statuses describe snapshot comparison only, never
+    device health, and use existing issue signals only.
+    """
+    from zigbeelens.topology.device_compare import device_snapshot_history
+
+    if ctx.repo.get_network(network_id) is None:
+        raise HTTPException(status_code=404, detail="Network not found")
+    return device_snapshot_history(ctx.repo, network_id, ieee_address)
+
+
 @router.get("/topology/{network_id}/snapshots/{snapshot_id}")
 def topology_snapshot_detail(
     network_id: str, snapshot_id: str, ctx: AppContext = Depends(ctx_dep)

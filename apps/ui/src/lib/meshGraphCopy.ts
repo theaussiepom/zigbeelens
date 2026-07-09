@@ -137,51 +137,86 @@ export const REPORT_PASSIVE_HINT_NOTE =
   "Suggested investigation links come from passive observations. They can help decide which devices to inspect together, but they are not topology links.";
 
 /* ------------------------------------------------------------------------ */
-/* Snapshot compare                                                          */
+/* Snapshot compare (report builder support only)                            */
 /* ------------------------------------------------------------------------ */
 
-export const COMPARE_BUTTON_LABEL = "Compare snapshots";
-export const COMPARE_PANEL_TITLE = "Snapshot compare";
-export const COMPARE_CLEAR_LABEL = "Clear compare";
-/** Visible before any counts: snapshots are point-in-time evidence. */
-export const COMPARE_POINT_IN_TIME_CAVEAT =
-  "Topology snapshots are point-in-time evidence. Differences between snapshots are common and do not prove devices moved, links failed, or live routes changed.";
-/** Only shown inside the compare experience, never in the normal graph view. */
+/** Only shown inside a compare-specific report, never in the graph view. */
 export const COMPARE_NOT_ENOUGH_HISTORY_COPY =
   "There is not enough snapshot history to compare yet.";
-/** Only shown inside the compare experience, never in the normal graph view. */
+/** Only shown inside a compare-specific report, never in the graph view. */
 export const COMPARE_NO_CHANGES_COPY =
   "No topology-evidence differences were found between these usable snapshots.";
 
-export const COMPARE_SECTION_SUMMARY = "Change summary";
-export const COMPARE_SECTION_WORTH_REVIEWING = "Worth reviewing";
-export const COMPARE_SECTION_CHURN = "Snapshot churn";
-export const COMPARE_SECTION_DETAILS = "Details";
+/* ------------------------------------------------------------------------ */
+/* Device-led snapshot history                                               */
+/* ------------------------------------------------------------------------ */
 
-export const COMPARE_CHURN_CAVEAT =
-  "These counts describe differences between two point-in-time topology snapshots. They are useful for investigation, but do not prove live routing changes.";
-export const COMPARE_WORTH_REVIEWING_EMPTY =
-  "No issue-linked topology changes stood out between these snapshots.";
-export const COMPARE_FOCUS_LABEL_PREFIX = "Compare focus: ";
+export const SNAPSHOT_HISTORY_SECTION_TITLE = "Snapshot history";
+export const SNAPSHOT_HISTORY_LATEST_LABEL = "Latest snapshot";
+export const SNAPSHOT_HISTORY_COMPARE_WITH_LABEL = "Compare latest snapshot with";
+export const SNAPSHOT_HISTORY_EMPTY_COPY =
+  "No earlier usable topology snapshots are available for this device yet.";
+export const SNAPSHOT_HISTORY_UNAVAILABLE_COPY =
+  "Snapshot history is unavailable right now.";
 
-export const COMPARE_CHURN_GROUP_NEIGHBOUR = "Neighbour evidence";
-export const COMPARE_CHURN_GROUP_ROUTE = "Route-hint evidence";
+export const SNAPSHOT_HISTORY_WHY_TITLE = "Why";
+export const SNAPSHOT_HISTORY_MEANING_TITLE = "What this means";
+export const SNAPSHOT_HISTORY_CHECKS_TITLE = "Suggested checks";
+export const SNAPSHOT_HISTORY_EVIDENCE_DETAILS_TITLE = "Evidence details";
 
-/** Human group titles for compare change types — neutral compare language. */
-export const COMPARE_GROUP_TITLES: Record<string, string> = {
-  issue_linked_topology_change: "Devices with issue-linked topology changes",
-  no_latest_neighbour_evidence_after_previous:
-    "Devices with no latest neighbour evidence after previous evidence",
-  large_router_evidence_change: "Routers with large evidence changes",
-  newly_observed_device: "Newly observed devices",
-  device_no_topology_evidence: "Devices with no topology evidence in the latest snapshot",
-  new_neighbour_link: "Neighbour links seen in latest snapshot only",
-  missing_neighbour_link: "Neighbour links seen in previous snapshot only",
-  changed_neighbour_link: "Changed neighbour evidence",
-  new_route_hint: "Route hints seen in latest snapshot only",
-  missing_route_hint: "Route hints seen in previous snapshot only",
-  changed_route_hint: "Changed route-hint evidence",
-};
+/** Card headings for the comparison status — comparison only, not health. */
+export const SNAPSHOT_COMPARE_STATUS_LABELS = {
+  no_notable_change: "No notable change",
+  changed: "Changed",
+  watch: "Watch",
+  worth_reviewing: "Worth reviewing",
+} as const;
+
+/** Compact per-row status labels for the snapshot list. */
+export const SNAPSHOT_COMPARE_ROW_STATUS_LABELS = {
+  no_notable_change: "Similar",
+  changed: "Changed",
+  watch: "Watch",
+  worth_reviewing: "Worth reviewing",
+} as const;
+
+/** One-line lead copy under the status heading. */
+export const SNAPSHOT_COMPARE_STATUS_LEADS = {
+  no_notable_change: "No notable change compared with the selected snapshot.",
+  changed: "Snapshot details changed, but nothing here stands out as needing review.",
+  watch: "Worth keeping an eye on, especially if this device or nearby devices are also unstable.",
+  worth_reviewing: "This comparison has device-level changes that may be worth checking.",
+} as const;
+
+/** "What this means" copy per comparison status. */
+export const SNAPSHOT_COMPARE_MEANING = {
+  no_notable_change:
+    "Topology snapshots can vary between captures. This comparison does not show anything that stands out for this device.",
+  changed:
+    "This may be normal Zigbee snapshot variation. Review only if this device is also behaving poorly.",
+  watch:
+    "This is a difference between two point-in-time topology snapshots. It does not prove the device moved or that live routing changed.",
+  worth_reviewing:
+    "This is a difference between two point-in-time topology snapshots. It does not prove the device moved or that live routing changed.",
+} as const;
+
+export const SNAPSHOT_HISTORY_SOURCE_NOTE =
+  "Source: Zigbee neighbour table and route-table hints from topology snapshots.";
+export const SNAPSHOT_HISTORY_SELECTED_ONLY_NOTE =
+  "Links only in the selected snapshot were shown for this device in that earlier snapshot but are not shown in the latest snapshot. This alone does not prove a problem.";
+export const SNAPSHOT_HISTORY_ROUTE_HINT_NOTE =
+  "Route hints are route-table hints captured during topology collection. They are not proof of current live routing.";
+
+/* Availability tracking pills */
+export const AVAILABILITY_PILL_OFF = "Availability tracking off";
+export const AVAILABILITY_PILL_OFF_HELPER =
+  "Enable Zigbee2MQTT availability and last-seen reporting for offline history, passive hints and reports.";
+export const AVAILABILITY_PILL_BUILDING = "Availability history building";
+export const AVAILABILITY_PILL_BUILDING_HELPER =
+  "Availability tracking is enabled, but ZigbeeLens only has history from when it was turned on.";
+export const AVAILABILITY_PILL_UNKNOWN = "Availability status unknown";
+export const AVAILABILITY_PILL_UNKNOWN_HELPER =
+  "ZigbeeLens cannot confirm availability/last-seen coverage for this period.";
 
 /* ------------------------------------------------------------------------ */
 /* Investigation panel                                                       */

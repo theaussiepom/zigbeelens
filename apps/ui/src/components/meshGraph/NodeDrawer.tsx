@@ -15,6 +15,7 @@ import {
   DEVICE_SECTION_TOPOLOGY,
 } from "@/lib/meshGraphCopy";
 import { DrawerFact, DrawerSection, DrawerShell } from "@/components/meshGraph/DrawerShell";
+import { SnapshotHistorySection } from "@/components/meshGraph/SnapshotHistorySection";
 
 function availabilityCopy(device: MeshEvidenceDevice): string {
   switch (device.availability) {
@@ -112,6 +113,11 @@ export function NodeDrawer({
           <p>{device.historical_topology_summary}</p>
         </DrawerSection>
       )}
+
+      <SnapshotHistorySection
+        networkId={device.network_id}
+        deviceIeee={device.ieee_address}
+      />
 
       {device.passive_hint_summary != null && (
         <DrawerSection title={DEVICE_SECTION_PASSIVE_HINTS}>
