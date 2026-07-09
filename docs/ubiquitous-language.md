@@ -211,6 +211,19 @@ evidence in the latest snapshot.”
 
 Avoid: not found in mesh, missing means offline.
 
+### Snapshot comparison
+
+A human-readable comparison of two usable topology snapshots — “What changed”.
+This is evidence comparison, never a live routing diagnosis.
+
+Human-facing: **Compare snapshots**, **What changed**, **newly observed**,
+**not present in the latest snapshot**, **changed evidence**
+
+Practical qualifier when needed: “A neighbour link not present in the latest
+snapshot does not prove a failure.”
+
+Avoid: lost, broken, dropped, disconnected, edge diff, added/removed nodes.
+
 ## Forbidden user-facing phrases
 
 Do not render these to users:

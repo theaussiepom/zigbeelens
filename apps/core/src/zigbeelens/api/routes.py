@@ -517,6 +517,34 @@ def topology_snapshots(network_id: str, ctx: AppContext = Depends(ctx_dep)) -> d
     return {"items": ctx.repo.list_topology_snapshots(network_id)}
 
 
+@router.get("/topology/{network_id}/snapshots/compare")
+def topology_snapshots_compare(
+    network_id: str,
+    base_snapshot_id: str | None = None,
+    compare_snapshot_id: str | None = None,
+    ctx: AppContext = Depends(ctx_dep),
+) -> dict:
+    """Read-only snapshot comparison: what changed between two usable
+    (complete) topology snapshots.
+
+    Defaults to the latest usable snapshot against the previous usable one.
+    Failed/incomplete snapshots are never compared. The comparison is
+    evidence-only: absence from the latest snapshot is described as "not
+    present", never as lost/broken/offline, and route-hint changes come only
+    from stored route-table evidence.
+    """
+    from zigbeelens.topology.compare import compare_snapshots
+
+    if ctx.repo.get_network(network_id) is None:
+        raise HTTPException(status_code=404, detail="Network not found")
+    return compare_snapshots(
+        ctx.repo,
+        network_id,
+        base_snapshot_id=base_snapshot_id,
+        compare_snapshot_id=compare_snapshot_id,
+    )
+
+
 @router.get("/topology/{network_id}/snapshots/{snapshot_id}")
 def topology_snapshot_detail(
     network_id: str, snapshot_id: str, ctx: AppContext = Depends(ctx_dep)

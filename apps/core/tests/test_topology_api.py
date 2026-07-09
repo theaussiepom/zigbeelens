@@ -52,6 +52,64 @@ def test_topology_network_includes_inventory_and_layout_flags(topology_client: T
     assert body["inventory"]["end_device_count"] == 1
 
 
+def test_snapshot_compare_endpoint_is_read_only_and_calm_without_history(
+    topology_client: TestClient,
+):
+    res = topology_client.get("/api/topology/home/snapshots/compare")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["has_comparison"] is False
+    assert body["summary"] == "There is not enough snapshot history to compare yet."
+    assert body["changes"] == []
+
+    unknown = topology_client.get("/api/topology/nope/snapshots/compare")
+    assert unknown.status_code == 404
+
+
+def test_snapshot_compare_endpoint_compares_latest_usable_snapshots(
+    topology_client: TestClient,
+):
+    ctx = topology_client.app.state.ctx
+    for snapshot_id, captured_at, links in (
+        ("snap-prev", "2026-07-08T10:00:00+00:00", []),
+        (
+            "snap-latest",
+            "2026-07-09T10:00:00+00:00",
+            [{"source": "0x02", "target": "0x01", "linkquality": 90}],
+        ),
+    ):
+        ctx.repo.create_topology_snapshot(
+            snapshot_id=snapshot_id,
+            network_id="home",
+            requested_by="startup_scan",
+            status="pending",
+            warning_acknowledged=True,
+        )
+        parsed = parse_networkmap_payload(
+            {
+                "nodes": {"0x01": {"type": "Coordinator"}, "0x02": {"type": "Router"}},
+                "links": links,
+            }
+        )
+        ctx.repo.store_topology_parsed(snapshot_id, "home", parsed, status="complete")
+        ctx.repo.db.conn.execute(
+            "UPDATE topology_snapshots SET captured_at = ? WHERE snapshot_id = ?",
+            (captured_at, snapshot_id),
+        )
+        ctx.repo.db.conn.commit()
+
+    res = topology_client.get("/api/topology/home/snapshots/compare")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["has_comparison"] is True
+    assert body["compare_snapshot"]["snapshot_id"] == "snap-latest"
+    assert body["base_snapshot"]["snapshot_id"] == "snap-prev"
+    assert body["counts"]["new_neighbour_links"] == 1
+    # Deterministic: the same request yields the same ordered changes.
+    again = topology_client.get("/api/topology/home/snapshots/compare").json()
+    assert [c["id"] for c in again["changes"]] == [c["id"] for c in body["changes"]]
+
+
 def test_topology_capture_requires_strict_true(topology_client: TestClient):
     with patch(
         "zigbeelens.topology.service.TopologyRequestPublisher",

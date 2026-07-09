@@ -1,8 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
-import { api, type InvestigationCard } from "@/lib/api";
+import {
+  api,
+  type InvestigationCard,
+  type SnapshotCompareChange,
+  type SnapshotCompareDetail,
+} from "@/lib/api";
 import { Badge, Card, ErrorState, LoadingState, MetricPill } from "@/components/ui";
 import { GraphLegend } from "@/components/meshGraph/GraphLegend";
 import { InvestigationPanel } from "@/components/meshGraph/InvestigationPanel";
@@ -13,12 +18,14 @@ import {
 import { DeviceSearch } from "@/components/meshGraph/DeviceSearch";
 import { EdgeDrawer } from "@/components/meshGraph/EdgeDrawer";
 import { NodeDrawer } from "@/components/meshGraph/NodeDrawer";
+import { SnapshotComparePanel } from "@/components/meshGraph/SnapshotComparePanel";
 import { TopologyViewTabs } from "@/components/meshGraph/TopologyViewTabs";
 import { buildLiveMeshEvidence } from "@/lib/meshEvidenceLive";
 import { relativeTime } from "@/lib/format";
 import { topologyStatusLabel } from "@/lib/topologyLabels";
 import { type MeshEvidenceDevice, type MeshEvidenceEdge } from "@/lib/meshEvidence";
 import {
+  COMPARE_BUTTON_LABEL,
   CONNECTION_CONTROL_COPY,
   CONNECTIONS_EXPLAINER,
   CONNECTIONS_EXPLAINER_TOGGLE,
@@ -154,6 +161,7 @@ function GraphPanel({
   edges,
   investigations,
   signatureSeed,
+  networkId,
   positionStorageId,
   onSelectEdge,
   onSelectNode,
@@ -165,6 +173,7 @@ function GraphPanel({
   edges: MeshEvidenceEdge[];
   investigations: InvestigationCard[];
   signatureSeed: string;
+  networkId: string;
   positionStorageId: string;
   onSelectEdge: (edge: MeshEvidenceEdge) => void;
   onSelectNode: (device: MeshEvidenceDevice) => void;
@@ -184,6 +193,39 @@ function GraphPanel({
   const [activeInvestigation, setActiveInvestigation] = useState<InvestigationCard | null>(
     null,
   );
+
+  // Snapshot compare is a read-only overlay: it never creates evidence
+  // classes, never moves nodes, and never touches connection controls.
+  // Empty-state copy exists only inside the compare panel, never in the
+  // normal graph view.
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [compareData, setCompareData] = useState<SnapshotCompareDetail | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [compareError, setCompareError] = useState<string | null>(null);
+  const [activeCompareChange, setActiveCompareChange] =
+    useState<SnapshotCompareChange | null>(null);
+
+  useEffect(() => {
+    if (!compareOpen || compareData !== null) return;
+    let cancelled = false;
+    setCompareLoading(true);
+    setCompareError(null);
+    api.topologySnapshotCompare(networkId).then(
+      (data) => {
+        if (cancelled) return;
+        setCompareData(data);
+        setCompareLoading(false);
+      },
+      (err: unknown) => {
+        if (cancelled) return;
+        setCompareError(err instanceof Error ? err.message : "Snapshot comparison failed to load.");
+        setCompareLoading(false);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [compareOpen, compareData, networkId]);
 
   // Adaptive budget: the largest per-device neighbour count whose selection
   // stays within ~1.5 drawn links per node. Small graphs keep everything.
@@ -278,25 +320,37 @@ function GraphPanel({
     ],
   );
 
-  const investigationFocus: InvestigationFocus | null = useMemo(() => {
-    if (!activeInvestigation) return null;
-    return {
-      deviceIds: new Set(activeInvestigation.device_ieees),
-      edgeIds: new Set(activeInvestigation.edge_ids),
-    };
-  }, [activeInvestigation]);
+  // Investigation focus and compare focus share one visual mechanism.
+  // They are mutually exclusive (activating one clears the other), so the
+  // two focus sources can never fight.
+  const visualFocus: InvestigationFocus | null = useMemo(() => {
+    if (activeInvestigation) {
+      return {
+        deviceIds: new Set(activeInvestigation.device_ieees),
+        edgeIds: new Set(activeInvestigation.edge_ids),
+      };
+    }
+    if (activeCompareChange) {
+      return {
+        deviceIds: new Set(activeCompareChange.focus_device_ieees),
+        edgeIds: new Set(activeCompareChange.focus_edge_ids),
+      };
+    }
+    return null;
+  }, [activeInvestigation, activeCompareChange]);
 
-  // A focused investigation's edges are drawn even when they would normally
-  // sit outside the focused-view budget. Connection-control choices are
-  // untouched, and layout does not depend on visible edges, so nothing moves.
+  // A focused investigation's / compare change's edges are drawn even when
+  // they would normally sit outside the focused-view budget. Connection
+  // controls are untouched, and layout does not depend on visible edges, so
+  // nothing moves.
   const renderedEdges = useMemo(() => {
-    if (!investigationFocus) return visibleEdges;
+    if (!visualFocus) return visibleEdges;
     const present = new Set(visibleEdges.map((edge) => edge.id));
     const extras = edges.filter(
-      (edge) => !present.has(edge.id) && investigationFocus.edgeIds.has(edge.id),
+      (edge) => !present.has(edge.id) && visualFocus.edgeIds.has(edge.id),
     );
     return extras.length ? [...visibleEdges, ...extras] : visibleEdges;
-  }, [visibleEdges, edges, investigationFocus]);
+  }, [visibleEdges, edges, visualFocus]);
 
   const setControl = (key: keyof ConnectionControls) => (value: boolean) =>
     setControls((c) => {
@@ -320,11 +374,44 @@ function GraphPanel({
   // Selecting a searched device reuses the existing selected-device
   // behaviour (highlight, evidence neighbourhood, device details panel).
   // Search never moves nodes, never recomputes layout and never touches the
-  // saved connection choices. Investigation focus is cleared so the two
-  // focus mechanisms cannot fight.
+  // saved connection choices. Investigation and compare focus are cleared so
+  // the focus mechanisms cannot fight.
   const selectSearchedDevice = (device: MeshEvidenceDevice) => {
     setActiveInvestigation(null);
+    setActiveCompareChange(null);
     onSelectNode(device);
+  };
+
+  const focusInvestigation = (card: InvestigationCard) => {
+    setActiveCompareChange(null);
+    setActiveInvestigation(card);
+  };
+
+  // Selecting a compare change focuses the involved devices, ensures the
+  // involved evidence edges are drawn, and opens the relevant details panel
+  // where the evidence exists in the current model. Layout, manual positions
+  // and connection controls are untouched.
+  const selectCompareChange = (change: SnapshotCompareChange) => {
+    setActiveInvestigation(null);
+    setActiveCompareChange(change);
+    const focusEdge = edges.find((edge) => change.focus_edge_ids.includes(edge.id));
+    if (focusEdge) {
+      onSelectEdge(focusEdge);
+      return;
+    }
+    const focusDevice = devices.find((device) =>
+      change.device_ieees.includes(device.ieee_address),
+    );
+    if (focusDevice) {
+      onSelectNode(focusDevice);
+      return;
+    }
+    onClearSelection();
+  };
+
+  const clearCompare = () => {
+    setCompareOpen(false);
+    setActiveCompareChange(null);
   };
 
   return (
@@ -360,6 +447,19 @@ function GraphPanel({
           >
             Reset layout
           </button>
+          <button
+            type="button"
+            aria-label={COMPARE_BUTTON_LABEL}
+            aria-pressed={compareOpen}
+            onClick={() => (compareOpen ? clearCompare() : setCompareOpen(true))}
+            className={`rounded-lg border px-3 py-1.5 text-sm hover:border-zl-accent/40 ${
+              compareOpen
+                ? "border-zl-accent bg-zl-accent/10 text-zl-accent"
+                : "border-zl-border bg-zl-surface-2 text-zl-text"
+            }`}
+          >
+            {COMPARE_BUTTON_LABEL}
+          </button>
         </div>
         {layoutModeInfo && (
           <p
@@ -388,7 +488,7 @@ function GraphPanel({
             positionStorageId={positionStorageId}
             resetNonce={resetNonce}
             selectedNodeId={selectedNodeId}
-            investigationFocus={investigationFocus}
+            investigationFocus={visualFocus}
             onSelectEdge={onSelectEdge}
             onSelectNode={onSelectNode}
             onClearSelection={onClearSelection}
@@ -397,11 +497,23 @@ function GraphPanel({
       </Card>
 
       <div className="space-y-4">
+        {compareOpen && (
+          <Card>
+            <SnapshotComparePanel
+              compare={compareData}
+              loading={compareLoading}
+              error={compareError}
+              activeChangeId={activeCompareChange?.id ?? null}
+              onSelectChange={selectCompareChange}
+              onClearCompare={clearCompare}
+            />
+          </Card>
+        )}
         <Card>
           <InvestigationPanel
             investigations={investigations}
             activeInvestigationId={activeInvestigation?.id ?? null}
-            onFocus={setActiveInvestigation}
+            onFocus={focusInvestigation}
             onClearFocus={() => setActiveInvestigation(null)}
           />
         </Card>
@@ -702,6 +814,7 @@ export function TopologyGraphPage() {
               edges={liveEvidence.edges}
               investigations={detail.data?.investigations ?? []}
               signatureSeed={liveSignatureSeed}
+              networkId={networkId ?? "unknown-network"}
               positionStorageId={networkId ?? "unknown-network"}
               onSelectEdge={selectEdge}
               onSelectNode={selectNode}
