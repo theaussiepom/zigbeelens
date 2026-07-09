@@ -230,19 +230,19 @@ function diagnosticStatsFor(inputs: DiagnosticStatInputs): MeshDiagnosticStat[] 
 }
 
 /**
- * Node-drawer summary of recent missing links touching one device.
- * Only produced when historical data was actually evaluated.
+ * Node details summary of recent missing links touching one device.
+ * Returns null when none touch the device — the panel omits the section.
  */
 function historicalSummaryFor(
   historicalEdges: MeshEvidenceEdge[],
   ieee: string,
   latestLayoutLimited: boolean,
-): string {
+): string | null {
   const touching = historicalEdges.filter(
     (edge) => edge.source === ieee || edge.target === ieee,
   );
   if (touching.length === 0) {
-    return "No recent missing topology links in the selected history window.";
+    return null;
   }
   const lastSeen = touching
     .map((edge) => edge.last_seen_at)
@@ -257,7 +257,7 @@ function historicalSummaryFor(
   }
   if (latestLayoutLimited) {
     parts.push(
-      "Historical evidence is available, but the latest snapshot layout is limited, so absence from the latest graph is not meaningful by itself.",
+      "The latest snapshot has limited topology evidence, so absence from the latest graph is not meaningful by itself.",
     );
   }
   return parts.join(" ");
@@ -392,13 +392,12 @@ function buildDevice(
         ? "Observed in topology snapshot only — not in the current device inventory"
         : "Referenced by topology links only — unknown to inventory and node list",
     topology_evidence_summary: topologySummary(node, neighborCount, sleepy),
-    passive_observation_summary: summary
-      ? summary.lens_bucket_reason || "No passive observation summary is available for this device."
-      : "No passive observations — this node is not in the device inventory.",
+    passive_observation_summary: summary?.lens_bucket_reason || "",
     open_issue: summary?.incident_affected
       ? {
           title: "Linked to an active incident",
-          summary: "This device is referenced by an open incident. See the Incidents page for the evidence trail.",
+          summary:
+            "This device is referenced by an open incident. See the Incidents page for the evidence trail.",
         }
       : null,
     diagnostic_stats: diagnosticStats,
@@ -694,11 +693,8 @@ export function buildLiveMeshEvidence(
       diagnosticStats,
     );
     if (historicalEvaluated) {
-      device.historical_topology_summary = historicalSummaryFor(
-        historicalEdges,
-        ieee,
-        latestLayoutLimited,
-      );
+      const summary = historicalSummaryFor(historicalEdges, ieee, latestLayoutLimited);
+      if (summary) device.historical_topology_summary = summary;
     }
     if (passiveEvaluated) {
       const summary = passiveHintSummaryFor(passiveEdges, ieee);

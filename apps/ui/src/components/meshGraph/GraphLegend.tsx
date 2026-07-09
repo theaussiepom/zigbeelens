@@ -3,6 +3,7 @@ import {
   evidenceClassLabel,
   type EvidenceClass,
 } from "@/lib/meshEvidence";
+import { evidenceClassTooltip } from "@/lib/meshGraphCopy";
 import { evidenceEdgeStyle } from "@/components/meshGraph/evidenceStyles";
 
 function LegendLine({ cls }: { cls: EvidenceClass }) {
@@ -25,7 +26,7 @@ function LegendLine({ cls }: { cls: EvidenceClass }) {
 }
 
 /**
- * Legend for the edge visual grammar. Lists every live evidence class; the
+ * Legend for the link visual grammar. Lists every live evidence class; the
  * passive-derived and last-known entries appear only when the current data
  * actually contains them, so the legend never advertises evidence the
  * graph cannot show.
@@ -49,25 +50,25 @@ export function GraphLegend({
       </h3>
       <ul className="space-y-2">
         {classes.map((cls) => (
-          <li key={cls} className="flex items-center gap-2 text-xs text-zl-text">
+          <li
+            key={cls}
+            className="flex items-center gap-2 text-xs text-zl-text"
+            title={evidenceClassTooltip(cls)}
+          >
             <LegendLine cls={cls} />
             <span>{evidenceClassLabel(cls)}</span>
             {cls === "passive_derived_association" && (
-              <span className="text-[10px] text-zl-muted">
-                Passive-derived hint, not topology evidence
-              </span>
+              <span className="text-[10px] text-zl-muted">Not topology evidence</span>
             )}
             {cls === "last_known_link" && (
-              <span className="text-[10px] text-zl-muted">
-                Last known evidence, not currently reported
-              </span>
+              <span className="text-[10px] text-zl-muted">Not currently reported</span>
             )}
           </li>
         ))}
       </ul>
       <p className="mt-3 text-[11px] leading-snug text-zl-muted">
-        Arrowheads mark directional route/next-hop evidence only. Adjacency and passive links have
-        no direction.
+        Arrowheads mark directional route hints only. Neighbour and investigation links have no
+        direction.
       </p>
     </div>
   );

@@ -363,7 +363,7 @@ export interface InvestigationCard {
     | "passive_instability_group"
     | "router_neighbourhood_review"
     | "diagnostics_limited_group";
-  priority: "Review first" | "Worth checking" | "Context only";
+  priority: "Review first" | "Worth checking" | "Lower priority";
   score: number;
   title: string;
   summary: string;

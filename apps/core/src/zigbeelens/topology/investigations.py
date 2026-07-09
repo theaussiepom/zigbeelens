@@ -72,22 +72,29 @@ MAX_SUGGESTED_NEXT_STEPS = 6
 
 PRIORITY_REVIEW_FIRST = "Review first"
 PRIORITY_WORTH_CHECKING = "Worth checking"
-PRIORITY_CONTEXT_ONLY = "Context only"
+PRIORITY_CONTEXT_ONLY = "Lower priority"
 REVIEW_FIRST_MIN_SCORE = 12
 WORTH_CHECKING_MIN_SCORE = 6
 
 GENERIC_INVESTIGATION_LIMITATION = (
-    "This is an investigation priority based on available ZigbeeLens evidence. "
-    "It does not prove cause, parentage, live routing or current connectivity."
+    "This is a place to look first based on available ZigbeeLens evidence. "
+    "It is not a root-cause claim and does not prove live routing or current connectivity."
 )
 RECENT_MISSING_LIMITATION = (
-    "Recent missing links were observed in previous snapshots but are not "
-    "proof of current failure."
+    "Recent missing links were seen in previous snapshots. That can happen if a "
+    "device is sleepy, recently moved, powered off, or simply absent from the "
+    "latest map — check the device before treating this as a mesh problem."
 )
-PASSIVE_GROUP_LIMITATION = "Passive-derived hints are not topology evidence."
+PASSIVE_GROUP_LIMITATION = (
+    "This suggestion comes from passive observations, not topology evidence. "
+    "It is useful for deciding which devices to inspect together, but it should "
+    "not be treated as a connection between them."
+)
 DIAGNOSTICS_LIMITED_LIMITATION = (
-    "Topology snapshots are point-in-time evidence and may be limited for "
-    "sleepy devices."
+    "The latest snapshot has limited topology evidence for some devices, so "
+    "ZigbeeLens cannot tell whether their mesh relationships changed. Checking "
+    "power, placement and recent movement is more useful than reading the graph "
+    "as a failure."
 )
 
 # Stable card-type order used for deterministic tie-breaking.
@@ -333,7 +340,7 @@ def _issue_cluster_cards(
                     "Check whether nearby router devices are powered.",
                     "Check physical placement and whether anything changed recently.",
                     "Review recent incidents involving these devices.",
-                    "Select a device in the graph to inspect its evidence drawer.",
+                    "Select a device in the graph to inspect its evidence details.",
                 ],
                 "device_ieees": sorted(cluster | {router})[:MAX_DEVICES_PER_CARD],
                 "edge_ids": edge_ids,
@@ -423,7 +430,7 @@ def _recent_missing_cluster_cards(
                     "Check device power.",
                     "Check whether the device was recently moved.",
                     "Compare with latest topology snapshot evidence.",
-                    "Select the device to inspect its evidence drawer.",
+                    "Select the device to inspect its evidence details.",
                 ],
                 "device_ieees": sorted({device, *partners})[:MAX_DEVICES_PER_CARD],
                 "edge_ids": edge_ids,
@@ -519,7 +526,7 @@ def _passive_group_cards(
                     "Review recent incidents around the correlated windows.",
                     "Check whether these devices share placement or power.",
                     "Check battery level if available.",
-                    "Select a device to inspect its evidence drawer.",
+                    "Select a device to inspect its evidence details.",
                 ],
                 "device_ieees": members[:MAX_DEVICES_PER_CARD],
                 "edge_ids": sorted(
@@ -593,7 +600,7 @@ def _router_review_cards(
                     "Check device power and placement.",
                     "Check whether nearby router devices are powered.",
                     "Review recent incidents involving nearby devices.",
-                    "Select the router to inspect its evidence drawer.",
+                    "Select the router to inspect its evidence details.",
                 ],
                 "device_ieees": sorted({router, *issue_neighbours})[:MAX_DEVICES_PER_CARD],
                 "edge_ids": edge_ids,
@@ -666,7 +673,7 @@ def _diagnostics_limited_card(
             ],
             "suggested_next_steps": [
                 "Check battery level if available.",
-                "Select a device to inspect its evidence drawer.",
+                "Select a device to inspect its evidence details.",
                 "Compare with latest topology snapshot evidence.",
             ],
             "device_ieees": missing[:MAX_DEVICES_PER_CARD],
