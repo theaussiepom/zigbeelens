@@ -465,7 +465,11 @@ export type SnapshotCompareChangeType =
   | "changed_neighbour_link"
   | "new_route_hint"
   | "missing_route_hint"
-  | "changed_route_hint";
+  | "changed_route_hint"
+  // Device-centric worth-reviewing insights (same clickable shape).
+  | "issue_linked_topology_change"
+  | "no_latest_neighbour_evidence_after_previous"
+  | "large_router_evidence_change";
 
 /** One human-facing change between the compared snapshots. */
 export interface SnapshotCompareChange {
@@ -504,6 +508,18 @@ export interface SnapshotCompareCounts {
   total_changes: number;
 }
 
+/**
+ * Snapshot churn: changed link evidence as a share of the neighbour and
+ * route evidence recorded across both compared snapshots. Describes
+ * snapshot-to-snapshot evidence differences only — never risk or health.
+ * Values are null when there is no comparison; unknown is never zero.
+ */
+export interface SnapshotCompareChurn {
+  level: "low" | "moderate" | "high" | null;
+  changed_evidence_total: number | null;
+  available_compare_evidence: number | null;
+}
+
 /** Response of GET /api/topology/{network_id}/snapshots/compare. */
 export interface SnapshotCompareDetail {
   network_id: string;
@@ -515,6 +531,9 @@ export interface SnapshotCompareDetail {
   summary_items: string[];
   changes: SnapshotCompareChange[];
   counts: SnapshotCompareCounts;
+  churn: SnapshotCompareChurn;
+  /** Device-centric insights worth reviewing first; clickable like changes. */
+  worth_reviewing: SnapshotCompareChange[];
   limitations: string[];
 }
 

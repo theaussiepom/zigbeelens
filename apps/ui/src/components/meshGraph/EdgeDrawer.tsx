@@ -7,6 +7,7 @@ import {
   formatLqi,
 } from "@/lib/meshEvidence";
 import {
+  COMPARE_PANEL_TITLE,
   LINK_DETAILS_PANEL_LABEL,
   LINK_SECTION_CHECKS,
   LINK_SECTION_DOES_NOT_PROVE,
@@ -19,6 +20,12 @@ import {
   linkNeedsDoesNotProve,
   passiveRuleReason,
 } from "@/lib/meshGraphCopy";
+
+/** Compare context shown when this link was opened from snapshot compare. */
+export interface EdgeCompareContext {
+  summary: string;
+  practical_note: string;
+}
 import { formatTime } from "@/lib/format";
 import { DrawerFact, DrawerSection, DrawerShell } from "@/components/meshGraph/DrawerShell";
 
@@ -147,10 +154,12 @@ export function EdgeDrawer({
   edge,
   devices,
   onClose,
+  compareContext = null,
 }: {
   edge: MeshEvidenceEdge;
   devices: MeshEvidenceDevice[];
   onClose: () => void;
+  compareContext?: EdgeCompareContext | null;
 }) {
   if (edge.evidence_class === "passive_derived_association") {
     return <PassiveHintPanel edge={edge} devices={devices} onClose={onClose} />;
@@ -184,6 +193,13 @@ export function EdgeDrawer({
         <p className="font-medium">{evidenceClassLabel(edge.evidence_class)}</p>
         <p className="mt-1 text-zl-muted">{evidenceClassDescription(edge.evidence_class)}</p>
       </DrawerSection>
+
+      {compareContext && (
+        <DrawerSection title={COMPARE_PANEL_TITLE}>
+          <p>{compareContext.summary}</p>
+          <p className="mt-1 text-zl-muted">{compareContext.practical_note}</p>
+        </DrawerSection>
+      )}
 
       <DrawerSection title={LINK_SECTION_WHY_DRAWN}>
         <p>{whyDrawnCopy(edge)}</p>
