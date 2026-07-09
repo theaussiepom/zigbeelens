@@ -1110,9 +1110,11 @@ def device_detail_from_summary(summary: DeviceSummary, scenario: ScenarioData) -
         limitations=[(lim, "") for lim in summary.health.limitations],
     )
     return DeviceDetail(
-        **summary.model_dump(),
-        manufacturer="IKEA" if "office" in summary.friendly_name else "Aqara",
-        model="TRADFRI" if "lamp" in summary.friendly_name else "SNZB-04",
+        **{
+            **summary.model_dump(),
+            "manufacturer": "IKEA" if "office" in summary.friendly_name else "Aqara",
+            "model": "TRADFRI" if "lamp" in summary.friendly_name else "SNZB-04",
+        },
         recent_availability_changes=[],
         recent_events=[e for e in scenario.timeline if e.ieee_address == summary.ieee_address],
         recent_bridge_logs=[],

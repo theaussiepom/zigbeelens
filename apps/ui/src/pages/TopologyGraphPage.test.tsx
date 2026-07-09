@@ -17,6 +17,8 @@ import {
   evidenceClassLabel,
   GRAPH_SAFETY_COPY_LIVE,
 } from "@/lib/meshEvidence";
+import { connectionControlsStorageKey } from "@/lib/meshGraphDense";
+import { findForbiddenUserFacingPhrases } from "@/lib/meshGraphCopy";
 import { positionStorageKey } from "@/lib/meshGraphSmartLayout";
 import { mockReactFlow } from "@/test/mockReactFlow";
 
@@ -2029,5 +2031,196 @@ describe("TopologyGraphPage investigation panel", () => {
     expect(text).not.toMatch(/lost link/i);
     expect(text).not.toMatch(/same parent/i);
     expect(text).not.toMatch(/heal network/i);
+  });
+});
+
+describe("device search", () => {
+  function searchInput() {
+    return screen.getByRole("combobox", { name: /search devices/i });
+  }
+
+  it("renders the search input with an accessible label and helper", async () => {
+    await renderLiveAndWaitForLayout();
+    const input = searchInput();
+    expect(input).toBeInTheDocument();
+    expect(input).toHaveAttribute("placeholder", "Search devices…");
+    expect(input).toHaveAttribute(
+      "title",
+      "Search by name, IEEE address, model, manufacturer or status.",
+    );
+  });
+
+  it("shows no empty-state copy before the user has typed", async () => {
+    await renderLiveAndWaitForLayout();
+    expect(screen.queryByText(/no matching devices/i)).not.toBeInTheDocument();
+  });
+
+  it("shows no-results copy only after a query that matches nothing", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    await user.type(searchInput(), "zzzz");
+    expect(await screen.findByText("No matching devices for “zzzz”.")).toBeInTheDocument();
+  });
+
+  it("matches friendly names and lists results as devices, not raw graph terms", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    await user.type(searchInput(), "lamp");
+    const list = await screen.findByRole("listbox", { name: /device search results/i });
+    expect(within(list).getByRole("option", { name: /live lamp/i })).toBeInTheDocument();
+    expect(list.textContent).not.toMatch(/\bnode\b/i);
+    expect(list.textContent).not.toMatch(/\bedge\b/i);
+  });
+
+  it("matches IEEE addresses", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    await user.type(searchInput(), "0xr1");
+    const list = await screen.findByRole("listbox", { name: /device search results/i });
+    expect(within(list).getByRole("option", { name: /live hall router/i })).toBeInTheDocument();
+  });
+
+  it("matches manufacturer and model when available", async () => {
+    mockDevices = liveDevices.map((device) =>
+      device.ieee_address === "0xe1"
+        ? { ...device, manufacturer: "IKEA", model: "TRADFRI bulb" }
+        : device,
+    );
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    await user.type(searchInput(), "ikea");
+    const list = await screen.findByRole("listbox", { name: /device search results/i });
+    expect(within(list).getByRole("option", { name: /live lamp/i })).toBeInTheDocument();
+    expect(within(list).getByText(/IKEA · TRADFRI bulb/)).toBeInTheDocument();
+  });
+
+  it("matches status terms and explains limited topology evidence honestly", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    // 0xe2 is inventory-known but absent from the latest snapshot nodes.
+    await user.type(searchInput(), "limited topology");
+    const list = await screen.findByRole("listbox", { name: /device search results/i });
+    const option = within(list).getByRole("option", { name: /live sleepy sensor/i });
+    expect(option).toHaveTextContent(
+      "Known device. Limited topology evidence in the latest snapshot.",
+    );
+    expect(option).toHaveTextContent("Limited topology evidence");
+    expect(list.textContent).not.toMatch(/offline|lost|broken|not found in mesh/i);
+  });
+
+  it("orders results deterministically by name within a rank", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    await user.type(searchInput(), "live");
+    const list = await screen.findByRole("listbox", { name: /device search results/i });
+    const names = within(list)
+      .getAllByRole("option")
+      .map((option) => option.querySelector("span span")?.textContent);
+    expect(names).toEqual([
+      "Live Coordinator",
+      "Live Hall Router",
+      "Live Lamp",
+      "Live Sleepy Sensor",
+    ]);
+  });
+
+  it("selecting a result selects the device and opens the Device details panel", async () => {
+    const user = userEvent.setup();
+    const { container } = await renderLiveAndWaitForLayout();
+    await user.type(searchInput(), "sleepy");
+    const list = await screen.findByRole("listbox", { name: /device search results/i });
+    await user.click(within(list).getByRole("option", { name: /live sleepy sensor/i }));
+
+    const drawer = await screen.findByRole("dialog", { name: /device details/i });
+    expect(within(drawer).getByText("Live Sleepy Sensor")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(container.querySelector('.react-flow__node[data-id="0xe2"]')).toHaveClass(
+        "selected",
+      );
+    });
+    // The result list closes and the query clears after selection.
+    expect(screen.queryByRole("listbox", { name: /device search results/i })).not.toBeInTheDocument();
+    expect(searchInput()).toHaveValue("");
+  });
+
+  it("selecting a result draws the device's evidence neighbourhood without moving nodes or changing controls", async () => {
+    mockDetail = liveDetailWithHistory;
+    const user = userEvent.setup();
+    const { container } = await renderLiveAndWaitForLayout();
+    const beforePos = nodePosition(container, "0xr1");
+    // The historical edge touching 0xe2 is not drawn by default (control off).
+    expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
+    expect(screen.getByRole("checkbox", { name: /recent missing links/i })).not.toBeChecked();
+
+    await user.type(searchInput(), "sleepy");
+    const list = await screen.findByRole("listbox", { name: /device search results/i });
+    await user.click(within(list).getByRole("option", { name: /live sleepy sensor/i }));
+
+    // Selected-device evidence neighbourhood: the recent missing link touching
+    // 0xe2 is drawn even though the connection control stays off.
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(1);
+    });
+    expect(screen.getByRole("checkbox", { name: /recent missing links/i })).not.toBeChecked();
+    // Layout stable: nothing moved, and no controls were persisted.
+    expect(nodePosition(container, "0xr1")).toBe(beforePos);
+    expect(localStorage.getItem(connectionControlsStorageKey("home"))).toBeNull();
+  });
+
+  it("selecting a search result clears an active investigation focus", async () => {
+    mockDetail = liveDetailWithInvestigations;
+    const user = userEvent.setup();
+    const { container } = await renderLiveAndWaitForLayout();
+    await user.click(screen.getByRole("button", { name: /focus graph on/i }));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-node--investigation-focus").length).toBe(2);
+    });
+
+    await user.type(searchInput(), "coordinator");
+    const list = await screen.findByRole("listbox", { name: /device search results/i });
+    await user.click(within(list).getByRole("option", { name: /live coordinator/i }));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(0);
+    });
+    expect(await screen.findByRole("dialog", { name: /device details/i })).toBeInTheDocument();
+  });
+
+  it("supports keyboard navigation: arrows move, Enter selects", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    await user.type(searchInput(), "live");
+    await screen.findByRole("listbox", { name: /device search results/i });
+    await user.keyboard("{ArrowDown}{Enter}");
+    const drawer = await screen.findByRole("dialog", { name: /device details/i });
+    expect(within(drawer).getByText("Live Hall Router")).toBeInTheDocument();
+  });
+
+  it("Escape clears the query and closes the results", async () => {
+    const user = userEvent.setup();
+    await renderLiveAndWaitForLayout();
+    await user.type(searchInput(), "lamp");
+    await screen.findByRole("listbox", { name: /device search results/i });
+    await user.keyboard("{Escape}");
+    expect(searchInput()).toHaveValue("");
+    expect(screen.queryByRole("listbox", { name: /device search results/i })).not.toBeInTheDocument();
+  });
+
+  it("Cmd+K / Ctrl+K focuses the device search", async () => {
+    await renderLiveAndWaitForLayout();
+    expect(searchInput()).not.toHaveFocus();
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    expect(searchInput()).toHaveFocus();
+    (document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    expect(searchInput()).toHaveFocus();
+  });
+
+  it("search results contain no forbidden user-facing phrases", async () => {
+    const user = userEvent.setup();
+    mockDetail = liveDetailWithHistory;
+    await renderLiveAndWaitForLayout();
+    await user.type(searchInput(), "live");
+    const list = await screen.findByRole("listbox", { name: /device search results/i });
+    expect(findForbiddenUserFacingPhrases(list.textContent ?? "")).toEqual([]);
   });
 });

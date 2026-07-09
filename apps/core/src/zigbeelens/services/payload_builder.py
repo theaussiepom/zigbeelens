@@ -246,8 +246,6 @@ class PayloadBuilder:
 
         return DeviceDetail(
             **summary.model_dump(),
-            manufacturer=row.manufacturer,
-            model=row.model,
             recent_availability_changes=availability_changes,
             recent_events=[
                 TimelineEvent(
@@ -374,6 +372,8 @@ class PayloadBuilder:
             last_payload_at=row.last_payload_at,
             linkquality=row.linkquality,
             battery=row.battery,
+            manufacturer=row.manufacturer,
+            model=row.model,
             interview_state=InterviewState(row.interview_state)
             if row.interview_state in InterviewState.__members__
             else InterviewState.unknown,

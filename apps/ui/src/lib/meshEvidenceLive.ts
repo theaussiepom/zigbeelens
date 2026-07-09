@@ -383,6 +383,10 @@ function buildDevice(
         : summary?.availability === "offline"
           ? "offline"
           : "unknown",
+    manufacturer: summary?.manufacturer ?? null,
+    model: summary?.model ?? null,
+    in_inventory: Boolean(summary),
+    in_latest_snapshot: Boolean(node),
     last_seen_at: summary?.last_seen ?? null,
     health_bucket: summary ? bucketFromLens(summary.lens_bucket) : "unknown",
     flags: summary ? flagsForDevice(summary, role) : [],
