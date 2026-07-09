@@ -56,6 +56,20 @@ MAX_INVESTIGATION_CARDS = 8
 # device_ieees lists are capped so one card never dumps a whole network.
 MAX_DEVICES_PER_CARD = 12
 
+# Tailored per-device evidence: thresholds that turn stored facts (battery,
+# last seen, availability history, link LQI) into card-specific supporting
+# evidence and suggestions. Facts are only emitted when the underlying value
+# is actually recorded — unknown never becomes a claim.
+LOW_BATTERY_PERCENT = 20
+WEAK_LINK_LQI = 50
+STALE_LAST_SEEN_HOURS = 48
+REPEATED_OFFLINE_MIN_COUNT = 2
+DEVICE_EVIDENCE_LOOKBACK_DAYS = 7
+# Per card, tailored evidence covers the primary device plus the most
+# issue-relevant members — never every device on a big card.
+MAX_TAILORED_DEVICES_PER_CARD = 3
+MAX_SUGGESTED_NEXT_STEPS = 6
+
 PRIORITY_REVIEW_FIRST = "Review first"
 PRIORITY_WORTH_CHECKING = "Worth checking"
 PRIORITY_CONTEXT_ONLY = "Context only"
@@ -163,6 +177,13 @@ def _last_known_edge_id(a: str, b: str) -> str:
 def _name_of(devices_by_ieee: dict[str, DeviceRow], ieee: str) -> str:
     device = devices_by_ieee.get(ieee)
     return device.friendly_name if device else ieee
+
+
+def _friendly_ts(value: str | None) -> str | None:
+    ts = _parse_ts(value)
+    if ts is None:
+        return None
+    return ts.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
 def _count_phrase(count: int, singular: str, plural: str | None = None) -> str:
@@ -658,6 +679,148 @@ def _diagnostics_limited_card(
     ]
 
 
+def _best_link_lqi(latest_links: list[dict[str, Any]]) -> dict[str, int]:
+    """Strongest recorded LQI per device across latest-snapshot links.
+
+    Devices whose links all lack an LQI reading are simply absent — unknown
+    stays unknown, it never becomes zero.
+    """
+    best: dict[str, int] = {}
+    for link in latest_links:
+        lqi = link.get("linkquality")
+        if lqi is None:
+            continue
+        for endpoint in (_norm(link.get("source_ieee")), _norm(link.get("target_ieee"))):
+            if not endpoint:
+                continue
+            if endpoint not in best or int(lqi) > best[endpoint]:
+                best[endpoint] = int(lqi)
+    return best
+
+
+def _tailored_device_evidence(
+    ieee: str,
+    *,
+    devices_by_ieee: dict[str, DeviceRow],
+    offline_events: dict[str, list[str]],
+    best_lqi: dict[str, int],
+    now: datetime,
+) -> tuple[list[str], list[str]]:
+    """Facts and safe suggestions for one device, from stored evidence only.
+
+    Every fact maps to a recorded value (battery level, availability state,
+    availability transitions, last seen, link LQI). Nothing is inferred and
+    unknown values produce no output.
+    """
+    device = devices_by_ieee.get(ieee)
+    if device is None:
+        return [], []
+    name = device.friendly_name
+    facts: list[str] = []
+    suggestions: list[str] = []
+
+    battery = device.battery
+    if battery is not None and battery <= LOW_BATTERY_PERCENT:
+        facts.append(f"{name}'s last reported battery level is {battery}%.")
+        suggestions.append(
+            f"Check or replace the battery in {name} first — it last reported {battery}%."
+        )
+
+    if device.availability == "offline":
+        facts.append(f"{name} is currently reported offline.")
+        suggestions.append(f"Check power to {name} — it is currently reported offline.")
+
+    events = offline_events.get(ieee) or []
+    if len(events) >= REPEATED_OFFLINE_MIN_COUNT:
+        last_event = _friendly_ts(events[-1]) or events[-1]
+        facts.append(
+            f"{name} went offline {len(events)} times in the last "
+            f"{DEVICE_EVIDENCE_LOOKBACK_DAYS} days (most recently {last_event})."
+        )
+        suggestions.append(
+            f"Review {name}'s availability history — repeated offline periods can "
+            "point to unstable power or weak radio conditions."
+        )
+
+    last_seen = _parse_ts(device.last_seen)
+    if last_seen is not None and now - last_seen >= timedelta(hours=STALE_LAST_SEEN_HOURS):
+        seen_text = _friendly_ts(device.last_seen) or str(device.last_seen)
+        facts.append(f"Nothing has been heard from {name} since {seen_text}.")
+        suggestions.append(
+            f"Check whether {name} is still powered and in place — it has been "
+            f"quiet since {seen_text}."
+        )
+
+    lqi = best_lqi.get(ieee)
+    if lqi is not None and lqi < WEAK_LINK_LQI:
+        facts.append(
+            f"{name}'s strongest observed link in the latest snapshot is weak (LQI {lqi})."
+        )
+        suggestions.append(
+            f"Check placement or sources of interference near {name} — its strongest "
+            "observed link is weak."
+        )
+
+    return facts, suggestions
+
+
+def _dedupe(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+
+def _apply_tailored_evidence(
+    cards: list[dict[str, Any]],
+    *,
+    devices_by_ieee: dict[str, DeviceRow],
+    issue_ids: set[str],
+    offline_events: dict[str, list[str]],
+    best_lqi: dict[str, int],
+    now: datetime,
+) -> None:
+    """Enrich cards in place with device-specific facts and suggestions.
+
+    Tailored suggestions come first (they are actionable and specific);
+    generic next steps keep the tail. The tailored device set per card is the
+    primary device, then issue devices, then the rest — capped so big cards
+    stay readable.
+    """
+    for card in cards:
+        ordered: list[str] = []
+        primary = card.get("primary_device_ieee")
+        if primary:
+            ordered.append(primary)
+        members = card.get("device_ieees") or []
+        for ieee in sorted(members, key=lambda i: (i not in issue_ids, i)):
+            if ieee not in ordered:
+                ordered.append(ieee)
+
+        facts: list[str] = []
+        suggestions: list[str] = []
+        for ieee in ordered[:MAX_TAILORED_DEVICES_PER_CARD]:
+            device_facts, device_suggestions = _tailored_device_evidence(
+                ieee,
+                devices_by_ieee=devices_by_ieee,
+                offline_events=offline_events,
+                best_lqi=best_lqi,
+                now=now,
+            )
+            facts.extend(device_facts)
+            suggestions.extend(device_suggestions)
+
+        if facts:
+            card["supporting_evidence"] = _dedupe(card["supporting_evidence"] + facts)
+        if suggestions:
+            card["suggested_next_steps"] = _dedupe(
+                suggestions + card["suggested_next_steps"]
+            )[:MAX_SUGGESTED_NEXT_STEPS]
+
+
 def build_investigations(
     *,
     devices: list[DeviceRow],
@@ -667,6 +830,7 @@ def build_investigations(
     latest_captured_at: str | None,
     history: dict[str, Any],
     passive_hints: list[dict[str, Any]],
+    offline_events: dict[str, list[str]] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Build ranked investigation cards from existing evidence aggregates.
@@ -723,6 +887,15 @@ def build_investigations(
         )
     )
 
+    _apply_tailored_evidence(
+        cards,
+        devices_by_ieee=devices_by_ieee,
+        issue_ids=issue_ids,
+        offline_events=offline_events or {},
+        best_lqi=_best_link_lqi(latest_links),
+        now=now,
+    )
+
     type_rank = {card_type: index for index, card_type in enumerate(CARD_TYPE_ORDER)}
     cards.sort(
         key=lambda card: (
@@ -755,8 +928,21 @@ def aggregate_investigations(
     The history and passive aggregates are passed in (the evidence-graph
     endpoint already computes them) so nothing is aggregated twice.
     """
+    now = now or datetime.now(timezone.utc)
     latest = repo.get_latest_topology_snapshot(network_id)
     latest_snapshot_id = latest["snapshot_id"] if latest else None
+
+    # Recorded offline transitions inside the lookback window, per device —
+    # read-only passive data, used only to make card evidence concrete.
+    cutoff = now - timedelta(days=DEVICE_EVIDENCE_LOOKBACK_DAYS)
+    offline_events: dict[str, list[str]] = {}
+    for row in repo.list_availability_changes_since(network_id, cutoff.isoformat()):
+        if row.get("to_state") != "offline":
+            continue
+        ieee = _norm(row.get("ieee_address"))
+        if ieee:
+            offline_events.setdefault(ieee, []).append(str(row.get("changed_at")))
+
     return build_investigations(
         devices=repo.list_devices(network_id),
         incident_device_ieees=set(repo.list_active_incident_device_addresses(network_id)),
@@ -765,5 +951,6 @@ def aggregate_investigations(
         latest_captured_at=latest["captured_at"] if latest else None,
         history=history,
         passive_hints=passive_hints,
+        offline_events=offline_events,
         now=now,
     )

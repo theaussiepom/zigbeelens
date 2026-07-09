@@ -695,7 +695,34 @@ describe("TopologyGraphPage live mode", () => {
         /this can be normal for sleepy battery devices and is not an incident by itself/i,
       ),
     ).toBeInTheDocument();
+    // The interpretation states recorded facts: when it last reported and
+    // whether the silence is typical for a sleepy device.
+    expect(within(drawer).getByText(/it last reported/i)).toBeInTheDocument();
+    expect(
+      within(drawer).getByText(/long quiet period is less typical|consistent with normal sleep behaviour/i),
+    ).toBeInTheDocument();
     expect(within(drawer).queryByText(/incident detected/i)).not.toBeInTheDocument();
+  });
+
+  it("calls out a recorded low battery in How ZigbeeLens reads this", async () => {
+    mockDevices = liveDevices.map((device) =>
+      device.ieee_address === "0xe2" ? { ...device, battery: 12 } : device,
+    );
+    await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xe2"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(
+      within(drawer).getByText(/battery level is 12%.*worth checking first/i),
+    ).toBeInTheDocument();
+  });
+
+  it("never invents facts: no battery or offline wording when values are unknown", async () => {
+    await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    const text = drawer.textContent ?? "";
+    expect(text).not.toMatch(/battery level is/i);
+    expect(text).not.toMatch(/currently reported offline/i);
   });
 
   it("shows an honest limited state without fake zeroes", async () => {
