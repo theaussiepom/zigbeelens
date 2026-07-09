@@ -140,6 +140,8 @@ export interface DeviceSummary {
   last_payload_at?: string;
   linkquality?: number;
   battery?: number;
+  manufacturer?: string | null;
+  model?: string | null;
   interview_state: InterviewState;
   health: DeviceHealth;
   incident_affected: boolean;
@@ -152,8 +154,6 @@ export interface DeviceSummary {
 
 /** Full device detail for drilldown */
 export interface DeviceDetail extends DeviceSummary {
-  manufacturer?: string;
-  model?: string;
   definition?: string;
   supported?: boolean;
   recent_availability_changes: AvailabilityChange[];

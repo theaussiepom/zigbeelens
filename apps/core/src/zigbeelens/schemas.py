@@ -179,6 +179,8 @@ class DeviceSummary(BaseModel):
     last_payload_at: str | None = None
     linkquality: int | None = None
     battery: int | None = None
+    manufacturer: str | None = None
+    model: str | None = None
     interview_state: InterviewState
     health: DeviceHealth
     incident_affected: bool = False
@@ -190,8 +192,6 @@ class DeviceSummary(BaseModel):
 
 
 class DeviceDetail(DeviceSummary):
-    manufacturer: str | None = None
-    model: str | None = None
     definition: str | None = None
     supported: bool | None = None
     recent_availability_changes: list[AvailabilityChange] = Field(default_factory=list)

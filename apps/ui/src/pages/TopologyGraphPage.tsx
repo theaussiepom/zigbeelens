@@ -10,6 +10,7 @@ import {
   MeshEvidenceGraph,
   type InvestigationFocus,
 } from "@/components/meshGraph/MeshEvidenceGraph";
+import { DeviceSearch } from "@/components/meshGraph/DeviceSearch";
 import { EdgeDrawer } from "@/components/meshGraph/EdgeDrawer";
 import { NodeDrawer } from "@/components/meshGraph/NodeDrawer";
 import { TopologyViewTabs } from "@/components/meshGraph/TopologyViewTabs";
@@ -316,10 +317,25 @@ function GraphPanel({
     setResetNonce((n) => n + 1);
   };
 
+  // Selecting a searched device reuses the existing selected-device
+  // behaviour (highlight, evidence neighbourhood, device details panel).
+  // Search never moves nodes, never recomputes layout and never touches the
+  // saved connection choices. Investigation focus is cleared so the two
+  // focus mechanisms cannot fight.
+  const selectSearchedDevice = (device: MeshEvidenceDevice) => {
+    setActiveInvestigation(null);
+    onSelectNode(device);
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
+          <DeviceSearch
+            devices={devices}
+            edges={edges}
+            onSelectDevice={selectSearchedDevice}
+          />
           <label className="flex items-center gap-2 text-sm">
             <span className="text-zl-muted" id="graph-layout-mode-label">
               Layout

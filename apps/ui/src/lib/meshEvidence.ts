@@ -144,6 +144,14 @@ export interface MeshEvidenceDevice {
   role: MeshRole;
   power: "mains" | "battery" | "unknown";
   availability: "online" | "offline" | "unknown";
+  /** Manufacturer from the Zigbee2MQTT inventory, when recorded. */
+  manufacturer?: string | null;
+  /** Model from the Zigbee2MQTT inventory, when recorded. */
+  model?: string | null;
+  /** Whether this device is in the Zigbee2MQTT device inventory. */
+  in_inventory?: boolean;
+  /** Whether this device appeared as a node in the latest parsed snapshot. */
+  in_latest_snapshot?: boolean;
   last_seen_at?: string | null;
   health_bucket: MeshHealthBucket;
   flags: MeshNodeFlag[];

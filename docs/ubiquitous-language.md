@@ -198,6 +198,19 @@ Practical qualifier when needed: “Limited evidence does not prove a fault.”
 
 Avoid: missing means offline, no link means broken.
 
+### Device search
+
+Finding a device by name, IEEE address, model, manufacturer or status, then
+focusing the evidence view around it. Search includes every device ZigbeeLens
+knows about, not just devices drawn in the current graph.
+
+Human-facing: **Search devices**
+
+Known device without latest snapshot evidence: “Known device. Limited topology
+evidence in the latest snapshot.”
+
+Avoid: not found in mesh, missing means offline.
+
 ## Forbidden user-facing phrases
 
 Do not render these to users:

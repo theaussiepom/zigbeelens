@@ -103,6 +103,20 @@ export const CONNECTIONS_EXPLAINER = {
 } as const;
 
 /* ------------------------------------------------------------------------ */
+/* Device search                                                             */
+/* ------------------------------------------------------------------------ */
+
+export const DEVICE_SEARCH_LABEL = "Search devices";
+export const DEVICE_SEARCH_PLACEHOLDER = "Search devices…";
+export const DEVICE_SEARCH_HELPER =
+  "Search by name, IEEE address, model, manufacturer or status.";
+
+/** Shown only after the user has typed a query that matches nothing. */
+export function deviceSearchNoResultsCopy(query: string): string {
+  return `No matching devices for “${query}”.`;
+}
+
+/* ------------------------------------------------------------------------ */
 /* Investigation panel                                                       */
 /* ------------------------------------------------------------------------ */
 
