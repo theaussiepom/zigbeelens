@@ -5,12 +5,12 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeviceSummary } from "@zigbeelens/shared";
 import { TopologyGraphPage } from "@/pages/TopologyGraphPage";
 import type {
+  DeviceSnapshotHistoryDetail,
+  DeviceSnapshotHistoryRow,
   HistoricalEdgeAggregate,
   InvestigationCard,
   LastKnownLinkAggregate,
   PassiveHintAggregate,
-  SnapshotCompareChange,
-  SnapshotCompareDetail,
   TopologyEvidenceGraphDetail,
   TopologyNetworkDetail,
 } from "@/lib/api";
@@ -476,10 +476,35 @@ vi.mock("@/hooks/useLiveResource", () => ({
   },
 }));
 
+/** Minimal device snapshot history so any opened Device details panel has a
+ * calm Snapshot history section by default. */
+const emptyDeviceHistory: DeviceSnapshotHistoryDetail = {
+  network_id: "home",
+  device_ieee: "0x0000000000000000",
+  friendly_name: null,
+  has_current_issue: false,
+  availability_tracking: { enabled: true, earliest_observation_at: "2026-07-01T00:00:00+00:00" },
+  latest_snapshot: {
+    snapshot_id: "snap-live",
+    captured_at: "2026-07-06T00:30:00+00:00",
+    is_latest: true,
+    is_usable: true,
+    links_for_device_count: 1,
+    route_hints_for_device_count: 0,
+    availability_coverage_status: "tracked",
+    availability_state_near_snapshot: "online",
+    comparison_to_latest: null,
+  },
+  snapshots: [],
+};
+
 beforeEach(() => {
   mockDetail = liveDetailHome;
   mockDevices = liveDevices;
   localStorage.clear();
+  vi.spyOn(api, "topologyDeviceSnapshotHistory").mockImplementation(() =>
+    Promise.resolve(emptyDeviceHistory),
+  );
 });
 
 /** Rendered canvas position of a device node (from React Flow's transform). */
@@ -2228,431 +2253,353 @@ describe("device search", () => {
   });
 });
 
-function makeCompareChange(overrides: Partial<SnapshotCompareChange>): SnapshotCompareChange {
+function makeHistoryRow(
+  overrides: Partial<DeviceSnapshotHistoryRow>,
+): DeviceSnapshotHistoryRow {
   return {
-    id: "missing_neighbour_link-0xe1|0xe2",
-    type: "missing_neighbour_link",
-    title: "Neighbour link seen in previous snapshot only: Live Lamp — Live Sleepy Sensor",
-    summary:
-      "This neighbour link was observed in the previous usable snapshot but not in the latest usable snapshot.",
-    device_ieees: ["0xe1", "0xe2"],
-    edge_key: "0xe1|0xe2",
-    before: { observed: true, lqi: 80 },
-    after: { observed: false, lqi: null },
-    supporting_evidence: [
-      "Recorded link quality (LQI) 80 in the previous compared snapshot.",
-    ],
-    practical_note:
-      "This does not prove a failure. It can happen when devices are sleepy, temporarily unavailable, moved, or simply absent from the latest capture.",
-    focus_device_ieees: ["0xe1", "0xe2"],
-    focus_edge_ids: ["hist-neighbor-0xe1|0xe2"],
+    snapshot_id: "snap-prev",
+    captured_at: "2026-07-05T19:10:00+00:00",
+    is_latest: false,
+    is_usable: true,
+    links_for_device_count: 6,
+    route_hints_for_device_count: 2,
+    availability_coverage_status: "tracked",
+    availability_state_near_snapshot: "online",
+    comparison_to_latest: {
+      status: "no_notable_change",
+      reasons: [
+        "Similar number of links shown.",
+        "No route-hint change that looks relevant.",
+        "There is no current ZigbeeLens issue for this device.",
+      ],
+      suggested_checks: [],
+      link_counts: {
+        latest_count: 6,
+        selected_count: 6,
+        latest_only_count: 0,
+        selected_only_count: 0,
+        changed_count: 0,
+      },
+      route_hint_counts: {
+        latest_count: 2,
+        selected_count: 2,
+        latest_only_count: 0,
+        selected_only_count: 0,
+        changed_count: 0,
+      },
+    },
     ...overrides,
   };
 }
 
-const compareWorthReviewingInsight: SnapshotCompareChange = makeCompareChange({
-  id: "no_latest_neighbour_evidence_after_previous-0xe2",
-  type: "no_latest_neighbour_evidence_after_previous",
-  title: "Live Sleepy Sensor has no neighbour evidence in the latest snapshot",
-  summary:
-    "Live Sleepy Sensor had 1 neighbour link in the previous usable snapshot but none in the latest usable snapshot.",
-  device_ieees: ["0xe2"],
-  edge_key: null,
-  before: {},
-  after: {},
-  supporting_evidence: [],
-  practical_note:
-    "This is evidence absence, not proof of a problem. Sleepy devices routinely age out of neighbour tables between captures.",
-  focus_device_ieees: ["0xe2"],
-  focus_edge_ids: ["hist-neighbor-0xe1|0xe2"],
-});
-
-const compareWithChanges: SnapshotCompareDetail = {
+/** Device needing attention: no links in the latest snapshot, links before. */
+const worthReviewingHistory: DeviceSnapshotHistoryDetail = {
   network_id: "home",
-  base_snapshot: {
-    snapshot_id: "snap-old",
-    captured_at: "2026-07-04T10:00:00+00:00",
-    requested_by: "startup_scan",
-    status: "complete",
+  device_ieee: "0xr1",
+  friendly_name: "Live Hall Router",
+  has_current_issue: true,
+  availability_tracking: {
+    enabled: true,
+    earliest_observation_at: "2026-07-01T00:00:00+00:00",
   },
-  compare_snapshot: {
+  latest_snapshot: makeHistoryRow({
     snapshot_id: "snap-live",
     captured_at: "2026-07-06T00:30:00+00:00",
-    requested_by: "startup_scan",
-    status: "complete",
-  },
-  comparison_window: { usable_snapshots: 4 },
-  has_comparison: true,
-  summary:
-    "Compared with the previous usable snapshot, ZigbeeLens found low topology-evidence churn. Most changes are neighbour-link evidence changes. This can be normal between Zigbee topology snapshots and does not prove live routing changed.",
-  summary_items: [
-    "1 newly observed device",
-    "1 neighbour link seen in previous snapshot only",
-  ],
-  changes: [
-    makeCompareChange({
-      id: "newly_observed_device-0xe1",
-      type: "newly_observed_device",
-      title: "Live Lamp is newly observed in topology evidence",
-      summary:
-        "Live Lamp appears in the latest snapshot but was not observed in the previous compared snapshot.",
-      device_ieees: ["0xe1"],
-      edge_key: null,
-      before: { observed_in_topology: false },
-      after: { observed_in_topology: true },
-      supporting_evidence: [],
-      practical_note:
-        "A newly observed device appeared in the latest topology capture. This is point-in-time evidence, not a statement about when the device joined.",
-      focus_device_ieees: ["0xe1"],
-      focus_edge_ids: [],
+    is_latest: true,
+    links_for_device_count: 0,
+    route_hints_for_device_count: 0,
+    availability_state_near_snapshot: "offline",
+    comparison_to_latest: null,
+  }),
+  snapshots: [
+    // Previous usable snapshot: default comparison, worth reviewing.
+    makeHistoryRow({
+      snapshot_id: "snap-prev",
+      captured_at: "2026-07-05T19:10:00+00:00",
+      comparison_to_latest: {
+        status: "worth_reviewing",
+        reasons: [
+          "Latest snapshot shows no links for this device.",
+          "The selected snapshot showed 6 links.",
+          "This device currently needs attention.",
+        ],
+        suggested_checks: [
+          "Confirm the device is powered.",
+          "Check whether it is reporting in Zigbee2MQTT.",
+          "Compare with another earlier snapshot to see whether this is a one-off snapshot difference.",
+        ],
+        link_counts: {
+          latest_count: 0,
+          selected_count: 6,
+          latest_only_count: 0,
+          selected_only_count: 6,
+          changed_count: 0,
+        },
+        route_hint_counts: {
+          latest_count: 0,
+          selected_count: 2,
+          latest_only_count: 0,
+          selected_only_count: 2,
+          changed_count: 0,
+        },
+      },
     }),
-    makeCompareChange({}),
+    // Older snapshot: differences but nothing actionable.
+    makeHistoryRow({
+      snapshot_id: "snap-older",
+      captured_at: "2026-07-03T09:03:00+00:00",
+      links_for_device_count: 8,
+      route_hints_for_device_count: 3,
+      comparison_to_latest: {
+        status: "changed",
+        reasons: [
+          "8 links only in the selected snapshot.",
+          "Route hints differ between the two snapshots.",
+          "There is no current ZigbeeLens issue for this device.",
+        ],
+        suggested_checks: [],
+        link_counts: {
+          latest_count: 0,
+          selected_count: 8,
+          latest_only_count: 0,
+          selected_only_count: 8,
+          changed_count: 0,
+        },
+        route_hint_counts: {
+          latest_count: 0,
+          selected_count: 3,
+          latest_only_count: 0,
+          selected_only_count: 3,
+          changed_count: 0,
+        },
+      },
+    }),
+    // Oldest snapshot: before availability tracking started.
+    makeHistoryRow({
+      snapshot_id: "snap-oldest",
+      captured_at: "2026-06-28T10:00:00+00:00",
+      links_for_device_count: 7,
+      route_hints_for_device_count: 0,
+      availability_coverage_status: "building",
+      availability_state_near_snapshot: null,
+    }),
   ],
-  counts: {
-    newly_observed_devices: 1,
-    devices_no_topology_evidence: 0,
-    new_neighbour_links: 0,
-    neighbour_links_not_present_latest: 1,
-    changed_neighbour_links: 0,
-    new_route_hints: 0,
-    route_hints_not_present_latest: 0,
-    changed_route_hints: 0,
-    total_changes: 2,
-  },
-  churn: { level: "low", changed_evidence_total: 1, available_compare_evidence: 12 },
-  worth_reviewing: [compareWorthReviewingInsight],
-  limitations: [],
 };
 
-const compareNoChanges: SnapshotCompareDetail = {
-  ...compareWithChanges,
-  summary: "No topology-evidence differences were found between these usable snapshots.",
-  summary_items: [],
-  changes: [],
-  counts: { ...compareWithChanges.counts, total_changes: 0, newly_observed_devices: 0,
-    neighbour_links_not_present_latest: 0 },
-  churn: { level: "low", changed_evidence_total: 0, available_compare_evidence: 12 },
-  worth_reviewing: [],
+/** Availability reporting not enabled in Zigbee2MQTT at all. */
+const trackingOffHistory: DeviceSnapshotHistoryDetail = {
+  ...worthReviewingHistory,
+  has_current_issue: false,
+  availability_tracking: { enabled: false, earliest_observation_at: null },
+  latest_snapshot: makeHistoryRow({
+    snapshot_id: "snap-live",
+    captured_at: "2026-07-06T00:30:00+00:00",
+    is_latest: true,
+    availability_coverage_status: "off",
+    availability_state_near_snapshot: null,
+    comparison_to_latest: null,
+  }),
+  snapshots: [
+    makeHistoryRow({
+      snapshot_id: "snap-prev",
+      availability_coverage_status: "off",
+      availability_state_near_snapshot: null,
+    }),
+  ],
 };
 
-const compareNotEnoughHistory: SnapshotCompareDetail = {
-  ...compareNoChanges,
-  base_snapshot: null,
-  comparison_window: { usable_snapshots: 1 },
-  has_comparison: false,
-  summary: "There is not enough snapshot history to compare yet.",
-  churn: { level: null, changed_evidence_total: null, available_compare_evidence: null },
-  limitations: ["There is not enough snapshot history to compare yet."],
-};
-
-describe("snapshot compare", () => {
-  let mockCompare: SnapshotCompareDetail;
+describe("device-led snapshot history", () => {
+  let mockHistory: DeviceSnapshotHistoryDetail;
 
   beforeEach(() => {
-    mockCompare = compareWithChanges;
-    vi.spyOn(api, "topologySnapshotCompare").mockImplementation(() =>
-      Promise.resolve(mockCompare),
+    mockHistory = worthReviewingHistory;
+    vi.spyOn(api, "topologyDeviceSnapshotHistory").mockImplementation(() =>
+      Promise.resolve(mockHistory),
     );
   });
 
-  function compareButton() {
-    return screen.getByRole("button", { name: /compare snapshots/i });
-  }
-
-  async function openCompare() {
-    fireEvent.click(compareButton());
-    return await screen.findByRole("region", { name: /snapshot compare/i });
-  }
-
-  /** The Details section starts collapsed; expand it to reach detail rows. */
-  async function openDetails(panel: HTMLElement) {
-    fireEvent.click(await within(panel).findByRole("button", { name: "Details" }));
-  }
-
-  it("renders the Compare snapshots control and no compare copy in the normal view", async () => {
-    await renderLiveAndWaitForLayout();
-    expect(compareButton()).toBeInTheDocument();
-    expect(screen.queryByText(/snapshot compare/i)).not.toBeInTheDocument();
-    expect(
-      screen.queryByText(/not enough snapshot history/i),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText(/no topology-evidence differences/i),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText(/point-in-time evidence/i)).not.toBeInTheDocument();
-  });
-
-  it("opening compare shows the snapshot pair and the point-in-time caveat", async () => {
-    await renderLiveAndWaitForLayout();
-    const panel = await openCompare();
-    expect(
-      within(panel).getByText(/^Latest usable snapshot — captured/),
-    ).toBeInTheDocument();
-    expect(
-      within(panel).getByText(/^Previous usable snapshot — captured/),
-    ).toBeInTheDocument();
-    // The caveat is visible before any counts, without opening anything.
-    expect(
-      within(panel).getByText(
-        "Topology snapshots are point-in-time evidence. Differences between snapshots are common and do not prove devices moved, links failed, or live routes changed.",
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it("leads with a calm churn-level change summary instead of raw counts", async () => {
-    await renderLiveAndWaitForLayout();
-    const panel = await openCompare();
-    const summary = within(panel).getByTestId("compare-summary");
-    expect(summary).toHaveTextContent("Change summary");
-    expect(summary).toHaveTextContent("low topology-evidence churn");
-    expect(summary).toHaveTextContent("does not prove live routing changed");
-    // Raw counts are not the primary top story.
-    expect(summary.textContent).not.toMatch(/\b1 newly observed device\b/);
-    expect(summary.textContent).not.toMatch(/\b0\b/);
-  });
-
-  it("shows aggregate counts under Snapshot churn with an explanatory note", async () => {
-    await renderLiveAndWaitForLayout();
-    const panel = await openCompare();
-    const churn = within(panel).getByTestId("compare-churn");
-    expect(churn).toHaveTextContent(
-      "These counts describe differences between two point-in-time topology snapshots. They are useful for investigation, but do not prove live routing changes.",
-    );
-    expect(churn).toHaveTextContent("Neighbour evidence");
-    expect(churn).toHaveTextContent("1 seen in previous snapshot only");
-    // Zero categories stay silent: no route-hint group, no zero rows.
-    expect(churn.textContent).not.toMatch(/route-hint/i);
-    expect(churn.textContent).not.toMatch(/\b0 seen\b/);
-  });
-
-  it("renders worth-reviewing device insights before the raw counts", async () => {
-    await renderLiveAndWaitForLayout();
-    const panel = await openCompare();
-    const worth = within(panel).getByTestId("compare-worth-reviewing-summary");
-    expect(worth).toHaveTextContent(
-      "1 device had neighbour evidence in the previous snapshot but none in the latest usable snapshot.",
-    );
-    // Device-centric insights appear above the Snapshot churn counts.
-    const panelText = panel.textContent ?? "";
-    expect(panelText.indexOf("Worth reviewing")).toBeLessThan(
-      panelText.indexOf("Snapshot churn"),
-    );
-    expect(
-      within(panel).getByRole("button", {
-        name: /live sleepy sensor has no neighbour evidence in the latest snapshot/i,
-      }),
-    ).toBeInTheDocument();
-  });
-
-  it("shows the worth-reviewing empty state when no insights exist", async () => {
-    mockCompare = { ...compareWithChanges, worth_reviewing: [] };
-    await renderLiveAndWaitForLayout();
-    const panel = await openCompare();
-    expect(
-      within(panel).getByTestId("compare-worth-reviewing-empty"),
-    ).toHaveTextContent(
-      "No issue-linked topology changes stood out between these snapshots.",
-    );
-  });
-
-  it("selecting a worth-reviewing insight focuses the device and opens the Device details panel", async () => {
-    mockDetail = liveDetailWithHistory;
-    const { container } = await renderLiveAndWaitForLayout();
-    const panel = await openCompare();
-    fireEvent.click(
-      within(panel).getByRole("button", {
-        name: /live sleepy sensor has no neighbour evidence in the latest snapshot/i,
-      }),
-    );
-    const drawer = await screen.findByRole("dialog", { name: /device details/i });
-    expect(within(drawer).getByText("Live Sleepy Sensor")).toBeInTheDocument();
+  /** Open the Device details panel for a graph node and wait for its
+   * Snapshot history section to load. */
+  async function openDeviceHistory(nodeId = "0xr1") {
+    fireEvent.click(screen.getByTestId(`mesh-node-${nodeId}`));
+    await screen.findByRole("dialog", { name: /device details/i });
+    const section = await screen.findByTestId("snapshot-history-section");
     await waitFor(() => {
-      expect(container.querySelector('.react-flow__node[data-id="0xe2"]')).toHaveClass(
-        "mesh-node--investigation-focus",
-      );
+      expect(within(section).queryByText(/loading snapshot history/i)).not.toBeInTheDocument();
     });
-    // A compare-focus label names the selected category.
-    expect(within(panel).getByTestId("compare-focus-label")).toHaveTextContent(
-      "Compare focus: Devices with no latest neighbour evidence after previous evidence",
-    );
-  });
+    return section;
+  }
 
-  it("shows the limited-latest caveat when the backend reports it", async () => {
-    mockCompare = {
-      ...compareWithChanges,
-      limitations: [
-        "The latest snapshot is limited, so compare results should be treated as incomplete.",
-      ],
-    };
-    await renderLiveAndWaitForLayout();
-    const panel = await openCompare();
-    expect(
-      within(panel).getByText(
-        "The latest snapshot is limited, so compare results should be treated as incomplete.",
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it("renders detail groups with neutral labels and accessible row labels", async () => {
-    await renderLiveAndWaitForLayout();
-    const panel = await openCompare();
-    await openDetails(panel);
-    const groups = within(panel).getAllByTestId("compare-change-group");
-    const groupText = groups.map((g) => g.textContent).join(" ");
-    expect(groupText).toContain("Newly observed devices");
-    expect(groupText).toContain("Neighbour links seen in previous snapshot only");
-    // Clickable category rows carry accessible view labels with counts.
-    expect(
-      within(panel).getByRole("button", {
-        name: "View neighbour links seen in previous snapshot only, 1 item",
-      }),
-    ).toBeInTheDocument();
-  });
-
-  it("shows the not-enough-history empty state only inside compare", async () => {
-    mockCompare = compareNotEnoughHistory;
-    await renderLiveAndWaitForLayout();
-    expect(screen.queryByText(/not enough snapshot history/i)).not.toBeInTheDocument();
-    const panel = await openCompare();
-    expect(
-      await within(panel).findByText("There is not enough snapshot history to compare yet."),
-    ).toBeInTheDocument();
-  });
-
-  it("shows the no-changes empty state only inside compare", async () => {
-    mockCompare = compareNoChanges;
+  it("removes the global Compare snapshots control and panel from the graph view", async () => {
     await renderLiveAndWaitForLayout();
     expect(
-      screen.queryByText(/no topology-evidence differences/i),
+      screen.queryByRole("button", { name: /compare snapshots/i }),
     ).not.toBeInTheDocument();
-    const panel = await openCompare();
     expect(
-      await within(panel).findByText(
-        "No topology-evidence differences were found between these usable snapshots.",
+      screen.queryByRole("region", { name: /snapshot compare/i }),
+    ).not.toBeInTheDocument();
+    // No whole-network compare copy leads the page.
+    expect(screen.queryByText(/topology-evidence churn/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/compared with the previous usable snapshot/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows Snapshot history in the Device details panel with the latest snapshot summary", async () => {
+    await renderLiveAndWaitForLayout();
+    const section = await openDeviceHistory();
+    expect(within(section).getByText("Latest snapshot")).toBeInTheDocument();
+    // Plain language: links shown / route hints, plus the recorded state.
+    expect(within(section).getByText(/0 links shown · no route hints · Offline/)).toBeInTheDocument();
+  });
+
+  it("lists multiple previous usable snapshots with plain-language rows and status labels", async () => {
+    await renderLiveAndWaitForLayout();
+    const section = await openDeviceHistory();
+    const list = within(section).getByTestId("snapshot-history-list");
+    const rows = within(list).getAllByRole("button");
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toHaveTextContent("6 links shown · 2 route hints · Worth reviewing");
+    expect(rows[1]).toHaveTextContent("8 links shown · 3 route hints · Changed");
+    expect(rows[2]).toHaveTextContent("7 links shown · no route hints · Similar");
+    // Exact captured time is available on the row for tooltips/accessibility.
+    expect(rows[0]).toHaveAttribute("title");
+  });
+
+  it("selects the previous usable snapshot by default and leads with the status and why", async () => {
+    await renderLiveAndWaitForLayout();
+    const section = await openDeviceHistory();
+    const rows = within(within(section).getByTestId("snapshot-history-list")).getAllByRole(
+      "button",
+    );
+    expect(rows[0]).toHaveAttribute("aria-pressed", "true");
+    expect(rows[1]).toHaveAttribute("aria-pressed", "false");
+
+    const card = within(section).getByTestId("snapshot-comparison-card");
+    expect(within(card).getByText("Worth reviewing")).toBeInTheDocument();
+    expect(
+      within(card).getByText(
+        "This comparison has device-level changes that may be worth checking.",
       ),
+    ).toBeInTheDocument();
+    // Why explains actionable reasons before any raw counts.
+    expect(
+      within(card).getByText("Latest snapshot shows no links for this device."),
+    ).toBeInTheDocument();
+    expect(within(card).getByText("The selected snapshot showed 6 links.")).toBeInTheDocument();
+    const cardText = card.textContent ?? "";
+    expect(cardText.indexOf("Why")).toBeLessThan(cardText.indexOf("What this means"));
+    expect(cardText.indexOf("What this means")).toBeLessThan(
+      cardText.indexOf("Evidence details"),
+    );
+  });
+
+  it("shows practical, non-causal suggested checks for worth-reviewing comparisons", async () => {
+    await renderLiveAndWaitForLayout();
+    const section = await openDeviceHistory();
+    const card = within(section).getByTestId("snapshot-comparison-card");
+    expect(within(card).getByText("Suggested checks")).toBeInTheDocument();
+    expect(within(card).getByText("Confirm the device is powered.")).toBeInTheDocument();
+    expect(
+      within(card).getByText("Check whether it is reporting in Zigbee2MQTT."),
     ).toBeInTheDocument();
   });
 
-  it("selecting a link change focuses devices, draws the evidence and opens the Link details panel", async () => {
-    mockDetail = liveDetailWithHistory;
-    const { container } = await renderLiveAndWaitForLayout();
-    const beforePos = nodePosition(container, "0xr1");
-    // The historical edge is not drawn by default (control off).
-    expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
-
-    const panel = await openCompare();
-    await openDetails(panel);
-    fireEvent.click(
-      await within(panel).findByRole("button", {
-        name: /neighbour link seen in previous snapshot only: live lamp/i,
-      }),
-    );
-
-    // The involved evidence edge is drawn with its evidence styling intact.
-    await waitFor(() => {
-      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(1);
-    });
-    // The Link details panel opens for the existing historical evidence.
-    expect(await screen.findByRole("dialog", { name: /link details/i })).toBeInTheDocument();
-    // Layout stable, connection controls untouched and not persisted.
-    expect(nodePosition(container, "0xr1")).toBe(beforePos);
+  it("keeps Evidence details collapsed by default and uses links shown / selected snapshot wording", async () => {
+    await renderLiveAndWaitForLayout();
+    const section = await openDeviceHistory();
     expect(
-      screen.getByRole("checkbox", { name: /recent missing links/i }),
-    ).not.toBeChecked();
+      within(section).queryByTestId("snapshot-evidence-details"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(within(section).getByRole("button", { name: "Evidence details" }));
+    const details = within(section).getByTestId("snapshot-evidence-details");
+    expect(details).toHaveTextContent("0 links shown in latest snapshot");
+    expect(details).toHaveTextContent("6 links shown in selected snapshot");
+    expect(details).toHaveTextContent("6 links only in selected snapshot");
+    expect(details).toHaveTextContent("2 route hints in selected snapshot");
+    // Route-hint differences never imply live routing changed.
+    expect(details).toHaveTextContent(
+      "Route hints are route-table hints captured during topology collection. They are not proof of current live routing.",
+    );
+  });
+
+  it("selecting an older snapshot updates the comparison without moving nodes or touching controls", async () => {
+    const { container } = await renderLiveAndWaitForLayout();
+    const section = await openDeviceHistory();
+    const beforePos = nodePosition(container, "0xc0");
+
+    const rows = within(within(section).getByTestId("snapshot-history-list")).getAllByRole(
+      "button",
+    );
+    fireEvent.click(rows[1]);
+    expect(rows[1]).toHaveAttribute("aria-pressed", "true");
+    const card = within(section).getByTestId("snapshot-comparison-card");
+    expect(within(card).getByText("Changed")).toBeInTheDocument();
+    expect(
+      within(card).getByText(
+        "Snapshot details changed, but nothing here stands out as needing review.",
+      ),
+    ).toBeInTheDocument();
+
+    // Layout, manual positions and connection choices are untouched.
+    expect(nodePosition(container, "0xc0")).toBe(beforePos);
     expect(localStorage.getItem(connectionControlsStorageKey("home"))).toBeNull();
-  });
-
-  it("selecting a device change highlights the device and opens the Device details panel", async () => {
-    mockDetail = liveDetailWithHistory;
-    const { container } = await renderLiveAndWaitForLayout();
-    const panel = await openCompare();
-    await openDetails(panel);
-    fireEvent.click(
-      await within(panel).findByRole("button", {
-        name: /live lamp is newly observed in topology evidence/i,
-      }),
-    );
-    const drawer = await screen.findByRole("dialog", { name: /device details/i });
-    expect(within(drawer).getByText("Live Lamp")).toBeInTheDocument();
-    await waitFor(() => {
-      expect(container.querySelector('.react-flow__node[data-id="0xe1"]')).toHaveClass(
-        "mesh-node--investigation-focus",
-      );
-    });
-  });
-
-  it("Clear compare removes the panel and the compare focus", async () => {
-    mockDetail = liveDetailWithHistory;
-    const { container } = await renderLiveAndWaitForLayout();
-    const panel = await openCompare();
-    await openDetails(panel);
-    fireEvent.click(
-      await within(panel).findByRole("button", {
-        name: /neighbour link seen in previous snapshot only: live lamp/i,
-      }),
-    );
-    await waitFor(() => {
-      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(1);
-    });
-
-    fireEvent.click(within(panel).getByRole("button", { name: /clear compare/i }));
-    await waitFor(() => {
-      expect(
-        screen.queryByRole("region", { name: /snapshot compare/i }),
-      ).not.toBeInTheDocument();
-    });
     expect(
-      screen.getByRole("checkbox", { name: /recent missing links/i }),
-    ).not.toBeChecked();
+      screen.getByRole("checkbox", { name: /best neighbour links/i }),
+    ).toBeChecked();
   });
 
-  it("search selection and compare focus do not fight", async () => {
-    mockDetail = liveDetailWithHistory;
-    const user = userEvent.setup();
-    const { container } = await renderLiveAndWaitForLayout();
-    const panel = await openCompare();
-    await openDetails(panel);
-    fireEvent.click(
-      await within(panel).findByRole("button", {
-        name: /live lamp is newly observed in topology evidence/i,
-      }),
-    );
-    await waitFor(() => {
-      expect(container.querySelector('.react-flow__node[data-id="0xe1"]')).toHaveClass(
-        "mesh-node--investigation-focus",
-      );
-    });
-
-    // Selecting a search result clears the compare focus predictably.
-    await user.type(screen.getByRole("combobox", { name: /search devices/i }), "coordinator");
-    const list = await screen.findByRole("listbox", { name: /device search results/i });
-    await user.click(within(list).getByRole("option", { name: /live coordinator/i }));
-    await waitFor(() => {
-      expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(0);
-    });
-  });
-
-  it("compare panel contains no forbidden or alarming phrases", async () => {
-    mockDetail = liveDetailWithHistory;
+  it("shows the Availability tracking off pill with the enable-reporting helper", async () => {
+    mockHistory = trackingOffHistory;
     await renderLiveAndWaitForLayout();
-    const panel = await openCompare();
-    await openDetails(panel);
-    fireEvent.click(
-      await within(panel).findByRole("button", {
-        name: /neighbour link seen in previous snapshot only: live lamp/i,
-      }),
+    const section = await openDeviceHistory();
+    expect(within(section).getAllByText("Availability tracking off").length).toBeGreaterThan(0);
+    expect(
+      within(section).getByText(
+        "Enable Zigbee2MQTT availability and last-seen reporting for offline history, passive hints and reports.",
+      ),
+    ).toBeInTheDocument();
+    // No fake online/offline state is shown for untracked periods.
+    expect(within(section).queryByText(/· Online/)).not.toBeInTheDocument();
+    expect(within(section).queryByText(/· Offline/)).not.toBeInTheDocument();
+  });
+
+  it("shows the Availability history building pill on rows tracking does not cover", async () => {
+    await renderLiveAndWaitForLayout();
+    const section = await openDeviceHistory();
+    const rows = within(within(section).getByTestId("snapshot-history-list")).getAllByRole(
+      "button",
     );
-    // The point-in-time caveat deliberately negates "links failed"; strip
-    // known caveat copy before sweeping for standalone alarming terms.
-    const text = (panel.textContent ?? "")
-      .replaceAll(
-        "Topology snapshots are point-in-time evidence. Differences between snapshots are common and do not prove devices moved, links failed, or live routes changed.",
-        "",
-      )
-      .replaceAll("This does not prove a failure.", "");
+    expect(within(rows[2]).getByText("Availability history building")).toBeInTheDocument();
+    // Selecting that snapshot surfaces the building helper for the window.
+    fireEvent.click(rows[2]);
+    expect(
+      within(section).getByText(
+        "Availability tracking is enabled, but ZigbeeLens only has history from when it was turned on.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a calm empty state when no earlier usable snapshots exist", async () => {
+    mockHistory = emptyDeviceHistory;
+    await renderLiveAndWaitForLayout();
+    const section = await openDeviceHistory();
+    expect(
+      within(section).getByText(
+        "No earlier usable topology snapshots are available for this device yet.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("snapshot history uses plain language and no forbidden wording", async () => {
+    await renderLiveAndWaitForLayout();
+    const section = await openDeviceHistory();
+    fireEvent.click(within(section).getByRole("button", { name: "Evidence details" }));
+    const text = section.textContent ?? "";
     expect(findForbiddenUserFacingPhrases(text)).toEqual([]);
     expect(text).not.toMatch(
-      /\blost\b|\bbroken\b|\bdropped\b|\bdisconnected\b|\bdisappeared\b|\bfailed\b|\bgone\b|removed route|current route|currently routed|parent router|\bcaused\b/i,
+      /neighbour evidence|topology.evidence churn|\blost\b|\bmissing\b|\bdisappeared\b|\bbroken\b|\bfailed\b|parent router|current route|currently routed|actual path|caused by|\bcause\b/i,
     );
   });
 });
@@ -2686,10 +2633,6 @@ describe("evidence report export", () => {
     ) {
       downloadedNames.push(this.download);
     });
-
-    vi.spyOn(api, "topologySnapshotCompare").mockImplementation(() =>
-      Promise.resolve(compareWithChanges),
-    );
   });
 
   function reportButton() {
@@ -2782,23 +2725,11 @@ describe("evidence report export", () => {
     const menu = openReportMenu();
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy summary" }));
     await screen.findByRole("status");
+    // Snapshot compare is device-led now: reports never carry a
+    // whole-network What changed section.
     expect(clipboardText).not.toContain("## What changed");
     expect(clipboardText).not.toContain("## Selected device");
     expect(clipboardText).not.toContain("None.");
-  });
-
-  it("includes What changed only while compare is active", async () => {
-    await renderLiveAndWaitForLayout();
-    fireEvent.click(screen.getByRole("button", { name: /compare snapshots/i }));
-    await screen.findByRole("region", { name: /snapshot compare/i });
-
-    const menu = openReportMenu();
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy summary" }));
-    await screen.findByRole("status");
-    expect(clipboardText).toContain("## What changed");
-    expect(clipboardText).toContain("low topology-evidence churn");
-    expect(clipboardText).toContain("1 newly observed device");
-    expect(clipboardText).toContain("1 neighbour link seen in previous snapshot only");
   });
 
   it("includes the selected device section when a device is selected", async () => {
@@ -2818,9 +2749,7 @@ describe("evidence report export", () => {
   it("exported reports contain no forbidden user-facing phrases", async () => {
     mockDetail = liveDetailWithHistory;
     await renderLiveAndWaitForLayout();
-    // The richest report: compare active plus a selected device.
-    fireEvent.click(screen.getByRole("button", { name: /compare snapshots/i }));
-    await screen.findByRole("region", { name: /snapshot compare/i });
+    // The richest report: historical evidence plus a selected device.
     fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
     await screen.findByRole("dialog", { name: /device details/i });
 

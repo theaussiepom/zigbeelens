@@ -904,6 +904,20 @@ class Repository:
         )
         return [dict(row) for row in cur.fetchall()]
 
+    def get_earliest_availability_change_at(self, network_id: str) -> str | None:
+        """Timestamp of the first recorded availability transition for a
+        network, or None when no availability history exists. Read-only;
+        used to describe availability tracking coverage honestly."""
+        cur = self.db.conn.execute(
+            """
+            SELECT MIN(changed_at) FROM availability_changes
+            WHERE network_id = ?
+            """,
+            (network_id,),
+        )
+        row = cur.fetchone()
+        return row[0] if row and row[0] else None
+
     def list_availability_changes_since(
         self, network_id: str, since_iso: str
     ) -> list[dict[str, Any]]:

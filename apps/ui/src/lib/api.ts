@@ -181,6 +181,12 @@ export const api = {
     fetchJson<SnapshotCompareDetail>(
       `api/topology/${encodeURIComponent(networkId)}/snapshots/compare`,
     ),
+  topologyDeviceSnapshotHistory: (networkId: string, ieeeAddress: string) =>
+    fetchJson<DeviceSnapshotHistoryDetail>(
+      `api/topology/${encodeURIComponent(networkId)}/devices/${encodeURIComponent(
+        ieeeAddress,
+      )}/snapshot-history`,
+    ),
   captureTopology: (networkId: string) =>
     fetchJson<{ snapshot_id: string; status: string }>(
       `api/topology/${networkId}/capture`,
@@ -535,6 +541,68 @@ export interface SnapshotCompareDetail {
   /** Device-centric insights worth reviewing first; clickable like changes. */
   worth_reviewing: SnapshotCompareChange[];
   limitations: string[];
+}
+
+/* ------------------------------------------------------------------------ */
+/* Device-led snapshot history                                               */
+/* ------------------------------------------------------------------------ */
+
+/** Snapshot-comparison status for one device. About the comparison only,
+ * never device health. */
+export type DeviceSnapshotCompareStatus =
+  | "no_notable_change"
+  | "changed"
+  | "watch"
+  | "worth_reviewing";
+
+/** Availability tracking coverage for one snapshot period.
+ * "off" = no usable availability history exists; "building" = tracking is
+ * enabled now but started after the snapshot; "unknown" = coverage cannot
+ * be confirmed. Unknown is never rendered as zero or a fake state. */
+export type AvailabilityCoverageStatus = "off" | "building" | "tracked" | "unknown";
+
+export interface DeviceSnapshotCompareCounts {
+  latest_count: number;
+  selected_count: number;
+  latest_only_count: number;
+  selected_only_count: number;
+  changed_count: number;
+}
+
+export interface DeviceSnapshotComparison {
+  status: DeviceSnapshotCompareStatus;
+  reasons: string[];
+  suggested_checks: string[];
+  link_counts: DeviceSnapshotCompareCounts;
+  route_hint_counts: DeviceSnapshotCompareCounts;
+}
+
+export interface DeviceSnapshotHistoryRow {
+  snapshot_id: string;
+  captured_at: string | null;
+  is_latest: boolean;
+  is_usable: boolean;
+  links_for_device_count: number;
+  route_hints_for_device_count: number;
+  availability_coverage_status: AvailabilityCoverageStatus;
+  availability_state_near_snapshot: "online" | "offline" | null;
+  /** Null for the latest snapshot (nothing to compare it with). */
+  comparison_to_latest: DeviceSnapshotComparison | null;
+}
+
+/** Response of GET /api/topology/{network_id}/devices/{ieee}/snapshot-history. */
+export interface DeviceSnapshotHistoryDetail {
+  network_id: string;
+  device_ieee: string;
+  friendly_name: string | null;
+  has_current_issue: boolean;
+  availability_tracking: {
+    enabled: boolean;
+    earliest_observation_at: string | null;
+  };
+  latest_snapshot: DeviceSnapshotHistoryRow | null;
+  /** Earlier usable snapshots, newest first. */
+  snapshots: DeviceSnapshotHistoryRow[];
 }
 
 export type { MockScenarioId };
