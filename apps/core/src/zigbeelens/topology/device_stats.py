@@ -1,4 +1,4 @@
-"""Per-device diagnostic stats for the mesh evidence node drawer.
+"""Per-device diagnostic stats for the mesh evidence device details panel.
 
 Repeatable, recorded numbers only: how often a device appeared with link
 evidence in recent snapshots, when it last had a link to a router, and how

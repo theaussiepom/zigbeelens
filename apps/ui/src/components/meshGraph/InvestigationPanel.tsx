@@ -1,5 +1,14 @@
 import { useState } from "react";
 import type { InvestigationCard } from "@/lib/api";
+import {
+  INVESTIGATION_EMPTY_COPY,
+  INVESTIGATION_PANEL_SUBTITLE,
+  INVESTIGATION_PANEL_TITLE,
+  INVESTIGATION_SECTION_CHECKS,
+  INVESTIGATION_SECTION_DOES_NOT_PROVE,
+  INVESTIGATION_SECTION_SUPPORTING,
+  INVESTIGATION_SECTION_WHY,
+} from "@/lib/meshGraphCopy";
 
 /**
  * "Where to look first" — ranked problem-first investigation cards.
@@ -11,11 +20,11 @@ import type { InvestigationCard } from "@/lib/api";
  * never changes connection-control choices, and never mutates saved layout.
  */
 
-export const INVESTIGATION_PANEL_TITLE = "Where to look first";
-export const INVESTIGATION_PANEL_SUBTITLE =
-  "Ranked from existing ZigbeeLens evidence. These are investigation priorities, not root-cause claims.";
-export const INVESTIGATION_EMPTY_COPY =
-  "No strong investigation patterns found in the current evidence.";
+export {
+  INVESTIGATION_PANEL_TITLE,
+  INVESTIGATION_PANEL_SUBTITLE,
+  INVESTIGATION_EMPTY_COPY,
+} from "@/lib/meshGraphCopy";
 
 /** How many cards render before "Show more". */
 export const INVESTIGATION_CARDS_INITIALLY_VISIBLE = 3;
@@ -26,7 +35,7 @@ function priorityBadgeClass(priority: InvestigationCard["priority"]): string {
       return "border-zl-watch/50 bg-zl-watch/10 text-zl-watch";
     case "Worth checking":
       return "border-zl-accent/50 bg-zl-accent/10 text-zl-accent";
-    case "Context only":
+    case "Lower priority":
       return "border-zl-border bg-zl-surface-2 text-zl-muted";
   }
 }
@@ -94,10 +103,13 @@ function InvestigationCardView({
 
       {expanded && (
         <div className="mt-2 space-y-2 text-[11px] leading-snug text-zl-muted">
-          <p>{card.why_it_matters}</p>
+          <div>
+            <p className="font-semibold text-zl-text">{INVESTIGATION_SECTION_WHY}</p>
+            <p className="mt-0.5">{card.why_it_matters}</p>
+          </div>
           <div>
             <p className="font-semibold text-zl-text" aria-label="Supporting evidence">
-              Supporting evidence
+              {INVESTIGATION_SECTION_SUPPORTING}
             </p>
             <ul className="mt-0.5 list-disc space-y-0.5 pl-4">
               {card.supporting_evidence.map((item) => (
@@ -105,22 +117,26 @@ function InvestigationCardView({
               ))}
             </ul>
           </div>
-          <div>
-            <p className="font-semibold text-zl-text">Limitations</p>
-            <ul className="mt-0.5 list-disc space-y-0.5 pl-4">
-              {card.limitations.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <p className="font-semibold text-zl-text">What to try next</p>
-            <ul className="mt-0.5 list-disc space-y-0.5 pl-4">
-              {card.suggested_next_steps.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </div>
+          {card.limitations.length > 0 && (
+            <div>
+              <p className="font-semibold text-zl-text">{INVESTIGATION_SECTION_DOES_NOT_PROVE}</p>
+              <ul className="mt-0.5 list-disc space-y-0.5 pl-4">
+                {card.limitations.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {card.suggested_next_steps.length > 0 && (
+            <div>
+              <p className="font-semibold text-zl-text">{INVESTIGATION_SECTION_CHECKS}</p>
+              <ul className="mt-0.5 list-disc space-y-0.5 pl-4">
+                {card.suggested_next_steps.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </div>

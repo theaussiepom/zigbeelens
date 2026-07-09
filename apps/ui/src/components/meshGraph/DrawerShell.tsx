@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 
 /**
- * Right-hand slide-over panel used by the edge and node evidence drawers.
+ * Right-hand slide-over used by device and link details panels.
+ * User-facing copy says “details panel”; “drawer” is implementation-only.
  */
 export function DrawerShell({
   label,
@@ -23,7 +24,7 @@ export function DrawerShell({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close drawer"
+          aria-label="Close details panel"
           className="rounded-lg border border-zl-border px-3 py-1 text-sm text-zl-muted hover:bg-zl-surface-2 hover:text-zl-text"
         >
           Close

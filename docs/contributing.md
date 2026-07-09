@@ -8,4 +8,5 @@ Additional references:
 
 - [development.md](development.md)
 - [architecture.md](architecture.md)
+- [ubiquitous-language.md](ubiquitous-language.md) — product language for evidence UI
 - [safety-audit.md](safety-audit.md)

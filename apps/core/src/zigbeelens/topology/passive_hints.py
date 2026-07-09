@@ -69,10 +69,10 @@ REASON_ISSUE_RELEVANCE = (
 # Every hint carries these limitations verbatim. No causal, route, or
 # connectivity claim is ever made.
 PASSIVE_HINT_LIMITATIONS = [
-    "This is not topology evidence.",
-    "This does not prove these devices are connected.",
+    "This suggestion comes from passive observations, not topology evidence. "
+    "It is useful for deciding which devices to inspect together, but it should "
+    "not be treated as a connection between them.",
     "This does not prove current live routing.",
-    "This does not identify which device, if any, is responsible.",
 ]
 
 PASSIVE_HINT_SUGGESTED_INVESTIGATION = [

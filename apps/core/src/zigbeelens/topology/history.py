@@ -59,26 +59,27 @@ LAST_KNOWN_SLEEPY_NOTE = (
 )
 
 HISTORICAL_NEIGHBOR_LIMITATION = (
-    "This neighbour link was observed in a recent previous topology snapshot "
-    "but is not shown in the latest usable snapshot. "
-    "This does not prove current live routing."
+    "This link was seen recently but is not in the latest usable snapshot. "
+    "That can happen if the device is sleepy, recently moved, powered off, "
+    "or simply absent from the latest map. Check the device before treating "
+    "this as a mesh problem."
 )
 HISTORICAL_NEIGHBOR_LIMITED_LIMITATION = (
     "This neighbour link was observed in a recent previous topology snapshot. "
-    "The latest snapshot layout is limited, so absence from the latest graph "
-    "is not meaningful by itself."
+    "The latest snapshot has limited topology evidence, so absence from the "
+    "latest graph is not meaningful by itself."
 )
 HISTORICAL_ROUTE_LIMITATION = (
     "Route-table evidence was observed in a recent previous topology snapshot. "
-    "This does not prove current live routing."
+    "This suggests possible next-hop evidence at that time. It does not prove "
+    "current live routing."
 )
 NOT_IN_LATEST_LIMITATION = (
-    "Not observed in the latest snapshot. This alone does not prove the link "
-    "is gone or that a device has failed."
+    "Not observed in the latest snapshot. This alone does not prove a failure."
 )
 LATEST_LAYOUT_LIMITED_LIMITATION = (
-    "The latest snapshot layout is limited, so absence from the latest graph "
-    "is not meaningful by itself."
+    "The latest snapshot has limited topology evidence, so absence from the "
+    "latest graph is not meaningful by itself."
 )
 
 

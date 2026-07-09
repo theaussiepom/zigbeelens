@@ -4,6 +4,16 @@ import {
   meshNodeFlagLabel,
   meshRoleLabel,
 } from "@/lib/meshEvidence";
+import {
+  DEVICE_DETAILS_PANEL_LABEL,
+  DEVICE_SECTION_OPEN_ISSUE,
+  DEVICE_SECTION_PASSIVE_HINTS,
+  DEVICE_SECTION_RECENT_MISSING,
+  DEVICE_SECTION_STATS,
+  DEVICE_SECTION_STATUS,
+  DEVICE_SECTION_SUMMARY,
+  DEVICE_SECTION_TOPOLOGY,
+} from "@/lib/meshGraphCopy";
 import { DrawerFact, DrawerSection, DrawerShell } from "@/components/meshGraph/DrawerShell";
 
 function availabilityCopy(device: MeshEvidenceDevice): string {
@@ -17,7 +27,7 @@ function availabilityCopy(device: MeshEvidenceDevice): string {
   }
 }
 
-/** Device drawer: identity, health, and how to read the evidence safely. */
+/** Device details panel: summary, status, and recorded evidence only. */
 export function NodeDrawer({
   device,
   onClose,
@@ -26,7 +36,7 @@ export function NodeDrawer({
   onClose: () => void;
 }) {
   return (
-    <DrawerShell label="Device details" onClose={onClose}>
+    <DrawerShell label={DEVICE_DETAILS_PANEL_LABEL} onClose={onClose}>
       <div>
         <p className="text-base font-semibold text-zl-text">{device.friendly_name}</p>
         <p className="font-mono text-xs text-zl-muted">{device.ieee_address}</p>
@@ -42,7 +52,7 @@ export function NodeDrawer({
         </div>
       </div>
 
-      <DrawerSection title="Identity">
+      <DrawerSection title={DEVICE_SECTION_SUMMARY}>
         <dl>
           <DrawerFact label="Network" value={device.network_id} />
           <DrawerFact label="Role" value={meshRoleLabel(device.role)} />
@@ -56,19 +66,22 @@ export function NodeDrawer({
                   : "Unknown power"
             }
           />
-          <DrawerFact label="Health bucket" value={meshHealthBucketLabel(device.health_bucket)} />
-          <DrawerFact label="Availability" value={availabilityCopy(device)} />
           <DrawerFact label="Inventory status" value={device.inventory_status} />
         </dl>
       </DrawerSection>
 
-      <DrawerSection title="Diagnostic stats">
-        {device.diagnostic_stats.length === 0 ? (
-          <p className="text-zl-muted">
-            No recorded diagnostic stats for this device yet. Stats appear as topology
-            snapshots and availability data accumulate.
-          </p>
-        ) : (
+      <DrawerSection title={DEVICE_SECTION_STATUS}>
+        <dl>
+          <DrawerFact label="ZigbeeLens status" value={meshHealthBucketLabel(device.health_bucket)} />
+          <DrawerFact label="Availability" value={availabilityCopy(device)} />
+        </dl>
+        {device.passive_observation_summary ? (
+          <p className="mt-2 text-zl-muted">{device.passive_observation_summary}</p>
+        ) : null}
+      </DrawerSection>
+
+      {device.diagnostic_stats.length > 0 && (
+        <DrawerSection title={DEVICE_SECTION_STATS}>
           <dl>
             {device.diagnostic_stats.map((stat) => (
               <div
@@ -87,35 +100,27 @@ export function NodeDrawer({
               </div>
             ))}
           </dl>
-        )}
-        <p className="mt-2 text-xs text-zl-muted">
-          Recorded values only — snapshot stats are point-in-time evidence, and a missing
-          link is not, by itself, evidence that this device has failed.
-        </p>
-      </DrawerSection>
+        </DrawerSection>
+      )}
 
-      <DrawerSection title="Topology evidence">
+      <DrawerSection title={DEVICE_SECTION_TOPOLOGY}>
         <p>{device.topology_evidence_summary}</p>
       </DrawerSection>
 
       {device.historical_topology_summary != null && (
-        <DrawerSection title="Recent missing topology evidence">
+        <DrawerSection title={DEVICE_SECTION_RECENT_MISSING}>
           <p>{device.historical_topology_summary}</p>
         </DrawerSection>
       )}
 
       {device.passive_hint_summary != null && (
-        <DrawerSection title="Suggested investigation links">
+        <DrawerSection title={DEVICE_SECTION_PASSIVE_HINTS}>
           <p>{device.passive_hint_summary}</p>
         </DrawerSection>
       )}
 
-      <DrawerSection title="Passive observations">
-        <p>{device.passive_observation_summary}</p>
-      </DrawerSection>
-
       {device.open_issue && (
-        <DrawerSection title="Open issue">
+        <DrawerSection title={DEVICE_SECTION_OPEN_ISSUE}>
           <p className="font-medium">{device.open_issue.title}</p>
           <p className="mt-1 text-zl-muted">{device.open_issue.summary}</p>
         </DrawerSection>

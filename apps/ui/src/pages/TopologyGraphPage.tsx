@@ -16,11 +16,15 @@ import { TopologyViewTabs } from "@/components/meshGraph/TopologyViewTabs";
 import { buildLiveMeshEvidence } from "@/lib/meshEvidenceLive";
 import { relativeTime } from "@/lib/format";
 import { topologyStatusLabel } from "@/lib/topologyLabels";
+import { type MeshEvidenceDevice, type MeshEvidenceEdge } from "@/lib/meshEvidence";
 import {
+  CONNECTION_CONTROL_COPY,
+  CONNECTIONS_EXPLAINER,
+  CONNECTIONS_EXPLAINER_TOGGLE,
+  CONNECTIONS_FOOTNOTE,
+  CONNECTIONS_GROUP_LABEL,
   GRAPH_SAFETY_COPY_LIVE,
-  type MeshEvidenceDevice,
-  type MeshEvidenceEdge,
-} from "@/lib/meshEvidence";
+} from "@/lib/meshGraphCopy";
 import {
   DEFAULT_CONNECTION_CONTROLS,
   clearConnectionControls,
@@ -41,17 +45,7 @@ import {
   type MeshLayoutMode,
 } from "@/lib/meshGraphSmartLayout";
 
-const NO_ROUTE_HINTS_COPY =
-  "No route-table entries in the latest snapshot. ZigbeeLens requests route tables during topology capture, so capture a new snapshot; if routes stay empty, your Zigbee2MQTT adapter may not report routing tables.";
-
-const NO_RECENT_MISSING_COPY = "No recent missing links in the selected history window.";
-
-const NO_LAST_KNOWN_COPY =
-  "Every device has link evidence in the latest snapshot, so no last known links are needed.";
-
-const NO_PASSIVE_HINTS_COPY = "None from recent passive observations.";
-
-/** Plain-language explainer for the two latest-snapshot evidence types. */
+/** Plain-language explainer for connection evidence types. */
 function ConnectionsExplainer() {
   const [open, setOpen] = useState(false);
   return (
@@ -63,7 +57,7 @@ function ConnectionsExplainer() {
         className="text-[11px] text-zl-accent hover:underline"
         data-testid="connections-explainer-toggle"
       >
-        What do these mean?
+        {CONNECTIONS_EXPLAINER_TOGGLE}
       </button>
       {open && (
         <div
@@ -71,52 +65,42 @@ function ConnectionsExplainer() {
           data-testid="connections-explainer"
         >
           <p>
-            <span className="font-semibold text-zl-text">Best neighbour links</span> come from
-            each device&apos;s neighbour table: the other devices it could hear over the radio,
-            with a link quality (LQI) reading. They show which connections are possible.
-            ZigbeeLens draws a focused set of the strongest links per device so dense networks
-            stay readable; “All neighbour links” draws every one.
+            <span className="font-semibold text-zl-text">
+              {CONNECTION_CONTROL_COPY.bestNeighbourLinks.label}
+            </span>{" "}
+            {CONNECTIONS_EXPLAINER.bestNeighbourLinks.replace(
+              /^Best neighbour links come from /,
+              "come from ",
+            )}
           </p>
           <p>
-            <span className="font-semibold text-zl-text">Route hints</span> come from each
-            router&apos;s routing table: the next-hop entries it reported at the moment the
-            snapshot was captured. They are closer to how the mesh was operating than radio
-            audibility alone, but Zigbee routes change frequently — this is capture-time
-            evidence, not proof of current live routing.
+            <span className="font-semibold text-zl-text">
+              {CONNECTION_CONTROL_COPY.routeHints.label}
+            </span>{" "}
+            {CONNECTIONS_EXPLAINER.routeHints.replace(/^Route hints come from /, "come from ")}
+          </p>
+          <p>{CONNECTIONS_EXPLAINER.summary}</p>
+          <p>
+            <span className="font-semibold text-zl-text">
+              {CONNECTION_CONTROL_COPY.recentMissingLinks.label}
+            </span>{" "}
+            {CONNECTIONS_EXPLAINER.recentMissingLinks.replace(/^Recent missing links /, "")}
           </p>
           <p>
-            In short: neighbour links show what is possible, route hints show what was being
-            used at capture time. Where a device pair has both, only the route hint is drawn —
-            one line per pair. The neighbour evidence is never removed: select a device to see
-            its full evidence neighbourhood.
+            <span className="font-semibold text-zl-text">
+              {CONNECTION_CONTROL_COPY.lastKnownLinks.label}
+            </span>{" "}
+            {CONNECTIONS_EXPLAINER.lastKnownLinks.replace(/^Last known links /, "")}
           </p>
+          <p>{CONNECTIONS_EXPLAINER.allNeighbourLinks}</p>
           <p>
-            <span className="font-semibold text-zl-text">Recent missing links</span> are links
-            observed in recent previous topology snapshots but not present in the latest usable
-            snapshot. They help explain gaps — for example a device that dropped out of the
-            latest map — but a missing link alone is not proof that a link is gone or that a
-            device has failed.
-          </p>
-          <p>
-            <span className="font-semibold text-zl-text">Last known links</span> keep
-            otherwise-linkless devices on the map. Sleepy battery devices routinely age out of
-            router neighbour tables, so a device can be healthy yet have no link entries in the
-            latest snapshot. ZigbeeLens then draws its most recent stored link evidence in a
-            distinct style — last known, not currently reported, and not proof of current
-            connectivity.
-          </p>
-          <p>
-            <span className="font-semibold text-zl-text">All neighbour links</span> draws every
-            observed neighbour link from the latest snapshot; dense networks may become hard to
-            read. <span className="font-semibold text-zl-text">Old or uncertain links</span>{" "}
-            draws stale or low-confidence evidence that may help investigation but should not
-            be treated as current.
-          </p>
-          <p>
-            <span className="font-semibold text-zl-text">Suggested investigation links</span>{" "}
-            are cautious hints from passive observations, such as devices repeatedly showing
-            instability around the same time. They are not topology evidence and do not prove
-            devices are connected or that anything is routing between them.
+            <span className="font-semibold text-zl-text">
+              {CONNECTION_CONTROL_COPY.suggestedInvestigationLinks.label}
+            </span>{" "}
+            {CONNECTIONS_EXPLAINER.suggestedInvestigationLinks.replace(
+              /^Suggested investigation links /,
+              "",
+            )}
           </p>
         </div>
       )}
@@ -412,63 +396,67 @@ function GraphPanel({
           />
         </Card>
         <Card>
-          <div role="group" aria-label="Connections to show" className="space-y-3">
+          <div role="group" aria-label={CONNECTIONS_GROUP_LABEL} className="space-y-3">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-zl-muted">
-              Connections to show
+              {CONNECTIONS_GROUP_LABEL}
             </h3>
             <ConnectionsExplainer />
             <ConnectionCheckbox
-              label="Route hints"
-              helper={hasRouteHints ? undefined : NO_ROUTE_HINTS_COPY}
+              label={CONNECTION_CONTROL_COPY.routeHints.label}
+              helper={hasRouteHints ? undefined : CONNECTION_CONTROL_COPY.routeHints.empty}
               checked={hasRouteHints && controls.routeHints}
               disabled={!hasRouteHints}
               onChange={setControl("routeHints")}
             />
             <ConnectionCheckbox
-              label="Best neighbour links"
+              label={CONNECTION_CONTROL_COPY.bestNeighbourLinks.label}
               checked={controls.bestNeighbourLinks}
               onChange={setControl("bestNeighbourLinks")}
             />
             <ConnectionCheckbox
-              label="All neighbour links"
+              label={CONNECTION_CONTROL_COPY.allNeighbourLinks.label}
               checked={controls.allNeighbourLinks}
               onChange={setControl("allNeighbourLinks")}
             />
             <ConnectionCheckbox
-              label="Old or uncertain links"
+              label={CONNECTION_CONTROL_COPY.oldUncertainLinks.label}
               helper={
-                hasOldUncertainLinks ? undefined : "No old or uncertain links in this snapshot."
+                hasOldUncertainLinks ? undefined : CONNECTION_CONTROL_COPY.oldUncertainLinks.empty
               }
               checked={hasOldUncertainLinks && controls.oldUncertainLinks}
               disabled={!hasOldUncertainLinks}
               onChange={setControl("oldUncertainLinks")}
             />
             <ConnectionCheckbox
-              label="Recent missing links"
-              helper={hasRecentMissingLinks ? undefined : NO_RECENT_MISSING_COPY}
+              label={CONNECTION_CONTROL_COPY.recentMissingLinks.label}
+              helper={
+                hasRecentMissingLinks
+                  ? undefined
+                  : CONNECTION_CONTROL_COPY.recentMissingLinks.empty
+              }
               checked={hasRecentMissingLinks && controls.recentMissingLinks}
               disabled={!hasRecentMissingLinks}
               onChange={setControl("recentMissingLinks")}
             />
             <ConnectionCheckbox
-              label="Last known links"
-              helper={hasLastKnownLinks ? undefined : NO_LAST_KNOWN_COPY}
+              label={CONNECTION_CONTROL_COPY.lastKnownLinks.label}
+              helper={hasLastKnownLinks ? undefined : CONNECTION_CONTROL_COPY.lastKnownLinks.empty}
               checked={hasLastKnownLinks && controls.lastKnownLinks}
               disabled={!hasLastKnownLinks}
               onChange={setControl("lastKnownLinks")}
             />
             <ConnectionCheckbox
-              label="Suggested investigation links"
-              helper={hasPassiveHints ? undefined : NO_PASSIVE_HINTS_COPY}
+              label={CONNECTION_CONTROL_COPY.suggestedInvestigationLinks.label}
+              helper={
+                hasPassiveHints
+                  ? undefined
+                  : CONNECTION_CONTROL_COPY.suggestedInvestigationLinks.empty
+              }
               checked={hasPassiveHints && controls.suggestedInvestigationLinks}
               disabled={!hasPassiveHints}
               onChange={setControl("suggestedInvestigationLinks")}
             />
-            <p className="text-[11px] leading-snug text-zl-muted">
-              Turning a connection type off only changes what is drawn — it never means a
-              relationship is gone. All evidence remains available by selecting a device or
-              turning on “All neighbour links”.
-            </p>
+            <p className="text-[11px] leading-snug text-zl-muted">{CONNECTIONS_FOOTNOTE}</p>
             <button
               type="button"
               onClick={resetConnectionChoices}
@@ -679,7 +667,7 @@ export function TopologyGraphPage() {
                     detail.data.counts.historical_neighbor_edges +
                     detail.data.counts.historical_route_edges
                   }
-                  description="Links seen in recent previous topology snapshots but not present in the latest usable snapshot."
+                  description="Links seen in recent previous snapshots but not present in the latest usable snapshot."
                 />
               )}
               {detail.data?.inventory && (

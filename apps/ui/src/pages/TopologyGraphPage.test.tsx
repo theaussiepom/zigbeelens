@@ -144,13 +144,13 @@ const liveDetailLimited: TopologyNetworkDetail = {
 };
 
 const HISTORICAL_NEIGHBOR_LIMITATIONS = [
-  "This neighbour link was observed in a recent previous topology snapshot but is not shown in the latest usable snapshot. This does not prove current live routing.",
-  "Not observed in the latest snapshot. This alone does not prove the link is gone or that a device has failed.",
+  "This link was seen recently but is not in the latest usable snapshot. That can happen if the device is sleepy, recently moved, powered off, or simply absent from the latest map. Check the device before treating this as a mesh problem.",
+  "Not observed in the latest snapshot. This alone does not prove a failure.",
 ];
 
 const HISTORICAL_ROUTE_LIMITATIONS = [
-  "Route-table evidence was observed in a recent previous topology snapshot. This does not prove current live routing.",
-  "Not observed in the latest snapshot. This alone does not prove the link is gone or that a device has failed.",
+  "Route-table evidence was observed in a recent previous topology snapshot. This suggests possible next-hop evidence at that time. It does not prove current live routing.",
+  "Not observed in the latest snapshot. This alone does not prove a failure.",
 ];
 
 function makeHistoricalAggregate(
@@ -275,10 +275,8 @@ const liveDetailWithLastKnown: TopologyEvidenceGraphDetail = {
 };
 
 const PASSIVE_HINT_LIMITATIONS = [
-  "This is not topology evidence.",
-  "This does not prove these devices are connected.",
+  "This suggestion comes from passive observations, not topology evidence. It is useful for deciding which devices to inspect together, but it should not be treated as a connection between them.",
   "This does not prove current live routing.",
-  "This does not identify which device, if any, is responsible.",
 ];
 
 function makePassiveHint(overrides: Partial<PassiveHintAggregate>): PassiveHintAggregate {
@@ -317,7 +315,7 @@ const liveDetailWithPassiveHints: TopologyEvidenceGraphDetail = {
 };
 
 const INVESTIGATION_GENERIC_LIMITATION =
-  "This is an investigation priority based on available ZigbeeLens evidence. It does not prove cause, parentage, live routing or current connectivity.";
+  "This is a place to look first based on available ZigbeeLens evidence. It is not a root-cause claim and does not prove live routing or current connectivity.";
 
 function makeInvestigationCard(overrides: Partial<InvestigationCard>): InvestigationCard {
   return {
@@ -334,7 +332,7 @@ function makeInvestigationCard(overrides: Partial<InvestigationCard>): Investiga
     limitations: [INVESTIGATION_GENERIC_LIMITATION],
     suggested_next_steps: [
       "Check device power.",
-      "Select the device to inspect its evidence drawer.",
+      "Select the device to inspect its evidence details.",
     ],
     device_ieees: ["0xe1", "0xe2"],
     edge_ids: ["hist-neighbor-0xe1|0xe2"],
@@ -570,7 +568,7 @@ describe("TopologyGraphPage live mode", () => {
       screen.getByRole("checkbox", { name: /suggested investigation links/i }),
     ).toBeDisabled();
     expect(
-      screen.getByText("None from recent passive observations."),
+      screen.getByText("No suggested investigation links are available for this network yet."),
     ).toBeInTheDocument();
     // The stale control is gone with sample mode.
     expect(
@@ -585,11 +583,9 @@ describe("TopologyGraphPage live mode", () => {
     };
     const { container } = await renderLiveAndWaitForLayout();
     expect(screen.getByRole("checkbox", { name: /route hints/i })).toBeDisabled();
-    expect(
-      screen.getByText(/No route-table entries in the latest snapshot/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/No route hints in the latest snapshot/)).toBeInTheDocument();
     // Guidance points at capturing a new snapshot, never at live-routing claims.
-    expect(screen.getByText(/capture a new snapshot/i)).toBeInTheDocument();
+    expect(screen.getByText(/capture a new topology snapshot/i)).toBeInTheDocument();
     expect(container.querySelectorAll(".mesh-edge--latest_snapshot_route")).toHaveLength(0);
   });
 
@@ -606,7 +602,7 @@ describe("TopologyGraphPage live mode", () => {
     expect(text).toMatch(/not proof of current live routing/i);
     expect(text).toMatch(/one line per pair/i);
     expect(text).toMatch(/recent missing links/i);
-    expect(text).toMatch(/not proof that a link is gone/i);
+    expect(text).toMatch(/does not prove a failure/i);
     expect(text).toMatch(/suggested investigation links/i);
     expect(text).toMatch(/all neighbour links/i);
     // Wording guardrails hold inside the explainer too.
@@ -624,49 +620,51 @@ describe("TopologyGraphPage live mode", () => {
     const checkbox = screen.getByRole("checkbox", { name: /route hints/i });
     expect(checkbox).toBeEnabled();
     expect(checkbox).toBeChecked();
-    expect(
-      screen.queryByText(/No route-table entries in the latest snapshot/),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/No route hints in the latest snapshot/)).not.toBeInTheDocument();
   });
 
-  it("opens the neighbour edge drawer with snapshot facts and safe wording", async () => {
+  it("opens the neighbour link details panel with snapshot facts and safe wording", async () => {
     const user = userEvent.setup();
     await renderLiveAndWaitForLayout();
     // This pair is route-covered, so its neighbour line draws once route
     // hints are off (one line per pair while both are on).
     await user.click(screen.getByRole("checkbox", { name: /route hints/i }));
     const edge = await screen.findByLabelText(
-      "Latest snapshot neighbour evidence between Live Hall Router and Live Coordinator",
+      "Latest snapshot neighbour link between Live Hall Router and Live Coordinator",
     );
     fireEvent.click(edge);
-    const drawer = screen.getByRole("dialog", { name: /link evidence/i });
-    expect(within(drawer).getByText("Latest snapshot neighbour evidence")).toBeInTheDocument();
+    const drawer = screen.getByRole("dialog", { name: /link details/i });
+    expect(within(drawer).getByText("Latest snapshot neighbour link")).toBeInTheDocument();
+    expect(within(drawer).getByText("What this line means")).toBeInTheDocument();
+    expect(within(drawer).getByText("Why ZigbeeLens drew it")).toBeInTheDocument();
+    expect(within(drawer).getByText("Supporting evidence")).toBeInTheDocument();
     expect(
       within(drawer).getAllByText(/does not prove current live routing/i).length,
     ).toBeGreaterThan(0);
     expect(
-      within(drawer).getByText(
-        /this link was reported in the latest topology snapshot/i,
-      ),
+      within(drawer).getByText(/latest topology snapshot reported a neighbour relationship/i),
     ).toBeInTheDocument();
     expect(within(drawer).getByText("Captured at")).toBeInTheDocument();
     expect(within(drawer).getByText("Observed relationship")).toBeInTheDocument();
     expect(within(drawer).getByText("Parent")).toBeInTheDocument();
-    expect(within(drawer).getByText("LQI latest")).toBeInTheDocument();
+    expect(within(drawer).getByText("Link quality (latest)")).toBeInTheDocument();
     expect(within(drawer).getByText("140")).toBeInTheDocument();
+    // Quiet neighbour links do not need a separate "What this does not prove".
+    expect(within(drawer).queryByText("What this does not prove")).not.toBeInTheDocument();
   });
 
-  it("qualifies route-table evidence in the route edge drawer", async () => {
+  it("qualifies route-table evidence in the route link details panel", async () => {
     await renderLiveAndWaitForLayout();
     const edge = await screen.findByLabelText(
-      "Latest route-table / next-hop evidence from Live Hall Router to Live Coordinator",
+      "Route hint from Live Hall Router to Live Coordinator",
     );
     fireEvent.click(edge);
-    const drawer = screen.getByRole("dialog", { name: /link evidence/i });
+    const drawer = screen.getByRole("dialog", { name: /link details/i });
+    expect(within(drawer).getByText("What this does not prove")).toBeInTheDocument();
     expect(
-      within(drawer).getByText(/route evidence at capture time, not a guaranteed current path/i),
-    ).toBeInTheDocument();
-    expect(within(drawer).getByText("Route observed count").nextElementSibling).toHaveTextContent(
+      within(drawer).getAllByText(/possible next-hop evidence at capture time/i).length,
+    ).toBeGreaterThan(0);
+    expect(within(drawer).getByText("Route hints observed").nextElementSibling).toHaveTextContent(
       "2",
     );
     expect(within(drawer).getByText("Captured at")).toBeInTheDocument();
@@ -1021,7 +1019,7 @@ describe("TopologyGraphPage focused view on large graphs", () => {
       panel.getByRole("checkbox", { name: /suggested investigation links/i }),
     ).toBeDisabled();
     expect(
-      panel.getByText("None from recent passive observations."),
+      panel.getByText("No suggested investigation links are available for this network yet."),
     ).toBeInTheDocument();
   });
 
@@ -1115,7 +1113,7 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     // A weak link of 0xr5 that is in nobody's best-N is now reachable.
     expect(
       screen.getByLabelText(
-        "Latest snapshot neighbour evidence between Dense Router 5 and Dense Router 4",
+        "Latest snapshot neighbour link between Dense Router 5 and Dense Router 4",
       ),
     ).toBeInTheDocument();
     expect(nodePosition(container, "0xr5")).toBe(beforePos);
@@ -1154,11 +1152,11 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
     const edge = await screen.findByLabelText(
-      "Latest route-table / next-hop evidence from Dense Router 0 to Dense Coordinator",
+      "Route hint from Dense Router 0 to Dense Coordinator",
     );
     fireEvent.click(edge);
-    const drawer = screen.getByRole("dialog", { name: /link evidence/i });
-    expect(within(drawer).getByText("Route observed count").nextElementSibling).toHaveTextContent(
+    const drawer = screen.getByRole("dialog", { name: /link details/i });
+    expect(within(drawer).getByText("Route hints observed").nextElementSibling).toHaveTextContent(
       "2",
     );
     expect(within(drawer).queryByText(/currently connected/i)).not.toBeInTheDocument();
@@ -1284,56 +1282,53 @@ describe("TopologyGraphPage historical evidence (live)", () => {
       screen.getByTitle("Devices present in the latest parsed topology snapshot."),
     ).toBeInTheDocument();
     expect(
-      screen.getByTitle("Links reported in the latest topology snapshot."),
-    ).toBeInTheDocument();
+      screen.getAllByTitle("Links reported in the latest topology snapshot.").length,
+    ).toBeGreaterThan(0);
     expect(
-      screen.getByTitle(
-        "Links seen in recent previous topology snapshots but not present in the latest usable snapshot.",
-      ),
-    ).toBeInTheDocument();
+      screen.getAllByTitle(
+        "Links seen in recent previous snapshots but not present in the latest usable snapshot.",
+      ).length,
+    ).toBeGreaterThan(0);
     expect(
       screen.getByTitle("Devices ZigbeeLens knows from Zigbee2MQTT inventory."),
     ).toBeInTheDocument();
   });
 
-  it("frames the historical neighbour drawer as previous-snapshot evidence, never live routing", async () => {
+  it("frames the historical neighbour details panel as previous-snapshot evidence, never live routing", async () => {
     const user = userEvent.setup();
     await renderLiveAndWaitForLayout();
     await user.click(screen.getByRole("checkbox", { name: /recent missing links/i }));
     const edge = await screen.findByLabelText(
-      "Recent missing neighbour link between Live Lamp and Live Sleepy Sensor",
+      "Recent missing link between Live Lamp and Live Sleepy Sensor",
     );
     fireEvent.click(edge);
-    const drawer = screen.getByRole("dialog", { name: /link evidence/i });
-    expect(within(drawer).getByText("Recent missing link")).toBeInTheDocument();
+    const drawer = screen.getByRole("dialog", { name: /link details/i });
+    expect(within(drawer).getAllByText("Recent missing link").length).toBeGreaterThan(0);
+    expect(within(drawer).getByText("What this line means")).toBeInTheDocument();
+    expect(within(drawer).getByText("What this does not prove")).toBeInTheDocument();
     expect(
-      within(drawer).getAllByText(/observed in a recent previous topology snapshot/i).length,
+      within(drawer).getAllByText(/seen recently but is not in the latest usable snapshot|observed in a recent previous topology snapshot/i).length,
     ).toBeGreaterThan(0);
     expect(
-      within(drawer).getAllByText(/does not prove current live routing/i).length,
+      within(drawer).getAllByText(/does not prove a failure|does not prove current live routing/i).length,
     ).toBeGreaterThan(0);
-    expect(
-      within(drawer).getByText(/not observed in the latest topology snapshot/i),
-    ).toBeInTheDocument();
     // Historical aggregate facts.
     expect(within(drawer).getByText("First observed")).toBeInTheDocument();
     expect(within(drawer).getByText("Last observed")).toBeInTheDocument();
-    expect(within(drawer).getByText("Observed count").nextElementSibling).toHaveTextContent("5");
-    expect(within(drawer).getByText("Snapshot count").nextElementSibling).toHaveTextContent("3");
-    expect(within(drawer).getByText("LQI min").nextElementSibling).toHaveTextContent("60");
-    expect(within(drawer).getByText("LQI median").nextElementSibling).toHaveTextContent("75");
-    expect(within(drawer).getByText("LQI max").nextElementSibling).toHaveTextContent("90");
-    // Unknown route evidence stays "Not recorded", never zero.
-    expect(
-      within(drawer).getByText("Route observed count").nextElementSibling,
-    ).toHaveTextContent("Not recorded");
+    expect(within(drawer).getByText("Times observed").nextElementSibling).toHaveTextContent("5");
+    expect(within(drawer).getByText("Snapshots with this link").nextElementSibling).toHaveTextContent("3");
+    expect(within(drawer).getByText("Link quality min").nextElementSibling).toHaveTextContent("60");
+    expect(within(drawer).getByText("Link quality median").nextElementSibling).toHaveTextContent("75");
+    expect(within(drawer).getByText("Link quality max").nextElementSibling).toHaveTextContent("90");
+    // Neighbour evidence does not invent route fields.
+    expect(within(drawer).queryByText("Route hints observed")).not.toBeInTheDocument();
     // No live-routing claims.
     expect(within(drawer).queryByText(/currently connected/i)).not.toBeInTheDocument();
     expect(within(drawer).queryByText(/lost connection/i)).not.toBeInTheDocument();
     expect(within(drawer).queryByText(/broken link/i)).not.toBeInTheDocument();
   });
 
-  it("frames the historical route drawer with previous route-table evidence and counts", async () => {
+  it("frames the historical route details panel with previous route-table evidence and counts", async () => {
     const user = userEvent.setup();
     await renderLiveAndWaitForLayout();
     await user.click(screen.getByRole("checkbox", { name: /recent missing links/i }));
@@ -1341,8 +1336,9 @@ describe("TopologyGraphPage historical evidence (live)", () => {
       "Recent missing route hint from Live Hall Router to Live Lamp",
     );
     fireEvent.click(edge);
-    const drawer = screen.getByRole("dialog", { name: /link evidence/i });
+    const drawer = screen.getByRole("dialog", { name: /link details/i });
     expect(within(drawer).getByText("Recent missing route")).toBeInTheDocument();
+    expect(within(drawer).getByText("What this does not prove")).toBeInTheDocument();
     expect(
       within(drawer).getAllByText(
         /route-table evidence was observed in a recent previous topology snapshot/i,
@@ -1352,9 +1348,9 @@ describe("TopologyGraphPage historical evidence (live)", () => {
       within(drawer).getAllByText(/does not prove current live routing/i).length,
     ).toBeGreaterThan(0);
     expect(
-      within(drawer).getByText("Route observed count").nextElementSibling,
+      within(drawer).getByText("Route hints observed").nextElementSibling,
     ).toHaveTextContent("2");
-    expect(within(drawer).getByText("Last route count").nextElementSibling).toHaveTextContent(
+    expect(within(drawer).getByText("Last route hint count").nextElementSibling).toHaveTextContent(
       "3",
     );
     expect(within(drawer).queryByText(/current route/i)).not.toBeInTheDocument();
@@ -1364,7 +1360,7 @@ describe("TopologyGraphPage historical evidence (live)", () => {
     await renderLiveAndWaitForLayout();
     fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
     const drawer = screen.getByRole("dialog", { name: /device details/i });
-    expect(within(drawer).getByText("Recent missing topology evidence")).toBeInTheDocument();
+    expect(within(drawer).getByText("Recent missing evidence")).toBeInTheDocument();
     // 0xe1 touches the historical neighbour and the historical route.
     expect(
       within(drawer).getByText(/2 recent missing links in the selected history window/i),
@@ -1372,20 +1368,17 @@ describe("TopologyGraphPage historical evidence (live)", () => {
     expect(within(drawer).getByText(/last seen in topology evidence/i)).toBeInTheDocument();
   });
 
-  it("says so plainly when a device has no recent missing links", async () => {
+  it("omits recent missing evidence when a device has none", async () => {
     await renderLiveAndWaitForLayout();
     fireEvent.click(screen.getByTestId("mesh-node-0xc0"));
     const drawer = screen.getByRole("dialog", { name: /device details/i });
-    expect(
-      within(drawer).getByText(
-        "No recent missing topology links in the selected history window.",
-      ),
-    ).toBeInTheDocument();
+    expect(within(drawer).queryByText("Recent missing evidence")).not.toBeInTheDocument();
+    expect(within(drawer).queryByText(/no recent missing/i)).not.toBeInTheDocument();
   });
 
   it("qualifies rather than overclaims when the latest layout is limited", async () => {
     const limitedNeighborCopy =
-      "This neighbour link was observed in a recent previous topology snapshot. The latest snapshot layout is limited, so absence from the latest graph is not meaningful by itself.";
+      "This neighbour link was observed in a recent previous topology snapshot. The latest snapshot has limited topology evidence, so absence from the latest graph is not meaningful by itself.";
     mockDetail = {
       ...liveDetailWithHistory,
       latest_layout_limited: true,
@@ -1402,10 +1395,10 @@ describe("TopologyGraphPage historical evidence (live)", () => {
     await renderLiveAndWaitForLayout();
     await user.click(screen.getByRole("checkbox", { name: /recent missing links/i }));
     const edge = await screen.findByLabelText(
-      "Recent missing neighbour link between Live Lamp and Live Sleepy Sensor",
+      "Recent missing link between Live Lamp and Live Sleepy Sensor",
     );
     fireEvent.click(edge);
-    const drawer = screen.getByRole("dialog", { name: /link evidence/i });
+    const drawer = screen.getByRole("dialog", { name: /link details/i });
     expect(
       within(drawer).getAllByText(/absence from the latest graph is not meaningful by itself/i)
         .length,
@@ -1420,7 +1413,7 @@ describe("TopologyGraphPage historical evidence (live)", () => {
     const nodeDrawer = screen.getByRole("dialog", { name: /device details/i });
     expect(
       within(nodeDrawer).getByText(
-        /the latest snapshot layout is limited, so absence from the latest graph is not meaningful by itself/i,
+        /the latest snapshot has limited topology evidence, so absence from the latest graph is not meaningful by itself/i,
       ),
     ).toBeInTheDocument();
   });
@@ -1572,7 +1565,7 @@ describe("TopologyGraphPage historical evidence on large graphs", () => {
     // Only 0xr20's historical neighbourhood is revealed, not 0xr2–0xr21.
     expect(
       screen.getByLabelText(
-        "Recent missing neighbour link between Dense Router 1 and Dense Router 20",
+        "Recent missing link between Dense Router 1 and Dense Router 20",
       ),
     ).toBeInTheDocument();
     expect(nodePosition(container, "0xr20")).toBe(beforePos);
@@ -1594,7 +1587,7 @@ describe("TopologyGraphPage passive-derived investigation hints", () => {
     expect(investigationToggle()).not.toBeChecked();
     // Enabled controls carry no helper copy — the explainer describes them.
     expect(
-      screen.queryByText("None from recent passive observations."),
+      screen.queryByText("No suggested investigation links are available for this network yet."),
     ).not.toBeInTheDocument();
     // Off by default: no passive edges rendered.
     expect(container.querySelectorAll(".mesh-edge--passive_derived_association")).toHaveLength(
@@ -1641,17 +1634,18 @@ describe("TopologyGraphPage passive-derived investigation hints", () => {
     fireEvent.click(edge);
     const drawer = screen.getByRole("dialog", { name: /suggested investigation link/i });
     // Required sections.
-    expect(within(drawer).getByText("What this means")).toBeInTheDocument();
-    expect(within(drawer).getByText("Why ZigbeeLens suggested this")).toBeInTheDocument();
-    expect(within(drawer).getByText("Supporting observations")).toBeInTheDocument();
-    expect(within(drawer).getByText("Confidence")).toBeInTheDocument();
-    expect(within(drawer).getByText("Limitations")).toBeInTheDocument();
-    expect(within(drawer).getByText("Suggested investigation")).toBeInTheDocument();
+    expect(within(drawer).getByText("What this line means")).toBeInTheDocument();
+    expect(within(drawer).getByText("Why ZigbeeLens drew it")).toBeInTheDocument();
+    expect(within(drawer).getByText("Supporting evidence")).toBeInTheDocument();
+    expect(within(drawer).getByText("What this does not prove")).toBeInTheDocument();
+    expect(within(drawer).getByText("Suggested checks")).toBeInTheDocument();
     // Cautious framing.
     expect(
       within(drawer).getByText(/worth investigating together/i),
     ).toBeInTheDocument();
-    expect(within(drawer).getByText("This is not topology evidence.")).toBeInTheDocument();
+    expect(
+      within(drawer).getAllByText(/not topology evidence/i).length,
+    ).toBeGreaterThan(0);
     expect(
       within(drawer).getByText("This does not prove current live routing."),
     ).toBeInTheDocument();
@@ -1705,7 +1699,7 @@ describe("TopologyGraphPage passive-derived investigation hints", () => {
     const legend = screen.getByRole("group", { name: /link evidence legend/i });
     expect(within(legend).getByText("Suggested investigation link")).toBeInTheDocument();
     expect(
-      within(legend).getByText("Passive-derived hint, not topology evidence"),
+      within(legend).getByText("Not topology evidence"),
     ).toBeInTheDocument();
   });
 
@@ -1791,14 +1785,14 @@ describe("TopologyGraphPage last known links", () => {
     const legend = screen.getByRole("group", { name: /link evidence legend/i });
     expect(within(legend).getByText("Last known link")).toBeInTheDocument();
     expect(
-      within(legend).getByText("Last known evidence, not currently reported"),
+      within(legend).getByText("Not currently reported"),
     ).toBeInTheDocument();
   });
 
   it("opens a drawer that presents last known evidence without claiming current connectivity", async () => {
     const { container } = await renderLiveAndWaitForLayout();
     fireEvent.click(container.querySelector(".mesh-edge--last_known_link")!);
-    const drawer = await screen.findByRole("dialog", { name: /link evidence/i });
+    const drawer = await screen.findByRole("dialog", { name: /link details/i });
     expect(within(drawer).getByText("Last known link")).toBeInTheDocument();
     expect(
       within(drawer).getAllByText(/not a currently reported link/i).length,
@@ -1860,19 +1854,14 @@ describe("TopologyGraphPage shared chrome", () => {
     expect(within(legend).queryByText(/stale/i)).not.toBeInTheDocument();
   });
 
-  it("renders a safety banner that qualifies passive hints, never presenting them as topology", async () => {
+  it("renders a safety banner that frames the graph as evidence, not a live routing map", async () => {
     await renderLiveAndWaitForLayout();
     const note = screen.getByRole("note", { name: /evidence safety note/i });
     expect(note).toHaveTextContent(GRAPH_SAFETY_COPY_LIVE);
-    // Passive hints are qualified: opt-in, not topology, not live routing.
-    expect(note).toHaveTextContent(/if enabled/i);
-    expect(note).toHaveTextContent(/passive-derived hints only/i);
-    expect(note).toHaveTextContent(
-      /not topology links and do not prove current live routing/i,
-    );
-    expect(note).toHaveTextContent(/should not be treated as proof of current live routing/i);
-    // Never implies passive hints are always drawn or are topology facts.
+    expect(note).toHaveTextContent(/evidence view/i);
+    expect(note).toHaveTextContent(/not a live routing map/i);
     expect(note).not.toHaveTextContent(/passive hints are drawn/i);
+    expect(note).not.toHaveTextContent(/drawer/i);
   });
 });
 
@@ -1890,7 +1879,7 @@ describe("TopologyGraphPage investigation panel", () => {
     const panel = screen.getByRole("region", { name: /where to look first/i });
     expect(
       within(panel).getByText(
-        /ranked from existing zigbeelens evidence.*investigation priorities, not root-cause claims/i,
+        /ranked from existing zigbeelens evidence.*places to look first, not root-cause claims/i,
       ),
     ).toBeInTheDocument();
     expect(within(panel).getAllByTestId("investigation-card")).toHaveLength(1);
@@ -1906,7 +1895,7 @@ describe("TopologyGraphPage investigation panel", () => {
     mockDetail = liveDetailWithHistory;
     await renderLiveAndWaitForLayout();
     expect(screen.getByTestId("investigation-empty")).toHaveTextContent(
-      "No strong investigation patterns found in the current evidence.",
+      "No investigation priorities from the current evidence yet.",
     );
     expect(document.body.textContent).not.toMatch(/error|failure|critical/i);
   });
@@ -2006,7 +1995,7 @@ describe("TopologyGraphPage investigation panel", () => {
         makeInvestigationCard({ id: "card-1", title: "Card One", priority: "Review first" }),
         makeInvestigationCard({ id: "card-2", title: "Card Two" }),
         makeInvestigationCard({ id: "card-3", title: "Card Three" }),
-        makeInvestigationCard({ id: "card-4", title: "Card Four", priority: "Context only" }),
+        makeInvestigationCard({ id: "card-4", title: "Card Four", priority: "Lower priority" }),
       ],
       investigation_counts: { available: 4, returned: 4 },
     };

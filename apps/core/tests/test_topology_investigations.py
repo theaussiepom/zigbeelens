@@ -231,7 +231,7 @@ def test_passive_group_from_passive_hints():
         ["passive-hint-0xa1|0xa2", "passive-hint-0xa2|0xa3"]
     )
     assert "This is not topology evidence" in card["why_it_matters"]
-    assert "Passive-derived hints are not topology evidence." in card["limitations"]
+    assert any("not topology evidence" in item for item in card["limitations"])
 
 
 def test_single_low_confidence_hint_does_not_create_group():
@@ -429,7 +429,7 @@ def test_every_card_includes_limitations_and_supporting_evidence():
     for card in result["investigations"]:
         assert GENERIC_INVESTIGATION_LIMITATION in card["limitations"]
         assert card["supporting_evidence"]
-        assert card["priority"] in {"Review first", "Worth checking", "Context only"}
+        assert card["priority"] in {"Review first", "Worth checking", "Lower priority"}
 
 
 def test_cards_never_contain_forbidden_wording():
