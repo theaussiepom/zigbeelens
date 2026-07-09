@@ -2508,3 +2508,179 @@ describe("snapshot compare", () => {
     expect(text).not.toMatch(/\blost\b|\bbroken\b|\bdropped\b|\bdisconnected\b/i);
   });
 });
+
+describe("evidence report export", () => {
+  let clipboardText: string;
+  let clipboardWrite: ReturnType<typeof vi.fn>;
+  let capturedBlobs: Blob[];
+  let downloadedNames: string[];
+
+  beforeEach(() => {
+    clipboardText = "";
+    clipboardWrite = vi.fn((text: string) => {
+      clipboardText = text;
+      return Promise.resolve();
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: clipboardWrite },
+      configurable: true,
+    });
+
+    capturedBlobs = [];
+    downloadedNames = [];
+    URL.createObjectURL = vi.fn((blob: Blob) => {
+      capturedBlobs.push(blob);
+      return "blob:mock-report";
+    }) as typeof URL.createObjectURL;
+    URL.revokeObjectURL = vi.fn() as typeof URL.revokeObjectURL;
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      downloadedNames.push(this.download);
+    });
+
+    vi.spyOn(api, "topologySnapshotCompare").mockImplementation(() =>
+      Promise.resolve(compareWithChanges),
+    );
+  });
+
+  function reportButton() {
+    return screen.getByRole("button", { name: /create report/i });
+  }
+
+  function openReportMenu() {
+    fireEvent.click(reportButton());
+    return screen.getByRole("menu", { name: /create report/i });
+  }
+
+  it("renders the Create report control with an accessible menu", async () => {
+    await renderLiveAndWaitForLayout();
+    expect(reportButton()).toBeInTheDocument();
+    const menu = openReportMenu();
+    expect(within(menu).getByRole("menuitem", { name: "Copy summary" })).toBeInTheDocument();
+    expect(
+      within(menu).getByRole("menuitem", { name: "Download Markdown" }),
+    ).toBeInTheDocument();
+    expect(
+      within(menu).getByRole("menuitem", { name: "Download JSON evidence summary" }),
+    ).toBeInTheDocument();
+  });
+
+  it("Escape closes the report menu and returns focus to the toggle", async () => {
+    await renderLiveAndWaitForLayout();
+    openReportMenu();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("menu", { name: /create report/i })).not.toBeInTheDocument();
+    });
+    expect(reportButton()).toHaveFocus();
+  });
+
+  it("Copy summary writes the Markdown report to the clipboard and shows a success message", async () => {
+    await renderLiveAndWaitForLayout();
+    const menu = openReportMenu();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy summary" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied evidence summary.");
+    expect(clipboardWrite).toHaveBeenCalledTimes(1);
+    expect(clipboardText).toContain("# ZigbeeLens evidence summary");
+    expect(clipboardText).toContain("Network: Home (home)");
+    expect(clipboardText).toContain("Latest topology snapshot: ");
+    expect(clipboardText).toContain("known devices");
+    expect(clipboardText).toContain(
+      "This is an evidence summary, not a live routing map.",
+    );
+  });
+
+  it("shows a calm failure message when the clipboard is unavailable", async () => {
+    clipboardWrite.mockImplementation(() => Promise.reject(new Error("denied")));
+    await renderLiveAndWaitForLayout();
+    const menu = openReportMenu();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy summary" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Copy did not complete. Download the Markdown report instead.",
+    );
+  });
+
+  it("Download Markdown produces a sanitised .md file with the report content", async () => {
+    await renderLiveAndWaitForLayout();
+    const menu = openReportMenu();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Download Markdown" }));
+    expect(downloadedNames).toHaveLength(1);
+    expect(downloadedNames[0]).toMatch(
+      /^zigbeelens-home-evidence-summary-\d{4}-\d{2}-\d{2}-\d{4}\.md$/,
+    );
+    expect(capturedBlobs[0].type).toBe("text/markdown");
+    const content = await capturedBlobs[0].text();
+    expect(content).toContain("# ZigbeeLens evidence summary");
+  });
+
+  it("Download JSON produces structured evidence with null for unknown values", async () => {
+    await renderLiveAndWaitForLayout();
+    const menu = openReportMenu();
+    fireEvent.click(
+      within(menu).getByRole("menuitem", { name: "Download JSON evidence summary" }),
+    );
+    expect(downloadedNames[0]).toMatch(/\.json$/);
+    const parsed = JSON.parse(await capturedBlobs[0].text());
+    expect(parsed.network_id).toBe("home");
+    // Compare is not active: the comparison stays null, never an empty stub.
+    expect(parsed.snapshot_comparison).toBeNull();
+    expect(parsed.selected_device).toBeNull();
+    expect(parsed.counts.known_devices).toBeGreaterThan(0);
+  });
+
+  it("omits irrelevant sections from the normal-view report", async () => {
+    await renderLiveAndWaitForLayout();
+    const menu = openReportMenu();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy summary" }));
+    await screen.findByRole("status");
+    expect(clipboardText).not.toContain("## What changed");
+    expect(clipboardText).not.toContain("## Selected device");
+    expect(clipboardText).not.toContain("None.");
+  });
+
+  it("includes What changed only while compare is active", async () => {
+    await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByRole("button", { name: /compare snapshots/i }));
+    await screen.findByRole("region", { name: /what changed/i });
+
+    const menu = openReportMenu();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy summary" }));
+    await screen.findByRole("status");
+    expect(clipboardText).toContain("## What changed");
+    expect(clipboardText).toContain("1 newly observed device");
+    expect(clipboardText).toContain("1 neighbour link not present in the latest snapshot");
+  });
+
+  it("includes the selected device section when a device is selected", async () => {
+    await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
+    await screen.findByRole("dialog", { name: /device details/i });
+
+    const menu = openReportMenu();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy summary" }));
+    await screen.findByRole("status");
+    expect(clipboardText).toContain("## Selected device");
+    expect(clipboardText).toContain("Device: Live Hall Router");
+    expect(clipboardText).toContain("IEEE: 0xr1");
+    expect(clipboardText).toContain("Role: Router");
+  });
+
+  it("exported reports contain no forbidden user-facing phrases", async () => {
+    mockDetail = liveDetailWithHistory;
+    await renderLiveAndWaitForLayout();
+    // The richest report: compare active plus a selected device.
+    fireEvent.click(screen.getByRole("button", { name: /compare snapshots/i }));
+    await screen.findByRole("region", { name: /what changed/i });
+    fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
+    await screen.findByRole("dialog", { name: /device details/i });
+
+    const menu = openReportMenu();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy summary" }));
+    await screen.findByRole("status");
+    expect(findForbiddenUserFacingPhrases(clipboardText)).toEqual([]);
+    expect(clipboardText).not.toMatch(
+      /\blost\b|\bbroken\b|\bdropped\b|\bdisconnected\b|root cause|caused by|parent router|child device|current route|AI suggested|confidence score|nothing to see|no problems found/i,
+    );
+  });
+});
