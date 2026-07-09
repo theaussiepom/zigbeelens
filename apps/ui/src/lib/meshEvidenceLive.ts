@@ -1,5 +1,7 @@
 import type { DeviceSummary, LensBucket } from "@zigbeelens/shared";
 import type {
+  DeviceDiagnosticStats,
+  DeviceStatsWindow,
   HistoricalEdgeAggregate,
   LastKnownLinkAggregate,
   PassiveHintAggregate,
@@ -9,13 +11,14 @@ import type {
   TopologyNodeRow,
 } from "@/lib/api";
 import type {
+  MeshDiagnosticStat,
   MeshEvidenceDevice,
   MeshEvidenceEdge,
   MeshHealthBucket,
   MeshNodeFlag,
   MeshRole,
 } from "@/lib/meshEvidence";
-import { relativeTime } from "@/lib/format";
+import { formatTime, relativeTime } from "@/lib/format";
 
 /**
  * Map real topology data + device inventory into the mesh evidence model.
@@ -93,9 +96,13 @@ function flagsForDevice(summary: DeviceSummary, role: MeshRole): MeshNodeFlag[] 
   return flags;
 }
 
-function topologySummary(node: TopologyNodeRow | undefined, neighborCount: number): string {
+function topologySummary(
+  node: TopologyNodeRow | undefined,
+  neighborCount: number,
+  sleepy: boolean,
+): string {
   if (!node && neighborCount === 0) {
-    return "Not observed in the latest topology snapshot.";
+    return sleepy ? SLEEPY_NO_LINK_COPY : NO_LINK_COPY;
   }
   if (!node) {
     return `Referenced by ${neighborCount} topology link ${
@@ -110,83 +117,116 @@ function topologySummary(node: TopologyNodeRow | undefined, neighborCount: numbe
   return `${parts.join(" ")}.`;
 }
 
-/** Battery at or below this level is worth calling out as a likely factor. */
-const LOW_BATTERY_PERCENT = 20;
-/** Silence longer than this is worth flagging even for sleepy devices. */
-const STALE_LAST_SEEN_HOURS = 48;
-
-function hoursSince(iso: string | undefined): number | null {
-  if (!iso) return null;
-  const ts = Date.parse(iso);
-  if (Number.isNaN(ts)) return null;
-  return (Date.now() - ts) / 3_600_000;
+/** Inputs available when building one device's diagnostic stats. */
+interface DiagnosticStatInputs {
+  summary: DeviceSummary | undefined;
+  /** Link entries touching this device in the latest snapshot. */
+  neighborCount: number;
+  /** Whether the latest snapshot produced a usable layout at all. */
+  layoutAvailable: boolean;
+  /** Strongest LQI recorded on this device's latest-snapshot links. */
+  strongestLiveLqi: number | null;
+  /** Recent missing links touching this device (history window). */
+  recentMissingCount: number | null;
+  /** Backend per-device stats, if the device has any recorded data. */
+  backendStats: DeviceDiagnosticStats | undefined;
+  backendWindow: DeviceStatsWindow | undefined;
+  /** Resolve an IEEE address to a friendly name for display. */
+  nameFor: (ieee: string) => string;
 }
 
 /**
- * Concrete recorded facts about a device that shape how ZigbeeLens reads it:
- * current availability, last-heard recency, low battery, link quality.
- * Facts are only stated when the underlying value is actually recorded.
+ * Repeatable diagnostic stats for the node drawer. Each row is a recorded
+ * value — nothing inferred, nothing shown for values that were never
+ * recorded (unknown never renders as zero).
  */
-function deviceFacts(summary: DeviceSummary): string[] {
-  const facts: string[] = [];
-  if (summary.availability === "offline") {
-    facts.push("It is currently reported offline.");
-  }
-  if (summary.last_seen) {
-    facts.push(`It last reported ${relativeTime(summary.last_seen)}.`);
-  }
-  if (summary.battery != null && summary.battery <= LOW_BATTERY_PERCENT) {
-    facts.push(
-      `Its last reported battery level is ${summary.battery}%, which can explain reporting gaps — worth checking first.`,
-    );
-  }
-  return facts;
-}
+function diagnosticStatsFor(inputs: DiagnosticStatInputs): MeshDiagnosticStat[] {
+  const {
+    summary,
+    neighborCount,
+    layoutAvailable,
+    strongestLiveLqi,
+    recentMissingCount,
+    backendStats,
+    backendWindow,
+    nameFor,
+  } = inputs;
+  const stats: MeshDiagnosticStat[] = [];
 
-function interpretationFor(
-  summary: DeviceSummary | undefined,
-  node: TopologyNodeRow | undefined,
-  inTopology: boolean,
-  role: MeshRole,
-): string {
-  if (!summary) {
-    if (!node) {
-      return "The latest topology snapshot referenced this endpoint in a link, but ZigbeeLens does not currently have matching inventory or device details. Snapshot data can briefly include renamed or removed devices; this is context, not an incident.";
-    }
-    return "This node appeared in the topology snapshot but is not in the current device inventory. Snapshot data can briefly include renamed or removed devices; this is context, not an incident.";
+  if (summary?.last_seen) {
+    stats.push({
+      label: "Last seen",
+      value: relativeTime(summary.last_seen),
+      detail: formatTime(summary.last_seen),
+    });
   }
-
-  const facts = deviceFacts(summary);
-  const ageHours = hoursSince(summary.last_seen);
-
-  if (!inTopology) {
-    const sleepy = summary.power_source === "Battery" && role === "end_device";
-    const parts = [sleepy ? SLEEPY_NO_LINK_COPY : NO_LINK_COPY, ...facts];
-    if (sleepy && ageHours != null) {
-      parts.push(
-        ageHours <= STALE_LAST_SEEN_HOURS
-          ? "Recent reports alongside the missing link are consistent with normal sleep behaviour."
-          : "The long quiet period is less typical — battery and placement are worth checking.",
-      );
-    }
-    return parts.join(" ");
+  if (summary?.last_payload_at) {
+    stats.push({
+      label: "Last message payload",
+      value: relativeTime(summary.last_payload_at),
+      detail: formatTime(summary.last_payload_at),
+    });
+  }
+  if (summary?.battery != null) {
+    stats.push({ label: "Battery level", value: `${summary.battery}%` });
+  }
+  if (summary?.linkquality != null) {
+    stats.push({ label: "Reported link quality", value: `LQI ${summary.linkquality}` });
   }
 
-  if (summary.lens_bucket && summary.lens_bucket !== "healthy") {
-    const reason =
-      summary.lens_bucket_reason ||
-      "ZigbeeLens has flagged this device for attention based on passive observations.";
-    return [
-      reason,
-      ...facts,
-      "Topology evidence is point-in-time context and does not change this assessment on its own.",
-    ].join(" ");
+  if (layoutAvailable) {
+    stats.push({
+      label: "Links in latest snapshot",
+      value: String(neighborCount),
+    });
+  }
+  if (strongestLiveLqi != null) {
+    stats.push({ label: "Strongest link (latest snapshot)", value: `LQI ${strongestLiveLqi}` });
+  }
+  if (recentMissingCount != null && recentMissingCount > 0) {
+    stats.push({
+      label: "Recent missing links (7 days)",
+      value: String(recentMissingCount),
+    });
   }
 
-  return [
-    "This device appears in the latest topology snapshot and its passive health signals look normal.",
-    ...facts,
-  ].join(" ");
+  if (backendWindow && backendWindow.snapshots_considered > 0) {
+    stats.push({
+      label: `Snapshots with links (last ${backendWindow.days} days)`,
+      value: `${backendStats?.snapshots_with_links ?? 0} of ${backendWindow.snapshots_considered}`,
+    });
+  }
+  if (backendStats?.last_router_link_at) {
+    stats.push({
+      label: "Last router link observed",
+      value: relativeTime(backendStats.last_router_link_at),
+      detail: backendStats.last_router_link_partner
+        ? `to ${nameFor(backendStats.last_router_link_partner)} · ${formatTime(backendStats.last_router_link_at)}`
+        : formatTime(backendStats.last_router_link_at),
+    });
+  }
+
+  // Offline transition counts are only meaningful when availability is
+  // actually tracked for this device; otherwise a zero would present
+  // "not measured" as "measured stable".
+  const availabilityTracked = summary
+    ? summary.availability === "online" || summary.availability === "offline"
+    : false;
+  if (backendStats && (availabilityTracked || backendStats.offline_events_7d > 0)) {
+    stats.push({
+      label: "Offline events (24 h)",
+      value: String(backendStats.offline_events_24h),
+    });
+    stats.push({
+      label: "Offline events (7 days)",
+      value: String(backendStats.offline_events_7d),
+      detail: backendStats.last_offline_at
+        ? `last ${relativeTime(backendStats.last_offline_at)}`
+        : undefined,
+    });
+  }
+
+  return stats;
 }
 
 /**
@@ -322,9 +362,10 @@ function buildDevice(
   summary: DeviceSummary | undefined,
   node: TopologyNodeRow | undefined,
   neighborCount: number,
+  diagnosticStats: MeshDiagnosticStat[],
 ): MeshEvidenceDevice {
   const role = summary ? roleFromType(summary.device_type) : roleFromType(node?.node_type);
-  const inTopology = node !== undefined || neighborCount > 0;
+  const sleepy = summary?.power_source === "Battery" && role === "end_device";
   return {
     ieee_address: ieee,
     network_id: networkId,
@@ -350,7 +391,7 @@ function buildDevice(
       : node
         ? "Observed in topology snapshot only — not in the current device inventory"
         : "Referenced by topology links only — unknown to inventory and node list",
-    topology_evidence_summary: topologySummary(node, neighborCount),
+    topology_evidence_summary: topologySummary(node, neighborCount, sleepy),
     passive_observation_summary: summary
       ? summary.lens_bucket_reason || "No passive observation summary is available for this device."
       : "No passive observations — this node is not in the device inventory.",
@@ -360,7 +401,7 @@ function buildDevice(
           summary: "This device is referenced by an open incident. See the Incidents page for the evidence trail.",
         }
       : null,
-    interpretation: interpretationFor(summary, node, inTopology, role),
+    diagnostic_stats: diagnosticStats,
   };
 }
 
@@ -428,6 +469,8 @@ export type LiveTopologyDetail = TopologyNetworkDetail &
       | "limitations"
       | "passive_hints"
       | "passive_hint_window"
+      | "device_stats"
+      | "device_stats_window"
     >
   >;
 
@@ -605,14 +648,50 @@ export function buildLiveMeshEvidence(
     allIeee.add(edge.source);
     allIeee.add(edge.target);
   }
+  // Strongest recorded LQI per device across latest-snapshot neighbour edges.
+  const strongestLiveLqi = new Map<string, number>();
+  for (const edge of edges) {
+    if (edge.evidence_class !== "latest_snapshot_neighbor" || edge.lqi_latest == null) continue;
+    for (const endpoint of [edge.source, edge.target]) {
+      const current = strongestLiveLqi.get(endpoint);
+      if (current == null || edge.lqi_latest > current) {
+        strongestLiveLqi.set(endpoint, edge.lqi_latest);
+      }
+    }
+  }
+
+  const layoutAvailable = nodes.length > 0 || links.length > 0;
+  const nameFor = (target: string): string => {
+    const normalized = normalizeIeee(target);
+    return (
+      summaryByIeee.get(normalized)?.friendly_name ||
+      nodeByIeee.get(normalized)?.friendly_name ||
+      target
+    );
+  };
+
   const devices: MeshEvidenceDevice[] = [];
   for (const ieee of allIeee) {
+    const summary = summaryByIeee.get(ieee);
+    const diagnosticStats = diagnosticStatsFor({
+      summary,
+      neighborCount: neighborCounts.get(ieee) ?? 0,
+      layoutAvailable,
+      strongestLiveLqi: strongestLiveLqi.get(ieee) ?? null,
+      recentMissingCount: historicalEvaluated
+        ? historicalEdges.filter((edge) => edge.source === ieee || edge.target === ieee).length
+        : null,
+      backendStats: detail.device_stats?.[ieee],
+      backendWindow: detail.device_stats_window,
+      nameFor,
+    });
     const device = buildDevice(
       ieee,
       networkId,
-      summaryByIeee.get(ieee),
+      summary,
       nodeByIeee.get(ieee),
       neighborCounts.get(ieee) ?? 0,
+      diagnosticStats,
     );
     if (historicalEvaluated) {
       device.historical_topology_summary = historicalSummaryFor(

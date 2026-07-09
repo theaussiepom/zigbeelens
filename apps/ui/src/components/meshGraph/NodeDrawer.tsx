@@ -4,7 +4,6 @@ import {
   meshNodeFlagLabel,
   meshRoleLabel,
 } from "@/lib/meshEvidence";
-import { formatTime } from "@/lib/format";
 import { DrawerFact, DrawerSection, DrawerShell } from "@/components/meshGraph/DrawerShell";
 
 function availabilityCopy(device: MeshEvidenceDevice): string {
@@ -59,9 +58,40 @@ export function NodeDrawer({
           />
           <DrawerFact label="Health bucket" value={meshHealthBucketLabel(device.health_bucket)} />
           <DrawerFact label="Availability" value={availabilityCopy(device)} />
-          <DrawerFact label="Last seen" value={formatTime(device.last_seen_at ?? undefined)} />
           <DrawerFact label="Inventory status" value={device.inventory_status} />
         </dl>
+      </DrawerSection>
+
+      <DrawerSection title="Diagnostic stats">
+        {device.diagnostic_stats.length === 0 ? (
+          <p className="text-zl-muted">
+            No recorded diagnostic stats for this device yet. Stats appear as topology
+            snapshots and availability data accumulate.
+          </p>
+        ) : (
+          <dl>
+            {device.diagnostic_stats.map((stat) => (
+              <div
+                key={stat.label}
+                className="flex items-baseline justify-between gap-3 py-0.5"
+              >
+                <dt className="text-xs text-zl-muted">{stat.label}</dt>
+                <dd className="text-right text-sm text-zl-text">
+                  {stat.value}
+                  {stat.detail && (
+                    <span className="block text-[11px] leading-tight text-zl-muted">
+                      {stat.detail}
+                    </span>
+                  )}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        <p className="mt-2 text-xs text-zl-muted">
+          Recorded values only — snapshot stats are point-in-time evidence, and a missing
+          link is not, by itself, evidence that this device has failed.
+        </p>
       </DrawerSection>
 
       <DrawerSection title="Topology evidence">
@@ -90,16 +120,6 @@ export function NodeDrawer({
           <p className="mt-1 text-zl-muted">{device.open_issue.summary}</p>
         </DrawerSection>
       )}
-
-      <DrawerSection title="How ZigbeeLens reads this">
-        <p className="rounded-lg border border-zl-border bg-zl-bg/50 p-3 leading-relaxed">
-          {device.interpretation}
-        </p>
-        <p className="mt-2 text-xs text-zl-muted">
-          Topology links are point-in-time evidence. A missing link in this graph is not, by
-          itself, evidence that this device has failed.
-        </p>
-      </DrawerSection>
     </DrawerShell>
   );
 }

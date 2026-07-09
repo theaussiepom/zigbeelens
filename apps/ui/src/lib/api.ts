@@ -421,8 +421,32 @@ export interface TopologyEvidenceGraphDetail extends TopologyNetworkDetail {
   passive_hint_window: PassiveHintWindow;
   investigations: InvestigationCard[];
   investigation_counts: InvestigationCounts;
+  device_stats: Record<string, DeviceDiagnosticStats>;
+  device_stats_window: DeviceStatsWindow;
   limitations: string[];
   counts: TopologyEvidenceGraphCounts;
+}
+
+/**
+ * Per-device recorded diagnostic stats from recent snapshots and availability
+ * transitions. Devices with no recorded data have no entry at all.
+ */
+export interface DeviceDiagnosticStats {
+  /** Recent complete snapshots in which the device had at least one link. */
+  snapshots_with_links: number;
+  /** Newest snapshot time where the device linked to a router/coordinator. */
+  last_router_link_at?: string | null;
+  /** IEEE of that router/coordinator partner. */
+  last_router_link_partner?: string | null;
+  offline_events_24h: number;
+  offline_events_7d: number;
+  last_offline_at?: string | null;
+}
+
+export interface DeviceStatsWindow {
+  days: number;
+  max_snapshots: number;
+  snapshots_considered: number;
 }
 
 export type { MockScenarioId };

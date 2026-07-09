@@ -124,6 +124,17 @@ export interface MeshOpenIssue {
   summary: string;
 }
 
+/**
+ * One repeatable diagnostic stat for the node drawer: a recorded value with
+ * an optional secondary detail (e.g. the exact timestamp behind a relative
+ * time). Stats are only produced for values that were actually recorded.
+ */
+export interface MeshDiagnosticStat {
+  label: string;
+  value: string;
+  detail?: string;
+}
+
 /** One device in the mesh evidence graph. */
 export interface MeshEvidenceDevice {
   /** IEEE address; also the graph node id. */
@@ -141,8 +152,8 @@ export interface MeshEvidenceDevice {
   topology_evidence_summary: string;
   passive_observation_summary: string;
   open_issue?: MeshOpenIssue | null;
-  /** Why ZigbeeLens thinks this is OK / needs attention (safe wording). */
-  interpretation: string;
+  /** Recorded diagnostic stats (last seen, link presence, offline events). */
+  diagnostic_stats: MeshDiagnosticStat[];
   /**
    * Summary of previously-seen topology links touching this device within
    * the history window. Undefined when historical data was not evaluated.

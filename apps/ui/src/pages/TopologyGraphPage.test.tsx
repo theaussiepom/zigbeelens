@@ -223,6 +223,8 @@ const liveDetailWithHistory: TopologyEvidenceGraphDetail = {
   passive_hint_window: { days: 7, event_window_minutes: 5, min_repeated_windows: 2 },
   investigations: [],
   investigation_counts: { available: 0, returned: 0 },
+  device_stats: {},
+  device_stats_window: { days: 7, max_snapshots: 10, snapshots_considered: 0 },
   limitations: [],
   counts: {
     latest_snapshot_neighbor_edges: 2,
@@ -695,34 +697,54 @@ describe("TopologyGraphPage live mode", () => {
         /this can be normal for sleepy battery devices and is not an incident by itself/i,
       ),
     ).toBeInTheDocument();
-    // The interpretation states recorded facts: when it last reported and
-    // whether the silence is typical for a sleepy device.
-    expect(within(drawer).getByText(/it last reported/i)).toBeInTheDocument();
-    expect(
-      within(drawer).getByText(/long quiet period is less typical|consistent with normal sleep behaviour/i),
-    ).toBeInTheDocument();
     expect(within(drawer).queryByText(/incident detected/i)).not.toBeInTheDocument();
   });
 
-  it("calls out a recorded low battery in How ZigbeeLens reads this", async () => {
+  it("shows recorded diagnostic stats in the node drawer", async () => {
     mockDevices = liveDevices.map((device) =>
       device.ieee_address === "0xe2" ? { ...device, battery: 12 } : device,
     );
+    const detailWithStats: TopologyEvidenceGraphDetail = {
+      ...liveDetailWithHistory,
+      device_stats: {
+        "0xe2": {
+          snapshots_with_links: 2,
+          last_router_link_at: "2026-07-06T00:00:00+00:00",
+          last_router_link_partner: "0xr1",
+          offline_events_24h: 1,
+          offline_events_7d: 3,
+          last_offline_at: "2026-07-06T02:00:00+00:00",
+        },
+      },
+      device_stats_window: { days: 7, max_snapshots: 10, snapshots_considered: 4 },
+    };
+    mockDetail = detailWithStats;
     await renderLiveAndWaitForLayout();
     fireEvent.click(screen.getByTestId("mesh-node-0xe2"));
     const drawer = screen.getByRole("dialog", { name: /device details/i });
-    expect(
-      within(drawer).getByText(/battery level is 12%.*worth checking first/i),
-    ).toBeInTheDocument();
+    expect(within(drawer).getByText("Diagnostic stats")).toBeInTheDocument();
+    expect(within(drawer).getByText("Last seen")).toBeInTheDocument();
+    expect(within(drawer).getByText("Battery level")).toBeInTheDocument();
+    expect(within(drawer).getByText("12%")).toBeInTheDocument();
+    expect(within(drawer).getByText("Snapshots with links (last 7 days)")).toBeInTheDocument();
+    expect(within(drawer).getByText("2 of 4")).toBeInTheDocument();
+    expect(within(drawer).getByText("Last router link observed")).toBeInTheDocument();
+    expect(within(drawer).getByText(/to Live Hall Router/)).toBeInTheDocument();
+    expect(within(drawer).getByText("Offline events (24 h)")).toBeInTheDocument();
+    expect(within(drawer).getByText("Offline events (7 days)")).toBeInTheDocument();
+    // The old prose verdict section is gone.
+    expect(within(drawer).queryByText("How ZigbeeLens reads this")).not.toBeInTheDocument();
   });
 
-  it("never invents facts: no battery or offline wording when values are unknown", async () => {
+  it("never invents stats: unknown values produce no rows, not zeroes", async () => {
     await renderLiveAndWaitForLayout();
     fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
     const drawer = screen.getByRole("dialog", { name: /device details/i });
     const text = drawer.textContent ?? "";
-    expect(text).not.toMatch(/battery level is/i);
-    expect(text).not.toMatch(/currently reported offline/i);
+    // 0xe1 has no recorded battery and no backend stats entry.
+    expect(text).not.toMatch(/battery level/i);
+    expect(text).not.toMatch(/offline events/i);
+    expect(text).not.toMatch(/last router link/i);
   });
 
   it("shows an honest limited state without fake zeroes", async () => {
@@ -773,9 +795,11 @@ describe("TopologyGraphPage live mode", () => {
     ).toBeInTheDocument();
     expect(
       within(drawer).getByText(
-        /the latest topology snapshot referenced this endpoint in a link, but zigbeelens does not currently have matching inventory or device details/i,
+        /referenced by 1 topology link entry in the latest snapshot, but no node details were reported/i,
       ),
     ).toBeInTheDocument();
+    // No inventory data means no fabricated stats rows.
+    expect(within(drawer).queryByText("Last seen")).not.toBeInTheDocument();
     expect(within(drawer).queryByText("In Zigbee2MQTT device inventory")).not.toBeInTheDocument();
   });
 
@@ -1432,6 +1456,8 @@ describe("TopologyGraphPage historical evidence on large graphs", () => {
       passive_hint_window: { days: 7, event_window_minutes: 5, min_repeated_windows: 2 },
       investigations: [],
       investigation_counts: { available: 0, returned: 0 },
+      device_stats: {},
+      device_stats_window: { days: 7, max_snapshots: 10, snapshots_considered: 0 },
       limitations: [],
       counts: {
         latest_snapshot_neighbor_edges: 435,
