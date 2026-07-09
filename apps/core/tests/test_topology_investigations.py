@@ -13,13 +13,18 @@ from zigbeelens.topology.investigations import (
     GENERIC_INVESTIGATION_LIMITATION,
     ISSUE_CLUSTER_MIN_DEVICES,
     ISSUE_DEVICE_WEIGHT,
+    LOW_BATTERY_PERCENT,
     MAX_INVESTIGATION_CARDS,
+    MAX_SUGGESTED_NEXT_STEPS,
     PRIORITY_CONTEXT_ONLY,
     RECENT_MISSING_CLUSTER_MIN_EDGES,
     RECENT_MISSING_EDGE_WEIGHT,
+    REPEATED_OFFLINE_MIN_COUNT,
     ROUTER_REVIEW_MIN_ISSUE_NEIGHBOURS,
     ROUTER_REVIEW_MIN_LINKS,
+    STALE_LAST_SEEN_HOURS,
     TOPOLOGY_CORROBORATION_WEIGHT,
+    WEAK_LINK_LQI,
     build_investigations,
 )
 
@@ -48,6 +53,8 @@ def _device(
     availability: str = "online",
     power_source: str = "Mains",
     name: str | None = None,
+    battery: int | None = None,
+    last_seen: str | None = None,
 ) -> DeviceRow:
     return DeviceRow(
         network_id="home",
@@ -59,6 +66,8 @@ def _device(
         model=None,
         interview_state="successful",
         availability=availability,
+        battery=battery,
+        last_seen=last_seen,
     )
 
 
@@ -481,6 +490,176 @@ def test_empty_state_when_no_patterns_exist():
     )
     assert result["available_count"] == 0
     assert result["investigations"] == []
+
+
+def _missing_cluster_for(result: dict, device: str) -> dict:
+    cards = [
+        c
+        for c in result["investigations"]
+        if c["type"] == "recent_missing_cluster" and c["primary_device_ieee"] == device
+    ]
+    assert len(cards) == 1
+    return cards[0]
+
+
+def _cluster_history(device: str = "0xa1") -> dict:
+    return {
+        "historical_neighbors": [
+            _missing_edge(device, "0xr2", last_seen=NOW - timedelta(hours=3)),
+            _missing_edge(device, "0xr3", last_seen=NOW - timedelta(hours=4)),
+            _missing_edge(device, "0xr4", last_seen=NOW - timedelta(hours=5)),
+        ],
+        "historical_routes": [],
+    }
+
+
+def test_low_battery_becomes_a_fact_and_the_first_suggestion():
+    result = _build(
+        devices=[_device("0xa1", name="Bedroom sensor", battery=LOW_BATTERY_PERCENT - 5)],
+        latest_nodes=[{"ieee_address": "0xa1"}],
+        latest_links=[],
+        history=_cluster_history(),
+    )
+    card = _missing_cluster_for(result, "0xa1")
+    assert any("battery level is 15%" in fact for fact in card["supporting_evidence"])
+    assert card["suggested_next_steps"][0] == (
+        "Check or replace the battery in Bedroom sensor first — it last reported 15%."
+    )
+
+
+def test_healthy_battery_is_not_mentioned():
+    result = _build(
+        devices=[_device("0xa1", battery=90)],
+        latest_nodes=[{"ieee_address": "0xa1"}],
+        latest_links=[],
+        history=_cluster_history(),
+    )
+    card = _missing_cluster_for(result, "0xa1")
+    text = json.dumps(card)
+    assert "battery" not in text.lower() or "Check battery level if available" in text
+
+
+def test_unknown_values_never_become_claims():
+    # No battery, no last_seen, unknown availability, no LQI: no tailored
+    # facts appear — unknown is never presented as a recorded value.
+    result = _build(
+        devices=[_device("0xa1", availability="unknown")],
+        latest_nodes=[{"ieee_address": "0xa1"}],
+        latest_links=[],
+        history=_cluster_history(),
+    )
+    card = _missing_cluster_for(result, "0xa1")
+    text = json.dumps(card).lower()
+    assert "battery level is" not in text
+    assert "currently reported offline" not in text
+    assert "nothing has been heard from" not in text
+    assert "weak (lqi" not in text
+
+
+def test_repeated_offline_events_become_a_fact():
+    events = [
+        (NOW - timedelta(days=2)).isoformat(),
+        (NOW - timedelta(hours=6)).isoformat(),
+    ]
+    assert len(events) >= REPEATED_OFFLINE_MIN_COUNT
+    result = _build(
+        devices=[_device("0xa1", name="Hall plug")],
+        latest_nodes=[{"ieee_address": "0xa1"}],
+        latest_links=[],
+        history=_cluster_history(),
+        offline_events={"0xa1": events},
+    )
+    card = _missing_cluster_for(result, "0xa1")
+    assert any(
+        "Hall plug went offline 2 times in the last 7 days" in fact
+        for fact in card["supporting_evidence"]
+    )
+    assert any("availability history" in step for step in card["suggested_next_steps"])
+
+
+def test_stale_last_seen_becomes_a_fact_with_timestamp():
+    stale = (NOW - timedelta(hours=STALE_LAST_SEEN_HOURS + 10)).isoformat()
+    result = _build(
+        devices=[_device("0xa1", name="Porch sensor", last_seen=stale)],
+        latest_nodes=[{"ieee_address": "0xa1"}],
+        latest_links=[],
+        history=_cluster_history(),
+    )
+    card = _missing_cluster_for(result, "0xa1")
+    assert any(
+        fact.startswith("Nothing has been heard from Porch sensor since")
+        for fact in card["supporting_evidence"]
+    )
+    # A recently seen device gets no such fact.
+    fresh = _build(
+        devices=[_device("0xa1", last_seen=(NOW - timedelta(hours=1)).isoformat())],
+        latest_nodes=[{"ieee_address": "0xa1"}],
+        latest_links=[],
+        history=_cluster_history(),
+    )
+    fresh_card = _missing_cluster_for(fresh, "0xa1")
+    assert not any(
+        "Nothing has been heard from" in fact for fact in fresh_card["supporting_evidence"]
+    )
+
+
+def test_weak_link_lqi_becomes_a_fact():
+    result = _build(
+        devices=[_device("0xa1", name="Garage sensor"), _device("0xr1", device_type="Router")],
+        latest_nodes=[{"ieee_address": "0xa1"}, {"ieee_address": "0xr1"}],
+        latest_links=[_link("0xr1", "0xa1", lqi=WEAK_LINK_LQI - 20)],
+        history=_cluster_history(),
+    )
+    card = _missing_cluster_for(result, "0xa1")
+    assert any(
+        "strongest observed link in the latest snapshot is weak (LQI 30)" in fact
+        for fact in card["supporting_evidence"]
+    )
+    assert any("placement or sources of interference" in s for s in card["suggested_next_steps"])
+
+
+def test_offline_device_gets_power_check_suggestion_on_issue_cluster():
+    devices = [
+        _device("0xr1", device_type="Router", name="Hall router"),
+        _device("0xa1", name="Left blind", availability="offline"),
+        _device("0xa2", name="Right blind", availability="offline"),
+    ]
+    links = [_link("0xr1", "0xa1"), _link("0xr1", "0xa2")]
+    result = _build(
+        devices=devices,
+        latest_nodes=[{"ieee_address": d.ieee_address} for d in devices],
+        latest_links=links,
+    )
+    cards = [c for c in result["investigations"] if c["type"] == "issue_cluster"]
+    assert len(cards) == 1
+    card = cards[0]
+    assert any("Left blind is currently reported offline." in f for f in card["supporting_evidence"])
+    assert any("Check power to Left blind" in s for s in card["suggested_next_steps"])
+    assert any("Check power to Right blind" in s for s in card["suggested_next_steps"])
+    assert len(card["suggested_next_steps"]) <= MAX_SUGGESTED_NEXT_STEPS
+
+
+def test_tailored_wording_stays_within_guardrails():
+    stale = (NOW - timedelta(hours=STALE_LAST_SEEN_HOURS + 5)).isoformat()
+    result = _build(
+        devices=[
+            _device(
+                "0xa1",
+                name="Bedroom sensor",
+                battery=5,
+                availability="offline",
+                last_seen=stale,
+            ),
+            _device("0xr1", device_type="Router"),
+        ],
+        latest_nodes=[{"ieee_address": "0xa1"}, {"ieee_address": "0xr1"}],
+        latest_links=[_link("0xr1", "0xa1", lqi=10)],
+        history=_cluster_history(),
+        offline_events={"0xa1": [(NOW - timedelta(hours=i)).isoformat() for i in (30, 6)]},
+    )
+    text = json.dumps(result).lower()
+    for phrase in FORBIDDEN_PHRASES:
+        assert phrase not in text, phrase
 
 
 def test_evidence_graph_api_includes_investigations(topology_client: TestClient):

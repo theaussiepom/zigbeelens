@@ -110,6 +110,39 @@ function topologySummary(node: TopologyNodeRow | undefined, neighborCount: numbe
   return `${parts.join(" ")}.`;
 }
 
+/** Battery at or below this level is worth calling out as a likely factor. */
+const LOW_BATTERY_PERCENT = 20;
+/** Silence longer than this is worth flagging even for sleepy devices. */
+const STALE_LAST_SEEN_HOURS = 48;
+
+function hoursSince(iso: string | undefined): number | null {
+  if (!iso) return null;
+  const ts = Date.parse(iso);
+  if (Number.isNaN(ts)) return null;
+  return (Date.now() - ts) / 3_600_000;
+}
+
+/**
+ * Concrete recorded facts about a device that shape how ZigbeeLens reads it:
+ * current availability, last-heard recency, low battery, link quality.
+ * Facts are only stated when the underlying value is actually recorded.
+ */
+function deviceFacts(summary: DeviceSummary): string[] {
+  const facts: string[] = [];
+  if (summary.availability === "offline") {
+    facts.push("It is currently reported offline.");
+  }
+  if (summary.last_seen) {
+    facts.push(`It last reported ${relativeTime(summary.last_seen)}.`);
+  }
+  if (summary.battery != null && summary.battery <= LOW_BATTERY_PERCENT) {
+    facts.push(
+      `Its last reported battery level is ${summary.battery}%, which can explain reporting gaps — worth checking first.`,
+    );
+  }
+  return facts;
+}
+
 function interpretationFor(
   summary: DeviceSummary | undefined,
   node: TopologyNodeRow | undefined,
@@ -122,14 +155,38 @@ function interpretationFor(
     }
     return "This node appeared in the topology snapshot but is not in the current device inventory. Snapshot data can briefly include renamed or removed devices; this is context, not an incident.";
   }
+
+  const facts = deviceFacts(summary);
+  const ageHours = hoursSince(summary.last_seen);
+
   if (!inTopology) {
     const sleepy = summary.power_source === "Battery" && role === "end_device";
-    return sleepy ? SLEEPY_NO_LINK_COPY : NO_LINK_COPY;
+    const parts = [sleepy ? SLEEPY_NO_LINK_COPY : NO_LINK_COPY, ...facts];
+    if (sleepy && ageHours != null) {
+      parts.push(
+        ageHours <= STALE_LAST_SEEN_HOURS
+          ? "Recent reports alongside the missing link are consistent with normal sleep behaviour."
+          : "The long quiet period is less typical — battery and placement are worth checking.",
+      );
+    }
+    return parts.join(" ");
   }
+
   if (summary.lens_bucket && summary.lens_bucket !== "healthy") {
-    return `${summary.lens_bucket_reason || "ZigbeeLens has flagged this device for attention based on passive observations."} Topology evidence is point-in-time context and does not change this assessment on its own.`;
+    const reason =
+      summary.lens_bucket_reason ||
+      "ZigbeeLens has flagged this device for attention based on passive observations.";
+    return [
+      reason,
+      ...facts,
+      "Topology evidence is point-in-time context and does not change this assessment on its own.",
+    ].join(" ");
   }
-  return "This device appears in the latest topology snapshot and its passive health signals look normal.";
+
+  return [
+    "This device appears in the latest topology snapshot and its passive health signals look normal.",
+    ...facts,
+  ].join(" ");
 }
 
 /**
