@@ -434,6 +434,7 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
     problem-first cards built only from the evidence above — investigation
     priorities, never root-cause, routing or parentage claims.
     """
+    from zigbeelens.topology.device_stats import aggregate_device_stats
     from zigbeelens.topology.history import (
         aggregate_historical_evidence,
         aggregate_last_known_links,
@@ -450,6 +451,7 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
     history = aggregate_historical_evidence(ctx.repo, network_id)
     last_known = aggregate_last_known_links(ctx.repo, network_id)
     passive = aggregate_passive_hints(ctx.repo, network_id)
+    device_stats = aggregate_device_stats(ctx.repo, network_id)
     investigations = aggregate_investigations(
         ctx.repo, network_id, history=history, passive_hints=passive["hints"]
     )
@@ -486,6 +488,8 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
             "available": investigations["available_count"],
             "returned": len(investigations["investigations"]),
         },
+        "device_stats": device_stats["device_stats"],
+        "device_stats_window": device_stats["device_stats_window"],
         "limitations": history["limitations"],
         "counts": {
             "latest_snapshot_neighbor_edges": len(latest_neighbor_pairs),

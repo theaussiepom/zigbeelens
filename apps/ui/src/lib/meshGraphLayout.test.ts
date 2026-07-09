@@ -15,7 +15,7 @@ function device(ieee: string, role: MeshRole): MeshEvidenceDevice {
     inventory_status: "In Zigbee2MQTT device inventory",
     topology_evidence_summary: "",
     passive_observation_summary: "",
-    interpretation: "",
+    diagnostic_stats: [],
   };
 }
 
