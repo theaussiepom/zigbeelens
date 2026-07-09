@@ -170,6 +170,7 @@ function GraphPanel({
   onSelectEdge,
   onSelectNode,
   onClearSelection,
+  onCompareChangeSelected,
   selectedNodeId,
   selectedEdge,
 }: {
@@ -184,6 +185,8 @@ function GraphPanel({
   onSelectEdge: (edge: MeshEvidenceEdge) => void;
   onSelectNode: (device: MeshEvidenceDevice) => void;
   onClearSelection: () => void;
+  /** Reports the active compare item so drawers can show compare context. */
+  onCompareChangeSelected: (change: SnapshotCompareChange | null) => void;
   selectedNodeId: string | null;
   selectedEdge: MeshEvidenceEdge | null;
 }) {
@@ -385,11 +388,13 @@ function GraphPanel({
   const selectSearchedDevice = (device: MeshEvidenceDevice) => {
     setActiveInvestigation(null);
     setActiveCompareChange(null);
+    onCompareChangeSelected(null);
     onSelectNode(device);
   };
 
   const focusInvestigation = (card: InvestigationCard) => {
     setActiveCompareChange(null);
+    onCompareChangeSelected(null);
     setActiveInvestigation(card);
   };
 
@@ -400,7 +405,13 @@ function GraphPanel({
   const selectCompareChange = (change: SnapshotCompareChange) => {
     setActiveInvestigation(null);
     setActiveCompareChange(change);
-    const focusEdge = edges.find((edge) => change.focus_edge_ids.includes(edge.id));
+    onCompareChangeSelected(change);
+    // Link changes open the Link details panel; device-centric items (no
+    // edge key) open the Device details panel while their evidence edges
+    // are still drawn through the visual focus.
+    const focusEdge = change.edge_key
+      ? edges.find((edge) => change.focus_edge_ids.includes(edge.id))
+      : undefined;
     if (focusEdge) {
       onSelectEdge(focusEdge);
       return;
@@ -418,6 +429,7 @@ function GraphPanel({
   const clearCompare = () => {
     setCompareOpen(false);
     setActiveCompareChange(null);
+    onCompareChangeSelected(null);
   };
 
   return (
@@ -631,6 +643,9 @@ export function TopologyGraphPage() {
   const { networkId } = useParams<{ networkId?: string }>();
   const [selectedEdge, setSelectedEdge] = useState<MeshEvidenceEdge | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<MeshEvidenceDevice | null>(null);
+  // The active snapshot-compare item, so the Link details panel can add
+  // compare context when it was opened from the compare panel.
+  const [compareChange, setCompareChange] = useState<SnapshotCompareChange | null>(null);
 
   const detail = useLiveResource(
     () =>
@@ -847,6 +862,7 @@ export function TopologyGraphPage() {
               onSelectEdge={selectEdge}
               onSelectNode={selectNode}
               onClearSelection={clearSelection}
+              onCompareChangeSelected={setCompareChange}
               selectedNodeId={selectedDevice?.ieee_address ?? null}
               selectedEdge={selectedEdge}
             />
@@ -858,6 +874,16 @@ export function TopologyGraphPage() {
           edge={selectedEdge}
           devices={liveEvidence?.devices ?? []}
           onClose={() => setSelectedEdge(null)}
+          // Compare context appears only on the link the compare item
+          // focused, never on unrelated links the user opens afterwards.
+          compareContext={
+            compareChange && compareChange.focus_edge_ids.includes(selectedEdge.id)
+              ? {
+                  summary: compareChange.summary,
+                  practical_note: compareChange.practical_note,
+                }
+              : null
+          }
         />
       )}
       {selectedDevice && (

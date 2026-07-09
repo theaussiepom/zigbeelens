@@ -213,16 +213,25 @@ Avoid: not found in mesh, missing means offline.
 
 ### Snapshot comparison
 
-A human-readable comparison of two usable topology snapshots — “What changed”.
-This is evidence comparison, never a live routing diagnosis.
+A human-readable comparison of two usable topology snapshots — “Snapshot
+compare”. This is a comparison of two point-in-time evidence captures, never a
+live routing diagnosis. The panel leads with what is worth reviewing
+(device-centric insights) and a calm churn level; raw diff counts sit under a
+clearly labelled “Snapshot churn” section.
 
-Human-facing: **Compare snapshots**, **What changed**, **newly observed**,
-**not present in the latest snapshot**, **changed evidence**
+Human-facing: **Compare snapshots**, **Snapshot compare**, **seen in latest
+snapshot only**, **seen in previous snapshot only**, **changed evidence**,
+**worth reviewing**, **topology-evidence churn** (low / moderate / high)
 
-Practical qualifier when needed: “A neighbour link not present in the latest
-snapshot does not prove a failure.”
+Required caveat, visible before any counts: “Topology snapshots are
+point-in-time evidence. Differences between snapshots are common and do not
+prove devices moved, links failed, or live routes changed.”
 
-Avoid: lost, broken, dropped, disconnected, edge diff, added/removed nodes.
+Churn describes snapshot-to-snapshot evidence differences only. Avoid calling
+it risk, health or mesh instability.
+
+Avoid: lost, disappeared, broken, failed, removed, dropped, disconnected,
+edge diff, added/removed nodes, current route, parent router.
 
 ### Evidence summary report
 

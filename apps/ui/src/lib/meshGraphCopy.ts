@@ -141,26 +141,45 @@ export const REPORT_PASSIVE_HINT_NOTE =
 /* ------------------------------------------------------------------------ */
 
 export const COMPARE_BUTTON_LABEL = "Compare snapshots";
-export const COMPARE_PANEL_TITLE = "What changed";
+export const COMPARE_PANEL_TITLE = "Snapshot compare";
 export const COMPARE_CLEAR_LABEL = "Clear compare";
-export const COMPARE_SUMMARY_LEAD =
-  "Compared with the previous usable snapshot, ZigbeeLens observed:";
+/** Visible before any counts: snapshots are point-in-time evidence. */
+export const COMPARE_POINT_IN_TIME_CAVEAT =
+  "Topology snapshots are point-in-time evidence. Differences between snapshots are common and do not prove devices moved, links failed, or live routes changed.";
 /** Only shown inside the compare experience, never in the normal graph view. */
 export const COMPARE_NOT_ENOUGH_HISTORY_COPY =
   "There is not enough snapshot history to compare yet.";
 /** Only shown inside the compare experience, never in the normal graph view. */
 export const COMPARE_NO_CHANGES_COPY =
-  "No meaningful topology evidence changes between these snapshots.";
+  "No topology-evidence differences were found between these usable snapshots.";
 
-/** Human group titles for compare change types. */
+export const COMPARE_SECTION_SUMMARY = "Change summary";
+export const COMPARE_SECTION_WORTH_REVIEWING = "Worth reviewing";
+export const COMPARE_SECTION_CHURN = "Snapshot churn";
+export const COMPARE_SECTION_DETAILS = "Details";
+
+export const COMPARE_CHURN_CAVEAT =
+  "These counts describe differences between two point-in-time topology snapshots. They are useful for investigation, but do not prove live routing changes.";
+export const COMPARE_WORTH_REVIEWING_EMPTY =
+  "No issue-linked topology changes stood out between these snapshots.";
+export const COMPARE_FOCUS_LABEL_PREFIX = "Compare focus: ";
+
+export const COMPARE_CHURN_GROUP_NEIGHBOUR = "Neighbour evidence";
+export const COMPARE_CHURN_GROUP_ROUTE = "Route-hint evidence";
+
+/** Human group titles for compare change types — neutral compare language. */
 export const COMPARE_GROUP_TITLES: Record<string, string> = {
+  issue_linked_topology_change: "Devices with issue-linked topology changes",
+  no_latest_neighbour_evidence_after_previous:
+    "Devices with no latest neighbour evidence after previous evidence",
+  large_router_evidence_change: "Routers with large evidence changes",
   newly_observed_device: "Newly observed devices",
   device_no_topology_evidence: "Devices with no topology evidence in the latest snapshot",
-  new_neighbour_link: "Newly observed neighbour links",
-  missing_neighbour_link: "Neighbour links not present in the latest snapshot",
+  new_neighbour_link: "Neighbour links seen in latest snapshot only",
+  missing_neighbour_link: "Neighbour links seen in previous snapshot only",
   changed_neighbour_link: "Changed neighbour evidence",
-  new_route_hint: "New route hints",
-  missing_route_hint: "Route hints not present in the latest snapshot",
+  new_route_hint: "Route hints seen in latest snapshot only",
+  missing_route_hint: "Route hints seen in previous snapshot only",
   changed_route_hint: "Changed route-hint evidence",
 };
 

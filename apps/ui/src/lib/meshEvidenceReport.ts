@@ -13,7 +13,6 @@ import type { MeshEvidenceDevice, MeshEvidenceEdge } from "@/lib/meshEvidence";
 import {
   COMPARE_NO_CHANGES_COPY,
   COMPARE_NOT_ENOUGH_HISTORY_COPY,
-  COMPARE_SUMMARY_LEAD,
   meshHealthBucketLabel,
   meshRoleLabel,
   REPORT_PASSIVE_HINT_NOTE,
@@ -189,7 +188,8 @@ function whatChangedSection(compare: SnapshotCompareDetail): string[] {
     lines.push(COMPARE_NO_CHANGES_COPY);
     return lines;
   }
-  lines.push(COMPARE_SUMMARY_LEAD);
+  // The backend summary leads with the churn level and its calm qualifier.
+  lines.push(compare.summary);
   for (const item of compare.summary_items) {
     lines.push(`- ${item}`);
   }

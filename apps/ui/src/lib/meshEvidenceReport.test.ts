@@ -101,10 +101,11 @@ function makeCompare(overrides: Partial<SnapshotCompareDetail>): SnapshotCompare
     compare_snapshot: { snapshot_id: "snap-new", captured_at: "2026-07-09T10:00:00+00:00" },
     comparison_window: { usable_snapshots: 3 },
     has_comparison: true,
-    summary: "Compared with the previous usable snapshot, ZigbeeLens observed:",
+    summary:
+      "Compared with the previous usable snapshot, ZigbeeLens found moderate topology-evidence churn. Most changes are neighbour-link evidence changes. This can be normal between Zigbee topology snapshots and does not prove live routing changed.",
     summary_items: [
-      "6 newly observed neighbour links",
-      "4 neighbour links not present in the latest snapshot",
+      "6 neighbour links seen in latest snapshot only",
+      "4 neighbour links seen in previous snapshot only",
     ],
     changes: [
       {
@@ -133,6 +134,12 @@ function makeCompare(overrides: Partial<SnapshotCompareDetail>): SnapshotCompare
       changed_route_hints: 0,
       total_changes: 10,
     },
+    churn: {
+      level: "moderate",
+      changed_evidence_total: 10,
+      available_compare_evidence: 40,
+    },
+    worth_reviewing: [],
     limitations: [],
     ...overrides,
   };
@@ -199,9 +206,13 @@ describe("buildMeshEvidenceReport", () => {
     expect(without.markdown).not.toContain("## What changed");
     const withCompare = buildMeshEvidenceReport(baseInput({ compare: makeCompare({}) }));
     expect(withCompare.markdown).toContain("## What changed");
-    expect(withCompare.markdown).toContain("- 6 newly observed neighbour links");
+    // The section leads with the calm churn summary, then neutral counts.
+    expect(withCompare.markdown).toContain("moderate topology-evidence churn");
     expect(withCompare.markdown).toContain(
-      "- 4 neighbour links not present in the latest snapshot",
+      "- 6 neighbour links seen in latest snapshot only",
+    );
+    expect(withCompare.markdown).toContain(
+      "- 4 neighbour links seen in previous snapshot only",
     );
   });
 
@@ -218,7 +229,7 @@ describe("buildMeshEvidenceReport", () => {
       baseInput({ compare: makeCompare({ changes: [], summary_items: [] }) }),
     );
     expect(noChanges.markdown).toContain(
-      "No meaningful topology evidence changes between these snapshots.",
+      "No topology-evidence differences were found between these usable snapshots.",
     );
   });
 
