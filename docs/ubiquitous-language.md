@@ -224,6 +224,21 @@ snapshot does not prove a failure.”
 
 Avoid: lost, broken, dropped, disconnected, edge diff, added/removed nodes.
 
+### Evidence summary report
+
+A copyable/downloadable Markdown summary of the evidence the graph already
+shows: counts, what changed (when compare is active), where to look first, and
+the selected device. Read-only, generated client-side, never persisted. Empty
+sections are omitted — silence is better than unnecessary reassurance.
+
+Human-facing: **Create report**, **Copy summary**, **Download Markdown**,
+**evidence summary**
+
+Practical qualifier when needed: “This is an evidence summary, not a live
+routing map.”
+
+Avoid: AI report, diagnostic dump, export graph data dump.
+
 ## Forbidden user-facing phrases
 
 Do not render these to users:

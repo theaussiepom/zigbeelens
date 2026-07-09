@@ -16,6 +16,7 @@ import {
   type InvestigationFocus,
 } from "@/components/meshGraph/MeshEvidenceGraph";
 import { DeviceSearch } from "@/components/meshGraph/DeviceSearch";
+import { EvidenceReportMenu } from "@/components/meshGraph/EvidenceReportMenu";
 import { EdgeDrawer } from "@/components/meshGraph/EdgeDrawer";
 import { NodeDrawer } from "@/components/meshGraph/NodeDrawer";
 import { SnapshotComparePanel } from "@/components/meshGraph/SnapshotComparePanel";
@@ -52,6 +53,7 @@ import {
   clearSavedPositions,
   type MeshLayoutMode,
 } from "@/lib/meshGraphSmartLayout";
+import { buildMeshEvidenceReport } from "@/lib/meshEvidenceReport";
 
 /** Plain-language explainer for connection evidence types. */
 function ConnectionsExplainer() {
@@ -162,6 +164,8 @@ function GraphPanel({
   investigations,
   signatureSeed,
   networkId,
+  networkName,
+  latestSnapshotCapturedAt,
   positionStorageId,
   onSelectEdge,
   onSelectNode,
@@ -174,6 +178,8 @@ function GraphPanel({
   investigations: InvestigationCard[];
   signatureSeed: string;
   networkId: string;
+  networkName?: string | null;
+  latestSnapshotCapturedAt?: string | null;
   positionStorageId: string;
   onSelectEdge: (edge: MeshEvidenceEdge) => void;
   onSelectNode: (device: MeshEvidenceDevice) => void;
@@ -460,6 +466,26 @@ function GraphPanel({
           >
             {COMPARE_BUTTON_LABEL}
           </button>
+          <EvidenceReportMenu
+            buildReport={() =>
+              buildMeshEvidenceReport({
+                networkId,
+                networkName,
+                latestSnapshotCapturedAt,
+                generatedAt: new Date(),
+                devices,
+                edges,
+                investigations,
+                // Compare data is included only while the compare panel is
+                // open, matching what the user can currently see.
+                compare: compareOpen ? compareData : null,
+                selectedDevice: selectedNodeId
+                  ? (devices.find((device) => device.ieee_address === selectedNodeId) ??
+                    null)
+                  : null,
+              })
+            }
+          />
         </div>
         {layoutModeInfo && (
           <p
@@ -815,6 +841,8 @@ export function TopologyGraphPage() {
               investigations={detail.data?.investigations ?? []}
               signatureSeed={liveSignatureSeed}
               networkId={networkId ?? "unknown-network"}
+              networkName={detail.data?.network_name ?? null}
+              latestSnapshotCapturedAt={snapshot.captured_at ?? null}
               positionStorageId={networkId ?? "unknown-network"}
               onSelectEdge={selectEdge}
               onSelectNode={selectNode}
