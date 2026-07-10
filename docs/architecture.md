@@ -36,6 +36,17 @@ ZigbeeLens is a read-only observability stack for Zigbee2MQTT. Core owns the can
 | **Topology** | Optional point-in-time network map enrichment |
 | **HA enrichment** | Optional POST of HA device registry for area/name context |
 
+## Decision engine programme
+
+ZigbeeLens is evolving from a dashboard/graph product into a shared decision-engine investigation product. The decision-engine docs define the architecture contract for that work:
+
+- [decision-engine.md](decision-engine.md) — decision engine charter, ownership rules and guardrails
+- [ux-pruning.md](ux-pruning.md) — UX pruning and surface-role contract
+- [decision-engine-migration.md](decision-engine-migration.md) — master phases and sub-phases
+- [decision-engine-phase-0.md](decision-engine-phase-0.md) — Phase 0 surface, data, compatibility and rollout governance
+
+These docs do not change runtime behaviour. They define how future refactors and intelligence features must stay evidence-first, read-only, action-led and consistent across UI, reports and companion surfaces.
+
 ## Event pipeline
 
 ```
@@ -122,6 +133,10 @@ Full audit: [safety-audit.md](safety-audit.md)
 
 ## Related docs
 
+- [decision-engine.md](decision-engine.md) — decision engine charter
+- [ux-pruning.md](ux-pruning.md) — UX pruning contract
+- [decision-engine-migration.md](decision-engine-migration.md) — decision-engine roadmap
+- [decision-engine-phase-0.md](decision-engine-phase-0.md) — Phase 0 governance
 - [development.md](development.md) — local dev
 - [docker.md](docker.md) — standalone container
 - [addon-dev.md](addon-dev.md) — HAOS add-on
