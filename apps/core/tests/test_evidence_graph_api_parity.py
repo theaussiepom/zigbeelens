@@ -50,13 +50,11 @@ def test_evidence_graph_api_response_shape_parity(topology_client: TestClient):
     assert res.status_code == 200
     body = res.json()
 
-    for key in EVIDENCE_GRAPH_TOP_LEVEL_KEYS:
-        assert key in body, f"missing top-level key: {key}"
+    assert set(body.keys()) == set(EVIDENCE_GRAPH_TOP_LEVEL_KEYS)
 
     counts = body["counts"]
     assert isinstance(counts, dict)
-    for key in EVIDENCE_GRAPH_COUNT_KEYS:
-        assert key in counts, f"missing counts key: {key}"
+    assert set(counts.keys()) == set(EVIDENCE_GRAPH_COUNT_KEYS)
 
     # Client-rendering subsets are unknown server-side — null, never zero.
     assert counts["passive_hint_count_drawn"] is None
