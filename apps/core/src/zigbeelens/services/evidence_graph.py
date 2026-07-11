@@ -45,6 +45,10 @@ class EvidenceGraphService:
         therefore reported as null here, never zero. Investigations are ranked
         problem-first cards built only from the evidence above — investigation
         priorities, never root-cause, routing or parentage claims.
+
+        This service backs the public evidence-graph endpoint. Its returned
+        dict is an API contract; keep response-shape changes intentional and
+        covered by API parity tests.
         """
         network = self._repo.get_network(network_id)
         if network is None:
