@@ -208,9 +208,9 @@ class PayloadBuilder:
             )
         )
 
-        related_ids = self.repo.list_incidents_for_device(network_id, ieee_address)
+        related_ids = self.repo.incidents.list_incidents_for_device(network_id, ieee_address)
         if related_ids and self._incident_service:
-            top = self.repo.get_incident(related_ids[0])
+            top = self.repo.incidents.get_incident(related_ids[0])
             if top:
                 finding = DiagnosticConclusion(
                     classification=top["incident_type"],
@@ -231,10 +231,10 @@ class PayloadBuilder:
                 **{"from": Availability(ch["from_state"]) if ch["from_state"] in Availability.__members__ else Availability.unknown},
                 to=Availability(ch["to_state"]) if ch["to_state"] in Availability.__members__ else Availability.unknown,
             )
-            for ch in self.repo.list_availability_changes(network_id, ieee_address)
+            for ch in self.repo.availability.list_availability_changes(network_id, ieee_address)
         ]
 
-        samples = self.repo.list_metric_samples(network_id, ieee_address, limit=30)
+        samples = self.repo.metrics.list_metric_samples(network_id, ieee_address, limit=30)
         trends: list[DeviceTrendPoint] = []
         for sample in reversed(samples):
             point = DeviceTrendPoint(timestamp=sample["sampled_at"])
@@ -277,7 +277,7 @@ class PayloadBuilder:
                 continue
             risk = health_result_to_router_risk(row, result, self.repo)
             if self._incident_service:
-                related = self.repo.list_incidents_for_device(row.network_id, row.ieee_address)
+                related = self.repo.incidents.list_incidents_for_device(row.network_id, row.ieee_address)
                 risk.correlated_affected_devices = len(related)
             items.append(risk)
         return sorted(items, key=lambda r: r.risk.severity.value)
@@ -285,12 +285,12 @@ class PayloadBuilder:
     def incidents(self) -> list[Incident]:
         return [
             inc
-            for row in self.repo.list_incidents()
+            for row in self.repo.incidents.list_incidents()
             if (inc := self._incident_from_row(row)) is not None
         ]
 
     def incident(self, incident_id: str) -> Incident | None:
-        row = self.repo.get_incident(incident_id)
+        row = self.repo.incidents.get_incident(incident_id)
         return self._incident_from_row(row) if row else None
 
     def timeline(self, network_id: str | None = None) -> list[TimelineEvent]:
@@ -386,7 +386,7 @@ class PayloadBuilder:
     def _incident_from_row(self, row: dict) -> Incident | None:
         if not row:
             return None
-        refs = self.repo.list_incident_devices(row["id"])
+        refs = self.repo.incidents.list_incident_devices(row["id"])
         affected = []
         for ref in refs:
             dev = self.repo.get_device(ref["network_id"], ref["ieee_address"])

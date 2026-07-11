@@ -157,7 +157,7 @@ class HealthDiagnosticService:
         bridge_state: str,
         network_updated_at: str | None = None,
     ) -> DeviceHealthContext:
-        changes = self.repo.count_availability_changes_in_window(
+        changes = self.repo.availability.count_availability_changes_in_window(
             row.network_id,
             row.ieee_address,
             self.config.diagnostics.recently_unstable_window_hours,

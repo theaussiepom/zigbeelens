@@ -29,10 +29,10 @@ class IncidentLifecycleManager:
         for candidate in candidates:
             if not candidate.active:
                 continue
-            existing = self.repo.get_incident_by_dedup_key(candidate.dedup_key)
+            existing = self.repo.incidents.get_incident_by_dedup_key(candidate.dedup_key)
             if existing:
                 if self._needs_update(existing, candidate):
-                    self.repo.update_incident(
+                    self.repo.incidents.update_incident(
                         incident_id=existing["id"],
                         lifecycle_state=IncidentLifecycle.open.value,
                         severity=candidate.severity.value,
@@ -46,7 +46,7 @@ class IncidentLifecycleManager:
                         resolved_at=None,
                         updated_at=ts,
                     )
-                    self.repo.replace_incident_devices(existing["id"], candidate.affected_devices)
+                    self.repo.incidents.replace_incident_devices(existing["id"], candidate.affected_devices)
                     self.repo.insert_event(
                         event_id=str(uuid.uuid4()),
                         network_id=candidate.network_ids[0] if candidate.network_ids else None,
@@ -59,7 +59,7 @@ class IncidentLifecycleManager:
                     )
                     events.append("incident_updated")
                 elif existing["lifecycle_state"] != IncidentLifecycle.open.value:
-                    self.repo.update_incident(
+                    self.repo.incidents.update_incident(
                         incident_id=existing["id"],
                         lifecycle_state=IncidentLifecycle.open.value,
                         resolved_at=None,
@@ -68,7 +68,7 @@ class IncidentLifecycleManager:
                     events.append("incident_updated")
             else:
                 incident_id = f"inc-{uuid.uuid4().hex[:12]}"
-                self.repo.insert_incident(
+                self.repo.incidents.insert_incident(
                     incident_id=incident_id,
                     dedup_key=candidate.dedup_key,
                     incident_type=candidate.incident_type.value,
@@ -85,7 +85,7 @@ class IncidentLifecycleManager:
                     opened_at=ts,
                     updated_at=ts,
                 )
-                self.repo.replace_incident_devices(incident_id, candidate.affected_devices)
+                self.repo.incidents.replace_incident_devices(incident_id, candidate.affected_devices)
                 self.repo.insert_event(
                     event_id=str(uuid.uuid4()),
                     network_id=candidate.network_ids[0] if candidate.network_ids else None,
@@ -110,11 +110,11 @@ class IncidentLifecycleManager:
         watch_delta = timedelta(minutes=cfg.incident_watch_window_minutes)
         grace_delta = timedelta(minutes=cfg.incident_resolution_grace_minutes)
 
-        for row in self.repo.list_active_incidents():
+        for row in self.repo.incidents.list_active_incidents():
             dedup_key = row.get("dedup_key")
             if dedup_key and dedup_key in active_keys:
                 if row["lifecycle_state"] == IncidentLifecycle.watching.value:
-                    self.repo.update_incident(
+                    self.repo.incidents.update_incident(
                         incident_id=row["id"],
                         lifecycle_state=IncidentLifecycle.open.value,
                         resolved_at=None,
@@ -127,7 +127,7 @@ class IncidentLifecycleManager:
                 continue
 
             if row["lifecycle_state"] == IncidentLifecycle.open.value:
-                self.repo.update_incident(
+                self.repo.incidents.update_incident(
                     incident_id=row["id"],
                     lifecycle_state=IncidentLifecycle.watching.value,
                     updated_at=self._iso(now),
@@ -148,7 +148,7 @@ class IncidentLifecycleManager:
             if row["lifecycle_state"] == IncidentLifecycle.watching.value:
                 if now - updated_at >= watch_delta + grace_delta:
                     resolved_at = self._iso(now)
-                    self.repo.update_incident(
+                    self.repo.incidents.update_incident(
                         incident_id=row["id"],
                         lifecycle_state=IncidentLifecycle.resolved.value,
                         resolved_at=resolved_at,

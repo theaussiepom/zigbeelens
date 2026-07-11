@@ -50,13 +50,14 @@ class EvidenceGraphService:
         dict is an API contract; keep response-shape changes intentional and
         covered by API parity tests.
         """
-        network = self._repo.get_network(network_id)
+        network = self._repo.networks.get_network(network_id)
         if network is None:
             raise NetworkNotFoundError(network_id)
 
-        latest = self._repo.get_latest_topology_snapshot(network_id)
-        nodes = self._repo.list_topology_nodes(latest["snapshot_id"]) if latest else []
-        links = self._repo.list_topology_links(latest["snapshot_id"]) if latest else []
+        topology = self._repo.topology
+        latest = topology.get_latest_topology_snapshot(network_id)
+        nodes = topology.list_topology_nodes(latest["snapshot_id"]) if latest else []
+        links = topology.list_topology_links(latest["snapshot_id"]) if latest else []
         history = aggregate_historical_evidence(self._repo, network_id)
         last_known = aggregate_last_known_links(self._repo, network_id)
         passive = aggregate_passive_hints(self._repo, network_id)
@@ -122,7 +123,7 @@ class EvidenceGraphService:
 
 
 def _topology_inventory_counts(repo: Repository, network_id: str) -> dict[str, int]:
-    devices = repo.list_devices(network_id)
+    devices = repo.devices.list_devices(network_id)
     return {
         "device_count": len(devices),
         "router_count": sum(1 for device in devices if device.device_type == "Router"),

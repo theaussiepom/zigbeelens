@@ -111,7 +111,7 @@ def _instability_events(
     """
     events: list[tuple[datetime, str]] = []
     per_device: dict[str, int] = {}
-    rows = repo.list_availability_changes_since(network_id, cutoff_iso)
+    rows = repo.availability.list_availability_changes_since(network_id, cutoff_iso)
     # Rows are oldest-first; walk newest-first so the per-device cap keeps
     # the most recent events.
     for row in reversed(rows):
@@ -224,7 +224,7 @@ def _issue_device_ids(repo: Repository, network_id: str) -> set[str]:
     for device in repo.list_devices(network_id):
         if getattr(device, "availability", None) == "offline":
             issues.add(_norm(device.ieee_address))
-    for ieee in repo.list_active_incident_device_addresses(network_id):
+    for ieee in repo.incidents.list_active_incident_device_addresses(network_id):
         issues.add(_norm(ieee))
     return issues
 

@@ -6,10 +6,20 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from functools import cached_property
+from typing import TYPE_CHECKING, Any
 
 from zigbeelens.config.models import NetworkConfig
 from zigbeelens.db.connection import Database
+
+if TYPE_CHECKING:
+    from zigbeelens.storage.access.availability import AvailabilityRepository
+    from zigbeelens.storage.access.devices import DeviceRepository
+    from zigbeelens.storage.access.incidents import IncidentRepository
+    from zigbeelens.storage.access.metrics import MetricRepository
+    from zigbeelens.storage.access.network import NetworkRepository
+    from zigbeelens.storage.access.reports import ReportRepository
+    from zigbeelens.storage.access.topology import TopologyRepository
 
 
 def utc_now_iso() -> str:
@@ -81,6 +91,48 @@ class ReportRow:
 class Repository:
     def __init__(self, db: Database) -> None:
         self.db = db
+
+    @cached_property
+    def topology(self) -> "TopologyRepository":
+        from zigbeelens.storage.access.topology import TopologyRepository
+
+        return TopologyRepository(self)
+
+    @cached_property
+    def networks(self) -> "NetworkRepository":
+        from zigbeelens.storage.access.network import NetworkRepository
+
+        return NetworkRepository(self)
+
+    @cached_property
+    def devices(self) -> "DeviceRepository":
+        from zigbeelens.storage.access.devices import DeviceRepository
+
+        return DeviceRepository(self)
+
+    @cached_property
+    def availability(self) -> "AvailabilityRepository":
+        from zigbeelens.storage.access.availability import AvailabilityRepository
+
+        return AvailabilityRepository(self)
+
+    @cached_property
+    def metrics(self) -> "MetricRepository":
+        from zigbeelens.storage.access.metrics import MetricRepository
+
+        return MetricRepository(self)
+
+    @cached_property
+    def incidents(self) -> "IncidentRepository":
+        from zigbeelens.storage.access.incidents import IncidentRepository
+
+        return IncidentRepository(self)
+
+    @cached_property
+    def reports(self) -> "ReportRepository":
+        from zigbeelens.storage.access.reports import ReportRepository
+
+        return ReportRepository(self)
 
     def sync_networks(self, networks: list[NetworkConfig]) -> None:
         now = utc_now_iso()

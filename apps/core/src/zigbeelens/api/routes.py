@@ -326,7 +326,7 @@ def create_report(
 
 @router.get("/reports", response_model=list[ReportSummary])
 def list_reports(ctx: AppContext = Depends(ctx_dep)) -> list[ReportSummary]:
-    return [summary_from_row(row) for row in ctx.repo.list_reports()]
+    return [summary_from_row(row) for row in ctx.repo.reports.list_reports()]
 
 
 @router.get("/reports/{report_id}", response_model=ReportDetail)
@@ -374,7 +374,7 @@ def delete_report(
     report_id: str,
     ctx: AppContext = Depends(ctx_dep),
 ) -> dict[str, bool]:
-    deleted = ctx.repo.delete_report(report_id)
+    deleted = ctx.repo.reports.delete_report(report_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Report not found")
     return {"deleted": True}

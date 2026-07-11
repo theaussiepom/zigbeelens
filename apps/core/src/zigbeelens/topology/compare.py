@@ -486,7 +486,7 @@ def compare_snapshots(
     summary = _churn_summary(churn, counts)
 
     incident_ieees = {
-        _norm(ieee) for ieee in repo.list_active_incident_device_addresses(network_id)
+        _norm(ieee) for ieee in repo.incidents.list_active_incident_device_addresses(network_id)
     }
     worth_reviewing = _worth_reviewing_insights(
         changes=changes,

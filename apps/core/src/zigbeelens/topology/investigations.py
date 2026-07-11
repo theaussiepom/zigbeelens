@@ -943,7 +943,7 @@ def aggregate_investigations(
     # read-only passive data, used only to make card evidence concrete.
     cutoff = now - timedelta(days=DEVICE_EVIDENCE_LOOKBACK_DAYS)
     offline_events: dict[str, list[str]] = {}
-    for row in repo.list_availability_changes_since(network_id, cutoff.isoformat()):
+    for row in repo.availability.list_availability_changes_since(network_id, cutoff.isoformat()):
         if row.get("to_state") != "offline":
             continue
         ieee = _norm(row.get("ieee_address"))
@@ -952,7 +952,7 @@ def aggregate_investigations(
 
     return build_investigations(
         devices=repo.list_devices(network_id),
-        incident_device_ieees=set(repo.list_active_incident_device_addresses(network_id)),
+        incident_device_ieees=set(repo.incidents.list_active_incident_device_addresses(network_id)),
         latest_nodes=repo.list_topology_nodes(latest_snapshot_id) if latest_snapshot_id else [],
         latest_links=repo.list_topology_links(latest_snapshot_id) if latest_snapshot_id else [],
         latest_captured_at=latest["captured_at"] if latest else None,

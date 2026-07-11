@@ -189,11 +189,11 @@ class MqttIngestionService:
                 payload_json=event.raw_payload_redacted,
             )
         if fields.get("linkquality") is not None:
-            self.repo.insert_metric_sample(
+            self.repo.metrics.insert_metric_sample(
                 device.network_id, device.ieee_address, "linkquality", float(fields["linkquality"])
             )
         if fields.get("battery") is not None:
-            self.repo.insert_metric_sample(
+            self.repo.metrics.insert_metric_sample(
                 device.network_id, device.ieee_address, "battery", float(fields["battery"])
             )
         event.ieee_address = device.ieee_address
@@ -225,7 +225,7 @@ class MqttIngestionService:
             availability=new_state,
         )
         if previous and previous != new_state:
-            self.repo.insert_availability_change(
+            self.repo.availability.insert_availability_change(
                 device.network_id, device.ieee_address, previous, new_state
             )
             event.event_type = "device_availability_changed"
