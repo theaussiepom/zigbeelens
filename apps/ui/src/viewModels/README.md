@@ -47,4 +47,19 @@ Keep ViewModels at the product-surface level. Do not create ViewModels for gener
 
 ## Phase 1 scope
 
-Phase 1 adds types and copy mapping only. Existing screens such as `SnapshotHistorySection` still use their current copy until a later phase migrates them to shared ViewModels.
+Phase 1 provides:
+
+- backend decision DTO primitives (`zigbeelens.decisions`);
+- frontend mirrored DTO types (`src/types/decisions.ts`);
+- copy, status and coverage mapping (`decisionCopy.ts`);
+- ViewModel ownership conventions (`types.ts`, this README).
+
+Phase 1 does **not** yet provide:
+
+- migration of existing UI sections (e.g. `SnapshotHistorySection`);
+- topology-specific ViewModel builders;
+- report ViewModel builders;
+- new diagnosis logic;
+- new data collection.
+
+Unknown API codes must fall back safely in `decisionCopy.ts` — never expose raw internal codes in user-facing copy.

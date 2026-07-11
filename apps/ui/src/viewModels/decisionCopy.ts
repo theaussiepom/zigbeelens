@@ -28,12 +28,21 @@ export const REASON_CODES = [
   "last_known_links_present",
   "passive_instability_hint_present",
   "shared_availability_event",
-  "router_area_issue_cluster",
-  "model_pattern_observed",
   "insufficient_history",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];
+
+export const COVERAGE_LABEL_CODES = [
+  "availability_tracking_off",
+  "availability_history_building",
+  "availability_status_unknown",
+  "route_hints_unavailable",
+  "ha_areas_not_linked",
+  "snapshot_stale",
+  "battery_history_sparse",
+  "lqi_history_sparse",
+] as const;
 
 type CopyRenderer = (params: Record<string, unknown>) => string;
 
@@ -84,10 +93,6 @@ const REASON_COPY: Record<ReasonCode, CopyRenderer> = {
     "Passive investigation hints suggest instability worth checking.",
   shared_availability_event: () =>
     "Multiple devices changed availability around the same time.",
-  router_area_issue_cluster: () =>
-    "Several nearby routers show changes that may be worth reviewing together.",
-  model_pattern_observed: () =>
-    "Similar devices of this model show a pattern worth checking.",
   insufficient_history: () => "Not enough history is available yet for a stronger judgement.",
 };
 
@@ -139,28 +144,50 @@ export function isKnownReasonCode(code: string): code is ReasonCode {
   return (REASON_CODES as readonly string[]).includes(code);
 }
 
+export function isKnownCoverageLabelCode(
+  labelCode: string,
+): labelCode is CoverageLabelCode {
+  return (COVERAGE_LABEL_CODES as readonly string[]).includes(labelCode);
+}
+
+export function isKnownDecisionStatus(status: string): status is DecisionStatus {
+  return status in DECISION_STATUS_LABELS;
+}
+
 export function reasonText(
   code: string,
   params: Record<string, unknown> = {},
 ): string {
   if (!isKnownReasonCode(code)) {
-    return `Details unavailable (${code}).`;
+    return "Details unavailable.";
   }
   return REASON_COPY[code](params);
 }
 
-export function coverageLabel(labelCode: CoverageLabelCode): string {
+export function coverageLabel(labelCode: string): string {
+  if (!isKnownCoverageLabelCode(labelCode)) {
+    return "Coverage status unknown";
+  }
   return COVERAGE_LABEL_COPY[labelCode];
 }
 
-export function decisionStatusLabel(status: DecisionStatus): string {
+export function decisionStatusLabel(status: string): string {
+  if (!isKnownDecisionStatus(status)) {
+    return "Status unknown";
+  }
   return DECISION_STATUS_LABELS[status];
 }
 
-export function decisionStatusCompactLabel(status: DecisionStatus): string {
+export function decisionStatusCompactLabel(status: string): string {
+  if (!isKnownDecisionStatus(status)) {
+    return "Unknown";
+  }
   return DECISION_STATUS_COMPACT_LABELS[status];
 }
 
-export function decisionStatusTone(status: DecisionStatus): DecisionPillTone {
+export function decisionStatusTone(status: string): DecisionPillTone {
+  if (!isKnownDecisionStatus(status)) {
+    return "muted";
+  }
   return DECISION_STATUS_TONES[status];
 }

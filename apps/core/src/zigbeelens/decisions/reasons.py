@@ -28,9 +28,10 @@ class ReasonCode(StrEnum):
     last_known_links_present = "last_known_links_present"
     passive_instability_hint_present = "passive_instability_hint_present"
     shared_availability_event = "shared_availability_event"
-    router_area_issue_cluster = "router_area_issue_cluster"
-    model_pattern_observed = "model_pattern_observed"
     insufficient_history = "insufficient_history"
 
 
 REASON_CODES: frozenset[str] = frozenset(member.value for member in ReasonCode)
+
+# Future pattern/cluster codes (e.g. router_area_issue_cluster,
+# model_pattern_observed) belong in later phases once the intelligence exists.

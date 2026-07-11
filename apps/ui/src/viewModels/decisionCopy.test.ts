@@ -1,13 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  COVERAGE_LABEL_CODES,
   REASON_CODES,
   coverageLabel,
   decisionStatusCompactLabel,
   decisionStatusLabel,
   decisionStatusTone,
+  isKnownCoverageLabelCode,
   isKnownReasonCode,
   reasonText,
 } from "@/viewModels/decisionCopy";
+
+const SPECULATIVE_FUTURE_REASON_CODES = [
+  "router_area_issue_cluster",
+  "model_pattern_observed",
+] as const;
 
 describe("decisionCopy", () => {
   it("maps seeded reason codes to user-facing text", () => {
@@ -24,12 +31,18 @@ describe("decisionCopy", () => {
     );
   });
 
-  it("falls back safely for unknown reason codes", () => {
-    expect(reasonText("not_a_real_code")).toBe(
-      "Details unavailable (not_a_real_code).",
-    );
+  it("falls back safely for unknown reason codes without exposing internal codes", () => {
+    expect(reasonText("not_a_real_code")).toBe("Details unavailable.");
+    expect(reasonText("router_area_issue_cluster")).toBe("Details unavailable.");
     expect(isKnownReasonCode("battery_low")).toBe(true);
     expect(isKnownReasonCode("not_a_real_code")).toBe(false);
+  });
+
+  it("keeps speculative future reason codes out of the Phase 1 seed set", () => {
+    for (const code of SPECULATIVE_FUTURE_REASON_CODES) {
+      expect(REASON_CODES).not.toContain(code);
+      expect(isKnownReasonCode(code)).toBe(false);
+    }
   });
 
   it("maps required coverage labels", () => {
@@ -51,12 +64,25 @@ describe("decisionCopy", () => {
     expect(coverageLabel("lqi_history_sparse")).toBe("LQI history sparse");
   });
 
+  it("falls back safely for unknown coverage label codes", () => {
+    expect(coverageLabel("future_backend_label")).toBe("Coverage status unknown");
+    expect(isKnownCoverageLabelCode("availability_tracking_off")).toBe(true);
+    expect(isKnownCoverageLabelCode("future_backend_label")).toBe(false);
+    expect(COVERAGE_LABEL_CODES.length).toBeGreaterThan(0);
+  });
+
   it("maps decision status labels and tones deterministically", () => {
     expect(decisionStatusLabel("worth_reviewing")).toBe("Worth reviewing");
     expect(decisionStatusCompactLabel("no_notable_change")).toBe("Similar");
     expect(decisionStatusTone("worth_reviewing")).toBe("action");
     expect(decisionStatusTone("improve_data_coverage")).toBe("coverage");
     expect(decisionStatusTone("informational")).toBe("info");
+  });
+
+  it("falls back safely for unknown decision statuses", () => {
+    expect(decisionStatusLabel("future_status")).toBe("Status unknown");
+    expect(decisionStatusCompactLabel("future_status")).toBe("Unknown");
+    expect(decisionStatusTone("future_status")).toBe("muted");
   });
 
   it("keeps backend reason codes unique in the frontend seed set", () => {
