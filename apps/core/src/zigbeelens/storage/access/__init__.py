@@ -6,19 +6,19 @@ topology modules migrate to narrower interfaces incrementally.
 
 Method inventory (Repository → planned access layer):
 
-TopologyRepository (2B-2, in progress):
+TopologyRepository (2B-2, done):
   create_topology_snapshot, update_topology_snapshot, store_topology_parsed,
   enforce_topology_retention, delete_topology_snapshot,
   get_latest_topology_snapshot, list_topology_snapshots, get_topology_snapshot,
   list_topology_nodes, list_topology_links, get_topology_node_name,
   list_topology_children, get_topology_parent_router
 
-NetworkRepository (2B-3):
+NetworkRepository (2B-3, done):
   sync_networks, list_networks, get_network, update_network_bridge_state,
   get_network_last_mqtt_activity_at, insert_bridge_snapshot,
   get_latest_bridge_snapshot, update_collector_status, get_collector_status
 
-DeviceRepository (2B-3):
+DeviceRepository (2B-3, done):
   upsert_device, ensure_device_current_state, update_device_current_state,
   get_device_availability, insert_device_snapshot,
   get_devices_by_friendly_name_in_network, list_devices, get_device,
@@ -47,6 +47,8 @@ Remaining on Repository until explicitly split:
   store_unresolved, reconcile_unresolved, has_collected_data, count_events
 """
 
+from zigbeelens.storage.access.devices import DeviceRepository
+from zigbeelens.storage.access.network import NetworkRepository
 from zigbeelens.storage.access.topology import TopologyRepository
 
-__all__ = ["TopologyRepository"]
+__all__ = ["DeviceRepository", "NetworkRepository", "TopologyRepository"]

@@ -1,6 +1,6 @@
 """Storage repositories."""
 
-from zigbeelens.storage.access import TopologyRepository
+from zigbeelens.storage.access import DeviceRepository, NetworkRepository, TopologyRepository
 from zigbeelens.storage.repository import Repository
 
-__all__ = ["Repository", "TopologyRepository"]
+__all__ = ["DeviceRepository", "NetworkRepository", "Repository", "TopologyRepository"]

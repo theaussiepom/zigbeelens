@@ -13,6 +13,8 @@ from zigbeelens.config.models import NetworkConfig
 from zigbeelens.db.connection import Database
 
 if TYPE_CHECKING:
+    from zigbeelens.storage.access.devices import DeviceRepository
+    from zigbeelens.storage.access.network import NetworkRepository
     from zigbeelens.storage.access.topology import TopologyRepository
 
 
@@ -91,6 +93,18 @@ class Repository:
         from zigbeelens.storage.access.topology import TopologyRepository
 
         return TopologyRepository(self)
+
+    @cached_property
+    def networks(self) -> "NetworkRepository":
+        from zigbeelens.storage.access.network import NetworkRepository
+
+        return NetworkRepository(self)
+
+    @cached_property
+    def devices(self) -> "DeviceRepository":
+        from zigbeelens.storage.access.devices import DeviceRepository
+
+        return DeviceRepository(self)
 
     def sync_networks(self, networks: list[NetworkConfig]) -> None:
         now = utc_now_iso()
