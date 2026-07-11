@@ -45,6 +45,7 @@ ZigbeeLens is evolving from a dashboard/graph product into a shared decision-eng
 - [decision-engine-migration.md](decision-engine-migration.md) — master phases and sub-phases
 - [decision-engine-phase-0.md](decision-engine-phase-0.md) — Phase 0 surface, data, compatibility and rollout governance
 - [decision-engine-implementation-plan.md](decision-engine-implementation-plan.md) — Cursor-ready implementation plan for the remaining phases
+- [decision-engine-cursor-guardrails.md](decision-engine-cursor-guardrails.md) — stricter Cursor model selection, phase splitting and prompt guardrails
 
 These docs do not change runtime behaviour. They define how future refactors and intelligence features must stay evidence-first, read-only, action-led and consistent across UI, reports and companion surfaces.
 
@@ -139,6 +140,7 @@ Full audit: [safety-audit.md](safety-audit.md)
 - [decision-engine-migration.md](decision-engine-migration.md) — decision-engine roadmap
 - [decision-engine-phase-0.md](decision-engine-phase-0.md) — Phase 0 governance
 - [decision-engine-implementation-plan.md](decision-engine-implementation-plan.md) — Cursor implementation plan
+- [decision-engine-cursor-guardrails.md](decision-engine-cursor-guardrails.md) — Cursor model and phase guardrails
 - [development.md](development.md) — local dev
 - [docker.md](docker.md) — standalone container
 - [addon-dev.md](addon-dev.md) — HAOS add-on
