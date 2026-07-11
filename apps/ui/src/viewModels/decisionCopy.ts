@@ -151,7 +151,7 @@ export function isKnownCoverageLabelCode(
 }
 
 export function isKnownDecisionStatus(status: string): status is DecisionStatus {
-  return status in DECISION_STATUS_LABELS;
+  return Object.prototype.hasOwnProperty.call(DECISION_STATUS_LABELS, status);
 }
 
 export function reasonText(

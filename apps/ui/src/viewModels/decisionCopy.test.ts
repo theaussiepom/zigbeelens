@@ -83,6 +83,9 @@ describe("decisionCopy", () => {
     expect(decisionStatusLabel("future_status")).toBe("Status unknown");
     expect(decisionStatusCompactLabel("future_status")).toBe("Unknown");
     expect(decisionStatusTone("future_status")).toBe("muted");
+    expect(decisionStatusLabel("toString")).toBe("Status unknown");
+    expect(decisionStatusCompactLabel("toString")).toBe("Unknown");
+    expect(decisionStatusTone("toString")).toBe("muted");
   });
 
   it("keeps backend reason codes unique in the frontend seed set", () => {
