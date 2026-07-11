@@ -362,13 +362,13 @@ def device_snapshot_history(
     # Availability tracking signals from data already recorded: any device
     # with a known availability state, or any recorded transition, means
     # Zigbee2MQTT availability reporting is (or was) enabled.
-    earliest_availability_at = repo.get_earliest_availability_change_at(network_id)
+    earliest_availability_at = repo.availability.get_earliest_availability_change_at(network_id)
     tracking_enabled_now = earliest_availability_at is not None or any(
         row.availability in ("online", "offline") for row in repo.list_devices(network_id)
     )
     device_changes = list(
         reversed(
-            repo.list_availability_changes(
+            repo.availability.list_availability_changes(
                 network_id, device_ieee, limit=_AVAILABILITY_LOOKUP_LIMIT
             )
         )

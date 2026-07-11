@@ -943,7 +943,7 @@ def aggregate_investigations(
     # read-only passive data, used only to make card evidence concrete.
     cutoff = now - timedelta(days=DEVICE_EVIDENCE_LOOKBACK_DAYS)
     offline_events: dict[str, list[str]] = {}
-    for row in repo.list_availability_changes_since(network_id, cutoff.isoformat()):
+    for row in repo.availability.list_availability_changes_since(network_id, cutoff.isoformat()):
         if row.get("to_state") != "offline":
             continue
         ieee = _norm(row.get("ieee_address"))

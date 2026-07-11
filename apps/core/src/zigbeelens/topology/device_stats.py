@@ -113,7 +113,7 @@ def aggregate_device_stats(
             record["last_router_link_partner"] = partner
 
     day_ago = now - timedelta(hours=24)
-    for row in repo.list_availability_changes_since(network_id, cutoff.isoformat()):
+    for row in repo.availability.list_availability_changes_since(network_id, cutoff.isoformat()):
         if row.get("to_state") != "offline":
             continue
         ieee = _norm(row.get("ieee_address"))

@@ -231,10 +231,10 @@ class PayloadBuilder:
                 **{"from": Availability(ch["from_state"]) if ch["from_state"] in Availability.__members__ else Availability.unknown},
                 to=Availability(ch["to_state"]) if ch["to_state"] in Availability.__members__ else Availability.unknown,
             )
-            for ch in self.repo.list_availability_changes(network_id, ieee_address)
+            for ch in self.repo.availability.list_availability_changes(network_id, ieee_address)
         ]
 
-        samples = self.repo.list_metric_samples(network_id, ieee_address, limit=30)
+        samples = self.repo.metrics.list_metric_samples(network_id, ieee_address, limit=30)
         trends: list[DeviceTrendPoint] = []
         for sample in reversed(samples):
             point = DeviceTrendPoint(timestamp=sample["sampled_at"])

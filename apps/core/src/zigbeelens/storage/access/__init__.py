@@ -25,12 +25,12 @@ DeviceRepository (2B-3, done):
   get_devices_by_friendly_name, find_devices_by_ieee, get_device_by_friendly_name,
   count_devices, count_devices_for_network, count_unavailable_for_network
 
-AvailabilityRepository (2B-4):
+AvailabilityRepository (2B-4, done):
   insert_availability_change, count_availability_changes_in_window,
   list_availability_changes, get_earliest_availability_change_at,
   list_availability_changes_since
 
-MetricRepository (2B-4):
+MetricRepository (2B-4, done):
   insert_metric_sample, list_metric_samples
 
 IncidentRepository (2B-5):
@@ -47,8 +47,16 @@ Remaining on Repository until explicitly split:
   store_unresolved, reconcile_unresolved, has_collected_data, count_events
 """
 
+from zigbeelens.storage.access.availability import AvailabilityRepository
 from zigbeelens.storage.access.devices import DeviceRepository
+from zigbeelens.storage.access.metrics import MetricRepository
 from zigbeelens.storage.access.network import NetworkRepository
 from zigbeelens.storage.access.topology import TopologyRepository
 
-__all__ = ["DeviceRepository", "NetworkRepository", "TopologyRepository"]
+__all__ = [
+    "AvailabilityRepository",
+    "DeviceRepository",
+    "MetricRepository",
+    "NetworkRepository",
+    "TopologyRepository",
+]
