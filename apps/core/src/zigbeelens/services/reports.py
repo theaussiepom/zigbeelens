@@ -563,7 +563,7 @@ def store_report(repo: Repository, detail: ReportDetail, request: ReportRequest)
         "topology_snapshots": detail.raw_counts.get("topology_snapshots", 0),
         "home_assistant_enrichment": repo.get_ha_enrichment_status(),
     }
-    row = repo.save_report(
+    row = repo.reports.save_report(
         report_id=None,
         format=request.format.value,
         scope=detail.scope,

@@ -33,13 +33,13 @@ AvailabilityRepository (2B-4, done):
 MetricRepository (2B-4, done):
   insert_metric_sample, list_metric_samples
 
-IncidentRepository (2B-5):
+IncidentRepository (2B-5, done):
   list_incidents, list_active_incidents, get_incident_by_dedup_key,
   insert_incident, update_incident, replace_incident_devices,
   list_offline_transitions_since, list_incidents_for_device, get_incident,
   list_incident_devices, list_active_incident_device_addresses
 
-ReportRepository (2B-5):
+ReportRepository (2B-5, done):
   save_report, get_report, list_reports, delete_report
 
 Remaining on Repository until explicitly split:
@@ -49,14 +49,18 @@ Remaining on Repository until explicitly split:
 
 from zigbeelens.storage.access.availability import AvailabilityRepository
 from zigbeelens.storage.access.devices import DeviceRepository
+from zigbeelens.storage.access.incidents import IncidentRepository
 from zigbeelens.storage.access.metrics import MetricRepository
 from zigbeelens.storage.access.network import NetworkRepository
+from zigbeelens.storage.access.reports import ReportRepository
 from zigbeelens.storage.access.topology import TopologyRepository
 
 __all__ = [
     "AvailabilityRepository",
     "DeviceRepository",
+    "IncidentRepository",
     "MetricRepository",
     "NetworkRepository",
+    "ReportRepository",
     "TopologyRepository",
 ]

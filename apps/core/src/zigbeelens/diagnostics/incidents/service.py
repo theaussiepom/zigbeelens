@@ -45,7 +45,7 @@ class IncidentDiagnosticService:
         return events
 
     def active_incidents(self) -> list[dict]:
-        return self.repo.list_incidents(status_filter=("open", "watching"))
+        return self.repo.incidents.list_incidents(status_filter=("open", "watching"))
 
     def current_finding(self, health: HealthDiagnosticService) -> DiagnosticConclusion | None:
         incidents = self.active_incidents()
@@ -81,14 +81,14 @@ class IncidentDiagnosticService:
     def incident_affected_keys(self) -> set[tuple[str, str]]:
         keys: set[tuple[str, str]] = set()
         for row in self.active_incidents():
-            for ref in self.repo.list_incident_devices(row["id"]):
+            for ref in self.repo.incidents.list_incident_devices(row["id"]):
                 keys.add((ref["network_id"], ref["ieee_address"]))
         return keys
 
     def count_by_status(self) -> tuple[int, int]:
         open_count = 0
         watching_count = 0
-        for row in self.repo.list_incidents():
+        for row in self.repo.incidents.list_incidents():
             if row["lifecycle_state"] == IncidentLifecycle.open.value:
                 open_count += 1
             elif row["lifecycle_state"] == IncidentLifecycle.watching.value:
@@ -98,7 +98,7 @@ class IncidentDiagnosticService:
     def network_active_count(self, network_id: str) -> int:
         count = 0
         for row in self.active_incidents():
-            refs = self.repo.list_incident_devices(row["id"])
+            refs = self.repo.incidents.list_incident_devices(row["id"])
             if any(ref["network_id"] == network_id for ref in refs):
                 count += 1
                 continue

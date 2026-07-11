@@ -952,7 +952,7 @@ def aggregate_investigations(
 
     return build_investigations(
         devices=repo.list_devices(network_id),
-        incident_device_ieees=set(repo.list_active_incident_device_addresses(network_id)),
+        incident_device_ieees=set(repo.incidents.list_active_incident_device_addresses(network_id)),
         latest_nodes=repo.list_topology_nodes(latest_snapshot_id) if latest_snapshot_id else [],
         latest_links=repo.list_topology_links(latest_snapshot_id) if latest_snapshot_id else [],
         latest_captured_at=latest["captured_at"] if latest else None,

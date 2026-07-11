@@ -224,7 +224,7 @@ def _issue_device_ids(repo: Repository, network_id: str) -> set[str]:
     for device in repo.list_devices(network_id):
         if getattr(device, "availability", None) == "offline":
             issues.add(_norm(device.ieee_address))
-    for ieee in repo.list_active_incident_device_addresses(network_id):
+    for ieee in repo.incidents.list_active_incident_device_addresses(network_id):
         issues.add(_norm(ieee))
     return issues
 

@@ -356,7 +356,7 @@ def device_snapshot_history(
     device_row = repo.get_device(network_id, device_ieee)
     has_current_issue = bool(
         (device_row is not None and device_row.availability == "offline")
-        or repo.list_incidents_for_device(network_id, device_ieee)
+        or repo.incidents.list_incidents_for_device(network_id, device_ieee)
     )
 
     # Availability tracking signals from data already recorded: any device

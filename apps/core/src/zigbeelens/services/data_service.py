@@ -109,7 +109,7 @@ class DataService:
     def get_stored_report(self, report_id: str, scenario: str | None = None):
         if self.uses_mock(scenario) and report_id in {"report-preview"}:
             return self.report_preview(scenario)
-        row = self.repo.get_report(report_id)
+        row = self.repo.reports.get_report(report_id)
         if not row or not row.body_json:
             return None
         detail = ReportDetail.model_validate(json.loads(row.body_json))

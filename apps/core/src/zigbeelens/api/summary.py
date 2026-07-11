@@ -41,7 +41,7 @@ def service_status_dict(ctx: AppContext) -> dict[str, Any]:
         for n in networks
     )
 
-    reports = ctx.repo.list_reports(limit=1)
+    reports = ctx.repo.reports.list_reports(limit=1)
     last_generated_at = reports[0].generated_at if reports else None
 
     status = "ok"

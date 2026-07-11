@@ -83,7 +83,7 @@ class IncidentCorrelationEngine:
         self, network_id: str, window_seconds: int, devices: list[DeviceRow], now: datetime
     ) -> dict[str, str]:
         cutoff = (now - timedelta(seconds=window_seconds)).isoformat()
-        transitions = self.repo.list_offline_transitions_since(network_id, cutoff)
+        transitions = self.repo.incidents.list_offline_transitions_since(network_id, cutoff)
         still_offline = {d.ieee_address for d in devices if d.availability == "offline"}
         return {
             ieee: ts for ieee, ts in transitions.items() if ieee in still_offline
