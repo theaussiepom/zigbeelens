@@ -6,10 +6,14 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from functools import cached_property
+from typing import TYPE_CHECKING, Any
 
 from zigbeelens.config.models import NetworkConfig
 from zigbeelens.db.connection import Database
+
+if TYPE_CHECKING:
+    from zigbeelens.storage.access.topology import TopologyRepository
 
 
 def utc_now_iso() -> str:
@@ -81,6 +85,12 @@ class ReportRow:
 class Repository:
     def __init__(self, db: Database) -> None:
         self.db = db
+
+    @cached_property
+    def topology(self) -> "TopologyRepository":
+        from zigbeelens.storage.access.topology import TopologyRepository
+
+        return TopologyRepository(self)
 
     def sync_networks(self, networks: list[NetworkConfig]) -> None:
         now = utc_now_iso()

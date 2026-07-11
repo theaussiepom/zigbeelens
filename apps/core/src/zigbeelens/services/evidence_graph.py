@@ -54,9 +54,10 @@ class EvidenceGraphService:
         if network is None:
             raise NetworkNotFoundError(network_id)
 
-        latest = self._repo.get_latest_topology_snapshot(network_id)
-        nodes = self._repo.list_topology_nodes(latest["snapshot_id"]) if latest else []
-        links = self._repo.list_topology_links(latest["snapshot_id"]) if latest else []
+        topology = self._repo.topology
+        latest = topology.get_latest_topology_snapshot(network_id)
+        nodes = topology.list_topology_nodes(latest["snapshot_id"]) if latest else []
+        links = topology.list_topology_links(latest["snapshot_id"]) if latest else []
         history = aggregate_historical_evidence(self._repo, network_id)
         last_known = aggregate_last_known_links(self._repo, network_id)
         passive = aggregate_passive_hints(self._repo, network_id)
