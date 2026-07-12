@@ -159,13 +159,14 @@ const HISTORICAL_ROUTE_LIMITATIONS = [
 ];
 
 const emptyTopologyNetworkFacts = {
-  stale_threshold_hours: 24,
+  stale_threshold_hours: null,
   network_facts: [],
 };
 
 const emptyTopologyDeviceFacts = {
-  stale_threshold_hours: 24,
+  stale_threshold_hours: null,
   device_facts: [],
+  comparison_facts_by_snapshot_id: {},
 };
 
 function makeHistoricalAggregate(

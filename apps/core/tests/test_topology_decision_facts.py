@@ -10,9 +10,11 @@ from zigbeelens.db.connection import Database
 from zigbeelens.decisions.topology_facts import (
     TOPOLOGY_FACT_CODES,
     TopologyFactCode,
-    build_device_topology_facts,
+    build_device_latest_topology_facts,
+    build_device_snapshot_comparison_facts,
     build_network_topology_facts,
     build_topology_facts_from_evidence_graph,
+    topology_device_facts_payload,
 )
 from zigbeelens.services.evidence_graph import EvidenceGraphService
 from zigbeelens.storage.repository import Repository
@@ -224,69 +226,114 @@ def test_network_facts_passive_hints_available():
     assert passive.params["hint_count"] == 3
 
 
-def test_device_facts_no_latest_links_but_selected_had_links(tmp_path: Path):
-    repo = _repo(tmp_path)
-    for snapshot_id, captured_at, links in (
-        ("snap-1", NOW - timedelta(days=2), [{"source": "0x04", "target": "0x02", "linkquality": 80}]),
-        ("snap-2", NOW - timedelta(days=1), [{"source": "0x04", "target": "0x02", "linkquality": 85}]),
-        ("snap-3", NOW, []),
-    ):
-        _store_snapshot(repo, snapshot_id, captured_at=captured_at, links=links)
-
-    history = device_snapshot_history(repo, "home", "0x04")
-    body = EvidenceGraphService(repo).build("home")
-    selected_row = history["snapshots"][0]
-
-    facts = build_device_topology_facts(
-        device_ieee="0x04",
-        latest_snapshot=body["latest_snapshot"],
-        nodes=body["nodes"],
-        links=body["links"],
-        selected_snapshot_row=selected_row,
-    )
-    assert TopologyFactCode.device_no_latest_links in _codes(facts)
-    assert TopologyFactCode.device_has_selected_snapshot_links in _codes(facts)
-    selected = next(
-        f for f in facts if f.code == TopologyFactCode.device_has_selected_snapshot_links
-    )
-    assert selected.params["link_count"] == selected_row["links_for_device_count"]
-
-
-def test_device_facts_comparison_changed_and_coverage_affects_comparison():
-    facts = build_device_topology_facts(
+def test_device_latest_facts_no_links():
+    facts = build_device_latest_topology_facts(
         device_ieee="0x04",
         latest_snapshot={"snapshot_id": "snap-latest", "status": "complete"},
         nodes=[{"ieee_address": "0x04"}],
         links=[],
-        selected_snapshot_row={
+    )
+    assert TopologyFactCode.device_no_latest_links in _codes(facts)
+    assert TopologyFactCode.device_has_selected_snapshot_links not in _codes(facts)
+
+
+def test_device_comparison_facts_selected_had_links():
+    row = {
+        "snapshot_id": "snap-old-1",
+        "links_for_device_count": 2,
+        "availability_coverage_status": COVERAGE_OFF,
+        "comparison_to_latest": {"status": STATUS_WATCH},
+    }
+    facts = build_device_snapshot_comparison_facts(
+        device_ieee="0x04",
+        comparison_snapshot_row=row,
+    )
+    assert TopologyFactCode.device_has_selected_snapshot_links in _codes(facts)
+    selected = next(
+        f for f in facts if f.code == TopologyFactCode.device_has_selected_snapshot_links
+    )
+    assert selected.params["snapshot_id"] == "snap-old-1"
+    assert selected.params["link_count"] == 2
+
+
+def test_device_comparison_facts_changed_and_coverage_affects_comparison():
+    facts = build_device_snapshot_comparison_facts(
+        device_ieee="0x04",
+        comparison_snapshot_row={
             "snapshot_id": "snap-old",
             "links_for_device_count": 2,
             "availability_coverage_status": COVERAGE_OFF,
             "comparison_to_latest": {"status": STATUS_WATCH},
         },
     )
-    assert TopologyFactCode.device_no_latest_links in _codes(facts)
     assert TopologyFactCode.device_has_selected_snapshot_links in _codes(facts)
     assert TopologyFactCode.device_latest_vs_selected_changed in _codes(facts)
     assert TopologyFactCode.availability_coverage_affects_snapshot_comparison in _codes(facts)
 
 
-def test_device_facts_no_change_when_comparison_is_similar():
-    facts = build_device_topology_facts(
+def test_device_comparison_facts_no_change_when_comparison_is_similar():
+    facts = build_device_snapshot_comparison_facts(
         device_ieee="0x02",
-        latest_snapshot={"snapshot_id": "snap-latest", "status": "complete"},
-        nodes=[{"ieee_address": "0x02"}],
-        links=[{"source_ieee": "0x02", "target_ieee": "0x01", "linkquality": 90}],
-        selected_snapshot_row={
+        comparison_snapshot_row={
             "snapshot_id": "snap-old",
             "links_for_device_count": 1,
             "availability_coverage_status": "tracked",
             "comparison_to_latest": {"status": STATUS_NO_NOTABLE_CHANGE},
         },
     )
-    assert TopologyFactCode.device_has_latest_links in _codes(facts)
     assert TopologyFactCode.device_latest_vs_selected_changed not in _codes(facts)
     assert TopologyFactCode.availability_coverage_affects_snapshot_comparison not in _codes(facts)
+
+
+def test_comparison_facts_scoped_per_snapshot_id():
+    history_for_0x04 = {
+        "snapshots": [
+            {
+                "snapshot_id": "snap-old-1",
+                "links_for_device_count": 2,
+                "availability_coverage_status": COVERAGE_OFF,
+                "comparison_to_latest": {"status": STATUS_WATCH},
+            },
+            {
+                "snapshot_id": "snap-old-2",
+                "links_for_device_count": 0,
+                "availability_coverage_status": "tracked",
+                "comparison_to_latest": {"status": STATUS_NO_NOTABLE_CHANGE},
+            },
+        ]
+    }
+    evidence_graph = {
+        "latest_snapshot": {"snapshot_id": "snap-latest", "status": "complete"},
+        "nodes": [{"ieee_address": "0x04"}],
+        "links": [],
+        "counts": {},
+    }
+
+    grouped = build_topology_facts_from_evidence_graph(
+        network_id="home",
+        evidence_graph=evidence_graph,
+        device_ieees=["0x04"],
+        device_snapshot_histories={"0x04": history_for_0x04},
+        now=NOW,
+    )
+
+    latest_facts = grouped.device_facts["0x04"]
+    assert TopologyFactCode.device_no_latest_links in _codes(latest_facts)
+    assert TopologyFactCode.device_has_selected_snapshot_links not in _codes(latest_facts)
+    assert TopologyFactCode.device_latest_vs_selected_changed not in _codes(latest_facts)
+
+    comp_old_1 = grouped.device_comparison_facts["0x04"]["snap-old-1"]
+    comp_old_2 = grouped.device_comparison_facts["0x04"]["snap-old-2"]
+    assert TopologyFactCode.device_has_selected_snapshot_links in _codes(comp_old_1)
+    assert TopologyFactCode.device_latest_vs_selected_changed in _codes(comp_old_1)
+    assert comp_old_2 == []
+
+    for fact in comp_old_1:
+        assert fact.params.get("snapshot_id") == "snap-old-1"
+
+    payload = topology_device_facts_payload(grouped, "0x04", stale_threshold_hours=None)
+    assert set(payload["comparison_facts_by_snapshot_id"].keys()) == {"snap-old-1", "snap-old-2"}
+    assert "snap-unknown" not in payload["comparison_facts_by_snapshot_id"]
 
 
 def test_device_snapshot_histories_are_isolated_per_device():
@@ -317,11 +364,17 @@ def test_device_snapshot_histories_are_isolated_per_device():
 
     facts_a = grouped.device_facts["0x04"]
     facts_b = grouped.device_facts["0x99"]
+    comp_a = grouped.device_comparison_facts["0x04"]["snap-old"]
 
-    assert TopologyFactCode.device_has_selected_snapshot_links in _codes(facts_a)
-    assert TopologyFactCode.device_latest_vs_selected_changed in _codes(facts_a)
-    assert TopologyFactCode.availability_coverage_affects_snapshot_comparison in _codes(facts_a)
+    assert TopologyFactCode.device_has_selected_snapshot_links in _codes(comp_a)
+    assert TopologyFactCode.device_latest_vs_selected_changed in _codes(comp_a)
+    assert TopologyFactCode.availability_coverage_affects_snapshot_comparison in _codes(comp_a)
 
+    assert TopologyFactCode.device_has_selected_snapshot_links not in _codes(facts_a)
+    assert TopologyFactCode.device_latest_vs_selected_changed not in _codes(facts_a)
+    assert TopologyFactCode.availability_coverage_affects_snapshot_comparison not in _codes(facts_a)
+
+    assert "snap-old" not in grouped.device_comparison_facts.get("0x99", {})
     assert TopologyFactCode.device_has_selected_snapshot_links not in _codes(facts_b)
     assert TopologyFactCode.device_latest_vs_selected_changed not in _codes(facts_b)
     assert TopologyFactCode.availability_coverage_affects_snapshot_comparison not in _codes(facts_b)

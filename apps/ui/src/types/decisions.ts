@@ -64,6 +64,7 @@ export interface TopologyNetworkFactsDto {
 export interface TopologyDeviceFactsDto {
   stale_threshold_hours: number | null;
   device_facts: EvidenceFactDto[];
+  comparison_facts_by_snapshot_id: Record<string, EvidenceFactDto[]>;
 }
 
 export interface DecisionReasonDto {

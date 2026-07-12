@@ -70,6 +70,9 @@ class TopologyFacts(BaseModel):
     network_id: str
     network_facts: list[EvidenceFact] = Field(default_factory=list)
     device_facts: dict[str, list[EvidenceFact]] = Field(default_factory=dict)
+    device_comparison_facts: dict[str, dict[str, list[EvidenceFact]]] = Field(
+        default_factory=dict,
+    )
 
 
 def _fact(code: TopologyFactCode | str, **params: Any) -> EvidenceFact:
@@ -121,15 +124,6 @@ def _device_link_count(device: str, links: list[dict[str, Any]]) -> int:
 
 def _device_in_nodes(device: str, nodes: list[dict[str, Any]]) -> bool:
     return any(_norm(node.get("ieee_address")) == device for node in nodes)
-
-
-def _selected_snapshot_row_from_history(
-    device_snapshot_history: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    if not device_snapshot_history:
-        return None
-    snapshots = device_snapshot_history.get("snapshots") or []
-    return snapshots[0] if snapshots else None
 
 
 def build_network_topology_facts(
@@ -226,24 +220,19 @@ def build_network_topology_facts(
     return facts
 
 
-def build_device_topology_facts(
+def build_device_latest_topology_facts(
     *,
     device_ieee: str,
     latest_snapshot: dict[str, Any] | None,
     nodes: list[dict[str, Any]],
     links: list[dict[str, Any]],
-    selected_snapshot_row: dict[str, Any] | None = None,
 ) -> list[EvidenceFact]:
-    """Derive device-level topology facts from latest snapshot and optional
-    selected snapshot history row."""
+    """Derive latest-snapshot device facts that do not depend on historical rows."""
     device = _norm(device_ieee)
-    if not device:
+    if not device or latest_snapshot is None:
         return []
 
     facts: list[EvidenceFact] = []
-
-    if latest_snapshot is None:
-        return facts
 
     if _device_in_nodes(device, nodes):
         facts.append(
@@ -279,21 +268,34 @@ def build_device_topology_facts(
             )
         )
 
-    if selected_snapshot_row is None:
-        return facts
+    return facts
 
-    selected_link_count = int(selected_snapshot_row.get("links_for_device_count") or 0)
+
+def build_device_snapshot_comparison_facts(
+    *,
+    device_ieee: str,
+    comparison_snapshot_row: dict[str, Any],
+) -> list[EvidenceFact]:
+    """Derive comparison facts for one historical snapshot row."""
+    device = _norm(device_ieee)
+    snapshot_id = comparison_snapshot_row.get("snapshot_id")
+    if not device or not snapshot_id:
+        return []
+
+    facts: list[EvidenceFact] = []
+
+    selected_link_count = int(comparison_snapshot_row.get("links_for_device_count") or 0)
     if selected_link_count > 0:
         facts.append(
             _fact(
                 TopologyFactCode.device_has_selected_snapshot_links,
                 device_ieee=device,
-                snapshot_id=selected_snapshot_row.get("snapshot_id"),
+                snapshot_id=snapshot_id,
                 link_count=selected_link_count,
             )
         )
 
-    comparison = selected_snapshot_row.get("comparison_to_latest")
+    comparison = comparison_snapshot_row.get("comparison_to_latest")
     if isinstance(comparison, dict):
         comparison_status = comparison.get("status")
         if comparison_status in _COMPARISON_CHANGED_STATUSES:
@@ -302,20 +304,20 @@ def build_device_topology_facts(
                     TopologyFactCode.device_latest_vs_selected_changed,
                     device_ieee=device,
                     comparison_status=comparison_status,
-                    snapshot_id=selected_snapshot_row.get("snapshot_id"),
+                    snapshot_id=snapshot_id,
                 )
             )
         elif comparison_status == STATUS_NO_NOTABLE_CHANGE:
             pass
 
-        coverage = selected_snapshot_row.get("availability_coverage_status")
+        coverage = comparison_snapshot_row.get("availability_coverage_status")
         if coverage in _COVERAGE_AFFECTS_COMPARISON:
             facts.append(
                 _fact(
                     TopologyFactCode.availability_coverage_affects_snapshot_comparison,
                     device_ieee=device,
                     availability_coverage_status=coverage,
-                    snapshot_id=selected_snapshot_row.get("snapshot_id"),
+                    snapshot_id=snapshot_id,
                 )
             )
 
@@ -347,11 +349,13 @@ def build_topology_facts_from_evidence_graph(
     )
 
     device_facts: dict[str, list[EvidenceFact]] = {}
+    device_comparison_facts: dict[str, dict[str, list[EvidenceFact]]] = {}
     if not device_ieees:
         return TopologyFacts(
             network_id=network_id,
             network_facts=network_facts,
             device_facts=device_facts,
+            device_comparison_facts=device_comparison_facts,
         )
 
     histories_by_device: dict[str, dict[str, Any]] = {}
@@ -365,20 +369,31 @@ def build_topology_facts_from_evidence_graph(
         device = _norm(ieee)
         if not device:
             continue
-        device_facts[device] = build_device_topology_facts(
+        device_facts[device] = build_device_latest_topology_facts(
             device_ieee=device,
             latest_snapshot=latest_snapshot,
             nodes=nodes,
             links=links,
-            selected_snapshot_row=_selected_snapshot_row_from_history(
-                histories_by_device.get(device),
-            ),
         )
+        comparison_by_snapshot: dict[str, list[EvidenceFact]] = {}
+        history = histories_by_device.get(device)
+        if history:
+            for row in history.get("snapshots") or []:
+                snapshot_id = row.get("snapshot_id")
+                if not snapshot_id:
+                    continue
+                row_facts = build_device_snapshot_comparison_facts(
+                    device_ieee=device,
+                    comparison_snapshot_row=row,
+                )
+                comparison_by_snapshot[str(snapshot_id)] = row_facts
+        device_comparison_facts[device] = comparison_by_snapshot
 
     return TopologyFacts(
         network_id=network_id,
         network_facts=network_facts,
         device_facts=device_facts,
+        device_comparison_facts=device_comparison_facts,
     )
 
 
@@ -395,12 +410,19 @@ def topology_network_facts_payload(
 
 
 def topology_device_facts_payload(
-    facts: list[EvidenceFact],
+    facts: TopologyFacts,
+    device_ieee: str,
     *,
     stale_threshold_hours: int | None,
 ) -> dict[str, Any]:
     """Serialise device topology facts for API/report payloads."""
+    device = normalize_device_ieee(device_ieee)
+    comparison_by_snapshot = {
+        snapshot_id: [fact.model_dump(mode="json") for fact in row_facts]
+        for snapshot_id, row_facts in facts.device_comparison_facts.get(device, {}).items()
+    }
     return {
         "stale_threshold_hours": stale_threshold_hours,
-        "device_facts": [fact.model_dump(mode="json") for fact in facts],
+        "device_facts": [fact.model_dump(mode="json") for fact in facts.device_facts.get(device, [])],
+        "comparison_facts_by_snapshot_id": comparison_by_snapshot,
     }

@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 from zigbeelens.decisions.topology_facts import (
     TopologyFacts,
     build_topology_facts_from_evidence_graph,
-    topology_network_facts_payload,
 )
+from zigbeelens.services.topology_facts_composition import compose_network_topology_facts_payload
 from zigbeelens.topology.device_stats import aggregate_device_stats
 from zigbeelens.topology.history import (
     aggregate_historical_evidence,
@@ -129,6 +129,23 @@ class EvidenceGraphService:
             },
         }
 
+    def build_with_network_topology_facts(
+        self,
+        network_id: str,
+        *,
+        stale_after_hours: int | None,
+        now: datetime | None = None,
+    ) -> dict:
+        """Evidence graph payload with network topology facts attached."""
+        body = self.build(network_id)
+        body["topology_facts"] = compose_network_topology_facts_payload(
+            self,
+            body,
+            stale_after_hours=stale_after_hours,
+            now=now,
+        )
+        return body
+
     def build_topology_facts(
         self,
         network_id: str,
@@ -163,15 +180,11 @@ class EvidenceGraphService:
         now: datetime | None = None,
     ) -> dict[str, Any]:
         """Network topology facts ready for API/report payloads."""
-        facts = self.build_topology_facts(
-            evidence_graph["network_id"],
-            evidence_graph=evidence_graph,
-            now=now,
+        return compose_network_topology_facts_payload(
+            self,
+            evidence_graph,
             stale_after_hours=stale_after_hours,
-        )
-        return topology_network_facts_payload(
-            facts,
-            stale_threshold_hours=stale_after_hours,
+            now=now,
         )
 
 
