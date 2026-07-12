@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from zigbeelens.decisions.topology_facts import (
+    TopologyFacts,
+    build_topology_facts_from_evidence_graph,
+)
 from zigbeelens.topology.device_stats import aggregate_device_stats
 from zigbeelens.topology.history import (
     aggregate_historical_evidence,
@@ -13,6 +17,8 @@ from zigbeelens.topology.investigations import aggregate_investigations
 from zigbeelens.topology.passive_hints import aggregate_passive_hints
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from zigbeelens.storage.repository import Repository
 
 
@@ -120,6 +126,24 @@ class EvidenceGraphService:
                 "observed_topology_nodes": len(nodes),
             },
         }
+
+    def build_topology_facts(
+        self,
+        network_id: str,
+        *,
+        now: datetime | None = None,
+    ) -> TopologyFacts:
+        """Build topology decision facts from stored evidence for one network.
+
+        Internal decision-engine entry point — not part of the public API
+        contract until explicitly exposed.
+        """
+        evidence_graph = self.build(network_id)
+        return build_topology_facts_from_evidence_graph(
+            network_id=network_id,
+            evidence_graph=evidence_graph,
+            now=now,
+        )
 
 
 def _topology_inventory_counts(repo: Repository, network_id: str) -> dict[str, int]:
