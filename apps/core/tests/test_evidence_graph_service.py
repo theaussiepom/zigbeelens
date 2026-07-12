@@ -72,10 +72,11 @@ def test_build_unknown_network_raises(tmp_path: Path):
 def test_build_returns_expected_counts_and_windows(tmp_path: Path):
     repo = _repo(tmp_path)
     service = EvidenceGraphService(repo)
+    now = datetime.now(timezone.utc)
     _store_snapshot(
         repo,
         "snap-old",
-        captured_at=NOW - timedelta(days=1),
+        captured_at=now - timedelta(days=1),
         links=[
             {"source": "0x02", "target": "0x04", "linkquality": 70},
             {
@@ -89,7 +90,7 @@ def test_build_returns_expected_counts_and_windows(tmp_path: Path):
     _store_snapshot(
         repo,
         "snap-latest",
-        captured_at=NOW - timedelta(hours=1),
+        captured_at=now - timedelta(hours=1),
         links=[
             {
                 "source": "0x02",
