@@ -132,17 +132,23 @@ class EvidenceGraphService:
         network_id: str,
         *,
         now: datetime | None = None,
+        stale_after_hours: int | None = None,
     ) -> TopologyFacts:
         """Build topology decision facts from stored evidence for one network.
 
         Internal decision-engine entry point — not part of the public API
         contract until explicitly exposed.
+
+        ``stale_after_hours`` must be supplied by the caller when
+        ``latest_snapshot_stale`` facts are required. When omitted, snapshot
+        age is not compared against any implicit product default.
         """
         evidence_graph = self.build(network_id)
         return build_topology_facts_from_evidence_graph(
             network_id=network_id,
             evidence_graph=evidence_graph,
             now=now,
+            stale_after_hours=stale_after_hours,
         )
 
 

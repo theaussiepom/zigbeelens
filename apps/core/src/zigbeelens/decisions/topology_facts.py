@@ -23,10 +23,6 @@ from zigbeelens.topology.device_compare import (
     STATUS_WORTH_REVIEWING,
 )
 
-# Default age after which the latest usable snapshot is treated as stale for
-# decision coverage. Matches topology.automatic_capture_interval_hours default.
-DEFAULT_SNAPSHOT_STALE_AFTER_HOURS = 24
-
 
 class TopologyFactCode(StrEnum):
     latest_snapshot_complete = "latest_snapshot_complete"
@@ -122,6 +118,15 @@ def _device_in_nodes(device: str, nodes: list[dict[str, Any]]) -> bool:
     return any(_norm(node.get("ieee_address")) == device for node in nodes)
 
 
+def _selected_snapshot_row_from_history(
+    device_snapshot_history: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not device_snapshot_history:
+        return None
+    snapshots = device_snapshot_history.get("snapshots") or []
+    return snapshots[0] if snapshots else None
+
+
 def build_network_topology_facts(
     *,
     latest_snapshot: dict[str, Any] | None,
@@ -129,7 +134,7 @@ def build_network_topology_facts(
     links: list[dict[str, Any]],
     counts: dict[str, Any] | None = None,
     now: datetime | None = None,
-    stale_after_hours: int = DEFAULT_SNAPSHOT_STALE_AFTER_HOURS,
+    stale_after_hours: int | None = None,
 ) -> list[EvidenceFact]:
     """Derive network-level topology facts from assembled graph evidence."""
     counts = counts or {}
@@ -159,7 +164,7 @@ def build_network_topology_facts(
         )
 
     age_hours = _snapshot_age_hours(latest_snapshot.get("captured_at"), now=reference_now)
-    if age_hours is not None and age_hours > stale_after_hours:
+    if stale_after_hours is not None and age_hours is not None and age_hours > stale_after_hours:
         facts.append(
             _fact(
                 TopologyFactCode.latest_snapshot_stale,
@@ -317,9 +322,9 @@ def build_topology_facts_from_evidence_graph(
     network_id: str,
     evidence_graph: dict[str, Any],
     device_ieees: list[str] | None = None,
-    device_snapshot_history: dict[str, Any] | None = None,
+    device_snapshot_histories: dict[str, dict[str, Any]] | None = None,
     now: datetime | None = None,
-    stale_after_hours: int = DEFAULT_SNAPSHOT_STALE_AFTER_HOURS,
+    stale_after_hours: int | None = None,
 ) -> TopologyFacts:
     """Build grouped topology facts from an evidence-graph payload."""
     latest_snapshot = evidence_graph.get("latest_snapshot")
@@ -344,10 +349,12 @@ def build_topology_facts_from_evidence_graph(
             device_facts=device_facts,
         )
 
-    selected_row = None
-    if device_snapshot_history:
-        snapshots = device_snapshot_history.get("snapshots") or []
-        selected_row = snapshots[0] if snapshots else None
+    histories_by_device: dict[str, dict[str, Any]] = {}
+    if device_snapshot_histories:
+        for ieee, history in device_snapshot_histories.items():
+            device_key = _norm(ieee)
+            if device_key:
+                histories_by_device[device_key] = history
 
     for ieee in device_ieees:
         device = _norm(ieee)
@@ -358,7 +365,9 @@ def build_topology_facts_from_evidence_graph(
             latest_snapshot=latest_snapshot,
             nodes=nodes,
             links=links,
-            selected_snapshot_row=selected_row,
+            selected_snapshot_row=_selected_snapshot_row_from_history(
+                histories_by_device.get(device),
+            ),
         )
 
     return TopologyFacts(

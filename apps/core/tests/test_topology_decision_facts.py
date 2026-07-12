@@ -8,7 +8,6 @@ from pathlib import Path
 from zigbeelens.config.models import AppConfig, ModeConfig, NetworkConfig, StorageConfig
 from zigbeelens.db.connection import Database
 from zigbeelens.decisions.topology_facts import (
-    DEFAULT_SNAPSHOT_STALE_AFTER_HOURS,
     TOPOLOGY_FACT_CODES,
     TopologyFactCode,
     build_device_topology_facts,
@@ -79,6 +78,14 @@ def _codes(facts: list) -> set[str]:
     return {fact.code for fact in facts}
 
 
+def _latest_snapshot_body(*, captured_at: datetime | None = None) -> dict:
+    return {
+        "snapshot_id": "snap-latest",
+        "status": "complete",
+        "captured_at": (captured_at or NOW).isoformat(),
+    }
+
+
 def test_topology_fact_codes_are_stable_and_unique():
     assert len(TOPOLOGY_FACT_CODES) == len(TopologyFactCode)
     assert "latest_snapshot_complete" in TOPOLOGY_FACT_CODES
@@ -95,29 +102,64 @@ def test_network_facts_missing_snapshot():
     assert facts[0].params == {}
 
 
-def test_network_facts_stale_snapshot(tmp_path: Path):
+def test_network_facts_stale_snapshot_requires_explicit_threshold(tmp_path: Path):
     repo = _repo(tmp_path)
     _store_snapshot(
         repo,
         "snap-stale",
-        captured_at=NOW - timedelta(hours=DEFAULT_SNAPSHOT_STALE_AFTER_HOURS + 6),
+        captured_at=NOW - timedelta(hours=30),
         links=[{"source": "0x02", "target": "0x01", "linkquality": 90}],
     )
     latest = repo.get_latest_topology_snapshot("home")
     nodes = repo.list_topology_nodes(latest["snapshot_id"])
     links = repo.list_topology_links(latest["snapshot_id"])
 
-    facts = build_network_topology_facts(
+    facts_without_threshold = build_network_topology_facts(
         latest_snapshot=latest,
         nodes=nodes,
         links=links,
         now=NOW,
     )
+    assert TopologyFactCode.latest_snapshot_stale not in _codes(facts_without_threshold)
+
+    facts = build_network_topology_facts(
+        latest_snapshot=latest,
+        nodes=nodes,
+        links=links,
+        now=NOW,
+        stale_after_hours=24,
+    )
     assert TopologyFactCode.latest_snapshot_complete in _codes(facts)
     assert TopologyFactCode.latest_snapshot_stale in _codes(facts)
     stale = next(f for f in facts if f.code == TopologyFactCode.latest_snapshot_stale)
-    assert stale.params["stale_after_hours"] == DEFAULT_SNAPSHOT_STALE_AFTER_HOURS
-    assert stale.params["age_hours"] > DEFAULT_SNAPSHOT_STALE_AFTER_HOURS
+    assert stale.params["stale_after_hours"] == 24
+    assert stale.params["age_hours"] > 24
+
+
+def test_network_facts_stale_threshold_72h_snapshot_age_30h_not_stale():
+    facts = build_network_topology_facts(
+        latest_snapshot=_latest_snapshot_body(captured_at=NOW - timedelta(hours=30)),
+        nodes=[{"ieee_address": "0x02"}],
+        links=[{"source_ieee": "0x02", "target_ieee": "0x01", "linkquality": 90}],
+        now=NOW,
+        stale_after_hours=72,
+    )
+    assert TopologyFactCode.latest_snapshot_complete in _codes(facts)
+    assert TopologyFactCode.latest_snapshot_stale not in _codes(facts)
+
+
+def test_network_facts_stale_threshold_6h_snapshot_age_12h_is_stale():
+    facts = build_network_topology_facts(
+        latest_snapshot=_latest_snapshot_body(captured_at=NOW - timedelta(hours=12)),
+        nodes=[{"ieee_address": "0x02"}],
+        links=[{"source_ieee": "0x02", "target_ieee": "0x01", "linkquality": 90}],
+        now=NOW,
+        stale_after_hours=6,
+    )
+    assert TopologyFactCode.latest_snapshot_stale in _codes(facts)
+    stale = next(f for f in facts if f.code == TopologyFactCode.latest_snapshot_stale)
+    assert stale.params["stale_after_hours"] == 6
+    assert stale.params["age_hours"] == 12.0
 
 
 def test_network_facts_no_route_hints(tmp_path: Path):
@@ -141,7 +183,7 @@ def test_network_facts_no_route_hints(tmp_path: Path):
     assert TopologyFactCode.route_hints_available not in _codes(facts)
 
 
-def test_network_facts_last_known_and_passive_hints(tmp_path: Path):
+def test_network_facts_last_known_links_available(tmp_path: Path):
     repo = _repo(tmp_path)
     _store_snapshot(
         repo,
@@ -165,8 +207,21 @@ def test_network_facts_last_known_and_passive_hints(tmp_path: Path):
         now=NOW,
     )
     assert TopologyFactCode.recent_missing_links_available in _codes(facts)
-    if body["counts"]["last_known_link_count"] > 0:
-        assert TopologyFactCode.last_known_links_available in _codes(facts)
+    assert body["counts"]["last_known_link_count"] > 0
+    assert TopologyFactCode.last_known_links_available in _codes(facts)
+
+
+def test_network_facts_passive_hints_available():
+    facts = build_network_topology_facts(
+        latest_snapshot=_latest_snapshot_body(),
+        nodes=[{"ieee_address": "0x02"}],
+        links=[{"source_ieee": "0x02", "target_ieee": "0x01", "linkquality": 90}],
+        counts={"passive_hint_count_available": 3},
+        now=NOW,
+    )
+    assert TopologyFactCode.passive_hints_available in _codes(facts)
+    passive = next(f for f in facts if f.code == TopologyFactCode.passive_hints_available)
+    assert passive.params["hint_count"] == 3
 
 
 def test_device_facts_no_latest_links_but_selected_had_links(tmp_path: Path):
@@ -234,6 +289,46 @@ def test_device_facts_no_change_when_comparison_is_similar():
     assert TopologyFactCode.availability_coverage_affects_snapshot_comparison not in _codes(facts)
 
 
+def test_device_snapshot_histories_are_isolated_per_device():
+    history_for_0x04 = {
+        "snapshots": [
+            {
+                "snapshot_id": "snap-old",
+                "links_for_device_count": 2,
+                "availability_coverage_status": COVERAGE_OFF,
+                "comparison_to_latest": {"status": STATUS_WATCH},
+            }
+        ]
+    }
+    evidence_graph = {
+        "latest_snapshot": {"snapshot_id": "snap-latest", "status": "complete"},
+        "nodes": [{"ieee_address": "0x04"}, {"ieee_address": "0x99"}],
+        "links": [],
+        "counts": {},
+    }
+
+    grouped = build_topology_facts_from_evidence_graph(
+        network_id="home",
+        evidence_graph=evidence_graph,
+        device_ieees=["0x04", "0x99"],
+        device_snapshot_histories={"0x04": history_for_0x04},
+        now=NOW,
+    )
+
+    facts_a = grouped.device_facts["0x04"]
+    facts_b = grouped.device_facts["0x99"]
+
+    assert TopologyFactCode.device_has_selected_snapshot_links in _codes(facts_a)
+    assert TopologyFactCode.device_latest_vs_selected_changed in _codes(facts_a)
+    assert TopologyFactCode.availability_coverage_affects_snapshot_comparison in _codes(facts_a)
+
+    assert TopologyFactCode.device_has_selected_snapshot_links not in _codes(facts_b)
+    assert TopologyFactCode.device_latest_vs_selected_changed not in _codes(facts_b)
+    assert TopologyFactCode.availability_coverage_affects_snapshot_comparison not in _codes(facts_b)
+    assert TopologyFactCode.device_seen_in_latest_snapshot in _codes(facts_b)
+    assert TopologyFactCode.device_no_latest_links in _codes(facts_b)
+
+
 def test_build_topology_facts_from_evidence_graph(tmp_path: Path):
     repo = _repo(tmp_path)
     _store_snapshot(
@@ -256,7 +351,7 @@ def test_build_topology_facts_from_evidence_graph(tmp_path: Path):
         network_id="home",
         evidence_graph=body,
         device_ieees=["0x02"],
-        device_snapshot_history=history,
+        device_snapshot_histories={"0x02": history},
         now=NOW,
     )
     assert grouped.network_id == "home"
@@ -266,15 +361,22 @@ def test_build_topology_facts_from_evidence_graph(tmp_path: Path):
     assert TopologyFactCode.device_has_latest_links in _codes(grouped.device_facts["0x02"])
 
 
-def test_evidence_graph_service_build_topology_facts(tmp_path: Path):
+def test_evidence_graph_service_build_topology_facts_without_implicit_stale_threshold(
+    tmp_path: Path,
+):
     repo = _repo(tmp_path)
     _store_snapshot(
         repo,
         "snap-latest",
-        captured_at=NOW,
+        captured_at=NOW - timedelta(hours=30),
         links=[{"source": "0x02", "target": "0x01", "linkquality": 90}],
     )
     service = EvidenceGraphService(repo)
-    facts = service.build_topology_facts("home", now=NOW)
-    assert facts.network_id == "home"
-    assert TopologyFactCode.latest_snapshot_complete in _codes(facts.network_facts)
+
+    facts_without_threshold = service.build_topology_facts("home", now=NOW)
+    assert TopologyFactCode.latest_snapshot_stale not in _codes(
+        facts_without_threshold.network_facts
+    )
+
+    facts_with_threshold = service.build_topology_facts("home", now=NOW, stale_after_hours=24)
+    assert TopologyFactCode.latest_snapshot_stale in _codes(facts_with_threshold.network_facts)
