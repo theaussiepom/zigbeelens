@@ -416,9 +416,13 @@ def topology_network(network_id: str, ctx: AppContext = Depends(ctx_dep)) -> dic
 @router.get("/topology/{network_id}/evidence-graph")
 def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep)) -> dict:
     from zigbeelens.services.evidence_graph import EvidenceGraphService, NetworkNotFoundError
+    from zigbeelens.services.topology_facts_composition import topology_stale_threshold_hours
 
     try:
-        return EvidenceGraphService(ctx.repo).build(network_id)
+        return EvidenceGraphService(ctx.repo).build_with_network_topology_facts(
+            network_id,
+            stale_after_hours=topology_stale_threshold_hours(ctx.config),
+        )
     except NetworkNotFoundError as err:
         raise HTTPException(status_code=404, detail="Network not found") from err
 
@@ -471,11 +475,21 @@ def topology_device_snapshot_history(
     worth_reviewing). Statuses describe snapshot comparison only, never
     device health, and use existing issue signals only.
     """
-    from zigbeelens.topology.device_compare import device_snapshot_history
+    from zigbeelens.services.evidence_graph import EvidenceGraphService
+    from zigbeelens.services.topology_facts_composition import (
+        build_device_snapshot_history_response,
+        topology_stale_threshold_hours,
+    )
 
     if ctx.repo.get_network(network_id) is None:
         raise HTTPException(status_code=404, detail="Network not found")
-    return device_snapshot_history(ctx.repo, network_id, ieee_address)
+    return build_device_snapshot_history_response(
+        ctx.repo,
+        EvidenceGraphService(ctx.repo),
+        network_id=network_id,
+        device_ieee=ieee_address,
+        stale_after_hours=topology_stale_threshold_hours(ctx.config),
+    )
 
 
 @router.get("/topology/{network_id}/snapshots/{snapshot_id}")

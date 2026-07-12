@@ -27,6 +27,7 @@ EVIDENCE_GRAPH_TOP_LEVEL_KEYS = (
     "device_stats_window",
     "limitations",
     "counts",
+    "topology_facts",
 )
 
 EVIDENCE_GRAPH_COUNT_KEYS = (
@@ -69,6 +70,11 @@ def test_evidence_graph_api_response_shape_parity(topology_client: TestClient):
     assert isinstance(body["investigations"], list)
     assert isinstance(body["device_stats"], dict)
     assert isinstance(body["limitations"], list)
+
+    topology_facts = body["topology_facts"]
+    assert set(topology_facts.keys()) == {"stale_threshold_hours", "network_facts"}
+    assert topology_facts["stale_threshold_hours"] is None
+    assert isinstance(topology_facts["network_facts"], list)
 
 
 def test_evidence_graph_api_unknown_network_returns_404_detail(topology_client: TestClient):

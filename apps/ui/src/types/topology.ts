@@ -1,6 +1,7 @@
 /** Topology and mesh evidence-graph API types. */
 
 import type { DeviceDiagnosticStats, DeviceStatsWindow } from "@/types/devices";
+import type { TopologyNetworkFactsDto } from "@/types/decisions";
 
 export interface TopologyOverview {
   enabled: boolean;
@@ -238,6 +239,7 @@ export interface TopologyEvidenceGraphDetail extends TopologyNetworkDetail {
   device_stats_window: DeviceStatsWindow;
   limitations: string[];
   counts: TopologyEvidenceGraphCounts;
+  topology_facts: TopologyNetworkFactsDto;
 }
 
 /* ------------------------------------------------------------------------ */

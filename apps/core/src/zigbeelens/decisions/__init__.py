@@ -15,6 +15,18 @@ from zigbeelens.decisions.coverage import (
     snapshot_stale,
 )
 from zigbeelens.decisions.reasons import REASON_CODES, ReasonCode
+from zigbeelens.decisions.topology_facts import (
+    TOPOLOGY_FACT_CODES,
+    TopologyFactCode,
+    TopologyFacts,
+    build_device_latest_topology_facts,
+    build_device_snapshot_comparison_facts,
+    build_network_topology_facts,
+    build_topology_facts_from_evidence_graph,
+    normalize_device_ieee,
+    topology_device_facts_payload,
+    topology_network_facts_payload,
+)
 from zigbeelens.decisions.types import (
     CoverageDimension,
     CoverageLabelCode,
@@ -47,6 +59,16 @@ __all__ = [
     "EvidenceReference",
     "ReasonCode",
     "SuggestedCheck",
+    "TOPOLOGY_FACT_CODES",
+    "TopologyFactCode",
+    "TopologyFacts",
+    "build_device_latest_topology_facts",
+    "build_device_snapshot_comparison_facts",
+    "build_network_topology_facts",
+    "build_topology_facts_from_evidence_graph",
+    "normalize_device_ieee",
+    "topology_device_facts_payload",
+    "topology_network_facts_payload",
     "availability_history_building",
     "availability_status_unknown",
     "availability_tracking_off",

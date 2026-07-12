@@ -1,3 +1,5 @@
+import type { TopologyDeviceFactsDto } from "@/types/decisions";
+
 /** Device-centric API types from Core topology and device endpoints. */
 
 /** Snapshot-comparison status for one device. About the comparison only, never device health. */
@@ -57,6 +59,7 @@ export interface DeviceSnapshotHistoryDetail {
   latest_snapshot: DeviceSnapshotHistoryRow | null;
   /** Earlier usable snapshots, newest first. */
   snapshots: DeviceSnapshotHistoryRow[];
+  topology_facts: TopologyDeviceFactsDto;
 }
 
 /**

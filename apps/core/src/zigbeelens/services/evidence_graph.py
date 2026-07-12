@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from zigbeelens.decisions.topology_facts import (
+    TopologyFacts,
+    build_topology_facts_from_evidence_graph,
+)
+from zigbeelens.services.topology_facts_composition import compose_network_topology_facts_payload
 from zigbeelens.topology.device_stats import aggregate_device_stats
 from zigbeelens.topology.history import (
     aggregate_historical_evidence,
@@ -13,6 +18,9 @@ from zigbeelens.topology.investigations import aggregate_investigations
 from zigbeelens.topology.passive_hints import aggregate_passive_hints
 
 if TYPE_CHECKING:
+    from datetime import datetime
+    from typing import Any
+
     from zigbeelens.storage.repository import Repository
 
 
@@ -120,6 +128,64 @@ class EvidenceGraphService:
                 "observed_topology_nodes": len(nodes),
             },
         }
+
+    def build_with_network_topology_facts(
+        self,
+        network_id: str,
+        *,
+        stale_after_hours: int | None,
+        now: datetime | None = None,
+    ) -> dict:
+        """Evidence graph payload with network topology facts attached."""
+        body = self.build(network_id)
+        body["topology_facts"] = compose_network_topology_facts_payload(
+            self,
+            body,
+            stale_after_hours=stale_after_hours,
+            now=now,
+        )
+        return body
+
+    def build_topology_facts(
+        self,
+        network_id: str,
+        *,
+        evidence_graph: dict | None = None,
+        now: datetime | None = None,
+        stale_after_hours: int | None = None,
+        device_ieees: list[str] | None = None,
+        device_snapshot_histories: dict[str, dict[str, Any]] | None = None,
+    ) -> TopologyFacts:
+        """Build topology decision facts from stored evidence for one network.
+
+        ``stale_after_hours`` must be supplied by the caller when
+        ``latest_snapshot_stale`` facts are required. When omitted, snapshot
+        age is not compared against any implicit product default.
+        """
+        graph = evidence_graph if evidence_graph is not None else self.build(network_id)
+        return build_topology_facts_from_evidence_graph(
+            network_id=network_id,
+            evidence_graph=graph,
+            device_ieees=device_ieees,
+            device_snapshot_histories=device_snapshot_histories,
+            now=now,
+            stale_after_hours=stale_after_hours,
+        )
+
+    def network_topology_facts_payload(
+        self,
+        evidence_graph: dict,
+        *,
+        stale_after_hours: int | None,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Network topology facts ready for API/report payloads."""
+        return compose_network_topology_facts_payload(
+            self,
+            evidence_graph,
+            stale_after_hours=stale_after_hours,
+            now=now,
+        )
 
 
 def _topology_inventory_counts(repo: Repository, network_id: str) -> dict[str, int]:
