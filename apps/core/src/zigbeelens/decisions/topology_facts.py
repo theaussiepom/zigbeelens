@@ -80,6 +80,11 @@ def _norm(ieee: Any) -> str:
     return str(ieee or "").strip().lower()
 
 
+def normalize_device_ieee(ieee: Any) -> str:
+    """Normalise a device IEEE for topology fact lookups."""
+    return _norm(ieee)
+
+
 def _parse_captured_at(value: Any) -> datetime | None:
     if value is None:
         return None
@@ -375,3 +380,27 @@ def build_topology_facts_from_evidence_graph(
         network_facts=network_facts,
         device_facts=device_facts,
     )
+
+
+def topology_network_facts_payload(
+    facts: TopologyFacts,
+    *,
+    stale_threshold_hours: int | None,
+) -> dict[str, Any]:
+    """Serialise network topology facts for API/report payloads."""
+    return {
+        "stale_threshold_hours": stale_threshold_hours,
+        "network_facts": [fact.model_dump(mode="json") for fact in facts.network_facts],
+    }
+
+
+def topology_device_facts_payload(
+    facts: list[EvidenceFact],
+    *,
+    stale_threshold_hours: int | None,
+) -> dict[str, Any]:
+    """Serialise device topology facts for API/report payloads."""
+    return {
+        "stale_threshold_hours": stale_threshold_hours,
+        "device_facts": [fact.model_dump(mode="json") for fact in facts],
+    }

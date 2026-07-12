@@ -22,6 +22,9 @@ from zigbeelens.decisions.topology_facts import (
     build_device_topology_facts,
     build_network_topology_facts,
     build_topology_facts_from_evidence_graph,
+    normalize_device_ieee,
+    topology_device_facts_payload,
+    topology_network_facts_payload,
 )
 from zigbeelens.decisions.types import (
     CoverageDimension,
@@ -61,6 +64,9 @@ __all__ = [
     "build_device_topology_facts",
     "build_network_topology_facts",
     "build_topology_facts_from_evidence_graph",
+    "normalize_device_ieee",
+    "topology_device_facts_payload",
+    "topology_network_facts_payload",
     "availability_history_building",
     "availability_status_unknown",
     "availability_tracking_off",

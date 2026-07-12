@@ -27,6 +27,7 @@ EVIDENCE_GRAPH_TOP_LEVEL_KEYS = (
     "device_stats_window",
     "limitations",
     "counts",
+    "topology_facts",
 )
 
 EVIDENCE_GRAPH_COUNT_KEYS = (

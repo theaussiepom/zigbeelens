@@ -418,7 +418,13 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
     from zigbeelens.services.evidence_graph import EvidenceGraphService, NetworkNotFoundError
 
     try:
-        return EvidenceGraphService(ctx.repo).build(network_id)
+        service = EvidenceGraphService(ctx.repo)
+        body = service.build(network_id)
+        body["topology_facts"] = service.network_topology_facts_payload(
+            body,
+            stale_after_hours=ctx.config.topology.automatic_capture_interval_hours,
+        )
+        return body
     except NetworkNotFoundError as err:
         raise HTTPException(status_code=404, detail="Network not found") from err
 
@@ -471,11 +477,34 @@ def topology_device_snapshot_history(
     worth_reviewing). Statuses describe snapshot comparison only, never
     device health, and use existing issue signals only.
     """
+    from zigbeelens.decisions.topology_facts import (
+        normalize_device_ieee,
+        topology_device_facts_payload,
+    )
+    from zigbeelens.services.evidence_graph import EvidenceGraphService
     from zigbeelens.topology.device_compare import device_snapshot_history
 
     if ctx.repo.get_network(network_id) is None:
         raise HTTPException(status_code=404, detail="Network not found")
-    return device_snapshot_history(ctx.repo, network_id, ieee_address)
+    history = device_snapshot_history(ctx.repo, network_id, ieee_address)
+    stale_after_hours = ctx.config.topology.automatic_capture_interval_hours
+    service = EvidenceGraphService(ctx.repo)
+    evidence_graph = service.build(network_id)
+    device_key = normalize_device_ieee(ieee_address)
+    facts = service.build_topology_facts(
+        network_id,
+        evidence_graph=evidence_graph,
+        stale_after_hours=stale_after_hours,
+        device_ieees=[ieee_address],
+        device_snapshot_histories={device_key: history},
+    )
+    return {
+        **history,
+        "topology_facts": topology_device_facts_payload(
+            facts.device_facts.get(device_key, []),
+            stale_threshold_hours=stale_after_hours,
+        ),
+    }
 
 
 @router.get("/topology/{network_id}/snapshots/{snapshot_id}")

@@ -51,6 +51,21 @@ export type CoverageLabelCode =
   | "battery_history_sparse"
   | "lqi_history_sparse";
 
+export interface EvidenceFactDto {
+  code: string;
+  params?: Record<string, unknown>;
+}
+
+export interface TopologyNetworkFactsDto {
+  stale_threshold_hours: number | null;
+  network_facts: EvidenceFactDto[];
+}
+
+export interface TopologyDeviceFactsDto {
+  stale_threshold_hours: number | null;
+  device_facts: EvidenceFactDto[];
+}
+
 export interface DecisionReasonDto {
   code: string;
   params?: Record<string, unknown>;

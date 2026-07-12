@@ -158,6 +158,16 @@ const HISTORICAL_ROUTE_LIMITATIONS = [
   "Not observed in the latest snapshot. This alone does not prove a failure.",
 ];
 
+const emptyTopologyNetworkFacts = {
+  stale_threshold_hours: 24,
+  network_facts: [],
+};
+
+const emptyTopologyDeviceFacts = {
+  stale_threshold_hours: 24,
+  device_facts: [],
+};
+
 function makeHistoricalAggregate(
   overrides: Partial<HistoricalEdgeAggregate>,
 ): HistoricalEdgeAggregate {
@@ -245,6 +255,7 @@ const liveDetailWithHistory: TopologyEvidenceGraphDetail = {
     known_inventory_devices: 4,
     observed_topology_nodes: 3,
   },
+  topology_facts: emptyTopologyNetworkFacts,
 };
 
 const LAST_KNOWN_LIMITATIONS = [
@@ -496,6 +507,7 @@ const emptyDeviceHistory: DeviceSnapshotHistoryDetail = {
     comparison_to_latest: null,
   },
   snapshots: [],
+  topology_facts: emptyTopologyDeviceFacts,
 };
 
 beforeEach(() => {
@@ -1496,6 +1508,7 @@ describe("TopologyGraphPage historical evidence on large graphs", () => {
         known_inventory_devices: dense.devices.length,
         observed_topology_nodes: 31,
       },
+      topology_facts: emptyTopologyNetworkFacts,
     };
     return { detail, devices: dense.devices };
   }
@@ -2384,6 +2397,7 @@ const worthReviewingHistory: DeviceSnapshotHistoryDetail = {
       availability_state_near_snapshot: null,
     }),
   ],
+  topology_facts: emptyTopologyDeviceFacts,
 };
 
 /** Availability reporting not enabled in Zigbee2MQTT at all. */
