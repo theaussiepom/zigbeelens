@@ -180,6 +180,7 @@ def test_device_story_headline_codes_are_stable():
     assert "current_issue_present" in DEVICE_STORY_HEADLINE_CODES
     assert "topology_evidence_gap" in DEVICE_STORY_HEADLINE_CODES
     assert "extended_reporting_silence" in DEVICE_STORY_HEADLINE_CODES
+    assert "reported_link_quality_changed" in DEVICE_STORY_HEADLINE_CODES
     assert "weak_reported_lqi" not in DEVICE_STORY_HEADLINE_CODES
 
 
@@ -850,3 +851,236 @@ def test_future_latest_payload_observation_does_not_trigger_rhythm_watch(tmp_pat
     reason_codes = {reason.code for reason in story.reasons}
     assert ReasonCode.reporting_silence_beyond_expected not in reason_codes
     assert ReasonCode.observed_reporting_rhythm not in reason_codes
+
+
+LQI_BASE = datetime(2026, 7, 12, 0, 0, 0, tzinfo=timezone.utc)
+
+
+def _upsert_router_device(
+    repo: Repository,
+    ieee: str,
+    *,
+    availability: str = "online",
+    last_seen: datetime | None = None,
+    battery: int | None = None,
+    linkquality: int | None = None,
+) -> None:
+    repo.upsert_device(
+        network_id="home",
+        ieee_address=ieee,
+        friendly_name=f"Device {ieee}",
+        device_type="Router",
+        power_source="Mains",
+        interview_state="successful",
+    )
+    repo.update_device_current_state(
+        network_id="home",
+        ieee_address=ieee,
+        availability=availability,
+        last_seen=(last_seen or NOW).isoformat(),
+        linkquality=linkquality,
+        battery=battery,
+    )
+
+
+def _insert_lqi_snapshot(
+    repo: Repository,
+    ieee: str,
+    *,
+    linkquality: int,
+    captured_at: datetime,
+) -> None:
+    captured = captured_at.isoformat()
+    repo.db.conn.execute(
+        """
+        INSERT INTO device_snapshots (
+            network_id, ieee_address, availability, last_seen, last_payload_at,
+            linkquality, battery, payload_json, captured_at
+        ) VALUES ('home', ?, 'online', NULL, NULL, ?, NULL, '{}', ?)
+        """,
+        (ieee, linkquality, captured),
+    )
+    repo.db.conn.commit()
+
+
+def _seed_declining_lqi_observations(
+    repo: Repository,
+    ieee: str,
+    *,
+    start: datetime = LQI_BASE,
+) -> None:
+    values = [200] * 44 + [200, 200, 200, 80, 80, 80]
+    for index, value in enumerate(values):
+        _insert_lqi_snapshot(
+            repo,
+            ieee,
+            linkquality=value,
+            captured_at=start + timedelta(minutes=index),
+        )
+
+
+def _healthy_lqi_story_setup(repo: Repository, ieee: str = "0x03") -> None:
+    _enable_availability_tracking(repo, ieee, changed_at=NOW - timedelta(days=3))
+    _link_ha_area(repo, ieee)
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        links=[
+            {
+                "source": "0x02",
+                "target": ieee,
+                "linkquality": 80,
+                "routes": [{"destination": "0x01"}],
+            }
+        ],
+    )
+
+
+def test_declining_lqi_trend_alone_does_not_escalate(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_router_device(repo, "0x03", linkquality=80)
+    _seed_declining_lqi_observations(repo, "0x03")
+    _healthy_lqi_story_setup(repo)
+
+    story = device_story_for_device(repo, "home", "0x03", now=NOW)
+    assert story is not None
+    reason_codes = {reason.code for reason in story.reasons}
+    assert ReasonCode.observed_lqi_trend not in reason_codes
+    assert ReasonCode.reported_lqi_declining not in reason_codes
+    assert story.status is DecisionStatus.no_notable_change
+    assert story.headline_code == HeadlineCode.no_notable_signals
+
+
+def test_declining_lqi_trend_with_stale_last_seen_is_watch(tmp_path: Path):
+    repo = _repo(tmp_path)
+    stale = NOW - timedelta(hours=72)
+    _upsert_router_device(repo, "0x03", linkquality=80, last_seen=stale)
+    _seed_declining_lqi_observations(repo, "0x03")
+    _healthy_lqi_story_setup(repo)
+
+    story = device_story_for_device(repo, "home", "0x03", now=NOW)
+    assert story is not None
+    assert story.status is DecisionStatus.watch
+    assert story.priority is DecisionPriority.low
+    assert story.headline_code == HeadlineCode.reported_link_quality_changed
+    assert any(reason.code == ReasonCode.observed_lqi_trend for reason in story.reasons)
+    assert any(reason.code == ReasonCode.reported_lqi_declining for reason in story.reasons)
+    assert any(reason.code == ReasonCode.last_seen_stale for reason in story.reasons)
+    assert any(
+        limitation.code == "reported_lqi_not_path_failure"
+        for limitation in story.limitations
+    )
+
+
+def test_declining_lqi_trend_with_current_issue_is_worth_reviewing(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_router_device(repo, "0x03", availability="offline", linkquality=80)
+    _seed_declining_lqi_observations(repo, "0x03")
+    _healthy_lqi_story_setup(repo)
+
+    story = device_story_for_device(repo, "home", "0x03", now=NOW)
+    assert story is not None
+    assert story.status is DecisionStatus.worth_reviewing
+    assert story.headline_code == HeadlineCode.current_issue_present
+    assert any(reason.code == ReasonCode.reported_lqi_declining for reason in story.reasons)
+
+
+def test_declining_lqi_trend_with_topology_gap_uses_topology_headline(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_router_device(repo, "0x03", linkquality=80)
+    _seed_declining_lqi_observations(repo, "0x03")
+    _store_topology_gap_fixtures(repo)
+
+    story = device_story_for_device(repo, "home", "0x03", now=NOW)
+    assert story is not None
+    assert story.headline_code == HeadlineCode.topology_evidence_gap
+    assert any(reason.code == ReasonCode.reported_lqi_declining for reason in story.reasons)
+
+
+def test_stable_lqi_trend_does_not_add_reasons(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_router_device(repo, "0x03", linkquality=120)
+    values = [120, 118, 116, 115, 114, 113]
+    for index, value in enumerate(values):
+        _insert_lqi_snapshot(
+            repo,
+            "0x03",
+            linkquality=value,
+            captured_at=LQI_BASE + timedelta(minutes=index),
+        )
+    _healthy_lqi_story_setup(repo)
+
+    story = device_story_for_device(repo, "home", "0x03", now=NOW)
+    assert story is not None
+    reason_codes = {reason.code for reason in story.reasons}
+    assert ReasonCode.observed_lqi_trend not in reason_codes
+    assert ReasonCode.reported_lqi_declining not in reason_codes
+
+
+def _store_recent_missing_link_corroboration_fixtures(
+    repo: Repository,
+    ieee: str = "0x03",
+) -> None:
+    nodes = {
+        "0x01": {"type": "Coordinator"},
+        "0x02": {"type": "Router"},
+        ieee: {"type": "Router"},
+    }
+    _store_snapshot(
+        repo,
+        "snap-old",
+        captured_at=NOW - timedelta(days=1),
+        links=[{"source": ieee, "target": "0x01", "linkquality": 100}],
+        nodes=nodes,
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        links=[
+            {
+                "source": "0x02",
+                "target": ieee,
+                "linkquality": 80,
+                "routes": [{"destination": "0x01"}],
+            }
+        ],
+        nodes=nodes,
+    )
+
+
+def test_declining_lqi_trend_escalates_with_recent_missing_links_without_topology_gap(
+    tmp_path: Path,
+):
+    repo = _repo(tmp_path)
+    ieee = "0x03"
+    _upsert_router_device(repo, ieee, linkquality=80)
+    _seed_declining_lqi_observations(repo, ieee)
+    _enable_availability_tracking(repo, ieee, changed_at=NOW - timedelta(days=3))
+    _link_ha_area(repo, ieee)
+    _store_recent_missing_link_corroboration_fixtures(repo, ieee)
+
+    evidence = load_device_story_evidence(repo, "home", ieee, now=NOW)
+    assert evidence is not None
+    assert evidence.recent_missing_link_count > 0
+    from zigbeelens.decisions.topology_facts import TopologyFactCode
+
+    assert TopologyFactCode.device_has_latest_links in {
+        fact.code for fact in evidence.topology_facts
+    }
+
+    story = device_story_for_device(repo, "home", ieee, now=NOW)
+    assert story is not None
+    reason_codes = {reason.code for reason in story.reasons}
+    assert ReasonCode.latest_snapshot_no_links not in reason_codes
+    assert ReasonCode.reporting_silence_beyond_expected not in reason_codes
+    assert ReasonCode.observed_lqi_trend in reason_codes
+    assert ReasonCode.reported_lqi_declining in reason_codes
+    assert any(
+        limitation.code == "reported_lqi_not_path_failure"
+        for limitation in story.limitations
+    )
+    assert story.status is DecisionStatus.watch
+    assert story.priority is DecisionPriority.low
+    assert story.headline_code == HeadlineCode.reported_link_quality_changed

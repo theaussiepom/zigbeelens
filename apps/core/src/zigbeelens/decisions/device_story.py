@@ -32,6 +32,7 @@ from zigbeelens.decisions.types import (
     EvidenceReference,
     SuggestedCheck,
 )
+from zigbeelens.decisions.lqi_trend import LqiTrend, LqiTrendState, lqi_trend_for_device
 from zigbeelens.decisions.reporting_rhythm import ReportingRhythm, reporting_rhythm_for_device
 from zigbeelens.decisions.reporting_silence import (
     ReportingSilence,
@@ -61,6 +62,7 @@ class HeadlineCode(StrEnum):
     data_coverage_gaps = "data_coverage_gaps"
     no_notable_signals = "no_notable_signals"
     extended_reporting_silence = "extended_reporting_silence"
+    reported_link_quality_changed = "reported_link_quality_changed"
 
 
 class CheckCode(StrEnum):
@@ -81,6 +83,7 @@ class LimitationCode(StrEnum):
     absence_from_latest_not_failure = "absence_from_latest_not_failure"
     availability_limits_interpretation = "availability_limits_interpretation"
     extended_silence_not_failure = "extended_silence_not_failure"
+    reported_lqi_not_path_failure = "reported_lqi_not_path_failure"
 
 
 DEVICE_STORY_HEADLINE_CODES: frozenset[str] = frozenset(
@@ -125,6 +128,7 @@ class DeviceStoryEvidence(BaseModel):
     ha_area: str | None = None
     network_has_usable_ha_areas: bool = False
     reporting_rhythm: ReportingRhythm | None = None
+    lqi_trend: LqiTrend | None = None
 
 
 class DeviceStory(BaseModel):
@@ -267,6 +271,7 @@ def load_device_story_evidence(
         ha_area=ha_enrichment.get("area_name") if ha_enrichment else None,
         network_has_usable_ha_areas=repo.network_has_usable_ha_area_assignments(network_id),
         reporting_rhythm=reporting_rhythm_for_device(repo, network_id, device),
+        lqi_trend=lqi_trend_for_device(repo, network_id, device),
     )
 
 
@@ -401,11 +406,14 @@ def build_device_story(
     if evidence.last_seen is not None and now - evidence.last_seen >= timedelta(
         hours=STALE_LAST_SEEN_HOURS
     ):
+        last_seen_stale = True
         _append_unique_reason(
             reasons,
             ReasonCode.last_seen_stale,
             hours_since_last_seen=int((now - evidence.last_seen).total_seconds() // 3600),
         )
+    else:
+        last_seen_stale = False
 
     if evidence.battery is not None and evidence.battery <= LOW_BATTERY_PERCENT:
         _append_unique_reason(
@@ -426,6 +434,14 @@ def build_device_story(
     _apply_reporting_silence_rules(
         evidence=evidence,
         now=now,
+        reasons=reasons,
+        limitations=limitations,
+        checks=checks,
+    )
+    _apply_lqi_trend_rules(
+        evidence=evidence,
+        topology_gap=topology_gap,
+        last_seen_stale=last_seen_stale,
         reasons=reasons,
         limitations=limitations,
         checks=checks,
@@ -490,6 +506,69 @@ def _apply_reporting_silence_rules(
     return silence
 
 
+def _lqi_trend_escalation_evidence(
+    *,
+    evidence: DeviceStoryEvidence,
+    topology_gap: bool,
+    last_seen_stale: bool,
+) -> bool:
+    """Require corroborating evidence before escalating a declining LQI trend."""
+    if evidence.has_current_issue:
+        return True
+    if topology_gap:
+        return True
+    if last_seen_stale:
+        return True
+    if evidence.recent_missing_link_count > 0:
+        return True
+    return False
+
+
+def _apply_lqi_trend_rules(
+    *,
+    evidence: DeviceStoryEvidence,
+    topology_gap: bool,
+    last_seen_stale: bool,
+    reasons: list[DecisionReason],
+    limitations: list[DecisionLimitation],
+    checks: list[SuggestedCheck],
+) -> LqiTrend | None:
+    """Add trend reasons when declining LQI is corroborated by other evidence."""
+    trend = evidence.lqi_trend
+    if trend is None or trend.state is not LqiTrendState.declining:
+        return trend
+
+    if not _lqi_trend_escalation_evidence(
+        evidence=evidence,
+        topology_gap=topology_gap,
+        last_seen_stale=last_seen_stale,
+    ):
+        return trend
+
+    _append_unique_reason(
+        reasons,
+        ReasonCode.observed_lqi_trend,
+        recent_median=trend.recent_median,
+        earlier_median=trend.earlier_median,
+        delta=trend.delta,
+        latest_value=trend.latest_value,
+        sample_count=trend.sample_count,
+        window_size=trend.window_size,
+    )
+    _append_unique_reason(
+        reasons,
+        ReasonCode.reported_lqi_declining,
+        recent_median=trend.recent_median,
+        earlier_median=trend.earlier_median,
+        delta=trend.delta,
+        latest_value=trend.latest_value,
+    )
+    _append_unique_limitation(limitations, LimitationCode.reported_lqi_not_path_failure)
+    _append_unique_check(checks, CheckCode.compare_earlier_snapshot)
+    _append_unique_check(checks, CheckCode.confirm_reporting_in_z2m)
+    return trend
+
+
 def _resolve_story_outcome(
     *,
     evidence: DeviceStoryEvidence,
@@ -524,6 +603,13 @@ def _resolve_story_outcome(
             DecisionStatus.watch,
             DecisionPriority.low,
             HeadlineCode.extended_reporting_silence,
+        )
+
+    if ReasonCode.reported_lqi_declining in reason_codes:
+        return (
+            DecisionStatus.watch,
+            DecisionPriority.low,
+            HeadlineCode.reported_link_quality_changed,
         )
 
     if ReasonCode.last_seen_stale in reason_codes:
