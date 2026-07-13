@@ -111,14 +111,20 @@ describe("deviceStoryViewModel", () => {
     expect(vm.headlineLead).toMatch(/quieter than the observed cadence/i);
     expect(vm.reasons).toEqual([
       "Usually reports about every 1 hour based on stored payload history.",
-      "No payload observed for 4 hours, beyond the extended-silence threshold of 2 hours 30 minutes.",
+      "No payload observed for 4 hours.",
     ]);
     expect(vm.limitations[0]).toMatch(/does not prove the device failed/i);
     expect(vm.suggestedChecks).toEqual([
       "Confirm the device is powered.",
       "Confirm the device is reporting in Zigbee2MQTT.",
     ]);
-    expect(vm.reasons.join(" ").toLowerCase()).not.toContain("failed");
+    const reasonCopy = vm.reasons.join(" ").toLowerCase();
+    expect(reasonCopy).not.toContain("threshold");
+    expect(reasonCopy).not.toContain("multiplier");
+    expect(reasonCopy).not.toContain("p75");
+    expect(reasonCopy).not.toContain("median");
+    expect(reasonCopy).not.toContain("suspicion");
+    expect(reasonCopy).not.toContain("failed");
   });
 
   it("maps current issue story to review-first status copy", () => {

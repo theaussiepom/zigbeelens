@@ -89,30 +89,46 @@ describe("decisionCopy", () => {
         interval_minutes_max: 1080,
       }),
     ).toBe(
-      "Usually reports every 40 minutes–1 hour 30 minutes based on stored payload history (median 1 hour).",
+      "Usually reports every 40 minutes–1 hour 30 minutes based on stored payload history.",
     );
     expect(
       reasonText("reporting_silence_beyond_expected", {
         silence_minutes: 240,
         extended_silence_threshold_minutes: 150,
       }),
-    ).toBe(
-      "No payload observed for 4 hours, beyond the extended-silence threshold of 2 hours 30 minutes.",
-    );
-    for (const text of [
+    ).toBe("No payload observed for 4 hours.");
+    expect(
+      reasonText("reporting_silence_beyond_expected", {
+        extended_silence_threshold_minutes: 150,
+      }),
+    ).toBe("Current payload silence is longer than the observed reporting cadence.");
+    const phase4bReasonTexts = [
       reasonText("observed_reporting_rhythm", {
         interval_minutes_p25: 60,
         interval_minutes_median: 60,
         interval_minutes_p75: 60,
         interval_minutes_max: 60,
       }),
+      reasonText("observed_reporting_rhythm", {
+        interval_minutes_p25: 40,
+        interval_minutes_median: 60,
+        interval_minutes_p75: 90,
+        interval_minutes_max: 1080,
+      }),
       reasonText("reporting_silence_beyond_expected", {
         silence_minutes: 240,
         extended_silence_threshold_minutes: 150,
       }),
-    ]) {
-      expect(text.toLowerCase()).not.toContain("failed");
-      expect(text.toLowerCase()).not.toContain("suspicious");
+    ];
+    for (const text of phase4bReasonTexts) {
+      const lower = text.toLowerCase();
+      expect(lower).not.toContain("failed");
+      expect(lower).not.toContain("suspicious");
+      expect(lower).not.toContain("threshold");
+      expect(lower).not.toContain("multiplier");
+      expect(lower).not.toContain("p75");
+      expect(lower).not.toContain("median");
+      expect(lower).not.toContain("suspicion");
     }
     expect(
       JSON.stringify({

@@ -109,23 +109,21 @@ const REASON_COPY: Record<ReasonCode, CopyRenderer> = {
   insufficient_history: () => "Not enough history is available yet for a stronger judgement.",
   observed_reporting_rhythm: (params) => {
     const p25 = countParam(params, "interval_minutes_p25");
-    const median = countParam(params, "interval_minutes_median");
     const p75 = countParam(params, "interval_minutes_p75");
-    if (p25 === null || p75 === null || median === null) {
+    if (p25 === null || p75 === null) {
       return "Stored payload observations show a reporting rhythm for this device.";
     }
     if (p25 === p75) {
       return `Usually reports about every ${formatMinuteSpan(p25)} based on stored payload history.`;
     }
-    return `Usually reports every ${formatMinuteSpan(p25)}–${formatMinuteSpan(p75)} based on stored payload history (median ${formatMinuteSpan(median)}).`;
+    return `Usually reports every ${formatMinuteSpan(p25)}–${formatMinuteSpan(p75)} based on stored payload history.`;
   },
   reporting_silence_beyond_expected: (params) => {
     const silenceMinutes = countParam(params, "silence_minutes");
-    const thresholdMinutes = countParam(params, "extended_silence_threshold_minutes");
-    if (silenceMinutes === null || thresholdMinutes === null) {
+    if (silenceMinutes === null) {
       return "Current payload silence is longer than the observed reporting cadence.";
     }
-    return `No payload observed for ${formatMinuteSpan(silenceMinutes)}, beyond the extended-silence threshold of ${formatMinuteSpan(thresholdMinutes)}.`;
+    return `No payload observed for ${formatMinuteSpan(silenceMinutes)}.`;
   },
 };
 

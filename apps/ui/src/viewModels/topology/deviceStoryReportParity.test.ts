@@ -130,6 +130,8 @@ describe("deviceStory report parity", () => {
     expect(markdown).toContain(viewModel.limitations[0]!);
     expect(markdown).not.toContain("extended_reporting_silence");
     expect(markdown).not.toContain("reporting_silence_beyond_expected");
+    expect(markdown).not.toContain("extended-silence threshold");
+    expect(markdown).not.toContain("threshold of");
     expect(markdown).not.toContain("suspicion_threshold_minutes");
 
     const report = buildMeshEvidenceReport({
