@@ -27,7 +27,6 @@ from zigbeelens.decisions.device_story import (
 from zigbeelens.decisions.reporting_rhythm import (
     ReportingRhythm,
     ReportingRhythmState,
-    SilenceState,
     build_reporting_rhythm,
     is_sleepy_device_candidate,
     reporting_rhythm_for_device,
@@ -82,7 +81,6 @@ __all__ = [
     "ReasonCode",
     "ReportingRhythm",
     "ReportingRhythmState",
-    "SilenceState",
     "SuggestedCheck",
     "TOPOLOGY_FACT_CODES",
     "TopologyFactCode",

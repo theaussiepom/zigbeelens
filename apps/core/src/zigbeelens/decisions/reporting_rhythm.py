@@ -1,8 +1,7 @@
 """Observed reporting rhythm for sleepy battery devices (Phase 4B-1).
 
-Learns typical payload-reporting intervals from stored device snapshots and
-classifies current silence against that rhythm. Outputs coded facts only —
-presenters map them to cautious copy. Does not claim device failure.
+Describes historical payload-reporting cadence from stored device snapshots.
+Outputs coded facts only — no current-silence judgement (Phase 4B-2).
 """
 
 from __future__ import annotations
@@ -14,21 +13,17 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from zigbeelens.decisions.topology_facts import normalize_device_ieee
+
 if TYPE_CHECKING:
     from zigbeelens.storage.repository import DeviceRow, Repository
 
 # Bounded history window for rhythm calculation.
 MAX_SNAPSHOTS = 50
-# Minimum filtered interval samples required before claiming a rhythm.
-MIN_INTERVAL_SAMPLES = 4
-# Gaps larger than this multiple of the median interval are treated as collector downtime.
-COLLECTOR_GAP_MULTIPLIER = 4.0
-# Absolute floor for treating a gap as collector downtime (minutes).
-COLLECTOR_GAP_FLOOR_MINUTES = 12 * 60
-# Silence beyond p75 * this multiplier may be classified as beyond_expected.
-SUSPICION_MULTIPLIER = 2.5
-# Ignore very short silence when classifying against rhythm.
-MIN_SILENCE_MINUTES_FOR_CLASSIFICATION = 30
+# Minimum positive interval samples before claiming a rhythm. Requires nine
+# distinct payload observations because sleepy devices may emit short bursts of
+# closely spaced payloads that are not yet a stable cadence.
+MIN_INTERVAL_SAMPLES = 8
 
 
 class ReportingRhythmState(StrEnum):
@@ -37,14 +32,6 @@ class ReportingRhythmState(StrEnum):
     not_applicable = "not_applicable"
     insufficient_history = "insufficient_history"
     rhythm_available = "rhythm_available"
-
-
-class SilenceState(StrEnum):
-    """How current silence compares to the observed rhythm."""
-
-    within_expected = "within_expected"
-    beyond_expected = "beyond_expected"
-    unknown = "unknown"
 
 
 class ReportingRhythm(BaseModel):
@@ -58,8 +45,7 @@ class ReportingRhythm(BaseModel):
     interval_minutes_p25: int | None = None
     interval_minutes_median: int | None = None
     interval_minutes_p75: int | None = None
-    silence_minutes: int | None = None
-    silence_state: SilenceState | None = None
+    latest_observed_at: datetime | None = None
     params: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -98,7 +84,7 @@ def _observation_times(snapshots: list[dict[str, Any]]) -> list[datetime]:
     times: list[datetime] = []
     seen: set[datetime] = set()
     for row in snapshots:
-        observed_at = _parse_ts(row.get("last_payload_at")) or _parse_ts(row.get("captured_at"))
+        observed_at = _parse_ts(row.get("last_payload_at"))
         if observed_at is None or observed_at in seen:
             continue
         seen.add(observed_at)
@@ -111,41 +97,15 @@ def _interval_minutes(start: datetime, end: datetime) -> int:
     return max(0, int((end - start).total_seconds() // 60))
 
 
-def _filter_collector_gaps(intervals: list[int]) -> list[int]:
-    if not intervals:
-        return []
-    preliminary_median = int(median(intervals))
-    threshold = max(
-        int(preliminary_median * COLLECTOR_GAP_MULTIPLIER),
-        COLLECTOR_GAP_FLOOR_MINUTES,
-    )
-    return [gap for gap in intervals if gap <= threshold]
-
-
-def _classify_silence(
-    silence_minutes: int,
-    *,
-    interval_minutes_p75: int,
-) -> SilenceState:
-    if silence_minutes < MIN_SILENCE_MINUTES_FOR_CLASSIFICATION:
-        return SilenceState.within_expected
-    threshold = max(
-        int(interval_minutes_p75 * SUSPICION_MULTIPLIER),
-        MIN_SILENCE_MINUTES_FOR_CLASSIFICATION,
-    )
-    if silence_minutes > threshold:
-        return SilenceState.beyond_expected
-    return SilenceState.within_expected
-
-
 def build_reporting_rhythm(
     *,
     device_ieee: str,
     observation_times: list[datetime],
-    now: datetime,
     applicable: bool,
 ) -> ReportingRhythm:
-    """Compute rhythm facts from deduplicated observation timestamps."""
+    """Compute rhythm facts from deduplicated payload observation timestamps."""
+    latest_observed_at = observation_times[-1] if observation_times else None
+
     if not applicable:
         return ReportingRhythm(
             subject_id=device_ieee,
@@ -153,53 +113,31 @@ def build_reporting_rhythm(
         )
 
     observation_count = len(observation_times)
-    if observation_count < MIN_INTERVAL_SAMPLES + 1:
-        return ReportingRhythm(
-            subject_id=device_ieee,
-            state=ReportingRhythmState.insufficient_history,
-            observation_count=observation_count,
-        )
-
     raw_intervals = [
         _interval_minutes(observation_times[index - 1], observation_times[index])
         for index in range(1, len(observation_times))
     ]
-    intervals = [gap for gap in _filter_collector_gaps(raw_intervals) if gap > 0]
+    intervals = [interval for interval in raw_intervals if interval > 0]
+
     if len(intervals) < MIN_INTERVAL_SAMPLES:
         return ReportingRhythm(
             subject_id=device_ieee,
             state=ReportingRhythmState.insufficient_history,
             observation_count=observation_count,
             interval_sample_count=len(intervals),
+            latest_observed_at=latest_observed_at,
         )
 
     sorted_intervals = sorted(intervals)
-    p25 = _percentile(sorted_intervals, 0.25)
-    p75 = _percentile(sorted_intervals, 0.75)
-    median_minutes = int(median(sorted_intervals))
-    silence_minutes = _interval_minutes(observation_times[-1], now)
-    silence_state = _classify_silence(silence_minutes, interval_minutes_p75=p75)
-
     return ReportingRhythm(
         subject_id=device_ieee,
         state=ReportingRhythmState.rhythm_available,
         observation_count=observation_count,
         interval_sample_count=len(intervals),
-        interval_minutes_p25=p25,
-        interval_minutes_median=median_minutes,
-        interval_minutes_p75=p75,
-        silence_minutes=silence_minutes,
-        silence_state=silence_state,
-        params={
-            "collector_gap_threshold_minutes": max(
-                int(median_minutes * COLLECTOR_GAP_MULTIPLIER),
-                COLLECTOR_GAP_FLOOR_MINUTES,
-            ),
-            "suspicion_threshold_minutes": max(
-                int(p75 * SUSPICION_MULTIPLIER),
-                MIN_SILENCE_MINUTES_FOR_CLASSIFICATION,
-            ),
-        },
+        interval_minutes_p25=_percentile(sorted_intervals, 0.25),
+        interval_minutes_median=int(median(sorted_intervals)),
+        interval_minutes_p75=_percentile(sorted_intervals, 0.75),
+        latest_observed_at=latest_observed_at,
     )
 
 
@@ -207,20 +145,20 @@ def reporting_rhythm_for_device(
     repo: Repository,
     network_id: str,
     device_ieee: str,
-    *,
-    now: datetime | None = None,
 ) -> ReportingRhythm | None:
     """Load stored snapshots and compute reporting rhythm for one device."""
-    device = repo.get_device(network_id, device_ieee)
-    if device is None:
+    device = normalize_device_ieee(device_ieee)
+    if not device:
         return None
 
-    now = now or datetime.now(timezone.utc)
-    snapshots = repo.list_device_snapshots(network_id, device_ieee, limit=MAX_SNAPSHOTS)
+    device_row = repo.devices.get_device(network_id, device)
+    if device_row is None:
+        return None
+
+    snapshots = repo.devices.list_device_snapshots(network_id, device, limit=MAX_SNAPSHOTS)
     observation_times = _observation_times(list(reversed(snapshots)))
     return build_reporting_rhythm(
-        device_ieee=device_ieee,
+        device_ieee=device,
         observation_times=observation_times,
-        now=now,
-        applicable=is_sleepy_device_candidate(device),
+        applicable=is_sleepy_device_candidate(device_row),
     )

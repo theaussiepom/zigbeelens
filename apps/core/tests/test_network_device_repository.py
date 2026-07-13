@@ -102,3 +102,36 @@ def test_device_repository_delegates_counts(tmp_path: Path) -> None:
 def test_device_repository_cached_on_repository_instance(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     assert repo.devices is repo.devices
+
+
+def test_device_repository_delegates_list_device_snapshots(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    repo.upsert_device(
+        network_id="home",
+        ieee_address="0x03",
+        friendly_name="Sensor",
+        device_type="EndDevice",
+        power_source="Battery",
+    )
+    for captured_at in (
+        "2026-07-13T01:00:00+00:00",
+        "2026-07-13T02:00:00+00:00",
+        "2026-07-13T03:00:00+00:00",
+    ):
+        repo.db.conn.execute(
+            """
+            INSERT INTO device_snapshots (
+                network_id, ieee_address, availability, last_seen, last_payload_at,
+                linkquality, battery, payload_json, captured_at
+            ) VALUES ('home', '0x03', 'online', ?, ?, 120, 80, '{}', ?)
+            """,
+            (captured_at, captured_at, captured_at),
+        )
+    repo.db.conn.commit()
+
+    via_repo = repo.list_device_snapshots("home", "0x03", limit=2)
+    via_access = repo.devices.list_device_snapshots("home", "0x03", limit=2)
+
+    assert via_access == via_repo
+    assert len(via_access) == 2
+    assert via_access[0]["captured_at"] >= via_access[1]["captured_at"]
