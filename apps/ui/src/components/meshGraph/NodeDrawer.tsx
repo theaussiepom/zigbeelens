@@ -66,7 +66,7 @@ function DeviceDetailsSection({ section }: { section: DeviceDetailsSectionViewMo
     case "dataCoverage":
       return (
         <DrawerSection title={section.title}>
-          <EvidenceCoverageStrip title={section.coverageTitle} items={section.items} />
+          <EvidenceCoverageStrip items={section.items} />
         </DrawerSection>
       );
     case "openIssue":

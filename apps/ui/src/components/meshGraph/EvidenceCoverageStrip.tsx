@@ -26,16 +26,18 @@ export function EvidenceCoverageStrip({
   title,
   items,
 }: {
-  title: string;
+  title?: string;
   items: EvidenceCoverageItemViewModel[];
 }) {
   if (items.length === 0) return null;
 
   return (
     <div data-testid="evidence-coverage-strip" className="space-y-1.5">
-      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-zl-muted">
-        {title}
-      </h3>
+      {title ? (
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-zl-muted">
+          {title}
+        </h3>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         {items.map((item) => (
           <CoveragePill key={item.label} item={item} />

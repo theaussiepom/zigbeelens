@@ -25,7 +25,6 @@ import {
   DEVICE_SECTION_STATUS,
   DEVICE_SECTION_SUMMARY,
   DEVICE_SECTION_TOPOLOGY,
-  EVIDENCE_COVERAGE_STRIP_TITLE,
 } from "@/lib/meshGraphCopy";
 
 export type DeviceDetailsSectionId =
@@ -92,7 +91,6 @@ export interface DeviceDetailsSnapshotHistorySectionViewModel {
 export interface DeviceDetailsDataCoverageSectionViewModel {
   id: "dataCoverage";
   title: string;
-  coverageTitle: string;
   items: ReturnType<typeof buildEvidenceCoverageStripViewModel>["items"];
 }
 
@@ -231,7 +229,6 @@ function buildDataCoverageSection(
   return {
     id: "dataCoverage",
     title: DEVICE_SECTION_DATA_COVERAGE,
-    coverageTitle: EVIDENCE_COVERAGE_STRIP_TITLE,
     items: strip.items,
   };
 }

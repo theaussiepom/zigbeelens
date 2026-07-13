@@ -1375,6 +1375,32 @@ describe("TopologyGraphPage historical evidence (live)", () => {
     expect(screen.queryByTestId("evidence-coverage-strip")).not.toBeInTheDocument();
   });
 
+  it("renders Evidence coverage once in the device details drawer", async () => {
+    mockDetail = {
+      ...liveDetailWithHistory,
+      topology_facts: {
+        ...emptyTopologyNetworkFacts,
+        coverage: [
+          {
+            dimension: "availability",
+            state: "off",
+            label_code: "availability_tracking_off",
+          },
+          {
+            dimension: "route_hints",
+            state: "not_observed",
+            label_code: "route_hints_unavailable",
+          },
+        ],
+      },
+    };
+    await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(within(drawer).getByText("Availability tracking off")).toBeInTheDocument();
+    expect(within(drawer).getAllByText("Evidence coverage")).toHaveLength(1);
+  });
+
   it("frames the historical neighbour details panel as previous-snapshot evidence, never live routing", async () => {
     const user = userEvent.setup();
     await renderLiveAndWaitForLayout();

@@ -140,6 +140,7 @@ class EvidenceGraphService:
         body = self.build(network_id)
         body["topology_facts"] = compose_network_topology_facts_payload(
             self,
+            self._repo,
             body,
             stale_after_hours=stale_after_hours,
             now=now,
@@ -182,6 +183,7 @@ class EvidenceGraphService:
         """Network topology facts ready for API/report payloads."""
         return compose_network_topology_facts_payload(
             self,
+            self._repo,
             evidence_graph,
             stale_after_hours=stale_after_hours,
             now=now,

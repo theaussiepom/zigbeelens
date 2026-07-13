@@ -37,6 +37,7 @@ def topology_stale_threshold_hours(config: AppConfig) -> int | None:
 
 def compose_network_topology_facts_payload(
     service: EvidenceGraphService,
+    repo: Repository,
     evidence_graph: dict[str, Any],
     *,
     stale_after_hours: int | None,
@@ -49,7 +50,6 @@ def compose_network_topology_facts_payload(
         stale_after_hours=stale_after_hours,
     )
     network_id = evidence_graph["network_id"]
-    repo = service._repo
     coverage = build_network_topology_coverage(
         facts.network_facts,
         tracking_enabled_now=availability_tracking_enabled_now(repo, network_id),
