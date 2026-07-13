@@ -9,6 +9,7 @@ import pytest
 
 from zigbeelens.config.models import AppConfig, ModeConfig, NetworkConfig, StorageConfig
 from zigbeelens.db.connection import Database
+from zigbeelens.decisions.router_area import observed_router_areas_for_network
 from zigbeelens.services.evidence_graph import EvidenceGraphService, NetworkNotFoundError
 from zigbeelens.storage.repository import Repository
 from zigbeelens.topology.history import RECENT_HISTORY_WINDOW_DAYS
@@ -127,3 +128,20 @@ def test_build_empty_snapshot_state(tmp_path: Path):
     assert body["layout_available"] is False
     assert body["counts"]["latest_snapshot_neighbor_edges"] == 0
     assert body["counts"]["latest_snapshot_route_edges"] == 0
+
+
+def test_build_composes_observed_router_areas_once(monkeypatch, tmp_path: Path):
+    repo = _repo(tmp_path)
+    service = EvidenceGraphService(repo)
+    calls = {"count": 0}
+    original = observed_router_areas_for_network
+
+    def _spy(*args, **kwargs):
+        calls["count"] += 1
+        return original(*args, **kwargs)
+
+    from zigbeelens.services import evidence_graph as evidence_graph_module
+
+    monkeypatch.setattr(evidence_graph_module, "observed_router_areas_for_network", _spy)
+    service.build("home")
+    assert calls["count"] == 1

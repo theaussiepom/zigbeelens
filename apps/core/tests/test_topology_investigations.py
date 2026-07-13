@@ -27,6 +27,7 @@ from zigbeelens.topology.investigations import (
     REPEATED_OFFLINE_MIN_COUNT,
     ROUTER_REVIEW_MIN_ISSUE_NEIGHBOURS,
     ROUTER_REVIEW_MIN_LINKS,
+    ROUTER_AREA_LIMITATION,
     SHARED_AVAILABILITY_EVENT_BASE_WEIGHT,
     SHARED_AVAILABILITY_EVENT_LIMITATION,
     STALE_LAST_SEEN_HOURS,
@@ -63,6 +64,33 @@ FORBIDDEN_PHRASES = [
     "shared path",
 ]
 
+ROUTER_AREA_FORBIDDEN_PHRASES = [
+    *FORBIDDEN_PHRASES,
+    "route through router",
+    "common parent",
+    "coverage area",
+    "served by router",
+    "router failure",
+    "router caused",
+]
+
+
+def _router_area_claim_text(card: dict) -> str:
+    return json.dumps(
+        {
+            "title": card["title"],
+            "summary": card["summary"],
+            "why_it_matters": card["why_it_matters"],
+            "supporting_evidence": card["supporting_evidence"],
+            "suggested_next_steps": card["suggested_next_steps"],
+        }
+    ).lower()
+
+
+def _router_review_card(result: dict) -> dict | None:
+    cards = [c for c in result["investigations"] if c["type"] == "router_neighbourhood_review"]
+    return cards[0] if cards else None
+
 
 def _device(
     ieee: str,
@@ -89,14 +117,14 @@ def _device(
     )
 
 
-def _link(source: str, target: str, *, lqi: int = 100) -> dict:
+def _link(source: str, target: str, *, lqi: int = 100, route_count: int | None = None) -> dict:
     return {
         "source_ieee": source,
         "target_ieee": target,
         "linkquality": lqi,
         "source_type": None,
         "target_type": None,
-        "route_count": None,
+        "route_count": route_count,
         "relationship": None,
     }
 
@@ -332,7 +360,7 @@ def test_topology_corroboration_raises_score_but_cannot_create_cards():
     assert corroborated_card["score"] == base_card["score"] + TOPOLOGY_CORROBORATION_WEIGHT
 
 
-def test_router_review_uses_observed_neighbourhood_wording():
+def test_router_review_uses_observed_router_area_wording():
     neighbours = [f"0xn{i}" for i in range(ROUTER_REVIEW_MIN_LINKS)]
     devices = [_device("0xr1", device_type="Router", name="Kitchen router")]
     devices += [
@@ -354,11 +382,13 @@ def test_router_review_uses_observed_neighbourhood_wording():
     assert len(cards) == 1
     card = cards[0]
     assert card["primary_device_ieee"] == "0xr1"
-    assert "observed neighbour" in card["summary"]
-    text = json.dumps(card).lower()
-    for phrase in FORBIDDEN_PHRASES:
+    assert card["title"] == "Review observed router area: Kitchen router"
+    assert "observed router area" in card["summary"]
+    assert "latest topology snapshot" in json.dumps(card["supporting_evidence"]).lower()
+    text = _router_area_claim_text(card)
+    for phrase in ROUTER_AREA_FORBIDDEN_PHRASES:
         assert phrase not in text, phrase
-    assert "not a claim that this router is responsible" in card["why_it_matters"]
+    assert ROUTER_AREA_LIMITATION in card["limitations"]
     assert card["action_group"] == "review_observed_router_area"
 
 
@@ -933,3 +963,198 @@ def test_passive_pairwise_hints_unchanged_when_shared_events_present():
         c for c in combined_result["investigations"] if c["type"] == "passive_instability_group"
     ]
     assert passive_cards == combined_passive
+
+
+def test_router_review_below_latest_threshold_does_not_qualify_without_multi_source():
+    neighbours = [f"0xn{i}" for i in range(ROUTER_REVIEW_MIN_LINKS - 1)]
+    devices = [_device("0xr1", device_type="Router")]
+    devices += [
+        _device(ieee, availability="offline" if i < 2 else "online")
+        for i, ieee in enumerate(neighbours)
+    ]
+    links = [_link("0xr1", ieee) for ieee in neighbours]
+    result = _build(
+        devices=devices,
+        latest_nodes=[{"ieee_address": d.ieee_address} for d in devices],
+        latest_links=links,
+    )
+    assert _router_review_card(result) is None
+
+
+def test_router_review_multi_source_qualifies_with_fewer_latest_links():
+    devices = [
+        _device("0xr1", device_type="Router", name="Hall router"),
+        _device("0xa1", availability="offline"),
+        _device("0xa2", availability="offline"),
+        _device("0xa3"),
+        _device("0xa4"),
+    ]
+    links = [_link("0xr1", ieee) for ieee in ("0xa1", "0xa2", "0xa3")]
+    history = {
+        "historical_neighbors": [
+            {
+                "source_ieee": "0xr1",
+                "target_ieee": "0xa4",
+                "evidence_class": "historical_neighbor",
+                "last_seen_at": NOW.isoformat(),
+            }
+        ],
+        "historical_routes": [],
+    }
+    result = _build(
+        devices=devices,
+        latest_nodes=[{"ieee_address": d.ieee_address} for d in devices],
+        latest_links=links,
+        history=history,
+    )
+    card = _router_review_card(result)
+    assert card is not None
+    assert "recent missing topology evidence" in json.dumps(card["supporting_evidence"]).lower()
+
+
+def test_passive_hints_alone_do_not_qualify_router_review():
+    devices = [
+        _device("0xr1", device_type="Router"),
+        _device("0xa1", availability="offline"),
+        _device("0xa2", availability="offline"),
+    ]
+    result = _build(
+        devices=devices,
+        passive_hints=[
+            _passive_hint("0xr1", "0xa1"),
+            _passive_hint("0xr1", "0xa2"),
+        ],
+    )
+    assert _router_review_card(result) is None
+
+
+def test_topology_evidence_alone_does_not_create_current_issues():
+    neighbours = [f"0xn{i}" for i in range(ROUTER_REVIEW_MIN_LINKS)]
+    devices = [_device("0xr1", device_type="Router")]
+    devices += [_device(ieee) for ieee in neighbours]
+    links = [_link("0xr1", ieee) for ieee in neighbours]
+    result = _build(
+        devices=devices,
+        latest_nodes=[{"ieee_address": d.ieee_address} for d in devices],
+        latest_links=links,
+    )
+    assert _router_review_card(result) is None
+
+
+def test_router_review_produces_one_card_per_observed_router_area():
+    neighbours = [f"0xn{i}" for i in range(ROUTER_REVIEW_MIN_LINKS)]
+    devices = [_device("0xr1", device_type="Router")]
+    devices += [
+        _device(ieee, availability="offline" if i < 2 else "online")
+        for i, ieee in enumerate(neighbours)
+    ]
+    links = [_link("0xr1", ieee) for ieee in neighbours]
+    result = _build(
+        devices=devices,
+        latest_nodes=[{"ieee_address": d.ieee_address} for d in devices],
+        latest_links=links,
+    )
+    cards = [c for c in result["investigations"] if c["type"] == "router_neighbourhood_review"]
+    assert len(cards) == 1
+
+
+def test_router_review_route_hints_use_route_hint_wording():
+    neighbours = [f"0xn{i}" for i in range(ROUTER_REVIEW_MIN_LINKS)]
+    devices = [_device("0xr1", device_type="Router")]
+    devices += [
+        _device(ieee, availability="offline" if i < 2 else "online")
+        for i, ieee in enumerate(neighbours)
+    ]
+    links = [
+        _link("0xr1", ieee, route_count=2 if ieee == neighbours[0] else None)
+        for ieee in neighbours
+    ]
+    result = _build(
+        devices=devices,
+        latest_nodes=[{"ieee_address": d.ieee_address} for d in devices],
+        latest_links=links,
+    )
+    card = _router_review_card(result)
+    assert card is not None
+    evidence = json.dumps(card["supporting_evidence"]).lower()
+    assert "route hints" in evidence
+    assert "currently routed" not in evidence
+    assert "current route" not in evidence
+
+
+def test_router_review_device_ieees_prioritise_router_and_issue_devices():
+    neighbours = [f"0xn{i}" for i in range(ROUTER_REVIEW_MIN_LINKS)]
+    devices = [_device("0xr1", device_type="Router")]
+    devices += [
+        _device(ieee, availability="offline" if i < 2 else "online")
+        for i, ieee in enumerate(neighbours)
+    ]
+    links = [_link("0xr1", ieee) for ieee in neighbours]
+    passive_only = [f"0xp{i}" for i in range(MAX_DEVICES_PER_CARD)]
+    devices += [_device(ieee) for ieee in passive_only]
+    hints = [_passive_hint("0xr1", ieee) for ieee in passive_only]
+    result = _build(
+        devices=devices,
+        latest_nodes=[{"ieee_address": d.ieee_address} for d in devices],
+        latest_links=links,
+        passive_hints=hints,
+    )
+    card = _router_review_card(result)
+    assert card is not None
+    assert card["device_ieees"][0] == "0xr1"
+    assert card["device_ieees"][1] in {"0xn0", "0xn1"}
+    assert not any(ieee.startswith("0xp") for ieee in card["device_ieees"][:3])
+
+
+def test_router_review_skips_generic_tailored_member_evidence():
+    neighbours = [f"0xn{i}" for i in range(ROUTER_REVIEW_MIN_LINKS)]
+    devices = [_device("0xr1", device_type="Router")]
+    devices += [
+        _device(
+            ieee,
+            availability="offline" if i < 2 else "online",
+            battery=LOW_BATTERY_PERCENT - 1 if i == 2 else None,
+        )
+        for i, ieee in enumerate(neighbours)
+    ]
+    links = [_link("0xr1", ieee) for ieee in neighbours]
+    result = _build(
+        devices=devices,
+        latest_nodes=[{"ieee_address": d.ieee_address} for d in devices],
+        latest_links=links,
+    )
+    card = _router_review_card(result)
+    assert card is not None
+    assert "battery" not in json.dumps(card).lower()
+
+
+def test_router_review_edge_ids_reference_real_graph_schemes():
+    neighbours = [f"0xn{i}" for i in range(ROUTER_REVIEW_MIN_LINKS)]
+    devices = [_device("0xr1", device_type="Router")]
+    devices += [
+        _device(ieee, availability="offline" if i < 2 else "online")
+        for i, ieee in enumerate(neighbours)
+    ]
+    links = [_link("0xr1", ieee) for ieee in neighbours]
+    history = {
+        "historical_neighbors": [
+            {
+                "source_ieee": "0xr1",
+                "target_ieee": "0xn0",
+                "evidence_class": "historical_neighbor",
+                "last_seen_at": NOW.isoformat(),
+            }
+        ],
+        "historical_routes": [],
+    }
+    result = _build(
+        devices=devices,
+        latest_nodes=[{"ieee_address": d.ieee_address} for d in devices],
+        latest_links=links,
+        history=history,
+        passive_hints=[_passive_hint("0xr1", "0xn2")],
+    )
+    card = _router_review_card(result)
+    assert card is not None
+    assert any(edge.startswith("live-neighbor-") for edge in card["edge_ids"])
+    assert all(not edge.startswith("ha-") for edge in card["edge_ids"])
