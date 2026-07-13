@@ -34,26 +34,14 @@ from zigbeelens.decisions.types import (
 )
 from zigbeelens.topology.device_compare import (
     COVERAGE_BUILDING,
-    COVERAGE_OFF,
     COVERAGE_UNKNOWN,
     device_snapshot_history,
 )
 from zigbeelens.topology.history import aggregate_historical_evidence, aggregate_last_known_links
-from zigbeelens.topology.investigations import (
-    LOW_BATTERY_PERCENT,
-    STALE_LAST_SEEN_HOURS,
-    WEAK_LINK_LQI,
-)
-from zigbeelens.topology.passive_hints import aggregate_passive_hints
+from zigbeelens.topology.investigations import LOW_BATTERY_PERCENT, STALE_LAST_SEEN_HOURS
 
 if TYPE_CHECKING:
     from zigbeelens.storage.repository import Repository
-
-_METRIC_SAMPLE_LIMIT = 50
-_AVAILABILITY_TIMELINE_LIMIT = 5
-_BATTERY_HISTORY_SPARSE_MAX = 2
-_LQI_HISTORY_SPARSE_MAX = 2
-_SNAPSHOT_STALE_HOURS = 24 * 7
 
 
 class HeadlineCode(StrEnum):
@@ -64,7 +52,6 @@ class HeadlineCode(StrEnum):
     availability_tracking_needed = "availability_tracking_needed"
     stale_last_seen = "stale_last_seen"
     low_battery = "low_battery"
-    weak_reported_lqi = "weak_reported_lqi"
     data_coverage_gaps = "data_coverage_gaps"
     no_notable_signals = "no_notable_signals"
 
@@ -92,6 +79,13 @@ DEVICE_STORY_HEADLINE_CODES: frozenset[str] = frozenset(
     member.value for member in HeadlineCode
 )
 
+_INFORMATIONAL_COVERAGE_REASONS = frozenset(
+    {
+        ReasonCode.ha_areas_not_linked,
+        ReasonCode.route_hints_unavailable,
+    }
+)
+
 
 class DeviceStoryTimelineItem(BaseModel):
     code: str
@@ -112,20 +106,16 @@ class DeviceStoryEvidence(BaseModel):
     battery: int | None = None
     has_current_issue: bool = False
     active_incident_ids: list[str] = Field(default_factory=list)
-    battery_metric_sample_count: int = 0
-    lqi_metric_sample_count: int = 0
-    availability_change_count: int = 0
     availability_tracking_enabled: bool = False
+    latest_availability_coverage: str | None = None
     topology_facts: list[EvidenceFact] = Field(default_factory=list)
     recent_missing_link_count: int = 0
     last_known_link_count: int = 0
-    passive_hint_count: int = 0
     route_hints_available: bool = False
     latest_snapshot_id: str | None = None
     latest_snapshot_captured_at: datetime | None = None
     ha_area: str | None = None
     network_has_usable_ha_areas: bool = False
-    snapshot_availability_coverage: set[str] = Field(default_factory=set)
 
 
 class DeviceStory(BaseModel):
@@ -174,10 +164,6 @@ def _count_touching_device(items: list[dict[str, Any]], device: str) -> int:
     return count
 
 
-def _metric_sample_count(samples: list[dict[str, Any]], metric_name: str) -> int:
-    return sum(1 for sample in samples if sample.get("metric_name") == metric_name)
-
-
 def _network_route_hints_available(links: list[dict[str, Any]]) -> bool:
     return any((link.get("route_count") or 0) > 0 for link in links)
 
@@ -201,13 +187,6 @@ def load_device_story_evidence(
     now = now or datetime.now(timezone.utc)
     active_incident_ids = repo.incidents.list_incidents_for_device(network_id, device)
     has_current_issue = row.availability == "offline" or bool(active_incident_ids)
-
-    metric_samples = repo.metrics.list_metric_samples(
-        network_id, device, limit=_METRIC_SAMPLE_LIMIT
-    )
-    availability_changes = repo.availability.list_availability_changes(
-        network_id, device, limit=_AVAILABILITY_TIMELINE_LIMIT
-    )
 
     latest_snapshot = repo.get_latest_topology_snapshot(network_id)
     latest_snapshot_id = latest_snapshot["snapshot_id"] if latest_snapshot else None
@@ -236,20 +215,15 @@ def load_device_story_evidence(
 
     historical = aggregate_historical_evidence(repo, network_id, now=now)
     last_known = aggregate_last_known_links(repo, network_id)
-    passive = aggregate_passive_hints(repo, network_id, now=now)
 
     ha_enrichment = repo.get_ha_device_enrichment(network_id, device)
 
-    coverage_statuses: set[str] = set()
-    for snapshot_row in history.get("snapshots", []):
-        coverage = snapshot_row.get("availability_coverage_status")
-        if isinstance(coverage, str):
-            coverage_statuses.add(coverage)
     latest_row = history.get("latest_snapshot")
+    latest_availability_coverage = None
     if isinstance(latest_row, dict):
         coverage = latest_row.get("availability_coverage_status")
         if isinstance(coverage, str):
-            coverage_statuses.add(coverage)
+            latest_availability_coverage = coverage
 
     return DeviceStoryEvidence(
         network_id=network_id,
@@ -262,10 +236,8 @@ def load_device_story_evidence(
         battery=row.battery,
         has_current_issue=has_current_issue,
         active_incident_ids=list(active_incident_ids),
-        battery_metric_sample_count=_metric_sample_count(metric_samples, "battery"),
-        lqi_metric_sample_count=_metric_sample_count(metric_samples, "linkquality"),
-        availability_change_count=len(availability_changes),
         availability_tracking_enabled=availability_tracking_enabled_now(repo, network_id),
+        latest_availability_coverage=latest_availability_coverage,
         topology_facts=topology_facts,
         recent_missing_link_count=_count_touching_device(
             historical.get("historical_neighbors", []), device
@@ -274,7 +246,6 @@ def load_device_story_evidence(
         last_known_link_count=_count_touching_device(
             last_known.get("last_known_links", []), device
         ),
-        passive_hint_count=_count_touching_device(passive.get("hints", []), device),
         route_hints_available=_network_route_hints_available(latest_links),
         latest_snapshot_id=latest_snapshot_id,
         latest_snapshot_captured_at=_parse_ts(
@@ -282,7 +253,6 @@ def load_device_story_evidence(
         ),
         ha_area=ha_enrichment.get("area_name") if ha_enrichment else None,
         network_has_usable_ha_areas=repo.network_has_usable_ha_area_assignments(network_id),
-        snapshot_availability_coverage=coverage_statuses,
     )
 
 
@@ -293,20 +263,11 @@ def build_device_story_coverage(evidence: DeviceStoryEvidence) -> list[DataCover
     if not evidence.availability_tracking_enabled:
         items.append(coverage_helpers.availability_tracking_off())
 
-    if COVERAGE_BUILDING in evidence.snapshot_availability_coverage:
+    if evidence.latest_availability_coverage == COVERAGE_BUILDING:
         items.append(coverage_helpers.availability_history_building())
 
-    if COVERAGE_UNKNOWN in evidence.snapshot_availability_coverage:
+    if evidence.latest_availability_coverage == COVERAGE_UNKNOWN:
         items.append(coverage_helpers.availability_status_unknown())
-
-    if evidence.latest_snapshot_captured_at is not None:
-        age = datetime.now(timezone.utc) - evidence.latest_snapshot_captured_at
-        if age >= timedelta(hours=_SNAPSHOT_STALE_HOURS):
-            items.append(
-                coverage_helpers.snapshot_stale(
-                    age_hours=int(age.total_seconds() // 3600),
-                )
-            )
 
     if not evidence.route_hints_available and evidence.latest_snapshot_id is not None:
         items.append(coverage_helpers.route_hints_unavailable())
@@ -317,18 +278,6 @@ def build_device_story_coverage(evidence: DeviceStoryEvidence) -> list[DataCover
         and evidence.friendly_name is not None
     ):
         items.append(coverage_helpers.ha_areas_not_linked())
-
-    if (
-        evidence.battery is not None
-        and evidence.battery_metric_sample_count <= _BATTERY_HISTORY_SPARSE_MAX
-    ):
-        items.append(coverage_helpers.battery_history_sparse())
-
-    if (
-        evidence.linkquality is not None
-        and evidence.lqi_metric_sample_count <= _LQI_HISTORY_SPARSE_MAX
-    ):
-        items.append(coverage_helpers.lqi_history_sparse())
 
     return items
 
@@ -426,10 +375,10 @@ def build_device_story(
         _append_unique_reason(reasons, ReasonCode.availability_tracking_off)
         _append_unique_check(checks, CheckCode.enable_availability_reporting)
 
-    if COVERAGE_BUILDING in evidence.snapshot_availability_coverage:
+    if evidence.latest_availability_coverage == COVERAGE_BUILDING:
         _append_unique_reason(reasons, ReasonCode.availability_history_building)
 
-    if COVERAGE_UNKNOWN in evidence.snapshot_availability_coverage:
+    if evidence.latest_availability_coverage == COVERAGE_UNKNOWN:
         _append_unique_reason(reasons, ReasonCode.availability_status_unknown)
         _append_unique_limitation(
             limitations, LimitationCode.availability_limits_interpretation
@@ -452,24 +401,10 @@ def build_device_story(
             checks, CheckCode.check_battery_level, battery_percent=evidence.battery
         )
 
-    if evidence.linkquality is not None and evidence.linkquality < WEAK_LINK_LQI:
-        _append_unique_reason(
-            reasons,
-            ReasonCode.reported_lqi_low,
-            linkquality=evidence.linkquality,
-        )
-
     if not evidence.route_hints_available and evidence.latest_snapshot_id is not None:
         _append_unique_reason(reasons, ReasonCode.route_hints_unavailable)
         _append_unique_limitation(limitations, LimitationCode.route_hints_not_live_routing)
         _append_unique_check(checks, CheckCode.route_hints_context_only)
-
-    if evidence.passive_hint_count > 0:
-        _append_unique_reason(
-            reasons,
-            ReasonCode.passive_instability_hint_present,
-            hint_count=evidence.passive_hint_count,
-        )
 
     if evidence.network_has_usable_ha_areas is False and evidence.ha_area is None:
         _append_unique_reason(reasons, ReasonCode.ha_areas_not_linked)
@@ -479,7 +414,6 @@ def build_device_story(
     status, priority, headline_code = _resolve_story_outcome(
         evidence=evidence,
         topology_gap=topology_gap,
-        coverage=coverage,
         reasons=reasons,
     )
 
@@ -493,7 +427,7 @@ def build_device_story(
         limitations=limitations,
         suggested_checks=checks,
         coverage=coverage,
-        timeline=_build_timeline(evidence),
+        timeline=[],
     )
 
 
@@ -501,7 +435,6 @@ def _resolve_story_outcome(
     *,
     evidence: DeviceStoryEvidence,
     topology_gap: bool,
-    coverage: list[DataCoverage],
     reasons: list[DecisionReason],
 ) -> tuple[DecisionStatus, DecisionPriority, str]:
     reason_codes = {reason.code for reason in reasons}
@@ -522,8 +455,8 @@ def _resolve_story_outcome(
 
     if topology_gap:
         return (
-            DecisionStatus.worth_reviewing,
-            DecisionPriority.medium,
+            DecisionStatus.watch,
+            DecisionPriority.low,
             HeadlineCode.topology_evidence_gap,
         )
 
@@ -533,37 +466,25 @@ def _resolve_story_outcome(
     if ReasonCode.battery_low in reason_codes:
         return DecisionStatus.watch, DecisionPriority.low, HeadlineCode.low_battery
 
-    if ReasonCode.reported_lqi_low in reason_codes:
-        return DecisionStatus.watch, DecisionPriority.low, HeadlineCode.weak_reported_lqi
-
-    if not evidence.availability_tracking_enabled and coverage:
+    if ReasonCode.availability_tracking_off in reason_codes:
         return (
             DecisionStatus.improve_data_coverage,
             DecisionPriority.medium,
             HeadlineCode.availability_tracking_needed,
         )
 
-    if coverage and any(
-        reason.code
-        in {
-            ReasonCode.availability_history_building,
-            ReasonCode.availability_status_unknown,
-            ReasonCode.ha_areas_not_linked,
-            ReasonCode.route_hints_unavailable,
-        }
-        for reason in reasons
-    ):
+    if any(code in _INFORMATIONAL_COVERAGE_REASONS for code in reason_codes):
         return (
             DecisionStatus.informational,
             DecisionPriority.low,
             HeadlineCode.data_coverage_gaps,
         )
 
-    if reasons:
+    if reason_codes:
         return (
             DecisionStatus.informational,
             DecisionPriority.none,
-            HeadlineCode.data_coverage_gaps,
+            HeadlineCode.no_notable_signals,
         )
 
     return (
@@ -571,17 +492,6 @@ def _resolve_story_outcome(
         DecisionPriority.none,
         HeadlineCode.no_notable_signals,
     )
-
-
-def _build_timeline(evidence: DeviceStoryEvidence) -> list[DeviceStoryTimelineItem]:
-    if evidence.availability_change_count <= 0:
-        return []
-    return [
-        DeviceStoryTimelineItem(
-            code="availability_history_present",
-            params={"change_count": evidence.availability_change_count},
-        )
-    ]
 
 
 def device_story_for_device(

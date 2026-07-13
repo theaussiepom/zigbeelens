@@ -16,7 +16,7 @@ from zigbeelens.decisions.device_story import (
     load_device_story_evidence,
 )
 from zigbeelens.decisions.reasons import ReasonCode
-from zigbeelens.decisions.types import DecisionStatus
+from zigbeelens.decisions.types import CoverageLabelCode, DecisionPriority, DecisionStatus
 from zigbeelens.storage.repository import Repository
 from zigbeelens.topology.parser import parse_networkmap_payload
 
@@ -67,6 +67,33 @@ def _upsert_device(
         linkquality=linkquality,
         battery=battery,
     )
+
+
+def _enable_availability_tracking(
+    repo: Repository,
+    ieee: str,
+    *,
+    changed_at: datetime,
+) -> None:
+    repo.availability.insert_availability_change("home", ieee, "unknown", "online")
+    repo.db.conn.execute(
+        "UPDATE availability_changes SET changed_at = ? WHERE rowid = last_insert_rowid()",
+        (changed_at.isoformat(),),
+    )
+    repo.db.conn.commit()
+
+
+def _link_ha_area(repo: Repository, ieee: str) -> None:
+    repo.db.conn.execute(
+        """
+        INSERT INTO ha_device_enrichment (
+            network_id, ieee_address, entity_id, area_id, area_name,
+            match_confidence, updated_at
+        ) VALUES ('home', ?, 'light.kitchen', 'area-1', 'Kitchen', 'high', ?)
+        """,
+        (ieee, NOW.isoformat()),
+    )
+    repo.db.conn.commit()
 
 
 def _store_snapshot(
@@ -123,9 +150,36 @@ def _open_incident_for(repo: Repository, ieee: str) -> None:
     repo.db.conn.commit()
 
 
+def _topology_gap_nodes() -> dict[str, dict]:
+    return {
+        "0x01": {"type": "Coordinator"},
+        "0x02": {"type": "Router"},
+        "0x03": {"type": "EndDevice"},
+    }
+
+
+def _store_topology_gap_fixtures(repo: Repository) -> None:
+    nodes = _topology_gap_nodes()
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        links=[],
+        nodes=nodes,
+    )
+    _store_snapshot(
+        repo,
+        "snap-old",
+        captured_at=NOW - timedelta(days=1),
+        links=[{"source": "0x02", "target": "0x03", "linkquality": 90}],
+        nodes=nodes,
+    )
+
+
 def test_device_story_headline_codes_are_stable():
     assert "current_issue_present" in DEVICE_STORY_HEADLINE_CODES
     assert "topology_evidence_gap" in DEVICE_STORY_HEADLINE_CODES
+    assert "weak_reported_lqi" not in DEVICE_STORY_HEADLINE_CODES
 
 
 def test_device_story_for_device_returns_none_for_unknown_device(tmp_path: Path):
@@ -146,6 +200,7 @@ def test_current_issue_offline_device(tmp_path: Path):
     story = device_story_for_device(repo, "home", "0x03", now=NOW)
     assert story is not None
     assert story.status is DecisionStatus.worth_reviewing
+    assert story.priority is DecisionPriority.high
     assert story.headline_code == HeadlineCode.current_issue_present
     assert any(reason.code == ReasonCode.current_issue_present for reason in story.reasons)
     assert any(check.code == CheckCode.confirm_powered for check in story.suggested_checks)
@@ -168,32 +223,29 @@ def test_current_issue_active_incident(tmp_path: Path):
     assert any(reason.code == ReasonCode.current_issue_present for reason in story.reasons)
 
 
-def test_topology_gap_without_latest_links_but_earlier_snapshot_links(tmp_path: Path):
+def test_current_issue_plus_topology_gap_is_review_first(tmp_path: Path):
     repo = _repo(tmp_path)
-    _upsert_device(repo, "0x03")
-    nodes = {
-        "0x01": {"type": "Coordinator"},
-        "0x02": {"type": "Router"},
-        "0x03": {"type": "EndDevice"},
-    }
-    _store_snapshot(
-        repo,
-        "snap-latest",
-        captured_at=NOW,
-        links=[],
-        nodes=nodes,
-    )
-    _store_snapshot(
-        repo,
-        "snap-old",
-        captured_at=NOW - timedelta(days=1),
-        links=[{"source": "0x02", "target": "0x03", "linkquality": 90}],
-        nodes=nodes,
-    )
+    _upsert_device(repo, "0x03", availability="offline")
+    _store_topology_gap_fixtures(repo)
 
     story = device_story_for_device(repo, "home", "0x03", now=NOW)
     assert story is not None
-    assert story.status is DecisionStatus.worth_reviewing
+    assert story.status is DecisionStatus.review_first
+    assert story.priority is DecisionPriority.high
+    assert story.headline_code == HeadlineCode.current_issue_present
+    assert any(reason.code == ReasonCode.current_issue_present for reason in story.reasons)
+    assert any(reason.code == ReasonCode.latest_snapshot_no_links for reason in story.reasons)
+
+
+def test_topology_gap_without_current_issue_is_watch(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03")
+    _store_topology_gap_fixtures(repo)
+
+    story = device_story_for_device(repo, "home", "0x03", now=NOW)
+    assert story is not None
+    assert story.status is DecisionStatus.watch
+    assert story.priority is DecisionPriority.low
     assert story.headline_code == HeadlineCode.topology_evidence_gap
     assert any(reason.code == ReasonCode.latest_snapshot_no_links for reason in story.reasons)
     assert any(
@@ -220,6 +272,7 @@ def test_availability_tracking_off_primary_when_no_stronger_signal(tmp_path: Pat
     story = device_story_for_device(repo, "home", "0x03", now=NOW)
     assert story is not None
     assert story.status is DecisionStatus.improve_data_coverage
+    assert story.priority is DecisionPriority.medium
     assert story.headline_code == HeadlineCode.availability_tracking_needed
     assert any(
         reason.code == ReasonCode.availability_tracking_off for reason in story.reasons
@@ -234,14 +287,7 @@ def test_stale_last_seen_watch_status(tmp_path: Path):
     repo = _repo(tmp_path)
     stale = NOW - timedelta(hours=72)
     _upsert_device(repo, "0x03", last_seen=stale)
-    repo.availability.insert_availability_change(
-        "home", "0x03", "unknown", "online"
-    )
-    repo.db.conn.execute(
-        "UPDATE availability_changes SET changed_at = ? WHERE rowid = last_insert_rowid()",
-        ((NOW - timedelta(days=1)).isoformat(),),
-    )
-    repo.db.conn.commit()
+    _enable_availability_tracking(repo, "0x03", changed_at=NOW - timedelta(days=1))
     _store_snapshot(
         repo,
         "snap-latest",
@@ -252,6 +298,7 @@ def test_stale_last_seen_watch_status(tmp_path: Path):
     story = device_story_for_device(repo, "home", "0x03", now=NOW)
     assert story is not None
     assert story.status is DecisionStatus.watch
+    assert story.priority is DecisionPriority.low
     assert story.headline_code == HeadlineCode.stale_last_seen
     assert any(reason.code == ReasonCode.last_seen_stale for reason in story.reasons)
 
@@ -259,14 +306,7 @@ def test_stale_last_seen_watch_status(tmp_path: Path):
 def test_low_battery_watch_status(tmp_path: Path):
     repo = _repo(tmp_path)
     _upsert_device(repo, "0x03", battery=12)
-    repo.availability.insert_availability_change(
-        "home", "0x03", "unknown", "online"
-    )
-    repo.db.conn.execute(
-        "UPDATE availability_changes SET changed_at = ? WHERE rowid = last_insert_rowid()",
-        ((NOW - timedelta(days=1)).isoformat(),),
-    )
-    repo.db.conn.commit()
+    _enable_availability_tracking(repo, "0x03", changed_at=NOW - timedelta(days=1))
     _store_snapshot(
         repo,
         "snap-latest",
@@ -277,21 +317,16 @@ def test_low_battery_watch_status(tmp_path: Path):
     story = device_story_for_device(repo, "home", "0x03", now=NOW)
     assert story is not None
     assert story.status is DecisionStatus.watch
+    assert story.priority is DecisionPriority.low
     assert story.headline_code == HeadlineCode.low_battery
     assert any(reason.code == ReasonCode.battery_low for reason in story.reasons)
 
 
-def test_route_hints_unavailable_adds_limitation_not_alarm(tmp_path: Path):
+def test_route_hints_unavailable_is_interpretation_context_not_watch(tmp_path: Path):
     repo = _repo(tmp_path)
-    _upsert_device(repo, "0x03")
-    repo.availability.insert_availability_change(
-        "home", "0x03", "unknown", "online"
-    )
-    repo.db.conn.execute(
-        "UPDATE availability_changes SET changed_at = ? WHERE rowid = last_insert_rowid()",
-        ((NOW - timedelta(days=1)).isoformat(),),
-    )
-    repo.db.conn.commit()
+    _upsert_device(repo, "0x03", battery=80, linkquality=120)
+    _enable_availability_tracking(repo, "0x03", changed_at=NOW - timedelta(days=3))
+    _link_ha_area(repo, "0x03")
     _store_snapshot(
         repo,
         "snap-latest",
@@ -301,6 +336,7 @@ def test_route_hints_unavailable_adds_limitation_not_alarm(tmp_path: Path):
 
     story = device_story_for_device(repo, "home", "0x03", now=NOW)
     assert story is not None
+    assert story.status is not DecisionStatus.watch
     assert any(reason.code == ReasonCode.route_hints_unavailable for reason in story.reasons)
     assert any(
         limitation.code == "route_hints_not_live_routing"
@@ -311,14 +347,7 @@ def test_route_hints_unavailable_adds_limitation_not_alarm(tmp_path: Path):
 def test_informational_when_ha_areas_are_not_linked(tmp_path: Path):
     repo = _repo(tmp_path)
     _upsert_device(repo, "0x03", battery=80, linkquality=120)
-    repo.availability.insert_availability_change(
-        "home", "0x03", "unknown", "online"
-    )
-    repo.db.conn.execute(
-        "UPDATE availability_changes SET changed_at = ? WHERE rowid = last_insert_rowid()",
-        ((NOW - timedelta(days=1)).isoformat(),),
-    )
-    repo.db.conn.commit()
+    _enable_availability_tracking(repo, "0x03", changed_at=NOW - timedelta(days=3))
     _store_snapshot(
         repo,
         "snap-latest",
@@ -336,31 +365,180 @@ def test_informational_when_ha_areas_are_not_linked(tmp_path: Path):
     story = device_story_for_device(repo, "home", "0x03", now=NOW)
     assert story is not None
     assert story.status is DecisionStatus.informational
+    assert story.priority is DecisionPriority.low
     assert story.headline_code == HeadlineCode.data_coverage_gaps
     assert any(reason.code == ReasonCode.ha_areas_not_linked for reason in story.reasons)
+
+
+def test_old_building_snapshot_coverage_does_not_leak_into_current_story(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03")
+    _enable_availability_tracking(repo, "0x03", changed_at=NOW - timedelta(days=1))
+    nodes = _topology_gap_nodes()
+    _store_snapshot(
+        repo,
+        "snap-old",
+        captured_at=NOW - timedelta(days=3),
+        links=[{"source": "0x02", "target": "0x03", "linkquality": 90}],
+        nodes=nodes,
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        links=[{"source": "0x02", "target": "0x03", "linkquality": 120}],
+        nodes=nodes,
+    )
+
+    story = device_story_for_device(repo, "home", "0x03", now=NOW)
+    assert story is not None
+    reason_codes = {reason.code for reason in story.reasons}
+    assert ReasonCode.availability_history_building not in reason_codes
+    coverage_codes = {item.label_code for item in story.coverage}
+    assert CoverageLabelCode.availability_history_building not in coverage_codes
+
+
+def test_old_unknown_snapshot_coverage_does_not_leak_into_current_story(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", availability="online")
+    nodes = _topology_gap_nodes()
+    _store_snapshot(
+        repo,
+        "snap-old",
+        captured_at=NOW - timedelta(days=3),
+        links=[{"source": "0x02", "target": "0x03", "linkquality": 90}],
+        nodes=nodes,
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        links=[{"source": "0x02", "target": "0x03", "linkquality": 120}],
+        nodes=nodes,
+    )
+
+    story = device_story_for_device(repo, "home", "0x03", now=NOW)
+    assert story is not None
+    reason_codes = {reason.code for reason in story.reasons}
+    assert ReasonCode.availability_status_unknown not in reason_codes
+    coverage_codes = {item.label_code for item in story.coverage}
+    assert CoverageLabelCode.availability_status_unknown not in coverage_codes
+
+
+def test_old_topology_snapshot_age_does_not_emit_snapshot_stale(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", battery=80, linkquality=120)
+    _enable_availability_tracking(repo, "0x03", changed_at=NOW - timedelta(days=30))
+    _link_ha_area(repo, "0x03")
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW - timedelta(days=30),
+        links=[
+            {
+                "source": "0x02",
+                "target": "0x03",
+                "linkquality": 120,
+                "routes": [{"destination": "0x01"}],
+            }
+        ],
+    )
+
+    story = device_story_for_device(repo, "home", "0x03", now=NOW)
+    assert story is not None
+    coverage_codes = {item.label_code for item in story.coverage}
+    assert CoverageLabelCode.snapshot_stale not in coverage_codes
+
+
+def test_low_current_lqi_alone_does_not_produce_watch_story(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", battery=80, linkquality=30)
+    _enable_availability_tracking(repo, "0x03", changed_at=NOW - timedelta(days=3))
+    _link_ha_area(repo, "0x03")
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        links=[
+            {
+                "source": "0x02",
+                "target": "0x03",
+                "linkquality": 30,
+                "routes": [{"destination": "0x01"}],
+            }
+        ],
+    )
+
+    story = device_story_for_device(repo, "home", "0x03", now=NOW)
+    assert story is not None
+    reason_codes = {reason.code for reason in story.reasons}
+    assert ReasonCode.reported_lqi_low not in reason_codes
+    assert story.status is DecisionStatus.no_notable_change
+    assert story.headline_code == HeadlineCode.no_notable_signals
+
+
+def test_passive_hints_do_not_feed_device_story_outcomes(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", battery=80, linkquality=120)
+    _upsert_device(repo, "0x02")
+    _enable_availability_tracking(repo, "0x03", changed_at=NOW - timedelta(days=3))
+    _enable_availability_tracking(repo, "0x02", changed_at=NOW - timedelta(days=3))
+    _link_ha_area(repo, "0x03")
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        links=[
+            {
+                "source": "0x02",
+                "target": "0x03",
+                "linkquality": 120,
+                "routes": [{"destination": "0x01"}],
+            }
+        ],
+    )
+    for offset in range(3):
+        changed_at = NOW - timedelta(days=6 - offset)
+        repo.availability.insert_availability_change("home", "0x03", "online", "offline")
+        repo.db.conn.execute(
+            "UPDATE availability_changes SET changed_at = ? WHERE rowid = last_insert_rowid()",
+            (changed_at.isoformat(),),
+        )
+        repo.availability.insert_availability_change("home", "0x02", "online", "offline")
+        repo.db.conn.execute(
+            "UPDATE availability_changes SET changed_at = ? WHERE rowid = last_insert_rowid()",
+            ((changed_at + timedelta(minutes=5)).isoformat(),),
+        )
+    repo.db.conn.commit()
+
+    story = device_story_for_device(repo, "home", "0x03", now=NOW)
+    assert story is not None
+    reason_codes = {reason.code for reason in story.reasons}
+    assert ReasonCode.passive_instability_hint_present not in reason_codes
+    assert story.headline_code != HeadlineCode.data_coverage_gaps
+
+
+def test_device_story_timeline_is_empty(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", availability="offline")
+    _enable_availability_tracking(repo, "0x03", changed_at=NOW - timedelta(days=1))
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        links=[{"source": "0x02", "target": "0x03", "linkquality": 120}],
+    )
+
+    story = device_story_for_device(repo, "home", "0x03", now=NOW)
+    assert story is not None
+    assert story.timeline == []
 
 
 def test_no_notable_change_when_evidence_is_healthy_and_ha_linked(tmp_path: Path):
     repo = _repo(tmp_path)
     _upsert_device(repo, "0x03", battery=80, linkquality=120)
-    repo.availability.insert_availability_change(
-        "home", "0x03", "unknown", "online"
-    )
-    repo.db.conn.execute(
-        "UPDATE availability_changes SET changed_at = ? WHERE rowid = last_insert_rowid()",
-        ((NOW - timedelta(days=3)).isoformat(),),
-    )
-    repo.db.conn.commit()
-    repo.db.conn.execute(
-        """
-        INSERT INTO ha_device_enrichment (
-            network_id, ieee_address, entity_id, area_id, area_name,
-            match_confidence, updated_at
-        ) VALUES ('home', '0x03', 'light.kitchen', 'area-1', 'Kitchen', 'high', ?)
-        """,
-        (NOW.isoformat(),),
-    )
-    repo.db.conn.commit()
+    _enable_availability_tracking(repo, "0x03", changed_at=NOW - timedelta(days=3))
+    _link_ha_area(repo, "0x03")
     _store_snapshot(
         repo,
         "snap-latest",
