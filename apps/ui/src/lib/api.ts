@@ -13,6 +13,7 @@ import { resolveApiBase } from "@/lib/base";
 import type { Paginated } from "@/types/api";
 import type {
   DeviceSnapshotHistoryDetail,
+  DeviceStoryDto,
 } from "@/types/devices";
 import type { Incident } from "@/types/incidents";
 import type { ReportDetail, ReportRequest, ReportSummary } from "@/types/reports";
@@ -149,6 +150,10 @@ export const api = {
     fetchJson<Paginated<DeviceSummary>>("api/devices", { scenario, network_id: networkId }),
   device: (networkId: string, ieee: string, scenario?: string) =>
     fetchJson<DeviceDetail>(`api/devices/${networkId}/${encodeURIComponent(ieee)}`, { scenario }),
+  deviceStory: (networkId: string, ieee: string) =>
+    fetchJson<DeviceStoryDto>(
+      `api/devices/${encodeURIComponent(networkId)}/${encodeURIComponent(ieee)}/story`,
+    ),
   routers: (scenario?: string) => fetchJson<Paginated<RouterRisk>>("api/routers", { scenario }),
   incidents: (scenario?: string) =>
     fetchJson<Paginated<Incident>>("api/incidents", { scenario }),
@@ -213,6 +218,8 @@ export type {
   DeviceSnapshotHistoryDetail,
   DeviceSnapshotHistoryRow,
   DeviceStatsWindow,
+  DeviceStoryDto,
+  DeviceStoryTimelineItemDto,
 } from "@/types/devices";
 export type { Incident } from "@/types/incidents";
 export type { ReportDetail, ReportRequest, ReportSummary } from "@/types/reports";
