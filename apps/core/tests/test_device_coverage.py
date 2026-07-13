@@ -203,6 +203,61 @@ def _ha_item(coverage: list) -> object:
     return items[0]
 
 
+def _apply_ha_device_enrichment(
+    repo: Repository,
+    ieee: str,
+    *,
+    area_id: str | None = None,
+    area_name: str | None = None,
+) -> None:
+    apply_ha_enrichment(
+        repo,
+        {
+            "devices": [
+                {
+                    "network_id": "home",
+                    "ieee_address": ieee,
+                    "ha_device_name": f"Device {ieee}",
+                    "entity_id": f"light.{ieee.replace('0x', '')}",
+                    "area_id": area_id,
+                    "area_name": area_name,
+                }
+            ]
+        },
+    )
+
+
+def _insert_ha_enrichment_row(
+    repo: Repository,
+    ieee: str,
+    *,
+    area_id: str | None,
+    area_name: str | None,
+) -> None:
+    repo.db.conn.execute(
+        """
+        INSERT INTO ha_device_enrichment (
+            network_id, ieee_address, ha_device_id, ha_device_name,
+            area_id, area_name, entity_id, match_confidence, updated_at
+        ) VALUES ('home', ?, 'ha-1', 'Device', ?, ?, 'light.test', 'high', ?)
+        """,
+        (ieee, area_id, area_name, NOW.isoformat()),
+    )
+    repo.db.conn.commit()
+
+
+def _device_coverage_with_ha_setup(
+    repo: Repository,
+    ieee: str = "0x03",
+) -> list:
+    _upsert_device(repo, ieee)
+    _enable_network_availability_tracking(repo)
+    _store_snapshot(repo, "snap-latest", captured_at=NOW)
+    coverage = device_coverage_for_device(repo, "home", ieee)
+    assert coverage is not None
+    return coverage
+
+
 def _assert_unique_dimensions(coverage: list) -> None:
     dimensions = [item.dimension for item in coverage]
     assert len(set(dimensions)) == len(coverage)
@@ -620,50 +675,64 @@ def test_topology_node_ieee_comparison_is_case_insensitive(tmp_path: Path):
     assert evidence.topology_observed_snapshot_count == 1
 
 
-def test_ha_area_linked(tmp_path: Path):
+def test_ha_area_linked_area_name_only(tmp_path: Path):
     repo = _repo(tmp_path)
-    _upsert_device(repo, "0x03")
-    _enable_network_availability_tracking(repo)
-    _store_snapshot(repo, "snap-latest", captured_at=NOW)
-    apply_ha_enrichment(
-        repo,
-        {
-            "devices": [
-                {
-                    "network_id": "home",
-                    "ieee_address": "0x03",
-                    "ha_device_name": "Hall lamp",
-                    "area_name": "Hall",
-                    "entity_id": "light.hall",
-                }
-            ]
-        },
-    )
+    _device_coverage_with_ha_setup(repo)
+    _apply_ha_device_enrichment(repo, "0x03", area_name="Hall")
 
     ha = _ha_item(device_coverage_for_device(repo, "home", "0x03"))
     assert ha.label_code is CoverageLabelCode.ha_area_linked
-    assert ha.params["area_name"] == "Hall"
+    assert ha.state is CoverageState.available
+    assert ha.params == {"area_name": "Hall"}
+
+
+def test_ha_area_linked_area_id_only(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _device_coverage_with_ha_setup(repo)
+    _apply_ha_device_enrichment(repo, "0x03", area_id="hall")
+
+    ha = _ha_item(device_coverage_for_device(repo, "home", "0x03"))
+    assert ha.label_code is CoverageLabelCode.ha_area_linked
+    assert ha.state is CoverageState.available
+    assert ha.params == {"area_id": "hall"}
+    assert "area_name" not in ha.params
+
+
+def test_ha_area_linked_trimmed_area_id(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _device_coverage_with_ha_setup(repo)
+    _insert_ha_enrichment_row(repo, "0x03", area_id="  hall  ", area_name=" ")
+
+    ha = _ha_item(device_coverage_for_device(repo, "home", "0x03"))
+    assert ha.label_code is CoverageLabelCode.ha_area_linked
+    assert ha.params == {"area_id": "hall"}
+
+
+def test_ha_area_linked_both_area_id_and_area_name(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _device_coverage_with_ha_setup(repo)
+    _apply_ha_device_enrichment(repo, "0x03", area_id="hall", area_name="Hall")
+
+    ha = _ha_item(device_coverage_for_device(repo, "home", "0x03"))
+    assert ha.label_code is CoverageLabelCode.ha_area_linked
+    assert ha.params == {"area_id": "hall", "area_name": "Hall"}
+
+
+def test_ha_area_blank_values_are_not_linked(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _device_coverage_with_ha_setup(repo)
+    _insert_ha_enrichment_row(repo, "0x03", area_id="   ", area_name="")
+
+    ha = _ha_item(device_coverage_for_device(repo, "home", "0x03"))
+    assert ha.label_code is CoverageLabelCode.ha_areas_not_linked
+    assert ha.state is CoverageState.not_configured
+    assert ha.params == {}
 
 
 def test_ha_area_not_linked_when_device_missing_area(tmp_path: Path):
     repo = _repo(tmp_path)
-    _upsert_device(repo, "0x03")
-    _enable_network_availability_tracking(repo)
-    _store_snapshot(repo, "snap-latest", captured_at=NOW)
-    apply_ha_enrichment(
-        repo,
-        {
-            "devices": [
-                {
-                    "network_id": "home",
-                    "ieee_address": "0x04",
-                    "ha_device_name": "Kitchen lamp",
-                    "area_name": "Kitchen",
-                    "entity_id": "light.kitchen",
-                }
-            ]
-        },
-    )
+    _device_coverage_with_ha_setup(repo, ieee="0x03")
+    _apply_ha_device_enrichment(repo, "0x04", area_name="Kitchen")
 
     ha = _ha_item(device_coverage_for_device(repo, "home", "0x03"))
     assert ha.label_code is CoverageLabelCode.ha_areas_not_linked
@@ -671,9 +740,7 @@ def test_ha_area_not_linked_when_device_missing_area(tmp_path: Path):
 
 def test_ha_area_not_linked_on_unenriched_network(tmp_path: Path):
     repo = _repo(tmp_path)
-    _upsert_device(repo, "0x03")
-    _enable_network_availability_tracking(repo)
-    _store_snapshot(repo, "snap-latest", captured_at=NOW)
+    _device_coverage_with_ha_setup(repo)
 
     ha = _ha_item(device_coverage_for_device(repo, "home", "0x03"))
     assert ha.label_code is CoverageLabelCode.ha_areas_not_linked

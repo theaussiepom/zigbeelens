@@ -51,7 +51,8 @@ class DeviceCoverageEvidence(BaseModel):
     lqi_sample_count: int = 0
     topology_observed_snapshot_count: int = 0
     topology_snapshot_window_count: int = 0
-    ha_area: str | None = None
+    ha_area_id: str | None = None
+    ha_area_name: str | None = None
 
 
 def _parse_ts(value: str | None) -> datetime | None:
@@ -82,7 +83,7 @@ def _count_snapshot_field(samples: list[dict[str, Any]], field: str) -> int:
     return count
 
 
-def _usable_ha_area(value: str | None) -> str | None:
+def _usable_ha_area_value(value: str | None) -> str | None:
     if value is None:
         return None
     trimmed = value.strip()
@@ -147,7 +148,8 @@ def load_device_coverage_evidence(
         lqi_sample_count=lqi_sample_count,
         topology_observed_snapshot_count=topology_observed,
         topology_snapshot_window_count=topology_window,
-        ha_area=ha_enrichment.get("area_name") if ha_enrichment else None,
+        ha_area_id=ha_enrichment.get("area_id") if ha_enrichment else None,
+        ha_area_name=ha_enrichment.get("area_name") if ha_enrichment else None,
     )
 
 
@@ -218,9 +220,16 @@ def build_device_coverage(evidence: DeviceCoverageEvidence) -> list[DataCoverage
     else:
         items.append(coverage_helpers.topology_history_available(**topology_params))
 
-    usable_area = _usable_ha_area(evidence.ha_area)
-    if usable_area:
-        items.append(coverage_helpers.ha_area_linked(area_name=usable_area))
+    # Usable assignment matches Phase 3E network HA coverage: trimmed area_id OR area_name.
+    usable_area_id = _usable_ha_area_value(evidence.ha_area_id)
+    usable_area_name = _usable_ha_area_value(evidence.ha_area_name)
+    if usable_area_id or usable_area_name:
+        area_params: dict[str, str] = {}
+        if usable_area_id:
+            area_params["area_id"] = usable_area_id
+        if usable_area_name:
+            area_params["area_name"] = usable_area_name
+        items.append(coverage_helpers.ha_area_linked(**area_params))
     else:
         items.append(coverage_helpers.ha_areas_not_linked())
 
