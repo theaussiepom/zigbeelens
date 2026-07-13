@@ -175,6 +175,7 @@ export interface InvestigationCard {
     | "issue_cluster"
     | "recent_missing_cluster"
     | "shared_availability_event"
+    | "model_pattern_review"
     | "passive_instability_group"
     | "router_neighbourhood_review"
     | "diagnostics_limited_group";
@@ -197,6 +198,7 @@ export interface InvestigationCard {
   action_group:
     | "check_power_reporting"
     | "review_observed_router_area"
+    | "review_model_pattern"
     | "investigate_shared_event"
     | "improve_data_coverage"
     | "watch_only";

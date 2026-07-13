@@ -33,6 +33,7 @@ export const REASON_CODES = [
   "reporting_silence_beyond_expected",
   "observed_lqi_trend",
   "reported_lqi_declining",
+  "model_pattern_observed",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];
@@ -174,6 +175,16 @@ const REASON_COPY: Record<ReasonCode, CopyRenderer> = {
   },
   reported_lqi_declining: () =>
     "Reported link quality is lower in the recent stored observations.",
+  model_pattern_observed: (params) => {
+    const affectedCount = countParam(params, "affected_count");
+    const groupSize = countParam(params, "group_size");
+    const lookbackDays = countParam(params, "lookback_days");
+    if (affectedCount !== null && groupSize !== null && lookbackDays !== null) {
+      const dayWord = lookbackDays === 1 ? "day" : "days";
+      return `${affectedCount} of ${groupSize} devices with this model have gone offline in the last ${lookbackDays} ${dayWord}.`;
+    }
+    return "Multiple devices with the same stored model identity went offline in the lookback window.";
+  },
 };
 
 /** Phase 3E network/generic coverage labels. */

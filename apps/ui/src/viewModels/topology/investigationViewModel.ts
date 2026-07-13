@@ -60,6 +60,8 @@ function actionGroupForCard(card: InvestigationCard): InvestigationActionGroup {
       return "improve_data_coverage";
     case "router_neighbourhood_review":
       return "review_observed_router_area";
+    case "model_pattern_review":
+      return "review_model_pattern";
     case "recent_missing_cluster":
       return "check_power_reporting";
     case "shared_availability_event":
