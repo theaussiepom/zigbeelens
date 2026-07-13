@@ -91,3 +91,20 @@ def test_data_coverage_unknown_stays_unknown_not_unavailable():
         }
     )
     assert coverage.state.value == "unknown"
+
+
+def test_decisions_package_exports_public_router_area_symbols():
+    import zigbeelens.decisions as decisions
+
+    for symbol in (
+        "HeadlineCode",
+        "ObservedRouterArea",
+        "ObservedRouterAreaState",
+        "ObservedRouterAreas",
+        "RouterAreaHAAreaContext",
+        "build_observed_router_areas",
+        "ha_area_context_for_members",
+        "observed_router_areas_for_network",
+    ):
+        assert symbol in decisions.__all__
+        assert hasattr(decisions, symbol)

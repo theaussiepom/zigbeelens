@@ -109,6 +109,7 @@ __all__ = [
     "DeviceStory",
     "DeviceStoryEvidence",
     "DeviceCoverageEvidence",
+    "HeadlineCode",
     "ObservedRouterArea",
     "ObservedRouterAreaState",
     "ObservedRouterAreas",
