@@ -29,6 +29,8 @@ class ReasonCode(StrEnum):
     passive_instability_hint_present = "passive_instability_hint_present"
     shared_availability_event = "shared_availability_event"
     insufficient_history = "insufficient_history"
+    observed_reporting_rhythm = "observed_reporting_rhythm"
+    reporting_silence_beyond_expected = "reporting_silence_beyond_expected"
 
 
 REASON_CODES: frozenset[str] = frozenset(member.value for member in ReasonCode)

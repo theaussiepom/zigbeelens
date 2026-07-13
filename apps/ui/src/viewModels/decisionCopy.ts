@@ -29,6 +29,8 @@ export const REASON_CODES = [
   "passive_instability_hint_present",
   "shared_availability_event",
   "insufficient_history",
+  "observed_reporting_rhythm",
+  "reporting_silence_beyond_expected",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];
@@ -49,6 +51,19 @@ type CopyRenderer = (params: Record<string, unknown>) => string;
 function countParam(params: Record<string, unknown>, key: string): number | null {
   const value = params[key];
   return typeof value === "number" ? value : null;
+}
+
+function formatMinuteSpan(minutes: number): string {
+  if (minutes < 60) {
+    return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  }
+  if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return `${hours} hour${hours === 1 ? "" : "s"}`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return `${hours} hour${hours === 1 ? "" : "s"} ${remainder} minute${remainder === 1 ? "" : "s"}`;
 }
 
 const REASON_COPY: Record<ReasonCode, CopyRenderer> = {
@@ -92,6 +107,24 @@ const REASON_COPY: Record<ReasonCode, CopyRenderer> = {
   shared_availability_event: () =>
     "Multiple devices changed availability around the same time.",
   insufficient_history: () => "Not enough history is available yet for a stronger judgement.",
+  observed_reporting_rhythm: (params) => {
+    const p25 = countParam(params, "interval_minutes_p25");
+    const p75 = countParam(params, "interval_minutes_p75");
+    if (p25 === null || p75 === null) {
+      return "Stored payload observations show a reporting rhythm for this device.";
+    }
+    if (p25 === p75) {
+      return `Usually reports about every ${formatMinuteSpan(p25)} based on stored payload history.`;
+    }
+    return `Usually reports every ${formatMinuteSpan(p25)}–${formatMinuteSpan(p75)} based on stored payload history.`;
+  },
+  reporting_silence_beyond_expected: (params) => {
+    const silenceMinutes = countParam(params, "silence_minutes");
+    if (silenceMinutes === null) {
+      return "Current payload silence is longer than the observed reporting cadence.";
+    }
+    return `No payload observed for ${formatMinuteSpan(silenceMinutes)}.`;
+  },
 };
 
 const COVERAGE_LABEL_COPY: Record<CoverageLabelCode, string> = {
@@ -176,6 +209,7 @@ export const HEADLINE_CODES = [
   "low_battery",
   "data_coverage_gaps",
   "no_notable_signals",
+  "extended_reporting_silence",
 ] as const;
 
 export type HeadlineCode = (typeof HEADLINE_CODES)[number];
@@ -184,6 +218,7 @@ export const LIMITATION_CODES = [
   "absence_from_latest_not_failure",
   "route_hints_not_live_routing",
   "availability_limits_interpretation",
+  "extended_silence_not_failure",
 ] as const;
 
 export type LimitationCode = (typeof LIMITATION_CODES)[number];
@@ -207,6 +242,7 @@ const HEADLINE_COPY: Record<HeadlineCode, string> = {
   low_battery: "Battery reported low",
   data_coverage_gaps: "Data coverage gaps",
   no_notable_signals: "No notable signals",
+  extended_reporting_silence: "Extended reporting silence",
 };
 
 const LIMITATION_COPY: Record<LimitationCode, CopyRenderer> = {
@@ -216,6 +252,8 @@ const LIMITATION_COPY: Record<LimitationCode, CopyRenderer> = {
     "Route hints describe stored snapshot evidence. They do not prove live routing paths.",
   availability_limits_interpretation: () =>
     "Availability and last-seen evidence is limited for this period, so offline or stale interpretation is constrained.",
+  extended_silence_not_failure: () =>
+    "Silence longer than the observed reporting rhythm does not prove the device failed, lost power, or left the network.",
 };
 
 const SUGGESTED_CHECK_COPY: Record<SuggestedCheckCode, CopyRenderer> = {

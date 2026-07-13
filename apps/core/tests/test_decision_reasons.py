@@ -41,8 +41,16 @@ def test_reason_codes_are_unique():
     assert len(values) == len(set(values))
 
 
+PHASE_4B_REASON_CODES = frozenset(
+    {
+        "observed_reporting_rhythm",
+        "reporting_silence_beyond_expected",
+    }
+)
+
+
 def test_phase_1_reason_codes_match_conservative_set():
-    assert REASON_CODES == PHASE_1_REASON_CODES
+    assert REASON_CODES == PHASE_1_REASON_CODES | PHASE_4B_REASON_CODES
 
 
 def test_speculative_future_reason_codes_are_not_stabilised():

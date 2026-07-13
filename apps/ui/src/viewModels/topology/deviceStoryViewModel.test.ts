@@ -46,6 +46,40 @@ const topologyGapStory: DeviceStoryDto = {
   timeline: [],
 };
 
+const extendedSilenceStory: DeviceStoryDto = {
+  subject_type: "device",
+  subject_id: "0x03",
+  status: "watch",
+  priority: "low",
+  headline_code: "extended_reporting_silence",
+  reasons: [
+    {
+      code: "observed_reporting_rhythm",
+      params: {
+        interval_minutes_p25: 60,
+        interval_minutes_median: 60,
+        interval_minutes_p75: 60,
+        interval_minutes_max: 60,
+      },
+    },
+    {
+      code: "reporting_silence_beyond_expected",
+      params: {
+        silence_minutes: 240,
+        extended_silence_threshold_minutes: 150,
+      },
+    },
+  ],
+  evidence: [],
+  limitations: [{ code: "extended_silence_not_failure", params: {} }],
+  suggested_checks: [
+    { code: "confirm_powered", params: {} },
+    { code: "confirm_reporting_in_z2m", params: {} },
+  ],
+  coverage: [],
+  timeline: [],
+};
+
 describe("deviceStoryViewModel", () => {
   it("maps topology-gap story codes to approved user-facing copy", () => {
     const vm = buildDeviceStoryViewModel(topologyGapStory);
@@ -68,6 +102,29 @@ describe("deviceStoryViewModel", () => {
     expect(vm.coverageItems.map((item) => item.label)).toEqual(["Route hints unavailable"]);
     expect(vm.evidenceLines[0]).toContain("Latest stored topology snapshot");
     expect(vm.timeline).toEqual([]);
+  });
+
+  it("maps extended reporting silence story codes to approved copy", () => {
+    const vm = buildDeviceStoryViewModel(extendedSilenceStory);
+    expect(vm.statusPill?.label).toBe("Watch");
+    expect(vm.headline).toBe("Extended reporting silence");
+    expect(vm.headlineLead).toMatch(/quieter than the observed cadence/i);
+    expect(vm.reasons).toEqual([
+      "Usually reports about every 1 hour based on stored payload history.",
+      "No payload observed for 4 hours.",
+    ]);
+    expect(vm.limitations[0]).toMatch(/does not prove the device failed/i);
+    expect(vm.suggestedChecks).toEqual([
+      "Confirm the device is powered.",
+      "Confirm the device is reporting in Zigbee2MQTT.",
+    ]);
+    const reasonCopy = vm.reasons.join(" ").toLowerCase();
+    expect(reasonCopy).not.toContain("threshold");
+    expect(reasonCopy).not.toContain("multiplier");
+    expect(reasonCopy).not.toContain("p75");
+    expect(reasonCopy).not.toContain("median");
+    expect(reasonCopy).not.toContain("suspicion");
+    expect(reasonCopy).not.toContain("failed");
   });
 
   it("maps current issue story to review-first status copy", () => {

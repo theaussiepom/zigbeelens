@@ -374,6 +374,22 @@ class Repository:
         )
         self.db.conn.commit()
 
+    def list_device_snapshots(
+        self, network_id: str, ieee_address: str, *, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Recent device snapshots for one device, newest first."""
+        cur = self.db.conn.execute(
+            """
+            SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at
+            FROM device_snapshots
+            WHERE network_id = ? AND ieee_address = ?
+            ORDER BY captured_at DESC
+            LIMIT ?
+            """,
+            (network_id, ieee_address, limit),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
     def insert_metric_sample(
         self, network_id: str, ieee_address: str, metric_name: str, metric_value: float
     ) -> None:
