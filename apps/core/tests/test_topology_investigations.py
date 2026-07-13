@@ -32,6 +32,7 @@ from zigbeelens.topology.investigations import (
     SHARED_AVAILABILITY_EVENT_LIMITATION,
     STALE_LAST_SEEN_HOURS,
     TOPOLOGY_CORROBORATION_WEIGHT,
+    UNAVAILABLE_DEVICE_WEIGHT,
     WEAK_LINK_LQI,
     build_investigations,
 )
@@ -383,6 +384,7 @@ def test_router_review_uses_observed_router_area_wording():
     card = cards[0]
     assert card["primary_device_ieee"] == "0xr1"
     assert card["title"] == "Review observed router area: Kitchen router"
+    assert "2 devices needing attention" in card["summary"]
     assert "observed router area" in card["summary"]
     assert "latest topology snapshot" in json.dumps(card["supporting_evidence"]).lower()
     text = _router_area_claim_text(card)
@@ -390,6 +392,61 @@ def test_router_review_uses_observed_router_area_wording():
         assert phrase not in text, phrase
     assert ROUTER_AREA_LIMITATION in card["limitations"]
     assert card["action_group"] == "review_observed_router_area"
+
+
+def test_router_only_issue_path_uses_router_oriented_copy():
+    neighbours = [f"0xn{i}" for i in range(ROUTER_REVIEW_MIN_LINKS)]
+    devices = [
+        _device(
+            "0xr1",
+            device_type="Router",
+            name="Kitchen router",
+            availability="offline",
+        )
+    ]
+    devices += [_device(ieee) for ieee in neighbours]
+    devices.append(_device("0xextra"))
+    links = [_link("0xr1", ieee) for ieee in neighbours]
+    history = {
+        "historical_neighbors": [
+            {
+                "source_ieee": "0xr1",
+                "target_ieee": "0xextra",
+                "evidence_class": "historical_neighbor",
+                "last_seen_at": NOW.isoformat(),
+            }
+        ],
+        "historical_routes": [],
+    }
+    result = _build(
+        devices=devices,
+        latest_nodes=[{"ieee_address": d.ieee_address} for d in devices],
+        latest_links=links,
+        history=history,
+    )
+    card = _router_review_card(result)
+    assert card is not None
+    assert card["primary_device_ieee"] == "0xr1"
+    assert card["primary_neighbourhood_ieee"] == "0xr1"
+    assert "0 devices" not in card["summary"].lower()
+    assert "currently needs attention" in card["summary"]
+    assert "Kitchen router currently needs attention" in card["summary"]
+    assert "several devices needing attention" not in card["why_it_matters"].lower()
+    assert "The router itself currently needs attention." in card["supporting_evidence"]
+    assert not any(
+        "currently need attention" in line and "router itself" not in line
+        for line in card["supporting_evidence"]
+        if "device" in line and "in this observed area" in line
+    )
+    expected_score = (
+        TOPOLOGY_CORROBORATION_WEIGHT + UNAVAILABLE_DEVICE_WEIGHT + 1
+    )
+    assert card["score"] == expected_score
+    assert ROUTER_AREA_LIMITATION in card["limitations"]
+    assert card["action_group"] == "review_observed_router_area"
+    text = _router_area_claim_text(card)
+    for phrase in ROUTER_AREA_FORBIDDEN_PHRASES:
+        assert phrase not in text, phrase
 
 
 def test_diagnostics_limited_group_handles_limited_evidence_safely():

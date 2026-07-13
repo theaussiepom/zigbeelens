@@ -759,6 +759,65 @@ def _router_area_edge_ids(
     return sorted(edge_ids)
 
 
+def _router_area_issue_context(
+    area: ObservedRouterArea,
+) -> tuple[set[str], int, bool]:
+    issue_members_excluding_router = _router_area_issue_members_excluding_router(area)
+    issue_member_count = len(issue_members_excluding_router)
+    router_needs_attention = area.router_ieee in area.issue_device_ieees
+    return issue_members_excluding_router, issue_member_count, router_needs_attention
+
+
+def _router_area_summary(
+    name: str,
+    *,
+    issue_member_count: int,
+    router_needs_attention: bool,
+) -> str:
+    if issue_member_count > 0:
+        return (
+            f"{_count_phrase(issue_member_count, 'device')} needing attention have "
+            f"stored evidence in the observed router area around {name}."
+        )
+    if router_needs_attention:
+        return (
+            f"{name} currently needs attention and has stored evidence across "
+            "this observed router area."
+        )
+    return (
+        f"{_count_phrase(issue_member_count, 'device')} needing attention have "
+        f"stored evidence in the observed router area around {name}."
+    )
+
+
+def _router_area_why_it_matters(
+    *,
+    issue_member_count: int,
+    router_needs_attention: bool,
+) -> str:
+    if issue_member_count > 0:
+        lead = (
+            "A device needing attention appears"
+            if issue_member_count == 1
+            else "Several devices needing attention appear"
+        )
+        return (
+            f"{lead} in stored evidence around the same router area. Reviewing that "
+            "area together may be more useful than treating each device as unrelated."
+        )
+    if router_needs_attention:
+        return (
+            "The router itself currently needs attention, and more than one topology "
+            "evidence source describes devices around this observed area. Reviewing "
+            "the router and that stored context together may be useful."
+        )
+    return (
+        "Several devices needing attention appear in stored evidence around the same "
+        "router area. Reviewing that area together may be more useful than treating "
+        "each device as unrelated."
+    )
+
+
 def _router_area_supporting_evidence(area: ObservedRouterArea) -> list[str]:
     lines: list[str] = []
     if area.latest_neighbour_ieees:
@@ -787,6 +846,9 @@ def _router_area_supporting_evidence(area: ObservedRouterArea) -> list[str]:
             f"{_count_phrase(len(area.passive_hint_ieees), 'device')} in this observed area."
         )
     member_issues_excl_router = _router_area_issue_members_excluding_router(area)
+    router_needs_attention = area.router_ieee in area.issue_device_ieees
+    if router_needs_attention:
+        lines.append("The router itself currently needs attention.")
     if member_issues_excl_router:
         lines.append(
             f"{_count_phrase(len(member_issues_excl_router), 'device')} in this observed "
@@ -849,8 +911,7 @@ def _router_review_cards(
 
         router = area.router_ieee
         name = _name_of(devices_by_ieee, router)
-        member_issues_excl_router = _router_area_issue_members_excluding_router(area)
-        issue_count = len(member_issues_excl_router)
+        _, issue_member_count, router_needs_attention = _router_area_issue_context(area)
         score = _router_area_score(
             area, latest_captured_at=latest_captured_at, now=now
         )
@@ -861,14 +922,14 @@ def _router_review_cards(
                 "priority": _priority(score),
                 "score": score,
                 "title": f"Review observed router area: {name}",
-                "summary": (
-                    f"{_count_phrase(issue_count, 'device')} needing attention have "
-                    f"stored evidence in the observed router area around {name}."
+                "summary": _router_area_summary(
+                    name,
+                    issue_member_count=issue_member_count,
+                    router_needs_attention=router_needs_attention,
                 ),
-                "why_it_matters": (
-                    "Several devices needing attention appear in stored evidence around "
-                    "the same router area. Reviewing that area together may be more useful "
-                    "than treating each device as unrelated."
+                "why_it_matters": _router_area_why_it_matters(
+                    issue_member_count=issue_member_count,
+                    router_needs_attention=router_needs_attention,
                 ),
                 "supporting_evidence": _router_area_supporting_evidence(area),
                 "limitations": [
