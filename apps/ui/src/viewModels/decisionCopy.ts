@@ -71,12 +71,10 @@ const REASON_COPY: Record<ReasonCode, CopyRenderer> = {
   },
   route_hints_changed: () =>
     "Route-hint counts differ between snapshots. Route hints do not prove live routing changed.",
-  availability_tracking_off: () =>
-    "Availability tracking was off for the selected period.",
-  availability_history_building: () =>
-    "Availability history started after the selected snapshot.",
+  availability_tracking_off: () => "Availability tracking is off.",
+  availability_history_building: () => "Availability history is still building.",
   availability_status_unknown: () =>
-    "Availability status could not be confirmed for the selected period.",
+    "Availability status could not be confirmed from stored evidence.",
   route_hints_unavailable: () => "Route hints are unavailable for this network.",
   ha_areas_not_linked: () => "Home Assistant areas are not linked for this device.",
   snapshot_stale: () => "Latest topology snapshot is stale.",

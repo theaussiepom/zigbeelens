@@ -12,7 +12,9 @@ import {
   DEVICE_STORY_HEADLINE_LEADS,
   DEVICE_STORY_LIMITATIONS_TITLE,
   DEVICE_SECTION_STORY,
+  DEVICE_STORY_LOADING_COPY,
   DEVICE_STORY_UNAVAILABLE_COPY,
+  DEVICE_STORY_UNKNOWN_HEADLINE_LEAD,
   DEVICE_STORY_WHY_TITLE,
 } from "@/lib/meshGraphCopy";
 import { buildEvidenceCoverageStripViewModel } from "@/viewModels/coverage/coverageStripViewModel";
@@ -41,6 +43,7 @@ export interface DeviceStoryTimelineItemViewModel {
 export interface DeviceStoryViewModel {
   loadState: DeviceStoryLoadState;
   sectionTitle: string;
+  loadingCopy: string;
   unavailableCopy: string;
   statusPill: DeviceStoryStatusPillViewModel | null;
   headline: string;
@@ -59,7 +62,7 @@ export interface DeviceStoryViewModel {
 }
 
 function headlineLead(code: string): string {
-  return DEVICE_STORY_HEADLINE_LEADS[code] ?? DEVICE_STORY_HEADLINE_LEADS.no_notable_signals;
+  return DEVICE_STORY_HEADLINE_LEADS[code] ?? DEVICE_STORY_UNKNOWN_HEADLINE_LEAD;
 }
 
 function evidenceLine(
@@ -83,6 +86,7 @@ export function buildDeviceStoryViewModel(story: DeviceStoryDto): DeviceStoryVie
   return {
     loadState: "ready",
     sectionTitle: DEVICE_SECTION_STORY,
+    loadingCopy: DEVICE_STORY_LOADING_COPY,
     unavailableCopy: DEVICE_STORY_UNAVAILABLE_COPY,
     statusPill: {
       label: decisionStatusLabel(story.status),
@@ -119,6 +123,7 @@ export function loadingDeviceStoryViewModel(): DeviceStoryViewModel {
   return {
     loadState: "loading",
     sectionTitle: DEVICE_SECTION_STORY,
+    loadingCopy: DEVICE_STORY_LOADING_COPY,
     unavailableCopy: DEVICE_STORY_UNAVAILABLE_COPY,
     statusPill: null,
     headline: "",

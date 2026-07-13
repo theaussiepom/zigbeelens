@@ -33,9 +33,21 @@ describe("decisionCopy", () => {
         selected_snapshot_link_count: 6,
       }),
     ).toBe("Selected snapshot showed 6 links for this device.");
-    expect(reasonText("availability_tracking_off")).toBe(
-      "Availability tracking was off for the selected period.",
+    expect(reasonText("availability_tracking_off")).toBe("Availability tracking is off.");
+    expect(reasonText("availability_history_building")).toBe(
+      "Availability history is still building.",
     );
+    expect(reasonText("availability_status_unknown")).toBe(
+      "Availability status could not be confirmed from stored evidence.",
+    );
+    for (const text of [
+      reasonText("availability_tracking_off"),
+      reasonText("availability_history_building"),
+      reasonText("availability_status_unknown"),
+    ]) {
+      expect(text.toLowerCase()).not.toContain("selected period");
+      expect(text.toLowerCase()).not.toContain("selected snapshot");
+    }
   });
 
   it("falls back safely for unknown reason codes without exposing internal codes", () => {

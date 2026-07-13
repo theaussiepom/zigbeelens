@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { DrawerSection } from "@/components/meshGraph/DrawerShell";
 import { EvidenceCoverageStrip } from "@/components/meshGraph/EvidenceCoverageStrip";
-import { DEVICE_STORY_LOADING_COPY } from "@/lib/meshGraphCopy";
 import {
   buildDeviceStoryViewModel,
   errorDeviceStoryViewModel,
@@ -75,7 +74,7 @@ export function DeviceStorySection({
     <DrawerSection title={viewModel.sectionTitle}>
       <div data-testid="device-story-section" className="space-y-3">
         {viewModel.loadState === "loading" ? (
-          <p className="text-xs text-zl-muted">{DEVICE_STORY_LOADING_COPY}</p>
+          <p className="text-xs text-zl-muted">{viewModel.loadingCopy}</p>
         ) : viewModel.loadState === "error" ? (
           <p className="text-xs text-zl-muted">{viewModel.unavailableCopy}</p>
         ) : (

@@ -54,6 +54,8 @@ export const DEVICE_STORY_EVIDENCE_TITLE = "Supporting evidence";
 export const DEVICE_STORY_LOADING_COPY = "Loading device story…";
 export const DEVICE_STORY_UNAVAILABLE_COPY =
   "Device story is unavailable right now. Other device details still reflect stored evidence.";
+export const DEVICE_STORY_UNKNOWN_HEADLINE_LEAD =
+  "Review the reasons and stored evidence below; this story summary is not recognised by this UI version.";
 
 export const DEVICE_STORY_HEADLINE_LEADS: Record<string, string> = {
   current_issue_present:

@@ -38,8 +38,8 @@ describe("deviceDetailsViewModel", () => {
     const vm = buildDeviceDetailsViewModel(makeDevice());
     expect(sectionIds(vm)).toEqual([
       "summary",
-      "currentStatus",
       "deviceStory",
+      "currentStatus",
       "topologyEvidence",
       "snapshotHistory",
     ]);
@@ -123,7 +123,7 @@ describe("deviceDetailsViewModel", () => {
     ]);
   });
 
-  it("places device story after current status and before topology evidence", () => {
+  it("places device story after summary and before current status", () => {
     const vm = buildDeviceDetailsViewModel(makeDevice());
     const story = vm.sections.find((section) => section.id === "deviceStory");
     expect(story?.id).toBe("deviceStory");
@@ -131,7 +131,8 @@ describe("deviceDetailsViewModel", () => {
     expect(story.networkId).toBe("home");
     expect(story.deviceIeee).toBe("0xr1");
     const ids = sectionIds(vm);
-    expect(ids.indexOf("deviceStory")).toBeGreaterThan(ids.indexOf("currentStatus"));
+    expect(ids.indexOf("deviceStory")).toBeGreaterThan(ids.indexOf("summary"));
+    expect(ids.indexOf("deviceStory")).toBeLessThan(ids.indexOf("currentStatus"));
     expect(ids.indexOf("deviceStory")).toBeLessThan(ids.indexOf("topologyEvidence"));
   });
 
@@ -145,8 +146,8 @@ describe("deviceDetailsViewModel", () => {
     );
     expect(sectionIds(vm)).toEqual([
       "summary",
-      "currentStatus",
       "deviceStory",
+      "currentStatus",
       "topologyEvidence",
       "recentMissing",
       "snapshotHistory",

@@ -257,8 +257,8 @@ export function buildDeviceDetailsViewModel(
 ): DeviceDetailsViewModel {
   const sections: DeviceDetailsSectionViewModel[] = [
     buildSummarySection(device),
-    buildStatusSection(device),
     buildDeviceStorySection(device),
+    buildStatusSection(device),
   ];
 
   const stats = buildStatsSection(device);

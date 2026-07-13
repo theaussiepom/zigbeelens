@@ -4,9 +4,16 @@ import {
   DEVICE_SECTION_STORY,
   DEVICE_STORY_CHECKS_TITLE,
   DEVICE_STORY_LIMITATIONS_TITLE,
+  DEVICE_STORY_LOADING_COPY,
+  DEVICE_STORY_UNAVAILABLE_COPY,
+  DEVICE_STORY_UNKNOWN_HEADLINE_LEAD,
   DEVICE_STORY_WHY_TITLE,
 } from "@/lib/meshGraphCopy";
-import { buildDeviceStoryViewModel } from "@/viewModels/topology/deviceStoryViewModel";
+import {
+  buildDeviceStoryViewModel,
+  errorDeviceStoryViewModel,
+  loadingDeviceStoryViewModel,
+} from "@/viewModels/topology/deviceStoryViewModel";
 
 const topologyGapStory: DeviceStoryDto = {
   subject_type: "device",
@@ -95,8 +102,22 @@ describe("deviceStoryViewModel", () => {
       suggested_checks: [{ code: "future_check", params: {} }],
     });
     expect(vm.headline).toBe("Device story summary unavailable.");
+    expect(vm.headlineLead).toBe(DEVICE_STORY_UNKNOWN_HEADLINE_LEAD);
+    expect(vm.headlineLead).toMatch(/not recognised by this ui version/i);
+    expect(vm.headlineLead).not.toContain("No stronger device story signals");
+    expect(vm.headlineLead).not.toContain("future_headline");
     expect(vm.reasons).toEqual(["Details unavailable."]);
     expect(vm.limitations[0]).toMatch(/interpretation is limited/i);
     expect(vm.suggestedChecks[0]).toMatch(/review stored evidence/i);
+  });
+
+  it("populates loading and error state copy from the ViewModel", () => {
+    const loading = loadingDeviceStoryViewModel();
+    expect(loading.loadState).toBe("loading");
+    expect(loading.loadingCopy).toBe(DEVICE_STORY_LOADING_COPY);
+
+    const error = errorDeviceStoryViewModel();
+    expect(error.loadState).toBe("error");
+    expect(error.unavailableCopy).toBe(DEVICE_STORY_UNAVAILABLE_COPY);
   });
 });
