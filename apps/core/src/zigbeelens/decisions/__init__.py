@@ -14,6 +14,15 @@ from zigbeelens.decisions.coverage import (
     route_hints_unavailable,
     snapshot_stale,
 )
+from zigbeelens.decisions.device_story import (
+    DEVICE_STORY_HEADLINE_CODES,
+    DeviceStory,
+    DeviceStoryEvidence,
+    HeadlineCode,
+    build_device_story,
+    device_story_for_device,
+    load_device_story_evidence,
+)
 from zigbeelens.decisions.reasons import REASON_CODES, ReasonCode
 from zigbeelens.decisions.topology_facts import (
     TOPOLOGY_FACT_CODES,
@@ -44,6 +53,10 @@ from zigbeelens.decisions.types import (
 )
 
 __all__ = [
+    "DEVICE_STORY_HEADLINE_CODES",
+    "DeviceStory",
+    "DeviceStoryEvidence",
+    "HeadlineCode",
     "REASON_CODES",
     "CoverageDimension",
     "CoverageLabelCode",
@@ -64,8 +77,11 @@ __all__ = [
     "TopologyFacts",
     "build_device_latest_topology_facts",
     "build_device_snapshot_comparison_facts",
+    "build_device_story",
     "build_network_topology_facts",
     "build_topology_facts_from_evidence_graph",
+    "device_story_for_device",
+    "load_device_story_evidence",
     "normalize_device_ieee",
     "topology_device_facts_payload",
     "topology_network_facts_payload",
