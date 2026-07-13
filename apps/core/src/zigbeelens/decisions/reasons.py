@@ -31,6 +31,8 @@ class ReasonCode(StrEnum):
     insufficient_history = "insufficient_history"
     observed_reporting_rhythm = "observed_reporting_rhythm"
     reporting_silence_beyond_expected = "reporting_silence_beyond_expected"
+    observed_lqi_trend = "observed_lqi_trend"
+    reported_lqi_declining = "reported_lqi_declining"
 
 
 REASON_CODES: frozenset[str] = frozenset(member.value for member in ReasonCode)
