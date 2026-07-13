@@ -64,6 +64,14 @@ class CoverageLabelCode(StrEnum):
     snapshot_stale = "snapshot_stale"
     battery_history_sparse = "battery_history_sparse"
     lqi_history_sparse = "lqi_history_sparse"
+    last_seen_available = "last_seen_available"
+    last_seen_unknown = "last_seen_unknown"
+    last_payload_available = "last_payload_available"
+    last_payload_unknown = "last_payload_unknown"
+    battery_history_available = "battery_history_available"
+    lqi_history_available = "lqi_history_available"
+    topology_history_available = "topology_history_available"
+    ha_area_linked = "ha_area_linked"
 
 
 class EvidenceFact(BaseModel):

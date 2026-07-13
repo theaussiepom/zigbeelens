@@ -97,3 +97,75 @@ def lqi_history_sparse(**params: Any) -> DataCoverage:
         label_code=CoverageLabelCode.lqi_history_sparse,
         params=params or None,
     )
+
+
+def last_seen_available(**params: Any) -> DataCoverage:
+    return _coverage(
+        dimension=CoverageDimension.last_seen,
+        state=CoverageState.available,
+        label_code=CoverageLabelCode.last_seen_available,
+        params=params or None,
+    )
+
+
+def last_seen_unknown(**params: Any) -> DataCoverage:
+    return _coverage(
+        dimension=CoverageDimension.last_seen,
+        state=CoverageState.unknown,
+        label_code=CoverageLabelCode.last_seen_unknown,
+        params=params or None,
+    )
+
+
+def last_payload_available(**params: Any) -> DataCoverage:
+    return _coverage(
+        dimension=CoverageDimension.last_payload,
+        state=CoverageState.available,
+        label_code=CoverageLabelCode.last_payload_available,
+        params=params or None,
+    )
+
+
+def last_payload_unknown(**params: Any) -> DataCoverage:
+    return _coverage(
+        dimension=CoverageDimension.last_payload,
+        state=CoverageState.unknown,
+        label_code=CoverageLabelCode.last_payload_unknown,
+        params=params or None,
+    )
+
+
+def battery_history_available(**params: Any) -> DataCoverage:
+    return _coverage(
+        dimension=CoverageDimension.battery,
+        state=CoverageState.available,
+        label_code=CoverageLabelCode.battery_history_available,
+        params=params or None,
+    )
+
+
+def lqi_history_available(**params: Any) -> DataCoverage:
+    return _coverage(
+        dimension=CoverageDimension.linkquality,
+        state=CoverageState.available,
+        label_code=CoverageLabelCode.lqi_history_available,
+        params=params or None,
+    )
+
+
+def topology_history_available(**params: Any) -> DataCoverage:
+    return _coverage(
+        dimension=CoverageDimension.historical_snapshots,
+        state=CoverageState.available,
+        label_code=CoverageLabelCode.topology_history_available,
+        params=params or None,
+    )
+
+
+def ha_area_linked(**params: Any) -> DataCoverage:
+    return _coverage(
+        dimension=CoverageDimension.ha_enrichment,
+        state=CoverageState.available,
+        label_code=CoverageLabelCode.ha_area_linked,
+        params=params or None,
+    )
