@@ -86,6 +86,38 @@ export const CONNECTION_CONTROL_COPY = {
 export const CONNECTIONS_FOOTNOTE =
   "Turning a connection type off only changes what is drawn. All evidence remains available by selecting a device or turning on “All neighbour links”.";
 
+export const GRAPH_VIEW_GROUP_LABEL = "Graph view";
+export const GRAPH_VIEW_DRAW_MORE_LINKS = "Draw more links";
+export const GRAPH_VIEW_PRESET_CUSTOM_LABEL = "Custom";
+
+export const GRAPH_VIEW_PRESET_COPY = {
+  troubleshooting: {
+    label: "Troubleshooting",
+    description:
+      "Focused snapshot links plus recent missing and suggested investigation hints.",
+  },
+  router_review: {
+    label: "Router review",
+    description: "Route hints and recent missing evidence around observed routers.",
+  },
+  battery_devices: {
+    label: "Battery devices",
+    description: "Best neighbour and last known links for sleepy battery devices.",
+  },
+  quiet_view: {
+    label: "Quiet view",
+    description: "A minimal set of strongest neighbour links only.",
+  },
+  full_snapshot_links: {
+    label: "Full snapshot links",
+    description: "All neighbour, route and old or uncertain links from the latest snapshot.",
+  },
+  custom: {
+    label: GRAPH_VIEW_PRESET_CUSTOM_LABEL,
+    description: "Your manual link choices differ from a preset.",
+  },
+} as const;
+
 export const CONNECTIONS_EXPLAINER = {
   bestNeighbourLinks:
     "Best neighbour links come from each device’s neighbour table: other devices it could hear over the radio, with a link quality (LQI) reading. They show which connections are possible. ZigbeeLens draws a focused set of the strongest links per device so dense networks stay readable; “All neighbour links” draws every one.",

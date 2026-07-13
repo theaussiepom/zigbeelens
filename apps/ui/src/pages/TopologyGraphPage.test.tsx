@@ -21,13 +21,49 @@ import {
   GRAPH_SAFETY_COPY_LIVE,
 } from "@/lib/meshEvidence";
 import { connectionControlsStorageKey } from "@/lib/meshGraphDense";
-import { findForbiddenUserFacingPhrases } from "@/lib/meshGraphCopy";
+import { findForbiddenUserFacingPhrases, GRAPH_VIEW_DRAW_MORE_LINKS } from "@/lib/meshGraphCopy";
+import { viewPresetStorageKey } from "@/lib/meshGraphPresets";
 import { positionStorageKey } from "@/lib/meshGraphSmartLayout";
 import { mockReactFlow } from "@/test/mockReactFlow";
 
 beforeAll(() => {
   mockReactFlow();
 });
+
+async function openDrawMoreLinks(user?: ReturnType<typeof userEvent.setup>) {
+  const button = screen.getByRole("button", { name: new RegExp(GRAPH_VIEW_DRAW_MORE_LINKS, "i") });
+  if (button.getAttribute("aria-expanded") !== "true") {
+    if (user) await user.click(button);
+    else fireEvent.click(button);
+  }
+}
+
+function connectionControlsPanel() {
+  openDrawMoreLinks();
+  return within(screen.getByRole("group", { name: /connections to show/i }));
+}
+
+function connectionCheckbox(name: RegExp | string) {
+  return connectionControlsPanel().getByRole("checkbox", { name });
+}
+
+async function clickConnectionCheckbox(
+  user: ReturnType<typeof userEvent.setup>,
+  name: RegExp | string,
+) {
+  await openDrawMoreLinks(user);
+  await user.click(screen.getByRole("checkbox", { name }));
+}
+
+async function selectGraphViewPreset(
+  user: ReturnType<typeof userEvent.setup>,
+  presetId: string,
+) {
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: /graph view preset/i }),
+    presetId,
+  );
+}
 
 function makeDevice(overrides: Partial<DeviceSummary>): DeviceSummary {
   return {
@@ -573,7 +609,7 @@ describe("TopologyGraphPage live mode", () => {
       expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(1);
     });
     // With route hints off, both merged neighbour edges draw.
-    await user.click(screen.getByRole("checkbox", { name: /route hints/i }));
+    await clickConnectionCheckbox(user, /route hints/i);
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--latest_snapshot_neighbor")).toHaveLength(2);
     });
@@ -602,7 +638,7 @@ describe("TopologyGraphPage live mode", () => {
   it("only offers evidence filters that live data can produce", async () => {
     await renderLiveAndWaitForLayout();
     // No historical evidence in this response: recent missing links disabled.
-    expect(screen.getByRole("checkbox", { name: /recent missing links/i })).toBeDisabled();
+    expect(connectionCheckbox(/recent missing links/i)).toBeDisabled();
     expect(screen.queryByText(/previously seen/i)).not.toBeInTheDocument();
     expect(
       screen.getByText("No recent missing links in the selected history window."),
@@ -610,7 +646,7 @@ describe("TopologyGraphPage live mode", () => {
     // No passive hints in this response: suggested investigation links
     // disabled with honest empty copy.
     expect(
-      screen.getByRole("checkbox", { name: /suggested investigation links/i }),
+      connectionCheckbox(/suggested investigation links/i),
     ).toBeDisabled();
     expect(
       screen.getByText("No suggested investigation links are available for this network yet."),
@@ -627,7 +663,7 @@ describe("TopologyGraphPage live mode", () => {
       links: liveDetailHome.links!.map((link) => ({ ...link, route_count: 0 })),
     };
     const { container } = await renderLiveAndWaitForLayout();
-    expect(screen.getByRole("checkbox", { name: /route hints/i })).toBeDisabled();
+    expect(connectionCheckbox(/route hints/i)).toBeDisabled();
     expect(screen.getByText(/No route hints in the latest snapshot/)).toBeInTheDocument();
     // Guidance points at capturing a new snapshot, never at live-routing claims.
     expect(screen.getByText(/capture a new topology snapshot/i)).toBeInTheDocument();
@@ -639,6 +675,7 @@ describe("TopologyGraphPage live mode", () => {
     await renderLiveAndWaitForLayout();
     expect(screen.queryByTestId("connections-explainer")).not.toBeInTheDocument();
 
+    await openDrawMoreLinks(user);
     await user.click(screen.getByTestId("connections-explainer-toggle"));
     const text = screen.getByTestId("connections-explainer").textContent ?? "";
     expect(text).toMatch(/neighbour table/i);
@@ -662,7 +699,7 @@ describe("TopologyGraphPage live mode", () => {
 
   it("enables route hints with the standard helper when route tables exist", async () => {
     await renderLiveAndWaitForLayout();
-    const checkbox = screen.getByRole("checkbox", { name: /route hints/i });
+    const checkbox = connectionCheckbox(/route hints/i);
     expect(checkbox).toBeEnabled();
     expect(checkbox).toBeChecked();
     expect(screen.queryByText(/No route hints in the latest snapshot/)).not.toBeInTheDocument();
@@ -673,7 +710,7 @@ describe("TopologyGraphPage live mode", () => {
     await renderLiveAndWaitForLayout();
     // This pair is route-covered, so its neighbour line draws once route
     // hints are off (one line per pair while both are on).
-    await user.click(screen.getByRole("checkbox", { name: /route hints/i }));
+    await clickConnectionCheckbox(user, /route hints/i);
     const edge = await screen.findByLabelText(
       "Latest snapshot neighbour link between Live Hall Router and Live Coordinator",
     );
@@ -898,6 +935,8 @@ describe("TopologyGraphPage layout modes", () => {
     expect(screen.getByTestId("layout-mode-description")).toHaveTextContent(
       /does not prove current live routing/i,
     );
+    expect(screen.getByRole("group", { name: /graph view/i })).toBeInTheDocument();
+    await openDrawMoreLinks();
     expect(screen.getByRole("group", { name: /connections to show/i })).toBeInTheDocument();
   });
 
@@ -944,7 +983,7 @@ describe("TopologyGraphPage layout modes", () => {
     );
     const { container } = await renderLiveAndWaitForLayout();
 
-    await user.click(screen.getByRole("checkbox", { name: /route hints/i }));
+    await clickConnectionCheckbox(user, /route hints/i);
     expect(nodePosition(container, "0xr1")).toContain("translate(4321px,1234px)");
 
     fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
@@ -999,7 +1038,7 @@ describe("TopologyGraphPage layout stability", () => {
     const flowEl = container.querySelector(".react-flow");
     const before = nodePosition(container, "0xr1");
 
-    await user.click(screen.getByRole("checkbox", { name: /route hints/i }));
+    await clickConnectionCheckbox(user, /route hints/i);
     fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
     await screen.findByRole("dialog", { name: /device details/i });
 
@@ -1017,12 +1056,15 @@ describe("TopologyGraphPage focused view on large graphs", () => {
   });
 
   function connectionsPanel() {
-    return within(screen.getByRole("group", { name: /connections to show/i }));
+    return connectionControlsPanel();
   }
 
-  it("renders human-readable connection controls with the spec defaults", async () => {
+  it("renders human-readable connection controls with the Troubleshooting preset defaults", async () => {
     renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
+    expect(screen.getByRole("combobox", { name: /graph view preset/i })).toHaveValue(
+      "troubleshooting",
+    );
     const panel = connectionsPanel();
 
     expect(panel.getByRole("checkbox", { name: /route hints/i })).toBeChecked();
@@ -1213,6 +1255,8 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     const { container } = renderGraphPage();
     await screen.findByText("Live Hall Router");
     // One control model everywhere: no separate evidence-filter panel.
+    expect(screen.getByRole("group", { name: /graph view/i })).toBeInTheDocument();
+    await openDrawMoreLinks();
     expect(screen.getByRole("group", { name: /connections to show/i })).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: /evidence filters/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId("focused-view-note")).not.toBeInTheDocument();
@@ -1230,7 +1274,7 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     const first = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
     const allLinksToggle = () =>
-      within(screen.getByRole("group", { name: /connections to show/i })).getByRole("checkbox", {
+      connectionControlsPanel().getByRole("checkbox", {
         name: /all neighbour links/i,
       });
     expect(allLinksToggle()).not.toBeChecked();
@@ -1251,7 +1295,7 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     );
     renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
-    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
+    const panel = connectionControlsPanel();
     // "home" has no saved choices: defaults apply despite "other" storage.
     expect(panel.getByRole("checkbox", { name: /route hints/i })).toBeChecked();
   });
@@ -1260,24 +1304,67 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     localStorage.setItem("zigbeelens.meshGraph.connectionControls.v1.home", "{corrupt");
     renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
-    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
+    const panel = connectionControlsPanel();
     expect(panel.getByRole("checkbox", { name: /route hints/i })).toBeChecked();
     expect(panel.getByRole("checkbox", { name: /all neighbour links/i })).not.toBeChecked();
   });
 
-  it("reset connection choices returns to the defaults", async () => {
+  it("reset connection choices returns to the Troubleshooting preset", async () => {
     const user = userEvent.setup();
     renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
-    const panel = () => within(screen.getByRole("group", { name: /connections to show/i }));
+    const panel = () => connectionControlsPanel();
     await user.click(panel().getByRole("checkbox", { name: /all neighbour links/i }));
     expect(panel().getByRole("checkbox", { name: /all neighbour links/i })).toBeChecked();
 
     await user.click(screen.getByRole("button", { name: /reset connection choices/i }));
     expect(panel().getByRole("checkbox", { name: /all neighbour links/i })).not.toBeChecked();
+    expect(screen.getByRole("combobox", { name: /graph view preset/i })).toHaveValue(
+      "troubleshooting",
+    );
     expect(
       localStorage.getItem("zigbeelens.meshGraph.connectionControls.v1.home"),
-    ).toBeNull();
+    ).not.toBeNull();
+    expect(localStorage.getItem(viewPresetStorageKey("home"))).toBe("troubleshooting");
+  });
+});
+
+describe("TopologyGraphPage graph view presets", () => {
+  beforeEach(() => {
+    mockDetail = liveDetailWithHistory;
+    mockDevices = liveDevices;
+  });
+
+  it("defaults new users to the Troubleshooting preset", async () => {
+    await renderLiveAndWaitForLayout();
+    expect(screen.getByRole("combobox", { name: /graph view preset/i })).toHaveValue(
+      "troubleshooting",
+    );
+    expect(connectionCheckbox(/recent missing links/i)).toBeChecked();
+    expect(connectionCheckbox(/suggested investigation links/i)).toBeDisabled();
+  });
+
+  it("switches to Quiet view and hides historical edges", async () => {
+    const user = userEvent.setup();
+    const { container } = await renderLiveAndWaitForLayout();
+    await selectGraphViewPreset(user, "quiet_view");
+    expect(screen.getByRole("combobox", { name: /graph view preset/i })).toHaveValue("quiet_view");
+    expect(connectionCheckbox(/route hints/i)).not.toBeChecked();
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
+    });
+    expect(localStorage.getItem(viewPresetStorageKey("home"))).toBe("quiet_view");
+  });
+
+  it("restores a saved preset on revisit", async () => {
+    localStorage.setItem(viewPresetStorageKey("home"), "battery_devices");
+    await renderLiveAndWaitForLayout();
+    expect(screen.getByRole("combobox", { name: /graph view preset/i })).toHaveValue(
+      "battery_devices",
+    );
+    expect(connectionCheckbox(/route hints/i)).not.toBeChecked();
+    expect(connectionCheckbox(/best neighbour links/i)).toBeChecked();
+    expect(connectionCheckbox(/recent missing links/i)).not.toBeChecked();
   });
 });
 
@@ -1287,16 +1374,18 @@ describe("TopologyGraphPage historical evidence (live)", () => {
     mockDevices = liveDevices;
   });
 
-  it("enables Recent missing links when historical evidence exists, default off", async () => {
+  it("enables Recent missing links when historical evidence exists, on with Troubleshooting preset", async () => {
     const { container } = await renderLiveAndWaitForLayout();
-    const checkbox = screen.getByRole("checkbox", { name: /recent missing links/i });
+    const checkbox = connectionCheckbox(/recent missing links/i);
     expect(checkbox).toBeEnabled();
-    expect(checkbox).not.toBeChecked();
+    expect(checkbox).toBeChecked();
     // The old label is gone everywhere.
     expect(screen.queryByText(/previously seen/i)).not.toBeInTheDocument();
-    // Off by default: no historical edges rendered.
-    expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
-    expect(container.querySelectorAll(".mesh-edge--historical_route")).toHaveLength(0);
+    // Troubleshooting preset: historical edges render by default.
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(1);
+      expect(container.querySelectorAll(".mesh-edge--historical_route")).toHaveLength(1);
+    });
     // No passive-derived edges are ever created from live data.
     expect(container.querySelectorAll(".mesh-edge--passive_derived_association")).toHaveLength(0);
   });
@@ -1304,7 +1393,12 @@ describe("TopologyGraphPage historical evidence (live)", () => {
   it("renders dotted historical edges when Recent missing links is enabled", async () => {
     const user = userEvent.setup();
     const { container } = await renderLiveAndWaitForLayout();
-    await user.click(screen.getByRole("checkbox", { name: /recent missing links/i }));
+    // Already on with Troubleshooting; toggle off then on to exercise the control.
+    await clickConnectionCheckbox(user, /recent missing links/i);
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
+    });
+    await clickConnectionCheckbox(user, /recent missing links/i);
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(1);
     });
@@ -1402,9 +1496,7 @@ describe("TopologyGraphPage historical evidence (live)", () => {
   });
 
   it("frames the historical neighbour details panel as previous-snapshot evidence, never live routing", async () => {
-    const user = userEvent.setup();
     await renderLiveAndWaitForLayout();
-    await user.click(screen.getByRole("checkbox", { name: /recent missing links/i }));
     const edge = await screen.findByLabelText(
       "Recent missing link between Live Lamp and Live Sleepy Sensor",
     );
@@ -1436,9 +1528,7 @@ describe("TopologyGraphPage historical evidence (live)", () => {
   });
 
   it("frames the historical route details panel with previous route-table evidence and counts", async () => {
-    const user = userEvent.setup();
     await renderLiveAndWaitForLayout();
-    await user.click(screen.getByRole("checkbox", { name: /recent missing links/i }));
     const edge = await screen.findByLabelText(
       "Recent missing route hint from Live Hall Router to Live Lamp",
     );
@@ -1498,9 +1588,7 @@ describe("TopologyGraphPage historical evidence (live)", () => {
       ],
       historical_routes: [],
     };
-    const user = userEvent.setup();
     await renderLiveAndWaitForLayout();
-    await user.click(screen.getByRole("checkbox", { name: /recent missing links/i }));
     const edge = await screen.findByLabelText(
       "Recent missing link between Live Lamp and Live Sleepy Sensor",
     );
@@ -1584,10 +1672,14 @@ describe("TopologyGraphPage historical evidence on large graphs", () => {
     mockDevices = dense.devices;
   });
 
-  it("keeps historical edges out of the default focused view", async () => {
+  it("keeps historical edges out of the Quiet view preset", async () => {
+    const user = userEvent.setup();
     const { container } = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
-    expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
+    await selectGraphViewPreset(user, "quiet_view");
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
+    });
     expect(screen.queryByTestId("dense-graph-banner")).not.toBeInTheDocument();
   });
 
@@ -1595,11 +1687,11 @@ describe("TopologyGraphPage historical evidence on large graphs", () => {
     const user = userEvent.setup();
     const { container } = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
-    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
+    const panel = connectionControlsPanel();
 
     const checkbox = panel.getByRole("checkbox", { name: /recent missing links/i });
     expect(checkbox).toBeEnabled();
-    expect(checkbox).not.toBeChecked();
+    expect(checkbox).toBeChecked();
     expect(panel.queryByText(/previously seen/i)).not.toBeInTheDocument();
     // Enabled controls carry no helper copy — the explainer describes them.
     expect(
@@ -1608,12 +1700,12 @@ describe("TopologyGraphPage historical evidence on large graphs", () => {
 
     await user.click(checkbox);
     await waitFor(() => {
-      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(2);
+      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
     });
 
     await user.click(checkbox);
     await waitFor(() => {
-      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
+      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(2);
     });
   });
 
@@ -1627,11 +1719,8 @@ describe("TopologyGraphPage historical evidence on large graphs", () => {
     mockDetail = dense.detail;
     mockDevices = dense.devices;
 
-    const user = userEvent.setup();
     const { container } = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
-    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
-    await user.click(panel.getByRole("checkbox", { name: /recent missing links/i }));
 
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(3);
@@ -1639,11 +1728,8 @@ describe("TopologyGraphPage historical evidence on large graphs", () => {
   });
 
   it("renders no concealment or live-routing phrasing anywhere on the page", async () => {
-    const user = userEvent.setup();
     const { container } = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
-    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
-    await user.click(panel.getByRole("checkbox", { name: /recent missing links/i }));
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(2);
     });
@@ -1659,8 +1745,10 @@ describe("TopologyGraphPage historical evidence on large graphs", () => {
   });
 
   it("selecting a device reveals its recent missing links without moving the layout", async () => {
+    const user = userEvent.setup();
     const { container } = renderGraphPage();
     await screen.findByTestId("mesh-node-0xr5");
+    await selectGraphViewPreset(user, "quiet_view");
     const beforePos = nodePosition(container, "0xr20");
     // Control off: the historical edge is hidden.
     expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
@@ -1686,27 +1774,33 @@ describe("TopologyGraphPage passive-derived investigation hints", () => {
     mockDevices = liveDevices;
   });
 
-  const investigationToggle = () =>
-    screen.getByRole("checkbox", { name: /suggested investigation links/i });
+  const investigationToggle = () => connectionCheckbox(/suggested investigation links/i);
 
-  it("enables the control when passive hints exist, off by default", async () => {
+  it("enables the control when passive hints exist, on with Troubleshooting preset", async () => {
     const { container } = await renderLiveAndWaitForLayout();
     expect(investigationToggle()).toBeEnabled();
-    expect(investigationToggle()).not.toBeChecked();
+    expect(investigationToggle()).toBeChecked();
     // Enabled controls carry no helper copy — the explainer describes them.
     expect(
       screen.queryByText("No suggested investigation links are available for this network yet."),
     ).not.toBeInTheDocument();
-    // Off by default: no passive edges rendered.
-    expect(container.querySelectorAll(".mesh-edge--passive_derived_association")).toHaveLength(
-      0,
-    );
+    // On with Troubleshooting: passive edges render by default.
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--passive_derived_association")).toHaveLength(1);
+    });
   });
 
   it("draws ghost passive edges without arrowheads when enabled", async () => {
     const user = userEvent.setup();
     const { container } = await renderLiveAndWaitForLayout();
-    await user.click(investigationToggle());
+    // Already on; toggle off then on to exercise the control.
+    await clickConnectionCheckbox(user, /suggested investigation links/i);
+    await waitFor(() => {
+      expect(
+        container.querySelectorAll(".mesh-edge--passive_derived_association"),
+      ).toHaveLength(0);
+    });
+    await clickConnectionCheckbox(user, /suggested investigation links/i);
     await waitFor(() => {
       expect(
         container.querySelectorAll(".mesh-edge--passive_derived_association"),
@@ -1735,7 +1829,7 @@ describe("TopologyGraphPage passive-derived investigation hints", () => {
   it("opens a drawer that explains the hint without topology or routing claims", async () => {
     const user = userEvent.setup();
     await renderLiveAndWaitForLayout();
-    await user.click(investigationToggle());
+    await openDrawMoreLinks(user);
     const edge = await screen.findByLabelText(
       "Suggested investigation link between Live Lamp and Live Sleepy Sensor",
     );
@@ -1812,7 +1906,9 @@ describe("TopologyGraphPage passive-derived investigation hints", () => {
   });
 
   it("selecting a device reveals its passive hints even when the control is off", async () => {
+    const user = userEvent.setup();
     const { container } = await renderLiveAndWaitForLayout();
+    await selectGraphViewPreset(user, "quiet_view");
     expect(container.querySelectorAll(".mesh-edge--passive_derived_association")).toHaveLength(
       0,
     );
@@ -1832,9 +1928,7 @@ describe("TopologyGraphPage passive-derived investigation hints", () => {
         makePassiveHint({ source_ieee: "0xe1", target_ieee: other }),
       ),
     };
-    const user = userEvent.setup();
     const { container } = await renderLiveAndWaitForLayout();
-    await user.click(investigationToggle());
     await waitFor(() => {
       expect(
         container.querySelectorAll(".mesh-edge--passive_derived_association").length,
@@ -1846,9 +1940,7 @@ describe("TopologyGraphPage passive-derived investigation hints", () => {
   });
 
   it("renders no forbidden wording anywhere with passive hints enabled", async () => {
-    const user = userEvent.setup();
     await renderLiveAndWaitForLayout();
-    await user.click(investigationToggle());
     const text = document.body.textContent ?? "";
     expect(text).not.toMatch(/parent router/i);
     expect(text).not.toMatch(/currently routed/i);
@@ -1872,7 +1964,7 @@ describe("TopologyGraphPage last known links", () => {
     // Non-directional: last known evidence never implies a route.
     expect(path?.getAttribute("marker-end") ?? "").toBe("");
     // The control is on by default and enabled.
-    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
+    const panel = connectionControlsPanel();
     const checkbox = panel.getByRole("checkbox", { name: /last known links/i });
     expect(checkbox).toBeEnabled();
     expect(checkbox).toBeChecked();
@@ -1881,7 +1973,7 @@ describe("TopologyGraphPage last known links", () => {
   it("turning the control off removes the drawn edge", async () => {
     const user = userEvent.setup();
     const { container } = await renderLiveAndWaitForLayout();
-    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
+    const panel = connectionControlsPanel();
     await user.click(panel.getByRole("checkbox", { name: /last known links/i }));
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--last_known_link")).toHaveLength(0);
@@ -1917,7 +2009,7 @@ describe("TopologyGraphPage last known links", () => {
   it("disables the control with honest copy when every device has latest link evidence", async () => {
     mockDetail = liveDetailWithHistory;
     await renderLiveAndWaitForLayout();
-    const panel = within(screen.getByRole("group", { name: /connections to show/i }));
+    const panel = connectionControlsPanel();
     const checkbox = panel.getByRole("checkbox", { name: /last known links/i });
     expect(checkbox).toBeDisabled();
     expect(checkbox).not.toBeChecked();
@@ -1934,6 +2026,7 @@ describe("TopologyGraphPage last known links", () => {
   it("mentions last known links in the explainer", async () => {
     const user = userEvent.setup();
     await renderLiveAndWaitForLayout();
+    await openDrawMoreLinks(user);
     await user.click(screen.getByTestId("connections-explainer-toggle"));
     const explainer = screen.getByTestId("connections-explainer");
     const text = explainer.textContent ?? "";
@@ -2032,7 +2125,8 @@ describe("TopologyGraphPage investigation panel", () => {
     const user = userEvent.setup();
     const { container } = await renderLiveAndWaitForLayout();
     const beforePos = nodePosition(container, "0xe1");
-    // The card's historical edge is not drawn by default (control is off).
+    await selectGraphViewPreset(user, "quiet_view");
+    // The card's historical edge is not drawn when Recent missing links is off.
     expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
 
     await user.click(focusButton());
@@ -2059,13 +2153,11 @@ describe("TopologyGraphPage investigation panel", () => {
   it("focusing does not change connection-control choices", async () => {
     const user = userEvent.setup();
     await renderLiveAndWaitForLayout();
-    const recentMissing = screen.getByRole("checkbox", { name: /recent missing links/i });
-    expect(recentMissing).not.toBeChecked();
+    const recentMissing = connectionCheckbox(/recent missing links/i);
+    expect(recentMissing).toBeChecked();
     await user.click(focusButton());
-    expect(
-      screen.getByRole("checkbox", { name: /recent missing links/i }),
-    ).not.toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /route hints/i })).toBeChecked();
+    expect(connectionCheckbox(/recent missing links/i)).toBeChecked();
+    expect(connectionCheckbox(/route hints/i)).toBeChecked();
   });
 
   it("Clear focus restores the graph without touching positions or controls", async () => {
@@ -2082,11 +2174,11 @@ describe("TopologyGraphPage investigation panel", () => {
       expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(0);
     });
     expect(container.querySelectorAll(".mesh-node--muted")).toHaveLength(0);
-    expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(1);
+    });
     expect(nodePosition(container, "0xr1")).toBe(beforePos);
-    expect(
-      screen.getByRole("checkbox", { name: /recent missing links/i }),
-    ).not.toBeChecked();
+    expect(connectionCheckbox(/recent missing links/i)).toBeChecked();
   });
 
   it("keeps evidence-class edge styling intact while focused", async () => {
@@ -2260,9 +2352,10 @@ describe("device search", () => {
     const user = userEvent.setup();
     const { container } = await renderLiveAndWaitForLayout();
     const beforePos = nodePosition(container, "0xr1");
-    // The historical edge touching 0xe2 is not drawn by default (control off).
+    await selectGraphViewPreset(user, "quiet_view");
+    // The historical edge touching 0xe2 is not drawn when Recent missing links is off.
     expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(0);
-    expect(screen.getByRole("checkbox", { name: /recent missing links/i })).not.toBeChecked();
+    expect(connectionCheckbox(/recent missing links/i)).not.toBeChecked();
 
     await user.type(searchInput(), "sleepy");
     const list = await screen.findByRole("listbox", { name: /device search results/i });
@@ -2273,10 +2366,10 @@ describe("device search", () => {
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-edge--historical_neighbor")).toHaveLength(1);
     });
-    expect(screen.getByRole("checkbox", { name: /recent missing links/i })).not.toBeChecked();
-    // Layout stable: nothing moved, and no controls were persisted.
+    expect(connectionCheckbox(/recent missing links/i)).not.toBeChecked();
+    // Layout stable: nothing moved; preset choice persisted, search did not change controls.
     expect(nodePosition(container, "0xr1")).toBe(beforePos);
-    expect(localStorage.getItem(connectionControlsStorageKey("home"))).toBeNull();
+    expect(localStorage.getItem(viewPresetStorageKey("home"))).toBe("quiet_view");
   });
 
   it("selecting a search result clears an active investigation focus", async () => {
@@ -2631,7 +2724,7 @@ describe("device-led snapshot history", () => {
     expect(nodePosition(container, "0xc0")).toBe(beforePos);
     expect(localStorage.getItem(connectionControlsStorageKey("home"))).toBeNull();
     expect(
-      screen.getByRole("checkbox", { name: /best neighbour links/i }),
+      connectionCheckbox(/best neighbour links/i),
     ).toBeChecked();
   });
 
