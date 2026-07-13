@@ -4,6 +4,7 @@
  * meaning or section ordering.
  */
 
+import type { DataCoverageDto } from "@/types/decisions";
 import type { MeshEvidenceDevice } from "@/lib/meshEvidence";
 import {
   meshHealthBucketLabel,
@@ -11,7 +12,12 @@ import {
   meshRoleLabel,
 } from "@/lib/meshEvidence";
 import {
+  buildEvidenceCoverageStripViewModel,
+  DEVICE_DRAWER_COVERAGE_LABEL_CODES,
+} from "@/viewModels/coverage/coverageStripViewModel";
+import {
   DEVICE_DETAILS_PANEL_LABEL,
+  DEVICE_SECTION_DATA_COVERAGE,
   DEVICE_SECTION_OPEN_ISSUE,
   DEVICE_SECTION_PASSIVE_HINTS,
   DEVICE_SECTION_RECENT_MISSING,
@@ -19,6 +25,7 @@ import {
   DEVICE_SECTION_STATUS,
   DEVICE_SECTION_SUMMARY,
   DEVICE_SECTION_TOPOLOGY,
+  EVIDENCE_COVERAGE_STRIP_TITLE,
 } from "@/lib/meshGraphCopy";
 
 export type DeviceDetailsSectionId =
@@ -28,6 +35,7 @@ export type DeviceDetailsSectionId =
   | "topologyEvidence"
   | "recentMissing"
   | "snapshotHistory"
+  | "dataCoverage"
   | "passiveHints"
   | "openIssue";
 
@@ -81,13 +89,21 @@ export interface DeviceDetailsSnapshotHistorySectionViewModel {
   deviceIeee: string;
 }
 
+export interface DeviceDetailsDataCoverageSectionViewModel {
+  id: "dataCoverage";
+  title: string;
+  coverageTitle: string;
+  items: ReturnType<typeof buildEvidenceCoverageStripViewModel>["items"];
+}
+
 export type DeviceDetailsSectionViewModel =
   | DeviceDetailsSummarySectionViewModel
   | DeviceDetailsStatusSectionViewModel
   | DeviceDetailsStatsSectionViewModel
   | DeviceDetailsTextSectionViewModel
   | DeviceDetailsOpenIssueSectionViewModel
-  | DeviceDetailsSnapshotHistorySectionViewModel;
+  | DeviceDetailsSnapshotHistorySectionViewModel
+  | DeviceDetailsDataCoverageSectionViewModel;
 
 export interface DeviceDetailsViewModel {
   panelLabel: string;
@@ -205,8 +221,24 @@ function buildSnapshotHistorySection(
   };
 }
 
+function buildDataCoverageSection(
+  networkCoverage: DataCoverageDto[],
+): DeviceDetailsDataCoverageSectionViewModel | null {
+  const strip = buildEvidenceCoverageStripViewModel(networkCoverage, {
+    filterLabelCodes: DEVICE_DRAWER_COVERAGE_LABEL_CODES,
+  });
+  if (strip.items.length === 0) return null;
+  return {
+    id: "dataCoverage",
+    title: DEVICE_SECTION_DATA_COVERAGE,
+    coverageTitle: EVIDENCE_COVERAGE_STRIP_TITLE,
+    items: strip.items,
+  };
+}
+
 export function buildDeviceDetailsViewModel(
   device: MeshEvidenceDevice,
+  networkCoverage: DataCoverageDto[] = [],
 ): DeviceDetailsViewModel {
   const sections: DeviceDetailsSectionViewModel[] = [
     buildSummarySection(device),
@@ -222,6 +254,9 @@ export function buildDeviceDetailsViewModel(
   if (recentMissing) sections.push(recentMissing);
 
   sections.push(buildSnapshotHistorySection(device));
+
+  const dataCoverage = buildDataCoverageSection(networkCoverage);
+  if (dataCoverage) sections.push(dataCoverage);
 
   const passiveHints = buildPassiveHintsSection(device);
   if (passiveHints) sections.push(passiveHints);

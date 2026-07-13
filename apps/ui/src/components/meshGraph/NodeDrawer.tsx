@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { DrawerFact, DrawerSection, DrawerShell } from "@/components/meshGraph/DrawerShell";
+import { EvidenceCoverageStrip } from "@/components/meshGraph/EvidenceCoverageStrip";
 import { SnapshotHistorySection } from "@/components/meshGraph/SnapshotHistorySection";
+import type { DataCoverageDto } from "@/types/decisions";
 import type { MeshEvidenceDevice } from "@/lib/meshEvidence";
 import {
   buildDeviceDetailsViewModel,
@@ -61,6 +63,12 @@ function DeviceDetailsSection({ section }: { section: DeviceDetailsSectionViewMo
           deviceIeee={section.deviceIeee}
         />
       );
+    case "dataCoverage":
+      return (
+        <DrawerSection title={section.title}>
+          <EvidenceCoverageStrip title={section.coverageTitle} items={section.items} />
+        </DrawerSection>
+      );
     case "openIssue":
       return (
         <DrawerSection title={section.title}>
@@ -76,12 +84,17 @@ function DeviceDetailsSection({ section }: { section: DeviceDetailsSectionViewMo
 /** Device details panel: summary, status, and recorded evidence only. */
 export function NodeDrawer({
   device,
+  networkCoverage = [],
   onClose,
 }: {
   device: MeshEvidenceDevice;
+  networkCoverage?: DataCoverageDto[];
   onClose: () => void;
 }) {
-  const viewModel = useMemo(() => buildDeviceDetailsViewModel(device), [device]);
+  const viewModel = useMemo(
+    () => buildDeviceDetailsViewModel(device, networkCoverage),
+    [device, networkCoverage],
+  );
 
   return (
     <DrawerShell label={viewModel.panelLabel} onClose={onClose}>

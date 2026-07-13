@@ -157,9 +157,13 @@ def test_evidence_graph_api_capture_disabled_null_threshold_no_stale_fact(
 def test_evidence_graph_api_topology_facts_shape(topology_client: TestClient):
     body = topology_client.get("/api/topology/home/evidence-graph").json()
     topology_facts = body["topology_facts"]
-    assert set(topology_facts.keys()) == {"stale_threshold_hours", "network_facts"}
+    assert set(topology_facts.keys()) == {"stale_threshold_hours", "network_facts", "coverage"}
     assert topology_facts["stale_threshold_hours"] is None
     assert isinstance(topology_facts["network_facts"], list)
+    assert isinstance(topology_facts["coverage"], list)
+    if topology_facts["coverage"]:
+        item = topology_facts["coverage"][0]
+        assert set(item.keys()) == {"dimension", "state", "label_code", "params"}
 
 
 def test_device_snapshot_history_api_topology_facts_shape_and_scoped_comparisons(

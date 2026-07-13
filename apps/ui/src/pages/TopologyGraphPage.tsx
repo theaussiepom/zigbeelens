@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router-dom";
 import { Badge, Card, ErrorState, LoadingState, MetricPill } from "@/components/ui";
 import { GraphPanel } from "@/components/meshGraph/GraphPanel";
+import { EvidenceCoverageStrip } from "@/components/meshGraph/EvidenceCoverageStrip";
 import { TopologyMetricStrip } from "@/components/meshGraph/TopologyMetricStrip";
 import { EdgeDrawer } from "@/components/meshGraph/EdgeDrawer";
 import { NodeDrawer } from "@/components/meshGraph/NodeDrawer";
@@ -9,7 +10,8 @@ import { useGraphSelection } from "@/hooks/useGraphSelection";
 import { useTopologyGraphData } from "@/hooks/useTopologyGraphData";
 import { relativeTime } from "@/lib/format";
 import { topologyStatusLabel } from "@/lib/topologyLabels";
-import { GRAPH_SAFETY_COPY_LIVE } from "@/lib/meshGraphCopy";
+import { GRAPH_SAFETY_COPY_LIVE, EVIDENCE_COVERAGE_STRIP_TITLE } from "@/lib/meshGraphCopy";
+import { buildEvidenceCoverageStripViewModel } from "@/viewModels/coverage/coverageStripViewModel";
 
 const LIMITED_LAYOUT_COPY =
   "Topology snapshot was captured, but Zigbee2MQTT did not provide usable node/link layout data. Device health still comes from passive MQTT inventory and state updates.";
@@ -39,6 +41,9 @@ export function TopologyGraphPage() {
 
   const liveSnapshotEdgeCount =
     liveEvidence?.edges.filter((edge) => edge.in_latest_snapshot).length ?? 0;
+  const networkCoverageStrip = buildEvidenceCoverageStripViewModel(
+    graphDetail?.topology_facts?.coverage ?? [],
+  );
 
   return (
     <div className="max-w-7xl space-y-6">
@@ -164,6 +169,10 @@ export function TopologyGraphPage() {
             snapshot={snapshot}
             liveEdgeCount={liveSnapshotEdgeCount}
           />
+          <EvidenceCoverageStrip
+            title={EVIDENCE_COVERAGE_STRIP_TITLE}
+            items={networkCoverageStrip.items}
+          />
           <GraphPanel
             // Remount per network so persisted connection choices and
             // layout state are restored for the network being viewed.
@@ -192,7 +201,13 @@ export function TopologyGraphPage() {
           onClose={clearEdge}
         />
       )}
-      {selectedDevice && <NodeDrawer device={selectedDevice} onClose={clearNode} />}
+      {selectedDevice && (
+        <NodeDrawer
+          device={selectedDevice}
+          networkCoverage={detail.data?.topology_facts?.coverage ?? []}
+          onClose={clearNode}
+        />
+      )}
     </div>
   );
 }

@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from zigbeelens.decisions.availability_tracking import availability_tracking_enabled_now
 from zigbeelens.topology.compare import MEANINGFUL_LQI_CHANGE
 
 if TYPE_CHECKING:
@@ -359,13 +360,8 @@ def device_snapshot_history(
         or repo.incidents.list_incidents_for_device(network_id, device_ieee)
     )
 
-    # Availability tracking signals from data already recorded: any device
-    # with a known availability state, or any recorded transition, means
-    # Zigbee2MQTT availability reporting is (or was) enabled.
     earliest_availability_at = repo.availability.get_earliest_availability_change_at(network_id)
-    tracking_enabled_now = earliest_availability_at is not None or any(
-        row.availability in ("online", "offline") for row in repo.list_devices(network_id)
-    )
+    tracking_enabled_now = availability_tracking_enabled_now(repo, network_id)
     device_changes = list(
         reversed(
             repo.availability.list_availability_changes(

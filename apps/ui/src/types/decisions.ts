@@ -59,6 +59,7 @@ export interface EvidenceFactDto {
 export interface TopologyNetworkFactsDto {
   stale_threshold_hours: number | null;
   network_facts: EvidenceFactDto[];
+  coverage: DataCoverageDto[];
 }
 
 export interface TopologyDeviceFactsDto {

@@ -3,6 +3,7 @@ import {
   COVERAGE_LABEL_CODES,
   REASON_CODES,
   coverageLabel,
+  coverageHelperText,
   decisionStatusCompactLabel,
   decisionStatusLabel,
   decisionStatusTone,
@@ -66,9 +67,21 @@ describe("decisionCopy", () => {
 
   it("falls back safely for unknown coverage label codes", () => {
     expect(coverageLabel("future_backend_label")).toBe("Coverage status unknown");
+    expect(coverageHelperText("future_backend_label")).toMatch(
+      /interpret other evidence conservatively/i,
+    );
     expect(isKnownCoverageLabelCode("availability_tracking_off")).toBe(true);
     expect(isKnownCoverageLabelCode("future_backend_label")).toBe(false);
     expect(COVERAGE_LABEL_CODES.length).toBeGreaterThan(0);
+  });
+
+  it("maps required coverage helper text", () => {
+    expect(coverageHelperText("availability_tracking_off")).toMatch(/zigbee2mqtt availability/i);
+    expect(coverageHelperText("route_hints_unavailable")).toMatch(
+      /does not mean routes are absent/i,
+    );
+    expect(coverageHelperText("ha_areas_not_linked")).toMatch(/not a zigbee network fault/i);
+    expect(coverageHelperText("snapshot_stale")).toMatch(/configured capture cadence/i);
   });
 
   it("maps decision status labels and tones deterministically", () => {
