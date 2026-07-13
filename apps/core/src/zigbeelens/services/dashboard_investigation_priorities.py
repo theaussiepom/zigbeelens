@@ -10,7 +10,6 @@ from zigbeelens.services.evidence_graph import EvidenceGraphService
 if TYPE_CHECKING:
     from zigbeelens.storage.repository import NetworkRow, Repository
 
-MAX_OVERVIEW_INVESTIGATION_PRIORITIES_PER_NETWORK = 3
 MAX_OVERVIEW_INVESTIGATION_PRIORITIES = 6
 
 
@@ -38,9 +37,7 @@ def compose_dashboard_investigation_priorities(
     summaries: list[InvestigationPrioritySummary] = []
     for network in networks:
         investigations = service.investigations_for_network(network.id)
-        for card in investigations["investigations"][
-            :MAX_OVERVIEW_INVESTIGATION_PRIORITIES_PER_NETWORK
-        ]:
+        for card in investigations["investigations"]:
             summaries.append(_card_to_summary(network.id, card))
 
     summaries.sort(

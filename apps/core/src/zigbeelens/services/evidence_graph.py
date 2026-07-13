@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from zigbeelens.decisions.topology_facts import (
     TopologyFacts,
@@ -25,7 +25,6 @@ from zigbeelens.topology.passive_hints import aggregate_passive_hints
 
 if TYPE_CHECKING:
     from datetime import datetime
-    from typing import Any
 
     from zigbeelens.storage.repository import Repository
 
@@ -40,18 +39,16 @@ class EvidenceGraphService:
     def __init__(self, repo: Repository) -> None:
         self._repo = repo
 
-    def investigations_for_network(self, network_id: str) -> dict[str, Any]:
-        """Ranked investigation cards for one network (shared by mesh and Overview)."""
-        network = self._repo.networks.get_network(network_id)
-        if network is None:
-            raise NetworkNotFoundError(network_id)
-
-        topology = self._repo.topology
-        latest = topology.get_latest_topology_snapshot(network_id)
-        links = topology.list_topology_links(latest["snapshot_id"]) if latest else []
-        history = aggregate_historical_evidence(self._repo, network_id)
-        last_known = aggregate_last_known_links(self._repo, network_id)
-        passive = aggregate_passive_hints(self._repo, network_id)
+    def _compose_investigations(
+        self,
+        network_id: str,
+        *,
+        links: list[dict[str, Any]],
+        history: dict[str, Any],
+        last_known: dict[str, Any],
+        passive: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Compose ranked investigation cards from already-loaded evidence inputs."""
         shared_availability = shared_availability_event_groups_for_network(
             self._repo, network_id
         )
@@ -82,6 +79,26 @@ class EvidenceGraphService:
             observed_router_areas=observed_router_areas.areas,
             observed_model_patterns=observed_model_patterns.patterns,
             last_known_links=last_known["last_known_links"],
+        )
+
+    def investigations_for_network(self, network_id: str) -> dict[str, Any]:
+        """Ranked investigation cards for one network (shared by mesh and Overview)."""
+        network = self._repo.networks.get_network(network_id)
+        if network is None:
+            raise NetworkNotFoundError(network_id)
+
+        topology = self._repo.topology
+        latest = topology.get_latest_topology_snapshot(network_id)
+        links = topology.list_topology_links(latest["snapshot_id"]) if latest else []
+        history = aggregate_historical_evidence(self._repo, network_id)
+        last_known = aggregate_last_known_links(self._repo, network_id)
+        passive = aggregate_passive_hints(self._repo, network_id)
+        return self._compose_investigations(
+            network_id,
+            links=links,
+            history=history,
+            last_known=last_known,
+            passive=passive,
         )
 
     def build(self, network_id: str) -> dict:
@@ -120,7 +137,13 @@ class EvidenceGraphService:
         last_known = aggregate_last_known_links(self._repo, network_id)
         passive = aggregate_passive_hints(self._repo, network_id)
         device_stats = aggregate_device_stats(self._repo, network_id)
-        investigations = self.investigations_for_network(network_id)
+        investigations = self._compose_investigations(
+            network_id,
+            links=links,
+            history=history,
+            last_known=last_known,
+            passive=passive,
+        )
 
         latest_neighbor_pairs = {
             tuple(sorted((link["source_ieee"].lower(), link["target_ieee"].lower())))
