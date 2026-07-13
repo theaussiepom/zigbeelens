@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 from zigbeelens.config.models import AppConfig, ModeConfig, NetworkConfig, StorageConfig
 from zigbeelens.db.connection import Database
 from zigbeelens.decisions.router_area import (
     ObservedRouterAreaState,
-    RouterAreaHAAreaContext,
     build_observed_router_areas,
     ha_area_context_for_members,
     observed_router_areas_for_network,
