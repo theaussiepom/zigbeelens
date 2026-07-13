@@ -202,11 +202,7 @@ export function TopologyGraphPage() {
         />
       )}
       {selectedDevice && (
-        <NodeDrawer
-          device={selectedDevice}
-          networkCoverage={detail.data?.topology_facts?.coverage ?? []}
-          onClose={clearNode}
-        />
+        <NodeDrawer device={selectedDevice} onClose={clearNode} />
       )}
     </div>
   );

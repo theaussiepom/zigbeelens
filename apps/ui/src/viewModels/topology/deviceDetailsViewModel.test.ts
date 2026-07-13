@@ -9,7 +9,19 @@ import {
   DEVICE_SECTION_RECENT_MISSING,
   DEVICE_SECTION_STATS,
 } from "@/lib/meshGraphCopy";
-import { buildDeviceDetailsViewModel } from "@/viewModels/topology/deviceDetailsViewModel";
+import {
+  buildDeviceDetailsViewModel,
+  DEVICE_COVERAGE_UNAVAILABLE_MESSAGE,
+  type DeviceCoverageLoadState,
+} from "@/viewModels/topology/deviceDetailsViewModel";
+
+function buildVm(
+  device: MeshEvidenceDevice = makeDevice(),
+  coverage: DataCoverageDto[] = [],
+  loadState: DeviceCoverageLoadState = "loading",
+) {
+  return buildDeviceDetailsViewModel(device, coverage, loadState);
+}
 
 function makeDevice(overrides: Partial<MeshEvidenceDevice> = {}): MeshEvidenceDevice {
   return {
@@ -35,7 +47,7 @@ function sectionIds(vm: ReturnType<typeof buildDeviceDetailsViewModel>): string[
 
 describe("deviceDetailsViewModel", () => {
   it("orders core sections and omits empty optional sections", () => {
-    const vm = buildDeviceDetailsViewModel(makeDevice());
+    const vm = buildVm();
     expect(sectionIds(vm)).toEqual([
       "summary",
       "deviceStory",
@@ -46,7 +58,7 @@ describe("deviceDetailsViewModel", () => {
   });
 
   it("maps current status labels from device evidence", () => {
-    const vm = buildDeviceDetailsViewModel(
+    const vm = buildVm(
       makeDevice({ health_bucket: "needs_attention", availability: "offline" }),
     );
     const status = vm.sections.find((section) => section.id === "currentStatus");
@@ -57,7 +69,7 @@ describe("deviceDetailsViewModel", () => {
   });
 
   it("includes diagnostic stats when recorded values exist", () => {
-    const vm = buildDeviceDetailsViewModel(
+    const vm = buildVm(
       makeDevice({
         diagnostic_stats: [
           { label: "Last seen", value: "2h ago", detail: "2026-07-06T00:00:00+00:00" },
@@ -73,7 +85,7 @@ describe("deviceDetailsViewModel", () => {
   });
 
   it("includes recent missing evidence when a summary exists", () => {
-    const vm = buildDeviceDetailsViewModel(
+    const vm = buildVm(
       makeDevice({
         historical_topology_summary:
           "Previously observed links for this device are not shown in the latest snapshot.",
@@ -86,7 +98,7 @@ describe("deviceDetailsViewModel", () => {
   });
 
   it("includes passive hints when a summary exists", () => {
-    const vm = buildDeviceDetailsViewModel(
+    const vm = buildVm(
       makeDevice({
         passive_hint_summary: "Suggested investigation links touch this device.",
       }),
@@ -98,7 +110,7 @@ describe("deviceDetailsViewModel", () => {
   });
 
   it("includes open issue section when an issue exists", () => {
-    const vm = buildDeviceDetailsViewModel(
+    const vm = buildVm(
       makeDevice({
         open_issue: {
           title: "Device offline",
@@ -114,9 +126,7 @@ describe("deviceDetailsViewModel", () => {
   });
 
   it("maps header flags through mesh node flag labels", () => {
-    const vm = buildDeviceDetailsViewModel(
-      makeDevice({ flags: ["needs_attention", "battery_sleepy"] }),
-    );
+    const vm = buildVm(makeDevice({ flags: ["needs_attention", "battery_sleepy"] }));
     expect(vm.header.flagLabels).toEqual([
       meshNodeFlagLabel("needs_attention"),
       meshNodeFlagLabel("battery_sleepy"),
@@ -124,7 +134,7 @@ describe("deviceDetailsViewModel", () => {
   });
 
   it("places device story after summary and before current status", () => {
-    const vm = buildDeviceDetailsViewModel(makeDevice());
+    const vm = buildVm();
     const story = vm.sections.find((section) => section.id === "deviceStory");
     expect(story?.id).toBe("deviceStory");
     if (story?.id !== "deviceStory") return;
@@ -137,7 +147,7 @@ describe("deviceDetailsViewModel", () => {
   });
 
   it("places snapshot history after topology and recent missing sections", () => {
-    const vm = buildDeviceDetailsViewModel(
+    const vm = buildVm(
       makeDevice({
         historical_topology_summary: "Recent missing links were observed.",
         passive_hint_summary: "Passive hints available.",
@@ -160,27 +170,68 @@ describe("deviceDetailsViewModel", () => {
     expect(snapshotHistory.deviceIeee).toBe("0xr1");
   });
 
-  it("omits dataCoverage when network coverage is empty", () => {
-    const vm = buildDeviceDetailsViewModel(makeDevice(), []);
+  it("omits dataCoverage while device coverage is loading", () => {
+    const vm = buildDeviceDetailsViewModel(makeDevice(), [], "loading");
     expect(vm.sections.some((section) => section.id === "dataCoverage")).toBe(false);
   });
 
-  it("includes filtered network coverage after snapshot history", () => {
+  it("shows unavailable message when device coverage load failed", () => {
+    const vm = buildDeviceDetailsViewModel(
+      makeDevice({ passive_hint_summary: "Passive hints available." }),
+      [],
+      "unavailable",
+    );
+    const section = vm.sections.find((item) => item.id === "dataCoverage");
+    expect(section?.id).toBe("dataCoverage");
+    if (section?.id !== "dataCoverage") return;
+    expect(section.message).toBe(DEVICE_COVERAGE_UNAVAILABLE_MESSAGE);
+    expect(section.items).toEqual([]);
+  });
+
+  it("shows unavailable message for loaded empty device coverage", () => {
+    const vm = buildDeviceDetailsViewModel(makeDevice(), [], "loaded");
+    const section = vm.sections.find((item) => item.id === "dataCoverage");
+    expect(section?.message).toBe(DEVICE_COVERAGE_UNAVAILABLE_MESSAGE);
+    expect(section?.items).toEqual([]);
+  });
+
+  it("keeps data coverage section order when unavailable", () => {
+    const vm = buildDeviceDetailsViewModel(
+      makeDevice({
+        passive_hint_summary: "Passive hints available.",
+        open_issue: { title: "Issue", summary: "Summary" },
+      }),
+      [],
+      "unavailable",
+    );
+    const ids = sectionIds(vm);
+    expect(ids.indexOf("dataCoverage")).toBeGreaterThan(ids.indexOf("snapshotHistory"));
+    expect(ids.indexOf("dataCoverage")).toBeLessThan(ids.indexOf("passiveHints"));
+    expect(ids.indexOf("dataCoverage")).toBeLessThan(ids.indexOf("openIssue"));
+  });
+
+  it("includes per-device coverage after snapshot history", () => {
     const coverage: DataCoverageDto[] = [
       {
         dimension: "availability",
-        state: "off",
-        label_code: "availability_tracking_off",
+        state: "available",
+        label_code: "availability_available",
       },
       {
-        dimension: "availability",
-        state: "building",
-        label_code: "availability_history_building",
+        dimension: "last_seen",
+        state: "available",
+        label_code: "last_seen_available",
       },
       {
-        dimension: "topology_snapshot",
-        state: "stale",
-        label_code: "snapshot_stale",
+        dimension: "historical_snapshots",
+        state: "not_observed",
+        label_code: "topology_history_not_observed",
+        params: { observed_snapshot_count: 0, snapshot_window_count: 0 },
+      },
+      {
+        dimension: "ha_enrichment",
+        state: "not_configured",
+        label_code: "ha_areas_not_linked",
       },
     ];
     const vm = buildDeviceDetailsViewModel(
@@ -188,14 +239,18 @@ describe("deviceDetailsViewModel", () => {
         passive_hint_summary: "Passive hints available.",
       }),
       coverage,
+      "loaded",
     );
     const ids = sectionIds(vm);
     const section = vm.sections.find((item) => item.id === "dataCoverage");
     expect(section?.title).toBe(DEVICE_SECTION_DATA_COVERAGE);
     if (section?.id !== "dataCoverage") return;
+    expect(section.message).toBeNull();
     expect(section.items.map((item) => item.label)).toEqual([
-      "Availability tracking off",
-      "Snapshot stale",
+      "Availability: available",
+      "Last seen: available",
+      "Topology history: 0 of 0 snapshots",
+      "HA area: missing",
     ]);
     expect(ids.indexOf("dataCoverage")).toBeGreaterThan(ids.indexOf("snapshotHistory"));
     expect(ids.indexOf("dataCoverage")).toBeLessThan(ids.indexOf("passiveHints"));

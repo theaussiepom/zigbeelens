@@ -15,6 +15,7 @@ import type {
   DeviceSnapshotHistoryDetail,
   DeviceStoryDto,
 } from "@/types/devices";
+import type { DataCoverageDto } from "@/types/decisions";
 import type { Incident } from "@/types/incidents";
 import type { ReportDetail, ReportRequest, ReportSummary } from "@/types/reports";
 import type {
@@ -153,6 +154,10 @@ export const api = {
   deviceStory: (networkId: string, ieee: string) =>
     fetchJson<DeviceStoryDto>(
       `api/devices/${encodeURIComponent(networkId)}/${encodeURIComponent(ieee)}/story`,
+    ),
+  deviceCoverage: (networkId: string, ieee: string) =>
+    fetchJson<DataCoverageDto[]>(
+      `api/devices/${encodeURIComponent(networkId)}/${encodeURIComponent(ieee)}/coverage`,
     ),
   routers: (scenario?: string) => fetchJson<Paginated<RouterRisk>>("api/routers", { scenario }),
   incidents: (scenario?: string) =>

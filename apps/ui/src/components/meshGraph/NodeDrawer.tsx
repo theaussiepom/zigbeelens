@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { api } from "@/lib/api";
 import { DrawerFact, DrawerSection, DrawerShell } from "@/components/meshGraph/DrawerShell";
 import { DeviceStorySection } from "@/components/meshGraph/DeviceStorySection";
 import { EvidenceCoverageStrip } from "@/components/meshGraph/EvidenceCoverageStrip";
@@ -7,6 +8,7 @@ import type { DataCoverageDto } from "@/types/decisions";
 import type { MeshEvidenceDevice } from "@/lib/meshEvidence";
 import {
   buildDeviceDetailsViewModel,
+  type DeviceCoverageLoadState,
   type DeviceDetailsSectionViewModel,
 } from "@/viewModels/topology/deviceDetailsViewModel";
 
@@ -74,7 +76,11 @@ function DeviceDetailsSection({ section }: { section: DeviceDetailsSectionViewMo
     case "dataCoverage":
       return (
         <DrawerSection title={section.title}>
-          <EvidenceCoverageStrip items={section.items} />
+          {section.message ? (
+            <p className="text-zl-muted">{section.message}</p>
+          ) : (
+            <EvidenceCoverageStrip items={section.items} />
+          )}
         </DrawerSection>
       );
     case "openIssue":
@@ -92,16 +98,39 @@ function DeviceDetailsSection({ section }: { section: DeviceDetailsSectionViewMo
 /** Device details panel: summary, status, and recorded evidence only. */
 export function NodeDrawer({
   device,
-  networkCoverage = [],
   onClose,
 }: {
   device: MeshEvidenceDevice;
-  networkCoverage?: DataCoverageDto[];
   onClose: () => void;
 }) {
+  const [deviceCoverage, setDeviceCoverage] = useState<DataCoverageDto[]>([]);
+  const [deviceCoverageLoadState, setDeviceCoverageLoadState] =
+    useState<DeviceCoverageLoadState>("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    setDeviceCoverage([]);
+    setDeviceCoverageLoadState("loading");
+    api.deviceCoverage(device.network_id, device.ieee_address).then(
+      (data) => {
+        if (cancelled) return;
+        setDeviceCoverage(data);
+        setDeviceCoverageLoadState("loaded");
+      },
+      () => {
+        if (cancelled) return;
+        setDeviceCoverage([]);
+        setDeviceCoverageLoadState("unavailable");
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [device.network_id, device.ieee_address]);
+
   const viewModel = useMemo(
-    () => buildDeviceDetailsViewModel(device, networkCoverage),
-    [device, networkCoverage],
+    () => buildDeviceDetailsViewModel(device, deviceCoverage, deviceCoverageLoadState),
+    [device, deviceCoverage, deviceCoverageLoadState],
   );
 
   return (
@@ -122,7 +151,6 @@ export function NodeDrawer({
           </div>
         )}
       </div>
-
       {viewModel.sections.map((section) => (
         <DeviceDetailsSection key={section.id} section={section} />
       ))}

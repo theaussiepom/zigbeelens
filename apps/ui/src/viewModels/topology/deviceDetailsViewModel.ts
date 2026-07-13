@@ -12,8 +12,7 @@ import {
   meshRoleLabel,
 } from "@/lib/meshEvidence";
 import {
-  buildEvidenceCoverageStripViewModel,
-  DEVICE_DRAWER_COVERAGE_LABEL_CODES,
+  buildDeviceCoverageStripViewModel,
 } from "@/viewModels/coverage/coverageStripViewModel";
 import {
   DEVICE_DETAILS_PANEL_LABEL,
@@ -98,8 +97,14 @@ export interface DeviceDetailsDeviceStorySectionViewModel {
 export interface DeviceDetailsDataCoverageSectionViewModel {
   id: "dataCoverage";
   title: string;
-  items: ReturnType<typeof buildEvidenceCoverageStripViewModel>["items"];
+  items: ReturnType<typeof buildDeviceCoverageStripViewModel>["items"];
+  message: string | null;
 }
+
+export type DeviceCoverageLoadState = "loading" | "loaded" | "unavailable";
+
+export const DEVICE_COVERAGE_UNAVAILABLE_MESSAGE =
+  "Device coverage is currently unavailable.";
 
 export type DeviceDetailsSectionViewModel =
   | DeviceDetailsSummarySectionViewModel
@@ -238,22 +243,35 @@ function buildSnapshotHistorySection(
 }
 
 function buildDataCoverageSection(
-  networkCoverage: DataCoverageDto[],
+  deviceCoverage: DataCoverageDto[],
+  loadState: DeviceCoverageLoadState,
 ): DeviceDetailsDataCoverageSectionViewModel | null {
-  const strip = buildEvidenceCoverageStripViewModel(networkCoverage, {
-    filterLabelCodes: DEVICE_DRAWER_COVERAGE_LABEL_CODES,
-  });
-  if (strip.items.length === 0) return null;
+  if (loadState === "loading") {
+    return null;
+  }
+
+  if (loadState === "unavailable" || deviceCoverage.length === 0) {
+    return {
+      id: "dataCoverage",
+      title: DEVICE_SECTION_DATA_COVERAGE,
+      items: [],
+      message: DEVICE_COVERAGE_UNAVAILABLE_MESSAGE,
+    };
+  }
+
+  const strip = buildDeviceCoverageStripViewModel(deviceCoverage);
   return {
     id: "dataCoverage",
     title: DEVICE_SECTION_DATA_COVERAGE,
     items: strip.items,
+    message: null,
   };
 }
 
 export function buildDeviceDetailsViewModel(
   device: MeshEvidenceDevice,
-  networkCoverage: DataCoverageDto[] = [],
+  deviceCoverage: DataCoverageDto[] = [],
+  deviceCoverageLoadState: DeviceCoverageLoadState = "loaded",
 ): DeviceDetailsViewModel {
   const sections: DeviceDetailsSectionViewModel[] = [
     buildSummarySection(device),
@@ -271,7 +289,7 @@ export function buildDeviceDetailsViewModel(
 
   sections.push(buildSnapshotHistorySection(device));
 
-  const dataCoverage = buildDataCoverageSection(networkCoverage);
+  const dataCoverage = buildDataCoverageSection(deviceCoverage, deviceCoverageLoadState);
   if (dataCoverage) sections.push(dataCoverage);
 
   const passiveHints = buildPassiveHintsSection(device);

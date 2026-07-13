@@ -59,11 +59,22 @@ class CoverageLabelCode(StrEnum):
     availability_tracking_off = "availability_tracking_off"
     availability_history_building = "availability_history_building"
     availability_status_unknown = "availability_status_unknown"
+    availability_available = "availability_available"
     route_hints_unavailable = "route_hints_unavailable"
     ha_areas_not_linked = "ha_areas_not_linked"
     snapshot_stale = "snapshot_stale"
     battery_history_sparse = "battery_history_sparse"
     lqi_history_sparse = "lqi_history_sparse"
+    last_seen_available = "last_seen_available"
+    last_seen_unknown = "last_seen_unknown"
+    last_payload_available = "last_payload_available"
+    last_payload_unknown = "last_payload_unknown"
+    battery_history_available = "battery_history_available"
+    lqi_history_available = "lqi_history_available"
+    topology_history_available = "topology_history_available"
+    topology_history_sparse = "topology_history_sparse"
+    topology_history_not_observed = "topology_history_not_observed"
+    ha_area_linked = "ha_area_linked"
 
 
 class EvidenceFact(BaseModel):

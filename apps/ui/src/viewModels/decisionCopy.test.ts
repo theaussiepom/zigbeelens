@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   COVERAGE_LABEL_CODES,
   REASON_CODES,
-  coverageLabel,
   coverageHelperText,
+  coverageLabel,
+  deviceCoverageHelperText,
+  deviceCoverageLabel,
   decisionStatusCompactLabel,
   decisionStatusLabel,
   decisionStatusTone,
@@ -157,6 +159,73 @@ describe("decisionCopy", () => {
     expect(coverageLabel("lqi_history_sparse")).toBe("LQI history sparse");
   });
 
+  it("maps Phase 4C per-device coverage labels with params", () => {
+    expect(deviceCoverageLabel("availability_tracking_off")).toBe("Availability: tracking off");
+    expect(deviceCoverageLabel("availability_history_building")).toBe("Availability: building");
+    expect(deviceCoverageLabel("availability_status_unknown")).toBe("Availability: unknown");
+    expect(deviceCoverageLabel("availability_available")).toBe("Availability: available");
+    expect(deviceCoverageLabel("last_seen_available")).toBe("Last seen: available");
+    expect(
+      deviceCoverageLabel("topology_history_sparse", {
+        observed_snapshot_count: 2,
+        snapshot_window_count: 10,
+      }),
+    ).toBe("Topology history: 2 of 10 snapshots");
+    expect(deviceCoverageLabel("ha_area_linked", { area_name: "Hall" })).toBe("HA area: Hall");
+    expect(deviceCoverageLabel("ha_area_linked", { area_id: "hall" })).toBe("HA area: hall");
+    expect(deviceCoverageLabel("ha_areas_not_linked")).toBe("HA area: missing");
+    expect(coverageLabel("ha_areas_not_linked")).toBe("HA areas not linked");
+    expect(
+      deviceCoverageLabel("ha_area_linked", { area_id: "hall", area_name: "Hall" }),
+    ).toBe("HA area: Hall");
+    expect(deviceCoverageHelperText("ha_area_linked", { area_id: "hall" })).toMatch(
+      /area id hall/i,
+    );
+    expect(deviceCoverageHelperText("ha_area_linked", { area_id: "hall" })).not.toMatch(
+      /area_name/i,
+    );
+  });
+
+  it("maps device availability helper copy without network tracking wording", () => {
+    const helper = deviceCoverageHelperText("availability_history_building");
+    expect(helper).toMatch(/this device/i);
+    expect(helper.toLowerCase()).not.toContain("turned on");
+    expect(helper.toLowerCase()).not.toContain("recently enabled");
+  });
+
+  it("maps device HA not-linked helper copy", () => {
+    const helper = deviceCoverageHelperText("ha_areas_not_linked");
+    expect(helper).toMatch(/this device/i);
+    expect(helper).toMatch(/not a zigbee network fault/i);
+  });
+
+  it("maps device topology helper copy by snapshot window", () => {
+    expect(
+      deviceCoverageHelperText("topology_history_not_observed", {
+        observed_snapshot_count: 0,
+        snapshot_window_count: 0,
+      }),
+    ).toBe("No complete stored topology snapshots are available to assess this device yet.");
+    expect(
+      deviceCoverageHelperText("topology_history_not_observed", {
+        observed_snapshot_count: 0,
+        snapshot_window_count: 10,
+      }),
+    ).toMatch(/not observed in the considered stored topology snapshots/i);
+    expect(
+      deviceCoverageHelperText("topology_history_sparse", {
+        observed_snapshot_count: 2,
+        snapshot_window_count: 10,
+      }),
+    ).toMatch(/absent from some considered stored topology snapshots/i);
+    expect(
+      deviceCoverageHelperText("topology_history_available", {
+        observed_snapshot_count: 10,
+        snapshot_window_count: 10,
+      }),
+    ).toMatch(/appeared in every considered stored topology snapshot/i);
+  });
+
   it("falls back safely for unknown coverage label codes", () => {
     expect(coverageLabel("future_backend_label")).toBe("Coverage status unknown");
     expect(coverageHelperText("future_backend_label")).toMatch(
@@ -173,6 +242,9 @@ describe("decisionCopy", () => {
       /does not mean routes are absent/i,
     );
     expect(coverageHelperText("ha_areas_not_linked")).toMatch(/not a zigbee network fault/i);
+    expect(coverageHelperText("ha_areas_not_linked").toLowerCase()).not.toContain(
+      "for this device",
+    );
     expect(coverageHelperText("snapshot_stale")).toMatch(/configured capture cadence/i);
   });
 
