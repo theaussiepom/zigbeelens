@@ -234,6 +234,76 @@ def test_build_observed_model_patterns_is_deterministic():
     assert first.patterns[0].pattern_id == second.patterns[0].pattern_id
 
 
+def _build_pattern_for_group(
+    *,
+    manufacturer: str | None,
+    model: str,
+    members: list[str] | None = None,
+    affected_ieees: set[str] | None = None,
+) -> str:
+    members = members or [f"0xa{i:02d}" for i in range(MODEL_PATTERN_MIN_GROUP_SIZE)]
+    affected_ieees = affected_ieees or {
+        members[i] for i in range(MODEL_PATTERN_MIN_AFFECTED_COUNT)
+    }
+    groups = {
+        _group_key(manufacturer, model): _model_group(manufacturer, model, members),
+    }
+    result = build_observed_model_patterns(
+        network_id="home",
+        groups=groups,
+        affected_ieees=affected_ieees,
+    )
+    assert len(result.patterns) == 1
+    return result.patterns[0].pattern_id
+
+
+def test_canonical_equivalent_identities_share_pattern_id():
+    pattern_ids = [
+        _build_pattern_for_group(manufacturer="IKEA", model="TS011F"),
+        _build_pattern_for_group(manufacturer="ikea", model="ts011f"),
+        _build_pattern_for_group(manufacturer="IKEA", model="TS011F"),
+    ]
+    assert len(set(pattern_ids)) == 1
+
+    display_result = build_observed_model_patterns(
+        network_id="home",
+        groups={
+            _group_key("IKEA", "TS011F"): _model_group(
+                "IKEA",
+                "TS011F",
+                [f"0xb{i:02d}" for i in range(MODEL_PATTERN_MIN_GROUP_SIZE)],
+            )
+        },
+        affected_ieees={f"0xb{i:02d}" for i in range(MODEL_PATTERN_MIN_AFFECTED_COUNT)},
+    )
+    pattern = display_result.patterns[0]
+    assert pattern.manufacturer == "IKEA"
+    assert pattern.model == "TS011F"
+
+
+def test_different_model_identities_have_different_pattern_ids():
+    ikea_ts011f = _build_pattern_for_group(manufacturer="IKEA", model="TS011F")
+    aqara_ts011f = _build_pattern_for_group(
+        manufacturer="Aqara",
+        model="TS011F",
+        members=[f"0xc{i:02d}" for i in range(MODEL_PATTERN_MIN_GROUP_SIZE)],
+    )
+    ikea_ts0121 = _build_pattern_for_group(
+        manufacturer="IKEA",
+        model="TS0121",
+        members=[f"0xd{i:02d}" for i in range(MODEL_PATTERN_MIN_GROUP_SIZE)],
+    )
+    assert len({ikea_ts011f, aqara_ts011f, ikea_ts0121}) == 3
+
+
+def test_unknown_manufacturer_canonical_identity_is_stable():
+    none_id = _build_pattern_for_group(manufacturer=None, model="TS011F")
+    empty_id = _build_pattern_for_group(manufacturer="  ", model="ts011f")
+    known_id = _build_pattern_for_group(manufacturer="IKEA", model="TS011F")
+    assert none_id == empty_id
+    assert none_id != known_id
+
+
 def test_module_has_no_manufacturer_blame_phrases():
     module_path = Path(__file__).resolve().parents[1] / "src/zigbeelens/decisions/model_pattern.py"
     source = module_path.read_text(encoding="utf-8").lower()

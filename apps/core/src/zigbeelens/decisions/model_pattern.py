@@ -91,8 +91,9 @@ def _pattern_id(
     model: str,
     signal: ModelPatternSignal,
 ) -> str:
+    identity_key = _group_key(manufacturer, model)
     digest = sha256(
-        f"{network_id}|{manufacturer or ''}|{model}|{signal.value}".encode()
+        f"{network_id}|{identity_key}|{signal.value}".encode()
     ).hexdigest()
     return f"model-pattern-{digest[:16]}"
 
