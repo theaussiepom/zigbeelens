@@ -357,6 +357,7 @@ function makeInvestigationCard(overrides: Partial<InvestigationCard>): Investiga
     primary_neighbourhood_ieee: null,
     created_from_evidence_classes: ["historical_neighbor"],
     latest_supporting_evidence_at: "2026-07-04T10:00:00+00:00",
+    action_group: "check_power_reporting",
     ...overrides,
   };
 }
@@ -1931,6 +1932,12 @@ describe("TopologyGraphPage investigation panel", () => {
       within(panel).getByLabelText(/investigation priority: worth checking/i),
     ).toBeInTheDocument();
     expect(
+      within(panel).getByLabelText(/investigation action: check power\/reporting/i),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).getByText(/check whether affected devices have power and are reporting/i),
+    ).toBeInTheDocument();
+    expect(
       within(panel).getByText("Several recent missing links involve Live Lamp"),
     ).toBeInTheDocument();
   });
@@ -2048,7 +2055,7 @@ describe("TopologyGraphPage investigation panel", () => {
     const titles = () =>
       within(panel)
         .getAllByTestId("investigation-card")
-        .map((card) => within(card).getByRole("heading").textContent);
+        .map((card) => within(card).getByText(/^Card (One|Two|Three|Four)$/).textContent);
     expect(titles()).toEqual(["Card One", "Card Two", "Card Three"]);
 
     await user.click(within(panel).getByRole("button", { name: /show more/i }));

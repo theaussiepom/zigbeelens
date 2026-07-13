@@ -315,6 +315,7 @@ def test_router_review_uses_observed_neighbourhood_wording():
     for phrase in FORBIDDEN_PHRASES:
         assert phrase not in text, phrase
     assert "not a claim that this router is responsible" in card["why_it_matters"]
+    assert card["action_group"] == "review_observed_router_area"
 
 
 def test_diagnostics_limited_group_handles_limited_evidence_safely():
@@ -334,6 +335,7 @@ def test_diagnostics_limited_group_handles_limited_evidence_safely():
     assert len(cards) == 1
     card = cards[0]
     assert card["priority"] == PRIORITY_CONTEXT_ONLY
+    assert card["action_group"] == "improve_data_coverage"
     assert "does not prove a fault" in card["why_it_matters"]
     assert card["edge_ids"] == []
 
@@ -699,3 +701,57 @@ def test_evidence_graph_api_includes_investigations(topology_client: TestClient)
     text = json.dumps(body["investigations"]).lower()
     for phrase in FORBIDDEN_PHRASES:
         assert phrase not in text, phrase
+
+
+def test_investigation_cards_include_action_groups():
+    devices = [
+        _device("0xr1", device_type="Router", name="Hall router"),
+        _device("0xa1", availability="offline"),
+        _device("0xa2", availability="offline"),
+    ]
+    links = [_link("0xr1", "0xa1"), _link("0xr1", "0xa2")]
+    history = {
+        "historical_neighbors": [
+            _missing_edge("0xa1", "0xr2", last_seen=NOW - timedelta(hours=3)),
+            _missing_edge("0xa1", "0xr3", last_seen=NOW - timedelta(hours=4)),
+            _missing_edge("0xa1", "0xr4", last_seen=NOW - timedelta(hours=5)),
+        ],
+        "historical_routes": [],
+    }
+    result = _build(
+        devices=devices,
+        latest_nodes=[{"ieee_address": d.ieee_address} for d in devices],
+        latest_links=links,
+        history=history,
+    )
+    by_type = {card["type"]: card for card in result["investigations"]}
+    assert by_type["issue_cluster"]["action_group"] == "investigate_shared_event"
+    assert by_type["recent_missing_cluster"]["action_group"] == "check_power_reporting"
+
+
+def test_low_priority_passive_group_maps_to_watch_only():
+    result = _build(
+        devices=[_device("0xa1"), _device("0xa2"), _device("0xa3")],
+        passive_hints=[
+            _passive_hint("0xa1", "0xa2", confidence="low"),
+            _passive_hint("0xa2", "0xa3", confidence="low"),
+        ],
+    )
+    cards = [c for c in result["investigations"] if c["type"] == "passive_instability_group"]
+    assert len(cards) == 1
+    assert cards[0]["priority"] == PRIORITY_CONTEXT_ONLY
+    assert cards[0]["action_group"] == "watch_only"
+
+
+def test_high_confidence_passive_group_investigates_shared_event():
+    result = _build(
+        devices=[_device("0xa1"), _device("0xa2"), _device("0xa3")],
+        passive_hints=[
+            _passive_hint("0xa1", "0xa2", confidence="high"),
+            _passive_hint("0xa2", "0xa3", confidence="high"),
+        ],
+    )
+    cards = [c for c in result["investigations"] if c["type"] == "passive_instability_group"]
+    assert len(cards) == 1
+    assert cards[0]["action_group"] == "investigate_shared_event"
+    assert cards[0]["priority"] != PRIORITY_CONTEXT_ONLY

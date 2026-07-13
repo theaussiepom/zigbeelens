@@ -1,23 +1,23 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { InvestigationCard } from "@/lib/api";
 import {
-  INVESTIGATION_EMPTY_COPY,
-  INVESTIGATION_PANEL_SUBTITLE,
-  INVESTIGATION_PANEL_TITLE,
+  buildInvestigationCardViewModel,
+  buildInvestigationPanelViewModel,
   INVESTIGATION_SECTION_CHECKS,
   INVESTIGATION_SECTION_DOES_NOT_PROVE,
   INVESTIGATION_SECTION_SUPPORTING,
-  INVESTIGATION_SECTION_WHY,
-} from "@/lib/meshGraphCopy";
+} from "@/viewModels/topology/investigationViewModel";
+import type { DecisionPillTone } from "@/viewModels/types";
 
 /**
  * "Where to look first" — ranked problem-first investigation cards.
  *
  * Cards come fully formed from the backend (deterministic ranking over
- * existing evidence only). This panel renders them and drives the visual
- * graph focus: focusing a card highlights involved devices and ensures the
- * involved edges are drawn. Focus is visual only — it never moves nodes,
- * never changes connection-control choices, and never mutates saved layout.
+ * existing evidence only). This panel renders action-led ViewModels and
+ * drives the visual graph focus: focusing a card highlights involved devices
+ * and ensures the involved edges are drawn. Focus is visual only — it never
+ * moves nodes, never changes connection-control choices, and never mutates
+ * saved layout.
  */
 
 export {
@@ -29,24 +29,28 @@ export {
 /** How many cards render before "Show more". */
 export const INVESTIGATION_CARDS_INITIALLY_VISIBLE = 3;
 
-function priorityBadgeClass(priority: InvestigationCard["priority"]): string {
-  switch (priority) {
-    case "Review first":
+function priorityBadgeClass(tone: DecisionPillTone): string {
+  switch (tone) {
+    case "watch":
       return "border-zl-watch/50 bg-zl-watch/10 text-zl-watch";
-    case "Worth checking":
+    case "action":
       return "border-zl-accent/50 bg-zl-accent/10 text-zl-accent";
-    case "Lower priority":
+    case "muted":
+      return "border-zl-border bg-zl-surface-2 text-zl-muted";
+    default:
       return "border-zl-border bg-zl-surface-2 text-zl-muted";
   }
 }
 
 function InvestigationCardView({
   card,
+  viewModel,
   active,
   onFocus,
   onClearFocus,
 }: {
   card: InvestigationCard;
+  viewModel: ReturnType<typeof buildInvestigationCardViewModel>;
   active: boolean;
   onFocus: (card: InvestigationCard) => void;
   onClearFocus: () => void;
@@ -60,23 +64,33 @@ function InvestigationCardView({
         active ? "border-zl-accent bg-zl-accent/5" : "border-zl-border bg-zl-surface-2"
       }`}
     >
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span
-          className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium ${priorityBadgeClass(card.priority)}`}
-          aria-label={`Investigation priority: ${card.priority}`}
+          className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium ${priorityBadgeClass(viewModel.priorityTone)}`}
+          aria-label={`Investigation priority: ${viewModel.priorityLabel}`}
         >
-          {card.priority}
+          {viewModel.priorityLabel}
+        </span>
+        <span
+          className="inline-block rounded-full border border-zl-border bg-zl-surface px-2 py-0.5 text-[10px] font-medium text-zl-text"
+          aria-label={`Investigation action: ${viewModel.actionGroupLabel}`}
+        >
+          {viewModel.actionGroupLabel}
         </span>
       </div>
-      <h4 className="mt-1.5 text-sm font-semibold leading-snug text-zl-text">{card.title}</h4>
-      <p className="mt-1 text-[11px] leading-snug text-zl-muted">{card.summary}</p>
+      <h4 className="mt-1.5 text-sm font-semibold leading-snug text-zl-text">
+        {viewModel.actionLead}
+      </h4>
+      <p className="mt-1 text-[11px] leading-snug text-zl-muted">{viewModel.whyItMatters}</p>
+      <p className="mt-1 text-[11px] leading-snug text-zl-text">{viewModel.contextTitle}</p>
+      <p className="mt-0.5 text-[11px] leading-snug text-zl-muted">{viewModel.contextSummary}</p>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {active ? (
           <button
             type="button"
             onClick={onClearFocus}
-            aria-label={`Clear focus for ${card.title}`}
+            aria-label={`Clear focus for ${viewModel.focusLabel}`}
             className="rounded-lg border border-zl-accent bg-zl-accent/10 px-2.5 py-1 text-[11px] font-medium text-zl-accent hover:bg-zl-accent/20"
           >
             Clear focus
@@ -85,7 +99,7 @@ function InvestigationCardView({
           <button
             type="button"
             onClick={() => onFocus(card)}
-            aria-label={`Focus graph on ${card.title}`}
+            aria-label={`Focus graph on ${viewModel.focusLabel}`}
             className="rounded-lg border border-zl-border bg-zl-surface px-2.5 py-1 text-[11px] font-medium text-zl-text hover:border-zl-accent/40"
           >
             Focus graph
@@ -104,34 +118,30 @@ function InvestigationCardView({
       {expanded && (
         <div className="mt-2 space-y-2 text-[11px] leading-snug text-zl-muted">
           <div>
-            <p className="font-semibold text-zl-text">{INVESTIGATION_SECTION_WHY}</p>
-            <p className="mt-0.5">{card.why_it_matters}</p>
-          </div>
-          <div>
             <p className="font-semibold text-zl-text" aria-label="Supporting evidence">
               {INVESTIGATION_SECTION_SUPPORTING}
             </p>
             <ul className="mt-0.5 list-disc space-y-0.5 pl-4">
-              {card.supporting_evidence.map((item) => (
+              {viewModel.supportingEvidence.map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ul>
           </div>
-          {card.limitations.length > 0 && (
+          {viewModel.limitations.length > 0 && (
             <div>
               <p className="font-semibold text-zl-text">{INVESTIGATION_SECTION_DOES_NOT_PROVE}</p>
               <ul className="mt-0.5 list-disc space-y-0.5 pl-4">
-                {card.limitations.map((item) => (
+                {viewModel.limitations.map((item) => (
                   <li key={item}>{item}</li>
                 ))}
               </ul>
             </div>
           )}
-          {card.suggested_next_steps.length > 0 && (
+          {viewModel.suggestedChecks.length > 0 && (
             <div>
               <p className="font-semibold text-zl-text">{INVESTIGATION_SECTION_CHECKS}</p>
               <ul className="mt-0.5 list-disc space-y-0.5 pl-4">
-                {card.suggested_next_steps.map((item) => (
+                {viewModel.suggestedChecks.map((item) => (
                   <li key={item}>{item}</li>
                 ))}
               </ul>
@@ -155,39 +165,50 @@ export function InvestigationPanel({
   onClearFocus: () => void;
 }) {
   const [showAll, setShowAll] = useState(false);
-  const visible = showAll
-    ? investigations
-    : investigations.slice(0, INVESTIGATION_CARDS_INITIALLY_VISIBLE);
+  const panel = useMemo(
+    () => buildInvestigationPanelViewModel(investigations),
+    [investigations],
+  );
+  const visibleCards = showAll
+    ? panel.cards
+    : panel.cards.slice(0, INVESTIGATION_CARDS_INITIALLY_VISIBLE);
+  const cardById = useMemo(
+    () => new Map(investigations.map((card) => [card.id, card])),
+    [investigations],
+  );
 
   return (
-    <div role="region" aria-label={INVESTIGATION_PANEL_TITLE} className="space-y-3">
+    <div role="region" aria-label={panel.title} className="space-y-3">
       <div>
         <h3 className="text-xs font-semibold uppercase tracking-wide text-zl-muted">
-          {INVESTIGATION_PANEL_TITLE}
+          {panel.title}
         </h3>
-        <p className="mt-1 text-[11px] leading-snug text-zl-muted">
-          {INVESTIGATION_PANEL_SUBTITLE}
-        </p>
+        <p className="mt-1 text-[11px] leading-snug text-zl-muted">{panel.subtitle}</p>
       </div>
 
-      {investigations.length === 0 ? (
+      {panel.cards.length === 0 ? (
         <p className="text-[11px] leading-snug text-zl-muted" data-testid="investigation-empty">
-          {INVESTIGATION_EMPTY_COPY}
+          {panel.emptyCopy}
         </p>
       ) : (
         <>
           <div className="space-y-2">
-            {visible.map((card) => (
-              <InvestigationCardView
-                key={card.id}
-                card={card}
-                active={card.id === activeInvestigationId}
-                onFocus={onFocus}
-                onClearFocus={onClearFocus}
-              />
-            ))}
+            {visibleCards.map((viewModel) => {
+              const card = cardById.get(viewModel.id);
+              if (!card) return null;
+              return (
+                <InvestigationCardView
+                  key={viewModel.id}
+                  card={card}
+                  viewModel={viewModel}
+                  active={viewModel.id === activeInvestigationId}
+                  onFocus={onFocus}
+                  onClearFocus={onClearFocus}
+                />
+              );
+            })}
           </div>
-          {investigations.length > INVESTIGATION_CARDS_INITIALLY_VISIBLE && (
+          {panel.cards.length > INVESTIGATION_CARDS_INITIALLY_VISIBLE && (
             <button
               type="button"
               onClick={() => setShowAll((v) => !v)}
@@ -195,7 +216,7 @@ export function InvestigationPanel({
             >
               {showAll
                 ? "Show fewer"
-                : `Show more (${investigations.length - INVESTIGATION_CARDS_INITIALLY_VISIBLE})`}
+                : `Show more (${panel.cards.length - INVESTIGATION_CARDS_INITIALLY_VISIBLE})`}
             </button>
           )}
         </>

@@ -90,6 +90,7 @@ function makeCard(overrides: Partial<InvestigationCard>): InvestigationCard {
     primary_neighbourhood_ieee: null,
     created_from_evidence_classes: ["historical_neighbor"],
     latest_supporting_evidence_at: null,
+    action_group: "check_power_reporting",
     ...overrides,
   };
 }

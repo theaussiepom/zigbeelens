@@ -132,3 +132,13 @@ class DecisionBundle(BaseModel):
     subject_type: str
     subject_id: str
     decisions: list[Decision] = Field(default_factory=list)
+
+
+class InvestigationActionGroup(StrEnum):
+    """Action-led grouping for problem-first investigation cards."""
+
+    check_power_reporting = "check_power_reporting"
+    review_observed_router_area = "review_observed_router_area"
+    investigate_shared_event = "investigate_shared_event"
+    improve_data_coverage = "improve_data_coverage"
+    watch_only = "watch_only"
