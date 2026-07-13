@@ -25,6 +25,8 @@ def action_group_for_investigation_card(card: dict[str, Any]) -> InvestigationAc
         return InvestigationActionGroup.review_observed_router_area
     if card_type == "recent_missing_cluster":
         return InvestigationActionGroup.check_power_reporting
+    if card_type == "shared_availability_event":
+        return InvestigationActionGroup.investigate_shared_event
     if card_type == "issue_cluster":
         return InvestigationActionGroup.investigate_shared_event
     if card_type == "passive_instability_group":

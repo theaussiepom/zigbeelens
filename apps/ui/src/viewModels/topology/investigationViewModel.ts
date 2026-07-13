@@ -62,6 +62,8 @@ function actionGroupForCard(card: InvestigationCard): InvestigationActionGroup {
       return "review_observed_router_area";
     case "recent_missing_cluster":
       return "check_power_reporting";
+    case "shared_availability_event":
+      return "investigate_shared_event";
     case "issue_cluster":
       return "investigate_shared_event";
     case "passive_instability_group":

@@ -42,6 +42,7 @@ PASSIVE_HINT_HIGH_WEIGHT = 3
 TOPOLOGY_CORROBORATION_WEIGHT = 2
 RECENCY_BOOST_WEIGHT = 1
 DIAGNOSTICS_LIMITED_DEVICE_WEIGHT = 1
+SHARED_AVAILABILITY_EVENT_BASE_WEIGHT = 5
 
 # Qualification thresholds — conservative so quiet networks stay quiet.
 ISSUE_CLUSTER_MIN_DEVICES = 2
@@ -98,11 +99,16 @@ DIAGNOSTICS_LIMITED_LIMITATION = (
     "power, placement and recent movement is more useful than reading the graph "
     "as a failure."
 )
+SHARED_AVAILABILITY_EVENT_LIMITATION = (
+    "Devices changing availability around the same time does not prove they share "
+    "a Zigbee route, path, parent, or root cause."
+)
 
 # Stable card-type order used for deterministic tie-breaking.
 CARD_TYPE_ORDER = (
     "issue_cluster",
     "recent_missing_cluster",
+    "shared_availability_event",
     "passive_instability_group",
     "router_neighbourhood_review",
     "diagnostics_limited_group",
@@ -544,6 +550,88 @@ def _passive_group_cards(
     return cards
 
 
+def _shared_event_summary(device_count: int, duration_minutes: int) -> str:
+    if duration_minutes < 1:
+        return f"{device_count} devices went offline around the same time."
+    minute_word = "minute" if duration_minutes == 1 else "minutes"
+    return (
+        f"{device_count} devices went offline during a shared availability event "
+        f"lasting about {duration_minutes} {minute_word}."
+    )
+
+
+def _shared_availability_event_cards(
+    *,
+    shared_availability_events: list[Any],
+    now: datetime,
+) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+    for event in shared_availability_events:
+        if isinstance(event, dict):
+            device_ieees = list(event.get("device_ieees") or [])
+            device_count = int(event.get("device_count") or len(device_ieees))
+            started_at = _parse_ts(event.get("started_at"))
+            ended_at = _parse_ts(event.get("ended_at"))
+            duration_minutes = int(event.get("duration_minutes", 0))
+            event_id = str(event.get("event_id") or "")
+        else:
+            device_ieees = list(event.device_ieees)
+            device_count = int(event.device_count)
+            started_at = event.started_at
+            ended_at = event.ended_at
+            duration_minutes = int(event.duration_minutes)
+            event_id = str(event.event_id)
+        if not event_id or started_at is None or ended_at is None:
+            continue
+
+        latest_seen = ended_at.isoformat()
+        started_text = _friendly_ts(started_at.isoformat())
+        ended_text = _friendly_ts(ended_at.isoformat())
+        score = SHARED_AVAILABILITY_EVENT_BASE_WEIGHT + _recency_boost(latest_seen, now)
+
+        supporting = [
+            f"{_count_phrase(device_count, 'device')} went offline in this shared event.",
+            "Evidence comes from stored offline availability transitions.",
+        ]
+        if started_text and ended_text:
+            supporting.append(f"Observed from {started_text} to {ended_text}.")
+        if duration_minutes >= 1:
+            supporting.append(f"Event duration about {duration_minutes} minutes.")
+
+        cards.append(
+            {
+                "id": event_id,
+                "type": "shared_availability_event",
+                "priority": _priority(score),
+                "score": score,
+                "title": "Several devices went offline around the same time",
+                "summary": _shared_event_summary(device_count, duration_minutes),
+                "why_it_matters": (
+                    "The timing is more useful as a shared event than as evidence of a "
+                    "relationship between individual device pairs."
+                ),
+                "supporting_evidence": supporting,
+                "limitations": [
+                    GENERIC_INVESTIGATION_LIMITATION,
+                    SHARED_AVAILABILITY_EVENT_LIMITATION,
+                ],
+                "suggested_next_steps": [
+                    "Check Zigbee2MQTT status or logs around the event time.",
+                    "Check MQTT broker or ZigbeeLens collector interruptions around the event time.",
+                    "Check host restart, maintenance, or broad power events around the same time.",
+                    "Compare any active incidents or timeline events from that period.",
+                ],
+                "device_ieees": sorted(device_ieees)[:MAX_DEVICES_PER_CARD],
+                "edge_ids": [],
+                "primary_device_ieee": None,
+                "primary_neighbourhood_ieee": None,
+                "created_from_evidence_classes": ["availability_transition"],
+                "latest_supporting_evidence_at": latest_seen,
+            }
+        )
+    return cards
+
+
 def _router_review_cards(
     *,
     issue_ids: set[str],
@@ -800,6 +888,8 @@ def _apply_tailored_evidence(
     stay readable.
     """
     for card in cards:
+        if card.get("type") == "shared_availability_event":
+            continue
         ordered: list[str] = []
         primary = card.get("primary_device_ieee")
         if primary:
@@ -839,6 +929,7 @@ def build_investigations(
     latest_captured_at: str | None,
     history: dict[str, Any],
     passive_hints: list[dict[str, Any]],
+    shared_availability_events: list[Any] | None = None,
     offline_events: dict[str, list[str]] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -870,6 +961,12 @@ def build_investigations(
             history=history,
             issue_ids=issue_ids,
             devices_by_ieee=devices_by_ieee,
+            now=now,
+        )
+    )
+    cards.extend(
+        _shared_availability_event_cards(
+            shared_availability_events=shared_availability_events or [],
             now=now,
         )
     )
@@ -932,12 +1029,13 @@ def aggregate_investigations(
     *,
     history: dict[str, Any],
     passive_hints: list[dict[str, Any]],
+    shared_availability_events: list[Any] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Gather repository inputs and build investigation cards for a network.
 
-    The history and passive aggregates are passed in (the evidence-graph
-    endpoint already computes them) so nothing is aggregated twice.
+    The history, passive and shared-availability aggregates are passed in (the
+    evidence-graph endpoint already computes them) so nothing is aggregated twice.
     """
     now = now or datetime.now(timezone.utc)
     latest = repo.get_latest_topology_snapshot(network_id)
@@ -962,6 +1060,7 @@ def aggregate_investigations(
         latest_captured_at=latest["captured_at"] if latest else None,
         history=history,
         passive_hints=passive_hints,
+        shared_availability_events=shared_availability_events,
         offline_events=offline_events,
         now=now,
     )
