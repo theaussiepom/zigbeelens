@@ -45,6 +45,7 @@ class ReportingRhythm(BaseModel):
     interval_minutes_p25: int | None = None
     interval_minutes_median: int | None = None
     interval_minutes_p75: int | None = None
+    interval_minutes_max: int | None = None
     latest_observed_at: datetime | None = None
     params: dict[str, Any] = Field(default_factory=dict)
 
@@ -137,6 +138,7 @@ def build_reporting_rhythm(
         interval_minutes_p25=_percentile(sorted_intervals, 0.25),
         interval_minutes_median=int(median(sorted_intervals)),
         interval_minutes_p75=_percentile(sorted_intervals, 0.75),
+        interval_minutes_max=sorted_intervals[-1],
         latest_observed_at=latest_observed_at,
     )
 

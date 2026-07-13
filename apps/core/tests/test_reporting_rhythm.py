@@ -187,6 +187,7 @@ def test_nine_observations_eight_intervals_is_rhythm_available(tmp_path: Path):
     assert rhythm.interval_minutes_p25 == 60
     assert rhythm.interval_minutes_median == 60
     assert rhythm.interval_minutes_p75 == 60
+    assert rhythm.interval_minutes_max == 60
     assert rhythm.latest_observed_at == observations[-1]
 
 
@@ -201,6 +202,7 @@ def test_regular_payload_observations_produce_deterministic_percentiles():
     assert rhythm.interval_minutes_p25 == 45
     assert rhythm.interval_minutes_median == 45
     assert rhythm.interval_minutes_p75 == 45
+    assert rhythm.interval_minutes_max == 45
     assert rhythm.latest_observed_at == observations[-1]
 
 
@@ -271,12 +273,14 @@ def test_large_observed_intervals_remain_in_interval_sample_count(tmp_path: Path
     assert rhythm is not None
     assert rhythm.state is ReportingRhythmState.rhythm_available
     assert rhythm.interval_sample_count == 8
+    assert rhythm.interval_minutes_max == 18 * 60
 
 
 def test_reporting_rhythm_model_has_no_silence_classification_fields():
     fields = set(ReportingRhythm.model_fields)
     assert "silence_minutes" not in fields
     assert "silence_state" not in fields
+    assert "interval_minutes_max" in fields
 
     payload = ReportingRhythm(
         subject_id="0x03",
@@ -286,6 +290,7 @@ def test_reporting_rhythm_model_has_no_silence_classification_fields():
         interval_minutes_p25=40,
         interval_minutes_median=40,
         interval_minutes_p75=1080,
+        interval_minutes_max=1080,
         latest_observed_at=BASE,
     ).model_dump(mode="json")
 
@@ -293,6 +298,7 @@ def test_reporting_rhythm_model_has_no_silence_classification_fields():
     assert "silence_state" not in payload
     assert "suspicion_threshold_minutes" not in payload
     assert "collector_gap_threshold_minutes" not in payload
+    assert payload["interval_minutes_max"] == 1080
 
 
 def test_mixed_case_ieee_resolves_canonical_subject_id(tmp_path: Path):

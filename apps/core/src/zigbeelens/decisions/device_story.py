@@ -476,12 +476,13 @@ def _apply_reporting_silence_rules(
         interval_minutes_p25=rhythm.interval_minutes_p25,
         interval_minutes_median=rhythm.interval_minutes_median,
         interval_minutes_p75=rhythm.interval_minutes_p75,
+        interval_minutes_max=rhythm.interval_minutes_max,
     )
     _append_unique_reason(
         reasons,
         ReasonCode.reporting_silence_beyond_expected,
         silence_minutes=silence.silence_minutes,
-        suspicion_threshold_minutes=silence.suspicion_threshold_minutes,
+        extended_silence_threshold_minutes=silence.extended_silence_threshold_minutes,
     )
     _append_unique_limitation(limitations, LimitationCode.extended_silence_not_failure)
     _append_unique_check(checks, CheckCode.confirm_powered)

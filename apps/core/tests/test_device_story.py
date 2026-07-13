@@ -718,6 +718,23 @@ def test_sleepy_device_beyond_expected_rhythm_is_watch(tmp_path: Path):
         limitation.code == "extended_silence_not_failure"
         for limitation in story.limitations
     )
+    beyond_reason = next(
+        reason
+        for reason in story.reasons
+        if reason.code == ReasonCode.reporting_silence_beyond_expected
+    )
+    assert beyond_reason.params["silence_minutes"] == 240
+    assert beyond_reason.params["extended_silence_threshold_minutes"] == 150
+    assert "suspicion_threshold_minutes" not in beyond_reason.params
+    observed_reason = next(
+        reason
+        for reason in story.reasons
+        if reason.code == ReasonCode.observed_reporting_rhythm
+    )
+    assert observed_reason.params["interval_minutes_p25"] == 60
+    assert observed_reason.params["interval_minutes_median"] == 60
+    assert observed_reason.params["interval_minutes_p75"] == 60
+    assert observed_reason.params["interval_minutes_max"] == 60
 
 
 def test_beyond_expected_rhythm_with_current_issue_is_worth_reviewing(tmp_path: Path):
@@ -757,6 +774,79 @@ def test_insufficient_rhythm_history_does_not_add_silence_reasons(tmp_path: Path
 
     story = device_story_for_device(repo, "home", "0x03", now=now)
     assert story is not None
+    reason_codes = {reason.code for reason in story.reasons}
+    assert ReasonCode.reporting_silence_beyond_expected not in reason_codes
+    assert ReasonCode.observed_reporting_rhythm not in reason_codes
+
+
+def _seed_long_interval_payload_observations(
+    repo: Repository,
+    ieee: str,
+) -> list[datetime]:
+    observations = [
+        RHYTHM_BASE,
+        RHYTHM_BASE + timedelta(minutes=40),
+        RHYTHM_BASE + timedelta(minutes=80),
+        RHYTHM_BASE + timedelta(minutes=120),
+        RHYTHM_BASE + timedelta(hours=20),
+        RHYTHM_BASE + timedelta(hours=20, minutes=40),
+        RHYTHM_BASE + timedelta(hours=21, minutes=20),
+        RHYTHM_BASE + timedelta(hours=22),
+        RHYTHM_BASE + timedelta(hours=22, minutes=40),
+    ]
+    for observed_at in observations:
+        _insert_payload_snapshot(repo, ieee, last_payload_at=observed_at)
+    return observations
+
+
+def test_long_interval_cadence_four_hour_silence_is_not_watch(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", battery=80, linkquality=120)
+    observations = _seed_long_interval_payload_observations(repo, "0x03")
+    _healthy_sleepy_story_setup(repo)
+    now = observations[-1] + timedelta(hours=4)
+
+    story = device_story_for_device(repo, "home", "0x03", now=now)
+    assert story is not None
+    assert story.status is DecisionStatus.no_notable_change
+    assert story.headline_code == HeadlineCode.no_notable_signals
+    reason_codes = {reason.code for reason in story.reasons}
+    assert ReasonCode.reporting_silence_beyond_expected not in reason_codes
+
+
+def test_long_interval_cadence_silence_beyond_threshold_is_watch(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", battery=80, linkquality=120)
+    observations = _seed_long_interval_payload_observations(repo, "0x03")
+    _healthy_sleepy_story_setup(repo)
+    now = observations[-1] + timedelta(hours=19)
+
+    story = device_story_for_device(repo, "home", "0x03", now=now)
+    assert story is not None
+    assert story.status is DecisionStatus.watch
+    assert story.headline_code == HeadlineCode.extended_reporting_silence
+    assert any(
+        reason.code == ReasonCode.reporting_silence_beyond_expected
+        for reason in story.reasons
+    )
+
+
+def test_future_latest_payload_observation_does_not_trigger_rhythm_watch(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", battery=80, linkquality=120)
+    observations = _seed_regular_payload_observations(
+        repo,
+        "0x03",
+        start=RHYTHM_BASE,
+        interval_minutes=60,
+    )
+    _healthy_sleepy_story_setup(repo)
+    now = observations[-1] - timedelta(hours=1)
+
+    story = device_story_for_device(repo, "home", "0x03", now=now)
+    assert story is not None
+    assert story.status is DecisionStatus.no_notable_change
+    assert story.headline_code == HeadlineCode.no_notable_signals
     reason_codes = {reason.code for reason in story.reasons}
     assert ReasonCode.reporting_silence_beyond_expected not in reason_codes
     assert ReasonCode.observed_reporting_rhythm not in reason_codes
