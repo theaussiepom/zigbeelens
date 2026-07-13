@@ -69,6 +69,8 @@ export const DEVICE_STORY_HEADLINE_LEADS: Record<string, string> = {
   data_coverage_gaps:
     "Some interpretation context is limited by missing enrichment or route-hint evidence.",
   no_notable_signals: "No stronger device story signals were found in stored evidence.",
+  extended_reporting_silence:
+    "Payload reporting is quieter than the observed cadence for this battery device. Review before treating this as a mesh or device failure.",
 };
 
 /* ------------------------------------------------------------------------ */

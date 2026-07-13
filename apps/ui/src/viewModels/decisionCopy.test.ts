@@ -23,6 +23,11 @@ const SPECULATIVE_FUTURE_REASON_CODES = [
   "model_pattern_observed",
 ] as const;
 
+const PHASE_4B_REASON_CODES = [
+  "observed_reporting_rhythm",
+  "reporting_silence_beyond_expected",
+] as const;
+
 describe("decisionCopy", () => {
   it("maps seeded reason codes to user-facing text", () => {
     expect(reasonText("latest_snapshot_no_links")).toBe(
@@ -62,6 +67,59 @@ describe("decisionCopy", () => {
       expect(REASON_CODES).not.toContain(code);
       expect(isKnownReasonCode(code)).toBe(false);
     }
+  });
+
+  it("maps Phase 4B reporting rhythm reason codes without failure claims", () => {
+    for (const code of PHASE_4B_REASON_CODES) {
+      expect(isKnownReasonCode(code)).toBe(true);
+    }
+    expect(
+      reasonText("observed_reporting_rhythm", {
+        interval_minutes_p25: 60,
+        interval_minutes_median: 60,
+        interval_minutes_p75: 60,
+        interval_minutes_max: 60,
+      }),
+    ).toBe("Usually reports about every 1 hour based on stored payload history.");
+    expect(
+      reasonText("observed_reporting_rhythm", {
+        interval_minutes_p25: 40,
+        interval_minutes_median: 60,
+        interval_minutes_p75: 90,
+        interval_minutes_max: 1080,
+      }),
+    ).toBe(
+      "Usually reports every 40 minutes–1 hour 30 minutes based on stored payload history (median 1 hour).",
+    );
+    expect(
+      reasonText("reporting_silence_beyond_expected", {
+        silence_minutes: 240,
+        extended_silence_threshold_minutes: 150,
+      }),
+    ).toBe(
+      "No payload observed for 4 hours, beyond the extended-silence threshold of 2 hours 30 minutes.",
+    );
+    for (const text of [
+      reasonText("observed_reporting_rhythm", {
+        interval_minutes_p25: 60,
+        interval_minutes_median: 60,
+        interval_minutes_p75: 60,
+        interval_minutes_max: 60,
+      }),
+      reasonText("reporting_silence_beyond_expected", {
+        silence_minutes: 240,
+        extended_silence_threshold_minutes: 150,
+      }),
+    ]) {
+      expect(text.toLowerCase()).not.toContain("failed");
+      expect(text.toLowerCase()).not.toContain("suspicious");
+    }
+    expect(
+      JSON.stringify({
+        silence_minutes: 240,
+        extended_silence_threshold_minutes: 150,
+      }),
+    ).not.toContain("suspicion_threshold_minutes");
   });
 
   it("maps required coverage labels", () => {
@@ -127,7 +185,9 @@ describe("decisionCopy", () => {
   it("maps device story headline codes", () => {
     expect(headlineText("topology_evidence_gap")).toBe("Topology evidence gap");
     expect(headlineText("current_issue_present")).toBe("Current issue needs attention");
+    expect(headlineText("extended_reporting_silence")).toBe("Extended reporting silence");
     expect(isKnownHeadlineCode("topology_evidence_gap")).toBe(true);
+    expect(isKnownHeadlineCode("extended_reporting_silence")).toBe(true);
     expect(headlineText("future_headline")).toBe("Device story summary unavailable.");
   });
 
@@ -135,8 +195,12 @@ describe("decisionCopy", () => {
     expect(limitationText("absence_from_latest_not_failure")).toMatch(
       /does not prove the device failed/i,
     );
+    expect(limitationText("extended_silence_not_failure")).toMatch(
+      /does not prove the device failed/i,
+    );
     expect(limitationText("route_hints_not_live_routing")).toMatch(/do not prove live routing/i);
     expect(isKnownLimitationCode("absence_from_latest_not_failure")).toBe(true);
+    expect(isKnownLimitationCode("extended_silence_not_failure")).toBe(true);
     expect(limitationText("future_limitation")).toMatch(/interpretation is limited/i);
   });
 
