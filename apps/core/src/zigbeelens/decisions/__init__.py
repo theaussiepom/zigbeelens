@@ -41,6 +41,12 @@ from zigbeelens.decisions.device_story import (
     device_story_report_payload,
     load_device_story_evidence,
 )
+from zigbeelens.decisions.lqi_trend import (
+    LqiTrend,
+    LqiTrendState,
+    build_lqi_trend,
+    lqi_trend_for_device,
+)
 from zigbeelens.decisions.reporting_rhythm import (
     ReportingRhythm,
     ReportingRhythmState,
@@ -102,6 +108,8 @@ __all__ = [
     "EvidenceFact",
     "EvidenceReference",
     "ReasonCode",
+    "LqiTrend",
+    "LqiTrendState",
     "ReportingRhythm",
     "ReportingRhythmState",
     "ReportingSilence",
@@ -115,6 +123,7 @@ __all__ = [
     "build_device_story",
     "build_device_coverage",
     "build_network_topology_facts",
+    "build_lqi_trend",
     "build_reporting_rhythm",
     "build_reporting_silence",
     "build_topology_facts_from_evidence_graph",
@@ -125,6 +134,7 @@ __all__ = [
     "load_device_story_evidence",
     "load_device_coverage_evidence",
     "normalize_device_ieee",
+    "lqi_trend_for_device",
     "reporting_rhythm_for_device",
     "topology_device_facts_payload",
     "topology_network_facts_payload",
