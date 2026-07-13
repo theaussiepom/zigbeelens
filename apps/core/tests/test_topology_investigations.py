@@ -7,6 +7,10 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
+from zigbeelens.decisions.availability_event_groups import (
+    SHARED_EVENT_MIN_DEVICES,
+    SharedAvailabilityEvent,
+)
 from zigbeelens.storage.repository import DeviceRow
 from zigbeelens.topology.investigations import (
     DIAGNOSTICS_LIMITED_MIN_DEVICES,
@@ -14,6 +18,7 @@ from zigbeelens.topology.investigations import (
     ISSUE_CLUSTER_MIN_DEVICES,
     ISSUE_DEVICE_WEIGHT,
     LOW_BATTERY_PERCENT,
+    MAX_DEVICES_PER_CARD,
     MAX_INVESTIGATION_CARDS,
     MAX_SUGGESTED_NEXT_STEPS,
     PRIORITY_CONTEXT_ONLY,
@@ -22,6 +27,8 @@ from zigbeelens.topology.investigations import (
     REPEATED_OFFLINE_MIN_COUNT,
     ROUTER_REVIEW_MIN_ISSUE_NEIGHBOURS,
     ROUTER_REVIEW_MIN_LINKS,
+    SHARED_AVAILABILITY_EVENT_BASE_WEIGHT,
+    SHARED_AVAILABILITY_EVENT_LIMITATION,
     STALE_LAST_SEEN_HOURS,
     TOPOLOGY_CORROBORATION_WEIGHT,
     WEAK_LINK_LQI,
@@ -43,6 +50,17 @@ FORBIDDEN_PHRASES = [
     "lost link",
     "same parent",
     "heal network",
+    "within 5 minutes",
+    "common cause",
+    "network failure",
+    "coordinator failure",
+    "mqtt outage",
+    "broker outage",
+    "host restart caused",
+    "power outage",
+    "interference event",
+    "shared route",
+    "shared path",
 ]
 
 
@@ -114,6 +132,31 @@ def _passive_hint(
     }
 
 
+def _shared_availability_event(
+    *,
+    device_count: int = SHARED_EVENT_MIN_DEVICES,
+    duration_minutes: int = 4,
+    started_at: datetime | None = None,
+    ended_at: datetime | None = None,
+    event_id: str = "shared-availability-test",
+) -> SharedAvailabilityEvent:
+    started = started_at or NOW - timedelta(hours=2)
+    ended = (
+        ended_at
+        if ended_at is not None
+        else started + timedelta(minutes=duration_minutes)
+    )
+    devices = [f"0xd{i:02d}" for i in range(device_count)]
+    return SharedAvailabilityEvent(
+        event_id=event_id,
+        started_at=started,
+        ended_at=ended,
+        device_count=device_count,
+        device_ieees=devices,
+        duration_minutes=duration_minutes,
+    )
+
+
 def _build(**overrides) -> dict:
     defaults = dict(
         devices=[],
@@ -123,6 +166,7 @@ def _build(**overrides) -> dict:
         latest_captured_at=(NOW - timedelta(hours=1)).isoformat(),
         history=_empty_history(),
         passive_hints=[],
+        shared_availability_events=[],
         now=NOW,
     )
     defaults.update(overrides)
@@ -755,3 +799,137 @@ def test_high_confidence_passive_group_investigates_shared_event():
     assert len(cards) == 1
     assert cards[0]["action_group"] == "investigate_shared_event"
     assert cards[0]["priority"] != PRIORITY_CONTEXT_ONLY
+
+
+def test_shared_availability_event_produces_one_card():
+    event = _shared_availability_event()
+    result = _build(shared_availability_events=[event])
+    cards = [c for c in result["investigations"] if c["type"] == "shared_availability_event"]
+    assert len(cards) == 1
+    card = cards[0]
+    assert card["id"] == event.event_id
+    assert card["action_group"] == "investigate_shared_event"
+    assert card["edge_ids"] == []
+    assert card["primary_device_ieee"] is None
+    assert card["primary_neighbourhood_ieee"] is None
+    assert card["title"] == "Several devices went offline around the same time"
+    assert str(SHARED_EVENT_MIN_DEVICES) in card["summary"]
+    assert SHARED_AVAILABILITY_EVENT_LIMITATION in card["limitations"]
+
+
+def test_shared_availability_event_does_not_create_pairwise_cards():
+    event = _shared_availability_event(device_count=SHARED_EVENT_MIN_DEVICES)
+    result = _build(shared_availability_events=[event])
+    assert len([c for c in result["investigations"] if c["type"] == "shared_availability_event"]) == 1
+    assert not [c for c in result["investigations"] if c["type"] == "passive_instability_group"]
+    card = next(c for c in result["investigations"] if c["type"] == "shared_availability_event")
+    assert card["edge_ids"] == []
+    assert len(card["device_ieees"]) == SHARED_EVENT_MIN_DEVICES
+
+
+def test_shared_availability_event_respects_device_presentation_cap():
+    device_count = MAX_DEVICES_PER_CARD + 3
+    event = _shared_availability_event(device_count=device_count, duration_minutes=12)
+    result = _build(shared_availability_events=[event])
+    card = next(c for c in result["investigations"] if c["type"] == "shared_availability_event")
+    assert len(card["device_ieees"]) == MAX_DEVICES_PER_CARD
+    assert str(device_count) in card["summary"]
+    assert "12 minutes" in card["summary"]
+
+
+def test_shared_availability_event_uses_actual_duration_not_cluster_gap():
+    started = NOW - timedelta(hours=3)
+    ended = started + timedelta(minutes=22)
+    event = _shared_availability_event(
+        device_count=SHARED_EVENT_MIN_DEVICES,
+        duration_minutes=22,
+        started_at=started,
+        ended_at=ended,
+    )
+    result = _build(shared_availability_events=[event])
+    card = next(c for c in result["investigations"] if c["type"] == "shared_availability_event")
+    assert "22 minutes" in card["summary"]
+    assert "within 5 minutes" not in card["summary"].lower()
+    assert "within 5 minutes" not in json.dumps(card).lower()
+
+
+def test_shared_availability_event_sub_minute_duration_uses_natural_wording():
+    started = NOW - timedelta(hours=1)
+    event = _shared_availability_event(
+        device_count=SHARED_EVENT_MIN_DEVICES,
+        duration_minutes=0,
+        started_at=started,
+        ended_at=started,
+    )
+    result = _build(shared_availability_events=[event])
+    card = next(c for c in result["investigations"] if c["type"] == "shared_availability_event")
+    assert card["summary"] == (
+        f"{SHARED_EVENT_MIN_DEVICES} devices went offline around the same time."
+    )
+    assert "0 minutes" not in card["summary"]
+
+
+def test_shared_availability_event_conservative_scoring():
+    event = _shared_availability_event()
+    result = _build(shared_availability_events=[event])
+    card = next(c for c in result["investigations"] if c["type"] == "shared_availability_event")
+    assert card["score"] == SHARED_AVAILABILITY_EVENT_BASE_WEIGHT + 1
+    assert card["priority"] == "Worth checking"
+
+
+def test_shared_availability_event_has_no_forbidden_claims():
+    event = _shared_availability_event(device_count=SHARED_EVENT_MIN_DEVICES, duration_minutes=18)
+    result = _build(shared_availability_events=[event])
+    card = next(c for c in result["investigations"] if c["type"] == "shared_availability_event")
+    claim_text = json.dumps(
+        {
+            "title": card["title"],
+            "summary": card["summary"],
+            "why_it_matters": card["why_it_matters"],
+            "supporting_evidence": card["supporting_evidence"],
+            "suggested_next_steps": card["suggested_next_steps"],
+        }
+    ).lower()
+    for phrase in FORBIDDEN_PHRASES:
+        assert phrase not in claim_text, phrase
+
+
+def test_shared_availability_event_skips_tailored_device_evidence():
+    devices = [
+        _device(f"0xd{i:02d}", battery=LOW_BATTERY_PERCENT - 1)
+        for i in range(SHARED_EVENT_MIN_DEVICES)
+    ]
+    event = _shared_availability_event(device_count=SHARED_EVENT_MIN_DEVICES)
+    result = _build(
+        devices=devices,
+        shared_availability_events=[event],
+        offline_events={devices[0].ieee_address: [NOW.isoformat()]},
+    )
+    card = next(c for c in result["investigations"] if c["type"] == "shared_availability_event")
+    text = json.dumps(card).lower()
+    assert "battery" not in text
+
+
+def test_passive_pairwise_hints_unchanged_when_shared_events_present():
+    passive_result = _build(
+        devices=[_device("0xa1"), _device("0xa2"), _device("0xa3")],
+        passive_hints=[
+            _passive_hint("0xa1", "0xa2", confidence="high"),
+            _passive_hint("0xa2", "0xa3", confidence="high"),
+        ],
+    )
+    combined_result = _build(
+        devices=[_device("0xa1"), _device("0xa2"), _device("0xa3")],
+        passive_hints=[
+            _passive_hint("0xa1", "0xa2", confidence="high"),
+            _passive_hint("0xa2", "0xa3", confidence="high"),
+        ],
+        shared_availability_events=[_shared_availability_event()],
+    )
+    passive_cards = [
+        c for c in passive_result["investigations"] if c["type"] == "passive_instability_group"
+    ]
+    combined_passive = [
+        c for c in combined_result["investigations"] if c["type"] == "passive_instability_group"
+    ]
+    assert passive_cards == combined_passive

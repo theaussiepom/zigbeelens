@@ -143,13 +143,26 @@ function plural(count: number, singular: string, pluralForm: string): string {
 
 /**
  * Whether a card's "What this does not prove" changes interpretation:
- * passive-derived and recent-missing evidence is easy to over-read, so those
- * cards carry their limitation. Latest-snapshot-only groupings do not.
+ * passive-derived, recent-missing, and shared availability-transition evidence
+ * is easy to over-read, so those cards carry their limitations.
  */
 function cardNeedsLimitation(card: InvestigationCard): boolean {
+  if (card.type === "shared_availability_event") {
+    return true;
+  }
   return card.created_from_evidence_classes.some(
     (cls) => cls.includes("passive") || cls.includes("historical"),
   );
+}
+
+function reportLimitationsForCard(card: InvestigationCard): string[] {
+  if (card.type === "shared_availability_event") {
+    return card.limitations;
+  }
+  if (cardNeedsLimitation(card) && card.limitations.length > 0) {
+    return [card.limitations[0]];
+  }
+  return [];
 }
 
 function summarySection(input: MeshEvidenceReportInput, counts: EvidenceCounts): string[] {
@@ -220,8 +233,10 @@ function investigationSection(investigations: InvestigationCard[]): string[] {
       lines.push("", "Supporting evidence:");
       for (const item of card.supporting_evidence) lines.push(`- ${item}`);
     }
-    if (cardNeedsLimitation(card) && card.limitations.length > 0) {
-      lines.push("", "What this does not prove:", card.limitations[0]);
+    const limitations = reportLimitationsForCard(card);
+    if (limitations.length > 0) {
+      lines.push("", "What this does not prove:");
+      for (const item of limitations) lines.push(item);
     }
     if (card.suggested_next_steps.length > 0) {
       lines.push("", "Suggested checks:");

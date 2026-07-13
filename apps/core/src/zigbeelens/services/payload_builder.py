@@ -37,6 +37,9 @@ from zigbeelens.schemas import (
     Severity,
     TimelineEvent,
 )
+from zigbeelens.services.dashboard_shared_availability import (
+    compose_dashboard_shared_availability_events,
+)
 from zigbeelens.services.empty_state import build_empty_dashboard, empty_finding
 from zigbeelens.services.live_dashboard import (
     build_health_snapshot,
@@ -121,6 +124,11 @@ class PayloadBuilder:
             key=lambda d: d.sort_priority,
         )[:10]
 
+        network_rows = self.repo.list_networks()
+        shared_availability_events = compose_dashboard_shared_availability_events(
+            self.repo, network_rows
+        )
+
         return DashboardPayload(
             generated_at=utc_now_iso(),
             scenario=None,
@@ -149,6 +157,7 @@ class PayloadBuilder:
             ],
             recent_timeline=self.timeline()[:12],
             health_snapshot=build_health_snapshot(self.repo, health, self._incident_service),
+            shared_availability_events=shared_availability_events,
         )
 
     def _fallback_health(self) -> HealthDiagnosticService:

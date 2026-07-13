@@ -8,6 +8,9 @@ from zigbeelens.decisions.topology_facts import (
     TopologyFacts,
     build_topology_facts_from_evidence_graph,
 )
+from zigbeelens.decisions.availability_event_groups import (
+    shared_availability_event_groups_for_network,
+)
 from zigbeelens.services.topology_facts_composition import compose_network_topology_facts_payload
 from zigbeelens.topology.device_stats import aggregate_device_stats
 from zigbeelens.topology.history import (
@@ -69,9 +72,16 @@ class EvidenceGraphService:
         history = aggregate_historical_evidence(self._repo, network_id)
         last_known = aggregate_last_known_links(self._repo, network_id)
         passive = aggregate_passive_hints(self._repo, network_id)
+        shared_availability = shared_availability_event_groups_for_network(
+            self._repo, network_id
+        )
         device_stats = aggregate_device_stats(self._repo, network_id)
         investigations = aggregate_investigations(
-            self._repo, network_id, history=history, passive_hints=passive["hints"]
+            self._repo,
+            network_id,
+            history=history,
+            passive_hints=passive["hints"],
+            shared_availability_events=shared_availability.groups,
         )
 
         latest_neighbor_pairs = {

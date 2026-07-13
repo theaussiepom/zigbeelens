@@ -70,6 +70,48 @@ function makeEdge(overrides: Partial<MeshEvidenceEdge>): MeshEvidenceEdge {
   };
 }
 
+const SHARED_AVAILABILITY_EVENT_LIMITATION =
+  "Devices changing availability around the same time does not prove they share a Zigbee route, path, parent, or root cause.";
+
+function makeSharedAvailabilityCard(
+  overrides: Partial<InvestigationCard> = {},
+): InvestigationCard {
+  return makeCard({
+    id: "shared-availability-test",
+    type: "shared_availability_event",
+    priority: "Worth checking",
+    score: 6,
+    title: "Several devices went offline around the same time",
+    summary:
+      "11 devices went offline during a shared availability event lasting about 22 minutes.",
+    why_it_matters:
+      "The timing is more useful as a shared event than as evidence of a relationship between individual device pairs.",
+    supporting_evidence: [
+      "11 devices went offline in this shared event.",
+      "Evidence comes from stored offline availability transitions.",
+      "Event duration about 22 minutes.",
+    ],
+    limitations: [
+      "This is a place to look first based on available ZigbeeLens evidence. It is not a root-cause claim and does not prove live routing or current connectivity.",
+      SHARED_AVAILABILITY_EVENT_LIMITATION,
+    ],
+    suggested_next_steps: [
+      "Check Zigbee2MQTT status or logs around the event time.",
+      "Check MQTT broker or ZigbeeLens collector interruptions around the event time.",
+      "Check host restart, maintenance, or broad power events around the same time.",
+      "Compare any active incidents or timeline events from that period.",
+    ],
+    device_ieees: ["0xd00", "0xd01"],
+    edge_ids: [],
+    primary_device_ieee: null,
+    primary_neighbourhood_ieee: null,
+    created_from_evidence_classes: ["availability_transition"],
+    latest_supporting_evidence_at: "2026-07-06T08:22:00+00:00",
+    action_group: "investigate_shared_event",
+    ...overrides,
+  });
+}
+
 function makeCard(overrides: Partial<InvestigationCard>): InvestigationCard {
   return {
     id: "card-1",
@@ -377,6 +419,40 @@ describe("buildMeshEvidenceReport", () => {
     expect(jsonSummary.network_name).toBeNull();
     expect(jsonSummary.snapshot_comparison).toBeNull();
     expect(jsonSummary.selected_device).toBeNull();
+  });
+
+  it("renders shared availability event cards with explicit limitations and duration copy", () => {
+    const card = makeSharedAvailabilityCard();
+    const { markdown, jsonSummary } = buildMeshEvidenceReport(
+      baseInput({ investigations: [card] }),
+    );
+    expect(markdown).toContain("## Where to look first");
+    expect(markdown).toContain(
+      "### Worth checking: Several devices went offline around the same time",
+    );
+    expect(markdown).toContain("lasting about 22 minutes");
+    expect(markdown).not.toContain("within 5 minutes");
+    expect(markdown).toContain("What this does not prove:");
+    expect(markdown).toContain(SHARED_AVAILABILITY_EVENT_LIMITATION);
+    expect(markdown).toContain("Suggested checks:");
+    expect(markdown).toContain("- Check Zigbee2MQTT status or logs around the event time.");
+    const shared = jsonSummary.investigation_priorities.find(
+      (item) => item.type === "shared_availability_event",
+    );
+    expect(shared).toBeDefined();
+    expect(shared?.edge_ids).toEqual([]);
+    expect(shared?.limitations).toContain(SHARED_AVAILABILITY_EVENT_LIMITATION);
+  });
+
+  it("keeps shared availability suggested checks cautious in report copy", () => {
+    const { markdown } = buildMeshEvidenceReport(
+      baseInput({ investigations: [makeSharedAvailabilityCard()] }),
+    );
+    const checksSection = markdown.split("Suggested checks:")[1] ?? "";
+    expect(checksSection.toLowerCase()).not.toMatch(/caused by|outage caused|because/);
+    for (const line of checksSection.split("\n").filter((line) => line.startsWith("- "))) {
+      expect(line.toLowerCase()).toMatch(/^- check |^- compare /);
+    }
   });
 
   it("uses Phase 5 approved language with no forbidden phrases", () => {

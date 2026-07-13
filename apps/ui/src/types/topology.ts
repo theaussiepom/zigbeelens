@@ -174,6 +174,7 @@ export interface InvestigationCard {
   type:
     | "issue_cluster"
     | "recent_missing_cluster"
+    | "shared_availability_event"
     | "passive_instability_group"
     | "router_neighbourhood_review"
     | "diagnostics_limited_group";

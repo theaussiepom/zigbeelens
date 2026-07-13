@@ -273,6 +273,18 @@ class HealthSnapshot(BaseModel):
     networks: list[dict[str, Any]]
 
 
+class SharedAvailabilityEventSummary(BaseModel):
+    """Facts-only shared availability event for dashboard Overview."""
+
+    event_id: str
+    network_id: str
+    started_at: str
+    ended_at: str
+    device_count: int
+    duration_minutes: int
+    device_ieees: list[str] = Field(default_factory=list)
+
+
 class DashboardPayload(BaseModel):
     generated_at: str
     scenario: str | None = None
@@ -289,6 +301,7 @@ class DashboardPayload(BaseModel):
     stale_devices: list[DeviceSummary]
     recent_timeline: list[TimelineEvent]
     health_snapshot: HealthSnapshot
+    shared_availability_events: list[SharedAvailabilityEventSummary] = Field(default_factory=list)
 
 
 class RedactionProfile(str, Enum):

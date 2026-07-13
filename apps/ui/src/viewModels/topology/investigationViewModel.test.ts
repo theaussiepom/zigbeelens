@@ -53,6 +53,18 @@ describe("investigationViewModel", () => {
     }
   });
 
+  it("falls back to investigate shared event for shared availability cards without action_group", () => {
+    const vm = buildInvestigationCardViewModel(
+      makeCard({
+        type: "shared_availability_event",
+        title: "Several devices went offline around the same time",
+        summary: "11 devices went offline during a shared availability event lasting about 4 minutes.",
+        action_group: undefined as unknown as InvestigationCard["action_group"],
+      }),
+    );
+    expect(vm.actionGroupLabel).toBe("Investigate shared event");
+  });
+
   it("falls back to watch only for low-priority passive cards without action_group", () => {
     const vm = buildInvestigationCardViewModel(
       makeCard({

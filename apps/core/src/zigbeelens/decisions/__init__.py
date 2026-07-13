@@ -41,6 +41,13 @@ from zigbeelens.decisions.device_story import (
     device_story_report_payload,
     load_device_story_evidence,
 )
+from zigbeelens.decisions.availability_event_groups import (
+    SharedAvailabilityEvent,
+    SharedAvailabilityEventGroups,
+    SharedAvailabilityEventState,
+    build_shared_availability_event_groups,
+    shared_availability_event_groups_for_network,
+)
 from zigbeelens.decisions.lqi_trend import (
     LqiTrend,
     LqiTrendState,
@@ -113,6 +120,9 @@ __all__ = [
     "ReportingRhythm",
     "ReportingRhythmState",
     "ReportingSilence",
+    "SharedAvailabilityEvent",
+    "SharedAvailabilityEventGroups",
+    "SharedAvailabilityEventState",
     "SuggestedCheck",
     "SilenceState",
     "TOPOLOGY_FACT_CODES",
@@ -123,6 +133,7 @@ __all__ = [
     "build_device_story",
     "build_device_coverage",
     "build_network_topology_facts",
+    "build_shared_availability_event_groups",
     "build_lqi_trend",
     "build_reporting_rhythm",
     "build_reporting_silence",
@@ -134,6 +145,7 @@ __all__ = [
     "load_device_story_evidence",
     "load_device_coverage_evidence",
     "normalize_device_ieee",
+    "shared_availability_event_groups_for_network",
     "lqi_trend_for_device",
     "reporting_rhythm_for_device",
     "topology_device_facts_payload",

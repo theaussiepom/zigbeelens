@@ -263,6 +263,17 @@ export interface HealthSnapshot {
   }>;
 }
 
+/** Facts-only shared availability event for dashboard Overview */
+export interface SharedAvailabilityEventSummary {
+  event_id: string;
+  network_id: string;
+  started_at: string;
+  ended_at: string;
+  device_count: number;
+  duration_minutes: number;
+  device_ieees: string[];
+}
+
 /** Dashboard payload — primary API response for overview */
 export interface DashboardPayload {
   generated_at: string;
@@ -280,6 +291,7 @@ export interface DashboardPayload {
   stale_devices: DeviceSummary[];
   recent_timeline: TimelineEvent[];
   health_snapshot: HealthSnapshot;
+  shared_availability_events: SharedAvailabilityEventSummary[];
 }
 
 /** Redaction profile presets */
