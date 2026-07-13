@@ -160,27 +160,33 @@ describe("deviceDetailsViewModel", () => {
     expect(snapshotHistory.deviceIeee).toBe("0xr1");
   });
 
-  it("omits dataCoverage when network coverage is empty", () => {
+  it("omits dataCoverage when device coverage is empty", () => {
     const vm = buildDeviceDetailsViewModel(makeDevice(), []);
     expect(vm.sections.some((section) => section.id === "dataCoverage")).toBe(false);
   });
 
-  it("includes filtered network coverage after snapshot history", () => {
+  it("includes per-device coverage after snapshot history", () => {
     const coverage: DataCoverageDto[] = [
       {
         dimension: "availability",
-        state: "off",
-        label_code: "availability_tracking_off",
+        state: "available",
+        label_code: "availability_available",
       },
       {
-        dimension: "availability",
-        state: "building",
-        label_code: "availability_history_building",
+        dimension: "last_seen",
+        state: "available",
+        label_code: "last_seen_available",
       },
       {
-        dimension: "topology_snapshot",
-        state: "stale",
-        label_code: "snapshot_stale",
+        dimension: "historical_snapshots",
+        state: "not_observed",
+        label_code: "topology_history_not_observed",
+        params: { observed_snapshot_count: 0, snapshot_window_count: 0 },
+      },
+      {
+        dimension: "ha_enrichment",
+        state: "not_configured",
+        label_code: "ha_areas_not_linked",
       },
     ];
     const vm = buildDeviceDetailsViewModel(
@@ -194,8 +200,10 @@ describe("deviceDetailsViewModel", () => {
     expect(section?.title).toBe(DEVICE_SECTION_DATA_COVERAGE);
     if (section?.id !== "dataCoverage") return;
     expect(section.items.map((item) => item.label)).toEqual([
-      "Availability tracking off",
-      "Snapshot stale",
+      "Availability: available",
+      "Last seen: available",
+      "Topology history: 0 of 0 snapshots",
+      "HA area: missing",
     ]);
     expect(ids.indexOf("dataCoverage")).toBeGreaterThan(ids.indexOf("snapshotHistory"));
     expect(ids.indexOf("dataCoverage")).toBeLessThan(ids.indexOf("passiveHints"));

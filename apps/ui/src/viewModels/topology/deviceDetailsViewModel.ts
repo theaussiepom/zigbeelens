@@ -12,8 +12,7 @@ import {
   meshRoleLabel,
 } from "@/lib/meshEvidence";
 import {
-  buildEvidenceCoverageStripViewModel,
-  DEVICE_DRAWER_COVERAGE_LABEL_CODES,
+  buildDeviceCoverageStripViewModel,
 } from "@/viewModels/coverage/coverageStripViewModel";
 import {
   DEVICE_DETAILS_PANEL_LABEL,
@@ -98,7 +97,7 @@ export interface DeviceDetailsDeviceStorySectionViewModel {
 export interface DeviceDetailsDataCoverageSectionViewModel {
   id: "dataCoverage";
   title: string;
-  items: ReturnType<typeof buildEvidenceCoverageStripViewModel>["items"];
+  items: ReturnType<typeof buildDeviceCoverageStripViewModel>["items"];
 }
 
 export type DeviceDetailsSectionViewModel =
@@ -238,11 +237,9 @@ function buildSnapshotHistorySection(
 }
 
 function buildDataCoverageSection(
-  networkCoverage: DataCoverageDto[],
+  deviceCoverage: DataCoverageDto[],
 ): DeviceDetailsDataCoverageSectionViewModel | null {
-  const strip = buildEvidenceCoverageStripViewModel(networkCoverage, {
-    filterLabelCodes: DEVICE_DRAWER_COVERAGE_LABEL_CODES,
-  });
+  const strip = buildDeviceCoverageStripViewModel(deviceCoverage);
   if (strip.items.length === 0) return null;
   return {
     id: "dataCoverage",
@@ -253,7 +250,7 @@ function buildDataCoverageSection(
 
 export function buildDeviceDetailsViewModel(
   device: MeshEvidenceDevice,
-  networkCoverage: DataCoverageDto[] = [],
+  deviceCoverage: DataCoverageDto[] = [],
 ): DeviceDetailsViewModel {
   const sections: DeviceDetailsSectionViewModel[] = [
     buildSummarySection(device),
@@ -271,7 +268,7 @@ export function buildDeviceDetailsViewModel(
 
   sections.push(buildSnapshotHistorySection(device));
 
-  const dataCoverage = buildDataCoverageSection(networkCoverage);
+  const dataCoverage = buildDataCoverageSection(deviceCoverage);
   if (dataCoverage) sections.push(dataCoverage);
 
   const passiveHints = buildPassiveHintsSection(device);

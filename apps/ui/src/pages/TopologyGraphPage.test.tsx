@@ -572,6 +572,7 @@ beforeEach(() => {
     Promise.resolve(emptyDeviceHistory),
   );
   vi.spyOn(api, "deviceStory").mockImplementation(() => Promise.resolve(emptyDeviceStory));
+  vi.spyOn(api, "deviceCoverage").mockImplementation(() => Promise.resolve([]));
 });
 
 /** Rendered canvas position of a device node (from React Flow's transform). */
@@ -1486,28 +1487,22 @@ describe("TopologyGraphPage historical evidence (live)", () => {
   });
 
   it("renders Evidence coverage once in the device details drawer", async () => {
-    mockDetail = {
-      ...liveDetailWithHistory,
-      topology_facts: {
-        ...emptyTopologyNetworkFacts,
-        coverage: [
-          {
-            dimension: "availability",
-            state: "off",
-            label_code: "availability_tracking_off",
-          },
-          {
-            dimension: "route_hints",
-            state: "not_observed",
-            label_code: "route_hints_unavailable",
-          },
-        ],
+    vi.spyOn(api, "deviceCoverage").mockResolvedValue([
+      {
+        dimension: "availability",
+        state: "off",
+        label_code: "availability_tracking_off",
       },
-    };
+      {
+        dimension: "ha_enrichment",
+        state: "not_configured",
+        label_code: "ha_areas_not_linked",
+      },
+    ]);
     await renderLiveAndWaitForLayout();
     fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
     const drawer = screen.getByRole("dialog", { name: /device details/i });
-    expect(within(drawer).getByText("Availability tracking off")).toBeInTheDocument();
+    expect(await within(drawer).findByText("Availability tracking off")).toBeInTheDocument();
     expect(within(drawer).getAllByText("Evidence coverage")).toHaveLength(1);
   });
 

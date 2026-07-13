@@ -30,7 +30,7 @@ describe("coverageStripViewModel", () => {
       "Availability status unknown",
       "Snapshot stale",
       "Route hints unavailable",
-      "HA areas not linked",
+      "HA area: missing",
     ]);
   });
 
@@ -94,6 +94,34 @@ describe("coverageStripViewModel", () => {
       "Availability tracking off",
       "Snapshot stale",
       "Route hints unavailable",
+    ]);
+  });
+
+  it("orders per-device coverage by dimension", () => {
+    const vm = buildEvidenceCoverageStripViewModel(
+      [
+        {
+          dimension: "ha_enrichment",
+          state: "not_configured",
+          label_code: "ha_areas_not_linked",
+        },
+        {
+          dimension: "availability",
+          state: "available",
+          label_code: "availability_available",
+        },
+        {
+          dimension: "last_seen",
+          state: "available",
+          label_code: "last_seen_available",
+        },
+      ],
+      { sort: "device" },
+    );
+    expect(vm.items.map((item) => item.label)).toEqual([
+      "Availability: available",
+      "Last seen: available",
+      "HA area: missing",
     ]);
   });
 

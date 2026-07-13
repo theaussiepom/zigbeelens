@@ -151,10 +151,28 @@ describe("decisionCopy", () => {
     expect(coverageLabel("route_hints_unavailable")).toBe(
       "Route hints unavailable",
     );
-    expect(coverageLabel("ha_areas_not_linked")).toBe("HA areas not linked");
+    expect(coverageLabel("ha_areas_not_linked")).toBe("HA area: missing");
     expect(coverageLabel("snapshot_stale")).toBe("Snapshot stale");
     expect(coverageLabel("battery_history_sparse")).toBe("Battery history sparse");
     expect(coverageLabel("lqi_history_sparse")).toBe("LQI history sparse");
+  });
+
+  it("maps Phase 4C per-device coverage labels with params", () => {
+    expect(coverageLabel("availability_available")).toBe("Availability: available");
+    expect(coverageLabel("last_seen_available")).toBe("Last seen: available");
+    expect(
+      coverageLabel("topology_history_sparse", {
+        observed_snapshot_count: 2,
+        snapshot_window_count: 10,
+      }),
+    ).toBe("Topology history: 2 of 10 snapshots");
+    expect(coverageLabel("ha_area_linked", { area_name: "Hall" })).toBe("HA area: Hall");
+    expect(coverageLabel("ha_area_linked", { area_id: "hall" })).toBe("HA area: hall");
+    expect(
+      coverageLabel("ha_area_linked", { area_id: "hall", area_name: "Hall" }),
+    ).toBe("HA area: Hall");
+    expect(coverageHelperText("ha_area_linked", { area_id: "hall" })).toMatch(/area id hall/i);
+    expect(coverageHelperText("ha_area_linked", { area_id: "hall" })).not.toMatch(/area_name/i);
   });
 
   it("falls back safely for unknown coverage label codes", () => {

@@ -191,6 +191,22 @@ def device_story(network_id: str, ieee_address: str, ctx: AppContext = Depends(c
     return story.model_dump(mode="json")
 
 
+@router.get("/devices/{network_id}/{ieee_address}/coverage")
+def device_coverage(network_id: str, ieee_address: str, ctx: AppContext = Depends(ctx_dep)) -> list[dict]:
+    """Read-only per-device evidence coverage from stored data.
+
+    Returns coded DataCoverage facts only — presenters map labels and copy.
+    """
+    from zigbeelens.decisions.device_coverage import device_coverage_for_device
+
+    if ctx.repo.get_network(network_id) is None:
+        raise HTTPException(status_code=404, detail="Network not found")
+    coverage = device_coverage_for_device(ctx.repo, network_id, ieee_address)
+    if coverage is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return [item.model_dump(mode="json") for item in coverage]
+
+
 @router.get("/routers", response_model=PaginatedResponse)
 def routers(
     scenario: str | None = Query(default=None),

@@ -39,11 +39,22 @@ export const COVERAGE_LABEL_CODES = [
   "availability_tracking_off",
   "availability_history_building",
   "availability_status_unknown",
+  "availability_available",
   "route_hints_unavailable",
   "ha_areas_not_linked",
   "snapshot_stale",
   "battery_history_sparse",
+  "battery_history_available",
   "lqi_history_sparse",
+  "lqi_history_available",
+  "last_seen_available",
+  "last_seen_unknown",
+  "last_payload_available",
+  "last_payload_unknown",
+  "topology_history_available",
+  "topology_history_sparse",
+  "topology_history_not_observed",
+  "ha_area_linked",
 ] as const;
 
 type CopyRenderer = (params: Record<string, unknown>) => string;
@@ -127,45 +138,180 @@ const REASON_COPY: Record<ReasonCode, CopyRenderer> = {
   },
 };
 
+function stringParam(params: Record<string, unknown>, key: string): string | null {
+  const value = params[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function topologyHistoryLabel(
+  params: Record<string, unknown>,
+  fallback: string,
+): string {
+  const observed = countParam(params, "observed_snapshot_count");
+  const window = countParam(params, "snapshot_window_count");
+  if (observed === null || window === null) {
+    return fallback;
+  }
+  return `Topology history: ${observed} of ${window} snapshots`;
+}
+
+const COVERAGE_LABEL_RENDERERS: Partial<Record<CoverageLabelCode, CopyRenderer>> = {
+  availability_available: () => "Availability: available",
+  last_seen_available: () => "Last seen: available",
+  last_seen_unknown: () => "Last seen: unknown",
+  last_payload_available: () => "Last payload: available",
+  last_payload_unknown: () => "Last payload: unknown",
+  battery_history_available: (params) => {
+    const count = countParam(params, "sample_count");
+    if (count === null) return "Battery history: available";
+    return `Battery history: available (${count} samples)`;
+  },
+  battery_history_sparse: (params) => {
+    const count = countParam(params, "sample_count");
+    if (count === null) return "Battery history sparse";
+    return `Battery history: sparse (${count} samples)`;
+  },
+  lqi_history_available: (params) => {
+    const count = countParam(params, "sample_count");
+    if (count === null) return "LQI history: available";
+    return `LQI history: available (${count} samples)`;
+  },
+  lqi_history_sparse: (params) => {
+    const count = countParam(params, "sample_count");
+    if (count === null) return "LQI history sparse";
+    return `LQI history: sparse (${count} samples)`;
+  },
+  topology_history_available: (params) =>
+    topologyHistoryLabel(params, "Topology history: available"),
+  topology_history_sparse: (params) =>
+    topologyHistoryLabel(params, "Topology history: sparse"),
+  topology_history_not_observed: (params) =>
+    topologyHistoryLabel(params, "Topology history: not observed"),
+  ha_area_linked: (params) => {
+    const areaName = stringParam(params, "area_name");
+    const areaId = stringParam(params, "area_id");
+    if (areaName) return `HA area: ${areaName}`;
+    if (areaId) return `HA area: ${areaId}`;
+    return "HA area: linked";
+  },
+  ha_areas_not_linked: () => "HA area: missing",
+};
+
 const COVERAGE_LABEL_COPY: Record<CoverageLabelCode, string> = {
   availability_tracking_off: "Availability tracking off",
   availability_history_building: "Availability history building",
   availability_status_unknown: "Availability status unknown",
+  availability_available: "Availability: available",
   route_hints_unavailable: "Route hints unavailable",
-  ha_areas_not_linked: "HA areas not linked",
+  ha_areas_not_linked: "HA area: missing",
   snapshot_stale: "Snapshot stale",
   battery_history_sparse: "Battery history sparse",
+  battery_history_available: "Battery history: available",
   lqi_history_sparse: "LQI history sparse",
+  lqi_history_available: "LQI history: available",
+  last_seen_available: "Last seen: available",
+  last_seen_unknown: "Last seen: unknown",
+  last_payload_available: "Last payload: available",
+  last_payload_unknown: "Last payload: unknown",
+  topology_history_available: "Topology history: available",
+  topology_history_sparse: "Topology history: sparse",
+  topology_history_not_observed: "Topology history: not observed",
+  ha_area_linked: "HA area: linked",
 };
 
-const COVERAGE_HELPER_COPY: Record<CoverageLabelCode, string> = {
+const COVERAGE_HELPER_COPY: Record<CoverageLabelCode, string | CopyRenderer> = {
   availability_tracking_off:
     "Enable Zigbee2MQTT availability and last-seen reporting for offline history, passive hints and reports.",
   availability_history_building:
     "Availability tracking is enabled, but ZigbeeLens only has history from when it was turned on.",
   availability_status_unknown:
     "ZigbeeLens cannot confirm availability/last-seen coverage for this period.",
+  availability_available:
+    "This device currently reports an explicit online or offline availability state.",
   route_hints_unavailable:
     "Route-hint evidence was not available from the latest topology snapshot. This does not mean routes are absent or prove current routing.",
   ha_areas_not_linked:
-    "Home Assistant area enrichment is not linked. Grouping and report context may be less useful. This is not a Zigbee network fault.",
+    "Home Assistant area enrichment is not linked for this device. Grouping and report context may be less useful. This is not a Zigbee network fault.",
   snapshot_stale:
     "The latest stored topology snapshot is older than the configured capture cadence. Interpret topology evidence as older stored evidence.",
-  battery_history_sparse:
-    "Battery history is sparse for this network. Battery-related interpretation may be limited.",
-  lqi_history_sparse:
-    "Link-quality history is sparse for this network. LQI-related interpretation may be limited.",
+  battery_history_sparse: (params) => {
+    const count = countParam(params, "sample_count");
+    if (count === null) {
+      return "Battery history is sparse for this device. Battery-related interpretation may be limited.";
+    }
+    return `Battery history is sparse for this device (${count} stored sample${count === 1 ? "" : "s"}). Battery-related interpretation may be limited.`;
+  },
+  battery_history_available: (params) => {
+    const count = countParam(params, "sample_count");
+    if (count === null) {
+      return "Enough stored battery history exists for coverage interpretation on this device.";
+    }
+    return `Enough stored battery history exists for coverage interpretation (${count} samples).`;
+  },
+  lqi_history_sparse: (params) => {
+    const count = countParam(params, "sample_count");
+    if (count === null) {
+      return "Link-quality history is sparse for this device. LQI-related interpretation may be limited.";
+    }
+    return `Link-quality history is sparse for this device (${count} stored sample${count === 1 ? "" : "s"}). LQI-related interpretation may be limited.`;
+  },
+  lqi_history_available: (params) => {
+    const count = countParam(params, "sample_count");
+    if (count === null) {
+      return "Enough stored link-quality history exists for coverage interpretation on this device.";
+    }
+    return `Enough stored link-quality history exists for coverage interpretation (${count} samples).`;
+  },
+  last_seen_available:
+    "A valid last-seen timestamp is stored for this device.",
+  last_seen_unknown:
+    "No valid last-seen timestamp is stored for this device.",
+  last_payload_available:
+    "A valid last-payload timestamp is stored for this device.",
+  last_payload_unknown:
+    "No valid last-payload timestamp is stored for this device.",
+  topology_history_available:
+    "This device appeared in every considered stored topology snapshot.",
+  topology_history_sparse:
+    "This device was absent from some considered stored topology snapshots.",
+  topology_history_not_observed:
+    "This device was not observed in any considered stored topology snapshot.",
+  ha_area_linked: (params) => {
+    const areaName = stringParam(params, "area_name");
+    const areaId = stringParam(params, "area_id");
+    if (areaName && areaId) {
+      return `Home Assistant area enrichment is linked (${areaName}, id ${areaId}).`;
+    }
+    if (areaName) {
+      return `Home Assistant area enrichment is linked (${areaName}).`;
+    }
+    if (areaId) {
+      return `Home Assistant area enrichment is linked (area id ${areaId}).`;
+    }
+    return "Home Assistant area enrichment is linked for this device.";
+  },
 };
 
 const COVERAGE_TONES: Record<CoverageLabelCode, DecisionPillTone> = {
   availability_tracking_off: "coverage",
   availability_history_building: "watch",
   availability_status_unknown: "muted",
+  availability_available: "neutral",
   route_hints_unavailable: "muted",
   ha_areas_not_linked: "coverage",
   snapshot_stale: "watch",
   battery_history_sparse: "muted",
+  battery_history_available: "neutral",
   lqi_history_sparse: "muted",
+  lqi_history_available: "neutral",
+  last_seen_available: "neutral",
+  last_seen_unknown: "muted",
+  last_payload_available: "neutral",
+  last_payload_unknown: "muted",
+  topology_history_available: "neutral",
+  topology_history_sparse: "muted",
+  topology_history_not_observed: "muted",
+  ha_area_linked: "neutral",
 };
 
 const DECISION_STATUS_LABELS: Record<DecisionStatus, string> = {
@@ -335,18 +481,32 @@ export function reasonText(
   return REASON_COPY[code](params);
 }
 
-export function coverageLabel(labelCode: string): string {
+export function coverageLabel(
+  labelCode: string,
+  params: Record<string, unknown> = {},
+): string {
   if (!isKnownCoverageLabelCode(labelCode)) {
     return "Coverage status unknown";
+  }
+  const renderer = COVERAGE_LABEL_RENDERERS[labelCode];
+  if (renderer) {
+    return renderer(params);
   }
   return COVERAGE_LABEL_COPY[labelCode];
 }
 
-export function coverageHelperText(labelCode: string): string {
+export function coverageHelperText(
+  labelCode: string,
+  params: Record<string, unknown> = {},
+): string {
   if (!isKnownCoverageLabelCode(labelCode)) {
     return "Coverage details are limited. Interpret other evidence conservatively.";
   }
-  return COVERAGE_HELPER_COPY[labelCode];
+  const helper = COVERAGE_HELPER_COPY[labelCode];
+  if (typeof helper === "function") {
+    return helper(params);
+  }
+  return helper;
 }
 
 export function coverageTone(labelCode: string): DecisionPillTone {
