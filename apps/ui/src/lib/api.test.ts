@@ -74,9 +74,12 @@ describe("deviceStory API client", () => {
     await expect(api.deviceStory("home", "0xmissing")).rejects.toMatchObject({ status: 404 });
   });
 
-  it("is not fetched from React components yet", () => {
+  it("is only fetched from the Device Story drawer section", () => {
     const srcRoot = join(import.meta.dirname, "..");
     const componentRoots = ["components", "pages", "hooks"];
+    const allowedPaths = new Set([
+      join(srcRoot, "components/meshGraph/DeviceStorySection.tsx"),
+    ]);
     const offenders: string[] = [];
 
     const walk = (dir: string): void => {
@@ -90,7 +93,7 @@ describe("deviceStory API client", () => {
           continue;
         }
         const content = readFileSync(path, "utf8");
-        if (content.includes("deviceStory")) {
+        if (content.includes("api.deviceStory") && !allowedPaths.has(path)) {
           offenders.push(path);
         }
       }

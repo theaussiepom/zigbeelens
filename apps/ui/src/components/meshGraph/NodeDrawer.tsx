@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { DrawerFact, DrawerSection, DrawerShell } from "@/components/meshGraph/DrawerShell";
+import { DeviceStorySection } from "@/components/meshGraph/DeviceStorySection";
 import { EvidenceCoverageStrip } from "@/components/meshGraph/EvidenceCoverageStrip";
 import { SnapshotHistorySection } from "@/components/meshGraph/SnapshotHistorySection";
 import type { DataCoverageDto } from "@/types/decisions";
@@ -55,6 +56,13 @@ function DeviceDetailsSection({ section }: { section: DeviceDetailsSectionViewMo
         <DrawerSection title={section.title}>
           <p>{section.body}</p>
         </DrawerSection>
+      );
+    case "deviceStory":
+      return (
+        <DeviceStorySection
+          networkId={section.networkId}
+          deviceIeee={section.deviceIeee}
+        />
       );
     case "snapshotHistory":
       return (

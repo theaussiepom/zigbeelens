@@ -7,6 +7,7 @@ import { TopologyGraphPage } from "@/pages/TopologyGraphPage";
 import type {
   DeviceSnapshotHistoryDetail,
   DeviceSnapshotHistoryRow,
+  DeviceStoryDto,
   HistoricalEdgeAggregate,
   InvestigationCard,
   LastKnownLinkAggregate,
@@ -549,6 +550,20 @@ const emptyDeviceHistory: DeviceSnapshotHistoryDetail = {
   topology_facts: emptyTopologyDeviceFacts,
 };
 
+const emptyDeviceStory: DeviceStoryDto = {
+  subject_type: "device",
+  subject_id: "0x0000000000000000",
+  status: "no_notable_change",
+  priority: "none",
+  headline_code: "no_notable_signals",
+  reasons: [],
+  evidence: [],
+  limitations: [],
+  suggested_checks: [],
+  coverage: [],
+  timeline: [],
+};
+
 beforeEach(() => {
   mockDetail = liveDetailHome;
   mockDevices = liveDevices;
@@ -556,6 +571,7 @@ beforeEach(() => {
   vi.spyOn(api, "topologyDeviceSnapshotHistory").mockImplementation(() =>
     Promise.resolve(emptyDeviceHistory),
   );
+  vi.spyOn(api, "deviceStory").mockImplementation(() => Promise.resolve(emptyDeviceStory));
 });
 
 /** Rendered canvas position of a device node (from React Flow's transform). */
@@ -2607,6 +2623,35 @@ describe("device-led snapshot history", () => {
     });
     return section;
   }
+
+  it("shows Device story in the Device details panel", async () => {
+    vi.spyOn(api, "deviceStory").mockResolvedValue({
+      subject_type: "device",
+      subject_id: "0xr1",
+      status: "watch",
+      priority: "low",
+      headline_code: "topology_evidence_gap",
+      reasons: [{ code: "latest_snapshot_no_links", params: {} }],
+      evidence: [],
+      limitations: [{ code: "absence_from_latest_not_failure", params: {} }],
+      suggested_checks: [{ code: "compare_earlier_snapshot", params: {} }],
+      coverage: [],
+      timeline: [],
+    });
+    await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
+    await screen.findByRole("dialog", { name: /device details/i });
+    const section = await screen.findByTestId("device-story-section");
+    await waitFor(() => {
+      expect(within(section).queryByText(/loading device story/i)).not.toBeInTheDocument();
+    });
+    expect(within(section).getByText("Watch")).toBeInTheDocument();
+    expect(within(section).getByText("Topology evidence gap")).toBeInTheDocument();
+    expect(
+      within(section).getByText(/latest snapshot shows no links for this device/i),
+    ).toBeInTheDocument();
+    expect(api.deviceStory).toHaveBeenCalledWith("home", "0xr1");
+  });
 
   it("removes the global Compare snapshots control and panel from the graph view", async () => {
     await renderLiveAndWaitForLayout();

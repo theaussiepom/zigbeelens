@@ -30,6 +30,7 @@ import {
 export type DeviceDetailsSectionId =
   | "summary"
   | "currentStatus"
+  | "deviceStory"
   | "diagnosticStats"
   | "topologyEvidence"
   | "recentMissing"
@@ -88,6 +89,12 @@ export interface DeviceDetailsSnapshotHistorySectionViewModel {
   deviceIeee: string;
 }
 
+export interface DeviceDetailsDeviceStorySectionViewModel {
+  id: "deviceStory";
+  networkId: string;
+  deviceIeee: string;
+}
+
 export interface DeviceDetailsDataCoverageSectionViewModel {
   id: "dataCoverage";
   title: string;
@@ -100,6 +107,7 @@ export type DeviceDetailsSectionViewModel =
   | DeviceDetailsStatsSectionViewModel
   | DeviceDetailsTextSectionViewModel
   | DeviceDetailsOpenIssueSectionViewModel
+  | DeviceDetailsDeviceStorySectionViewModel
   | DeviceDetailsSnapshotHistorySectionViewModel
   | DeviceDetailsDataCoverageSectionViewModel;
 
@@ -209,6 +217,16 @@ function buildOpenIssueSection(
   };
 }
 
+function buildDeviceStorySection(
+  device: MeshEvidenceDevice,
+): DeviceDetailsDeviceStorySectionViewModel {
+  return {
+    id: "deviceStory",
+    networkId: device.network_id,
+    deviceIeee: device.ieee_address,
+  };
+}
+
 function buildSnapshotHistorySection(
   device: MeshEvidenceDevice,
 ): DeviceDetailsSnapshotHistorySectionViewModel {
@@ -240,6 +258,7 @@ export function buildDeviceDetailsViewModel(
   const sections: DeviceDetailsSectionViewModel[] = [
     buildSummarySection(device),
     buildStatusSection(device),
+    buildDeviceStorySection(device),
   ];
 
   const stats = buildStatsSection(device);

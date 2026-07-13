@@ -7,9 +7,15 @@ import {
   decisionStatusCompactLabel,
   decisionStatusLabel,
   decisionStatusTone,
+  headlineText,
   isKnownCoverageLabelCode,
+  isKnownHeadlineCode,
+  isKnownLimitationCode,
   isKnownReasonCode,
+  isKnownSuggestedCheckCode,
+  limitationText,
   reasonText,
+  suggestedCheckText,
 } from "@/viewModels/decisionCopy";
 
 const SPECULATIVE_FUTURE_REASON_CODES = [
@@ -104,5 +110,30 @@ describe("decisionCopy", () => {
   it("keeps backend reason codes unique in the frontend seed set", () => {
     const unique = new Set(REASON_CODES);
     expect(unique.size).toBe(REASON_CODES.length);
+  });
+
+  it("maps device story headline codes", () => {
+    expect(headlineText("topology_evidence_gap")).toBe("Topology evidence gap");
+    expect(headlineText("current_issue_present")).toBe("Current issue needs attention");
+    expect(isKnownHeadlineCode("topology_evidence_gap")).toBe(true);
+    expect(headlineText("future_headline")).toBe("Device story summary unavailable.");
+  });
+
+  it("maps device story limitation codes", () => {
+    expect(limitationText("absence_from_latest_not_failure")).toMatch(
+      /does not prove the device failed/i,
+    );
+    expect(limitationText("route_hints_not_live_routing")).toMatch(/do not prove live routing/i);
+    expect(isKnownLimitationCode("absence_from_latest_not_failure")).toBe(true);
+    expect(limitationText("future_limitation")).toMatch(/interpretation is limited/i);
+  });
+
+  it("maps device story suggested check codes", () => {
+    expect(suggestedCheckText("compare_earlier_snapshot")).toMatch(/earlier topology snapshot/i);
+    expect(suggestedCheckText("check_battery_level", { battery_percent: 12 })).toBe(
+      "Check the reported battery level (12%).",
+    );
+    expect(isKnownSuggestedCheckCode("confirm_powered")).toBe(true);
+    expect(suggestedCheckText("future_check")).toMatch(/review stored evidence/i);
   });
 });

@@ -44,6 +44,30 @@ export const DEVICE_SECTION_RECENT_MISSING = "Recent missing evidence";
 export const DEVICE_SECTION_PASSIVE_HINTS = "Suggested investigation links";
 export const DEVICE_SECTION_OPEN_ISSUE = "Open issue";
 export const DEVICE_SECTION_CHECKS = "What to check next";
+export const DEVICE_SECTION_STORY = "Device story";
+
+export const DEVICE_STORY_WHY_TITLE = "Why";
+export const DEVICE_STORY_LIMITATIONS_TITLE = "What this does not prove";
+export const DEVICE_STORY_CHECKS_TITLE = "Suggested checks";
+export const DEVICE_STORY_COVERAGE_TITLE = "Data coverage";
+export const DEVICE_STORY_EVIDENCE_TITLE = "Supporting evidence";
+export const DEVICE_STORY_LOADING_COPY = "Loading device story…";
+export const DEVICE_STORY_UNAVAILABLE_COPY =
+  "Device story is unavailable right now. Other device details still reflect stored evidence.";
+
+export const DEVICE_STORY_HEADLINE_LEADS: Record<string, string> = {
+  current_issue_present:
+    "Review the current issue signals before changing mesh setup or device placement.",
+  topology_evidence_gap:
+    "Latest topology evidence is missing links that existed earlier. Absence from the latest snapshot does not prove the device failed.",
+  availability_tracking_needed:
+    "Availability reporting is off, so offline history and passive observations are limited.",
+  stale_last_seen: "Last-seen reporting looks older than expected for this device.",
+  low_battery: "Battery is reported below the configured low threshold.",
+  data_coverage_gaps:
+    "Some interpretation context is limited by missing enrichment or route-hint evidence.",
+  no_notable_signals: "No stronger device story signals were found in stored evidence.",
+};
 
 /* ------------------------------------------------------------------------ */
 /* Connection controls                                                       */

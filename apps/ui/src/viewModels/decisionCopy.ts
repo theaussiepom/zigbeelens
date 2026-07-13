@@ -170,6 +170,72 @@ const DECISION_STATUS_TONES: Record<DecisionStatus, DecisionPillTone> = {
   data_unavailable: "muted",
 };
 
+export const HEADLINE_CODES = [
+  "current_issue_present",
+  "topology_evidence_gap",
+  "availability_tracking_needed",
+  "stale_last_seen",
+  "low_battery",
+  "data_coverage_gaps",
+  "no_notable_signals",
+] as const;
+
+export type HeadlineCode = (typeof HEADLINE_CODES)[number];
+
+export const LIMITATION_CODES = [
+  "absence_from_latest_not_failure",
+  "route_hints_not_live_routing",
+  "availability_limits_interpretation",
+] as const;
+
+export type LimitationCode = (typeof LIMITATION_CODES)[number];
+
+export const SUGGESTED_CHECK_CODES = [
+  "confirm_powered",
+  "confirm_reporting_in_z2m",
+  "compare_earlier_snapshot",
+  "route_hints_context_only",
+  "enable_availability_reporting",
+  "check_battery_level",
+] as const;
+
+export type SuggestedCheckCode = (typeof SUGGESTED_CHECK_CODES)[number];
+
+const HEADLINE_COPY: Record<HeadlineCode, string> = {
+  current_issue_present: "Current issue needs attention",
+  topology_evidence_gap: "Topology evidence gap",
+  availability_tracking_needed: "Availability tracking needed",
+  stale_last_seen: "Last seen looks stale",
+  low_battery: "Battery reported low",
+  data_coverage_gaps: "Data coverage gaps",
+  no_notable_signals: "No notable signals",
+};
+
+const LIMITATION_COPY: Record<LimitationCode, CopyRenderer> = {
+  absence_from_latest_not_failure: () =>
+    "Absence from the latest snapshot does not prove the device failed or left the network.",
+  route_hints_not_live_routing: () =>
+    "Route hints describe stored snapshot evidence. They do not prove live routing paths.",
+  availability_limits_interpretation: () =>
+    "Availability and last-seen evidence is limited for this period, so offline or stale interpretation is constrained.",
+};
+
+const SUGGESTED_CHECK_COPY: Record<SuggestedCheckCode, CopyRenderer> = {
+  confirm_powered: () => "Confirm the device is powered.",
+  confirm_reporting_in_z2m: () => "Confirm the device is reporting in Zigbee2MQTT.",
+  compare_earlier_snapshot: () =>
+    "Compare an earlier topology snapshot for this device.",
+  route_hints_context_only: () =>
+    "Treat route hints as context only — they do not prove current routing.",
+  enable_availability_reporting: () =>
+    "Enable Zigbee2MQTT availability and last-seen reporting.",
+  check_battery_level: (params) => {
+    const percent = countParam(params, "battery_percent");
+    if (percent === null) return "Check the reported battery level.";
+    return `Check the reported battery level (${percent}%).`;
+  },
+};
+
 export function isKnownReasonCode(code: string): code is ReasonCode {
   return (REASON_CODES as readonly string[]).includes(code);
 }
@@ -182,6 +248,45 @@ export function isKnownCoverageLabelCode(
 
 export function isKnownDecisionStatus(status: string): status is DecisionStatus {
   return Object.prototype.hasOwnProperty.call(DECISION_STATUS_LABELS, status);
+}
+
+export function isKnownHeadlineCode(code: string): code is HeadlineCode {
+  return (HEADLINE_CODES as readonly string[]).includes(code);
+}
+
+export function isKnownLimitationCode(code: string): code is LimitationCode {
+  return (LIMITATION_CODES as readonly string[]).includes(code);
+}
+
+export function isKnownSuggestedCheckCode(code: string): code is SuggestedCheckCode {
+  return (SUGGESTED_CHECK_CODES as readonly string[]).includes(code);
+}
+
+export function headlineText(code: string): string {
+  if (!isKnownHeadlineCode(code)) {
+    return "Device story summary unavailable.";
+  }
+  return HEADLINE_COPY[code];
+}
+
+export function limitationText(
+  code: string,
+  params: Record<string, unknown> = {},
+): string {
+  if (!isKnownLimitationCode(code)) {
+    return "Interpretation is limited for this evidence.";
+  }
+  return LIMITATION_COPY[code](params);
+}
+
+export function suggestedCheckText(
+  code: string,
+  params: Record<string, unknown> = {},
+): string {
+  if (!isKnownSuggestedCheckCode(code)) {
+    return "Review stored evidence before taking action.";
+  }
+  return SUGGESTED_CHECK_COPY[code](params);
 }
 
 export function reasonText(
