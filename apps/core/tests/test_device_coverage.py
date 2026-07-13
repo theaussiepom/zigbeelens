@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from zigbeelens.config.models import AppConfig, ModeConfig, NetworkConfig, StorageConfig
 from zigbeelens.db.connection import Database
 from zigbeelens.decisions.device_coverage import (
@@ -16,9 +18,31 @@ from zigbeelens.decisions.device_coverage import (
 from zigbeelens.decisions.types import CoverageDimension, CoverageLabelCode, CoverageState
 from zigbeelens.enrichment.ha import apply_ha_enrichment
 from zigbeelens.storage.repository import Repository
+from zigbeelens.topology.device_compare import MAX_SNAPSHOT_HISTORY
 from zigbeelens.topology.parser import parse_networkmap_payload
 
 NOW = datetime(2026, 7, 13, 12, 0, 0, tzinfo=timezone.utc)
+
+_UNSET = object()
+
+EXPECTED_BATTERY_DEVICE_DIMENSIONS = (
+    CoverageDimension.availability,
+    CoverageDimension.last_seen,
+    CoverageDimension.last_payload,
+    CoverageDimension.battery,
+    CoverageDimension.linkquality,
+    CoverageDimension.historical_snapshots,
+    CoverageDimension.ha_enrichment,
+)
+
+EXPECTED_MAINS_DEVICE_DIMENSIONS = (
+    CoverageDimension.availability,
+    CoverageDimension.last_seen,
+    CoverageDimension.last_payload,
+    CoverageDimension.linkquality,
+    CoverageDimension.historical_snapshots,
+    CoverageDimension.ha_enrichment,
+)
 
 
 def _repo(tmp_path: Path) -> Repository:
@@ -39,23 +63,43 @@ def _upsert_device(
     ieee: str,
     *,
     availability: str = "online",
-    last_seen: datetime | None = None,
-    last_payload_at: datetime | None = None,
+    last_seen: datetime | str | None = _UNSET,
+    last_payload_at: datetime | str | None = _UNSET,
+    device_type: str = "EndDevice",
+    power_source: str = "Battery",
+    battery: int | None = None,
 ) -> None:
     repo.upsert_device(
         network_id="home",
         ieee_address=ieee,
         friendly_name=f"Device {ieee}",
-        device_type="EndDevice",
-        power_source="Battery",
+        device_type=device_type,
+        power_source=power_source,
         interview_state="successful",
     )
+    if last_seen is _UNSET:
+        last_seen_value = NOW.isoformat()
+    elif last_seen is None:
+        last_seen_value = None
+    elif isinstance(last_seen, str):
+        last_seen_value = last_seen
+    else:
+        last_seen_value = last_seen.isoformat()
+    if last_payload_at is _UNSET:
+        last_payload_value = NOW.isoformat()
+    elif last_payload_at is None:
+        last_payload_value = None
+    elif isinstance(last_payload_at, str):
+        last_payload_value = last_payload_at
+    else:
+        last_payload_value = last_payload_at.isoformat()
     repo.update_device_current_state(
         network_id="home",
         ieee_address=ieee,
         availability=availability,
-        last_seen=(last_seen or NOW).isoformat(),
-        last_payload_at=(last_payload_at or NOW).isoformat(),
+        last_seen=last_seen_value,
+        last_payload_at=last_payload_value,
+        battery=battery,
     )
 
 
@@ -86,30 +130,43 @@ def _insert_payload_snapshot(
     repo.db.conn.commit()
 
 
-def _store_snapshot(repo: Repository, snapshot_id: str, *, captured_at: datetime) -> None:
+def _store_topology_snapshot(
+    repo: Repository,
+    snapshot_id: str,
+    *,
+    captured_at: datetime,
+    node_ieees: list[str],
+    status: str = "complete",
+) -> None:
     repo.create_topology_snapshot(
         snapshot_id=snapshot_id,
         network_id="home",
         requested_by="test",
-        status="pending",
+        status="pending" if status != "complete" else "pending",
         warning_acknowledged=True,
     )
-    parsed = parse_networkmap_payload(
-        {
-            "nodes": {
-                "0x01": {"type": "Coordinator"},
-                "0x02": {"type": "Router"},
-                "0x03": {"type": "EndDevice"},
-            },
-            "links": [{"source": "0x02", "target": "0x03", "linkquality": 120}],
-        }
-    )
-    repo.store_topology_parsed(snapshot_id, "home", parsed, status="complete")
+    if status == "complete":
+        parsed = parse_networkmap_payload(
+            {
+                "nodes": {ieee: {"type": "EndDevice"} for ieee in node_ieees},
+                "links": [],
+            }
+        )
+        repo.store_topology_parsed(snapshot_id, "home", parsed, status="complete")
     repo.db.conn.execute(
         "UPDATE topology_snapshots SET captured_at = ? WHERE snapshot_id = ?",
         (captured_at.isoformat(), snapshot_id),
     )
     repo.db.conn.commit()
+
+
+def _store_snapshot(repo: Repository, snapshot_id: str, *, captured_at: datetime) -> None:
+    _store_topology_snapshot(
+        repo,
+        snapshot_id,
+        captured_at=captured_at,
+        node_ieees=["0x01", "0x02", "0x03"],
+    )
 
 
 def _enable_availability_tracking(repo: Repository, ieee: str) -> None:
@@ -121,9 +178,59 @@ def _enable_availability_tracking(repo: Repository, ieee: str) -> None:
     repo.db.conn.commit()
 
 
+def _enable_network_availability_tracking(repo: Repository) -> None:
+    _upsert_device(repo, "0x99", availability="online")
+    _enable_availability_tracking(repo, "0x99")
+
+
+def _availability_item(coverage: list) -> object:
+    items = [item for item in coverage if item.dimension is CoverageDimension.availability]
+    assert len(items) == 1
+    return items[0]
+
+
+def _topology_item(coverage: list) -> object:
+    items = [
+        item for item in coverage if item.dimension is CoverageDimension.historical_snapshots
+    ]
+    assert len(items) == 1
+    return items[0]
+
+
+def _ha_item(coverage: list) -> object:
+    items = [item for item in coverage if item.dimension is CoverageDimension.ha_enrichment]
+    assert len(items) == 1
+    return items[0]
+
+
+def _assert_unique_dimensions(coverage: list) -> None:
+    dimensions = [item.dimension for item in coverage]
+    assert len(set(dimensions)) == len(coverage)
+
+
+def _assert_dimension_order(coverage: list, expected: tuple[CoverageDimension, ...]) -> None:
+    assert [item.dimension for item in coverage] == list(expected)
+
+
 def test_unknown_device_returns_none(tmp_path: Path):
     repo = _repo(tmp_path)
     assert device_coverage_for_device(repo, "home", "0xmissing") is None
+
+
+def test_empty_ieee_returns_none(tmp_path: Path):
+    repo = _repo(tmp_path)
+    assert device_coverage_for_device(repo, "home", "   ") is None
+
+
+def test_ieee_normalisation_is_canonical(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03")
+    _enable_network_availability_tracking(repo)
+    _store_snapshot(repo, "snap-latest", captured_at=NOW)
+
+    evidence = load_device_coverage_evidence(repo, "home", "0X03")
+    assert evidence is not None
+    assert evidence.device_ieee == "0x03"
 
 
 def test_availability_tracking_off_coverage(tmp_path: Path):
@@ -146,29 +253,69 @@ def test_availability_tracking_off_coverage(tmp_path: Path):
 
     coverage = device_coverage_for_device(repo, "home", "0x03")
     assert coverage is not None
-    assert any(
-        item.label_code == CoverageLabelCode.availability_tracking_off for item in coverage
-    )
+    availability = _availability_item(coverage)
+    assert availability.label_code is CoverageLabelCode.availability_tracking_off
 
 
-def test_availability_history_building_coverage(tmp_path: Path):
+def test_explicit_online_without_transition_history_is_available(tmp_path: Path):
     repo = _repo(tmp_path)
-    _upsert_device(repo, "0x03")
-    _upsert_device(repo, "0x04")
+    _upsert_device(repo, "0x03", availability="online")
+    _enable_network_availability_tracking(repo)
+    _store_snapshot(repo, "snap-latest", captured_at=NOW)
+
+    coverage = device_coverage_for_device(repo, "home", "0x03")
+    assert coverage is not None
+    availability = _availability_item(coverage)
+    assert availability.label_code is CoverageLabelCode.availability_available
+
+
+def test_explicit_offline_is_available(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", availability="offline")
+    _enable_network_availability_tracking(repo)
+    _store_snapshot(repo, "snap-latest", captured_at=NOW)
+
+    coverage = device_coverage_for_device(repo, "home", "0x03")
+    assert coverage is not None
+    availability = _availability_item(coverage)
+    assert availability.label_code is CoverageLabelCode.availability_available
+
+
+def test_unknown_availability_without_device_history_is_building(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(
+        repo,
+        "0x03",
+        availability="unknown",
+        last_seen=None,
+        last_payload_at=None,
+    )
+    _enable_network_availability_tracking(repo)
+    _store_snapshot(repo, "snap-latest", captured_at=NOW)
+
+    coverage = device_coverage_for_device(repo, "home", "0x03")
+    assert coverage is not None
+    availability = _availability_item(coverage)
+    assert availability.label_code is CoverageLabelCode.availability_history_building
+
+
+def test_unknown_availability_with_device_history_is_unknown(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", availability="unknown")
+    _enable_network_availability_tracking(repo)
     _enable_availability_tracking(repo, "0x03")
     _store_snapshot(repo, "snap-latest", captured_at=NOW)
 
-    coverage = device_coverage_for_device(repo, "home", "0x04")
+    coverage = device_coverage_for_device(repo, "home", "0x03")
     assert coverage is not None
-    assert any(
-        item.label_code == CoverageLabelCode.availability_history_building for item in coverage
-    )
+    availability = _availability_item(coverage)
+    assert availability.label_code is CoverageLabelCode.availability_status_unknown
 
 
 def test_last_seen_and_payload_available(tmp_path: Path):
     repo = _repo(tmp_path)
     _upsert_device(repo, "0x03")
-    _enable_availability_tracking(repo, "0x03")
+    _enable_network_availability_tracking(repo)
     _store_snapshot(repo, "snap-latest", captured_at=NOW)
 
     coverage = device_coverage_for_device(repo, "home", "0x03")
@@ -178,10 +325,47 @@ def test_last_seen_and_payload_available(tmp_path: Path):
     assert CoverageLabelCode.last_payload_available in labels
 
 
+def test_missing_last_seen_and_payload_are_unknown(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(
+        repo,
+        "0x03",
+        availability="online",
+        last_seen=None,
+        last_payload_at=None,
+    )
+    _enable_network_availability_tracking(repo)
+
+    coverage = device_coverage_for_device(repo, "home", "0x03")
+    assert coverage is not None
+    labels = {item.label_code for item in coverage}
+    assert CoverageLabelCode.last_seen_unknown in labels
+    assert CoverageLabelCode.last_payload_unknown in labels
+
+
+def test_malformed_timestamps_are_unknown(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03")
+    repo.update_device_current_state(
+        network_id="home",
+        ieee_address="0x03",
+        availability="online",
+        last_seen="not-a-timestamp",
+        last_payload_at="also-invalid",
+    )
+    _enable_network_availability_tracking(repo)
+
+    coverage = device_coverage_for_device(repo, "home", "0x03")
+    assert coverage is not None
+    labels = {item.label_code for item in coverage}
+    assert CoverageLabelCode.last_seen_unknown in labels
+    assert CoverageLabelCode.last_payload_unknown in labels
+
+
 def test_sparse_battery_and_lqi_history(tmp_path: Path):
     repo = _repo(tmp_path)
     _upsert_device(repo, "0x03")
-    _enable_availability_tracking(repo, "0x03")
+    _enable_network_availability_tracking(repo)
     _insert_payload_snapshot(repo, "0x03", captured_at=NOW - timedelta(hours=2))
     _store_snapshot(repo, "snap-latest", captured_at=NOW)
 
@@ -195,7 +379,7 @@ def test_sparse_battery_and_lqi_history(tmp_path: Path):
 def test_available_battery_and_lqi_history(tmp_path: Path):
     repo = _repo(tmp_path)
     _upsert_device(repo, "0x03")
-    _enable_availability_tracking(repo, "0x03")
+    _enable_network_availability_tracking(repo)
     for offset in range(3):
         _insert_payload_snapshot(
             repo,
@@ -211,26 +395,235 @@ def test_available_battery_and_lqi_history(tmp_path: Path):
     assert CoverageLabelCode.lqi_history_available in labels
 
 
-def test_topology_history_reports_snapshot_count(tmp_path: Path):
+def test_mains_device_without_battery_evidence_omits_battery_coverage(tmp_path: Path):
     repo = _repo(tmp_path)
-    _upsert_device(repo, "0x03")
-    _enable_availability_tracking(repo, "0x03")
+    _upsert_device(
+        repo,
+        "0x03",
+        device_type="Router",
+        power_source="Mains",
+    )
+    _enable_network_availability_tracking(repo)
     _store_snapshot(repo, "snap-latest", captured_at=NOW)
-    _store_snapshot(repo, "snap-old", captured_at=NOW - timedelta(days=1))
 
     coverage = device_coverage_for_device(repo, "home", "0x03")
     assert coverage is not None
-    topology = next(
-        item for item in coverage if item.label_code == CoverageLabelCode.topology_history_available
+    battery_items = [item for item in coverage if item.dimension is CoverageDimension.battery]
+    assert battery_items == []
+
+
+def test_mains_device_with_current_battery_value_is_applicable(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(
+        repo,
+        "0x03",
+        device_type="Router",
+        power_source="Mains",
+        battery=75,
     )
-    assert topology.params["snapshot_count"] == 2
-    assert topology.params["max_snapshots"] == 10
+    _enable_network_availability_tracking(repo)
+    _store_snapshot(repo, "snap-latest", captured_at=NOW)
+
+    coverage = device_coverage_for_device(repo, "home", "0x03")
+    assert coverage is not None
+    battery_items = [item for item in coverage if item.dimension is CoverageDimension.battery]
+    assert len(battery_items) == 1
+    assert battery_items[0].label_code is CoverageLabelCode.battery_history_sparse
 
 
-def test_ha_area_linked_and_not_linked(tmp_path: Path):
+def test_mains_device_with_historical_battery_samples_is_applicable(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(
+        repo,
+        "0x03",
+        device_type="Router",
+        power_source="Mains",
+    )
+    _enable_network_availability_tracking(repo)
+    _insert_payload_snapshot(repo, "0x03", captured_at=NOW - timedelta(hours=1))
+    _store_snapshot(repo, "snap-latest", captured_at=NOW)
+
+    coverage = device_coverage_for_device(repo, "home", "0x03")
+    assert coverage is not None
+    battery_items = [item for item in coverage if item.dimension is CoverageDimension.battery]
+    assert len(battery_items) == 1
+
+
+def test_lqi_zero_counts_as_recorded_sample(tmp_path: Path):
     repo = _repo(tmp_path)
     _upsert_device(repo, "0x03")
-    _enable_availability_tracking(repo, "0x03")
+    _enable_network_availability_tracking(repo)
+    _insert_payload_snapshot(
+        repo,
+        "0x03",
+        captured_at=NOW - timedelta(hours=1),
+        linkquality=0,
+    )
+    _store_snapshot(repo, "snap-latest", captured_at=NOW)
+
+    evidence = load_device_coverage_evidence(repo, "home", "0x03")
+    assert evidence is not None
+    assert evidence.lqi_sample_count == 1
+
+
+@pytest.mark.parametrize(
+    ("observed", "window", "label", "state"),
+    [
+        (0, 0, CoverageLabelCode.topology_history_not_observed, CoverageState.not_observed),
+        (0, 10, CoverageLabelCode.topology_history_not_observed, CoverageState.not_observed),
+        (2, 10, CoverageLabelCode.topology_history_sparse, CoverageState.sparse),
+        (2, 2, CoverageLabelCode.topology_history_available, CoverageState.available),
+        (10, 10, CoverageLabelCode.topology_history_available, CoverageState.available),
+    ],
+)
+def test_topology_history_builder_states(observed, window, label, state):
+    evidence = DeviceCoverageEvidence(
+        network_id="home",
+        device_ieee="0x03",
+        topology_observed_snapshot_count=observed,
+        topology_snapshot_window_count=window,
+    )
+    topology = _topology_item(build_device_coverage(evidence))
+    assert topology.label_code is label
+    assert topology.state is state
+    assert topology.params == {
+        "observed_snapshot_count": observed,
+        "snapshot_window_count": window,
+    }
+
+
+def test_topology_history_device_present_in_all_snapshots(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03")
+    _enable_network_availability_tracking(repo)
+    _store_topology_snapshot(
+        repo,
+        "snap-new",
+        captured_at=NOW,
+        node_ieees=["0x01", "0x03"],
+    )
+    _store_topology_snapshot(
+        repo,
+        "snap-old",
+        captured_at=NOW - timedelta(days=1),
+        node_ieees=["0x01", "0x03"],
+    )
+
+    topology = _topology_item(device_coverage_for_device(repo, "home", "0x03"))
+    assert topology.label_code is CoverageLabelCode.topology_history_available
+    assert topology.params == {
+        "observed_snapshot_count": 2,
+        "snapshot_window_count": 2,
+    }
+
+
+def test_topology_history_device_absent_from_snapshots(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03")
+    _enable_network_availability_tracking(repo)
+    _store_topology_snapshot(
+        repo,
+        "snap-new",
+        captured_at=NOW,
+        node_ieees=["0x01", "0x02"],
+    )
+    _store_topology_snapshot(
+        repo,
+        "snap-old",
+        captured_at=NOW - timedelta(days=1),
+        node_ieees=["0x01", "0x02"],
+    )
+
+    topology = _topology_item(device_coverage_for_device(repo, "home", "0x03"))
+    assert topology.label_code is CoverageLabelCode.topology_history_not_observed
+    assert topology.params == {
+        "observed_snapshot_count": 0,
+        "snapshot_window_count": 2,
+    }
+
+
+def test_topology_history_partial_device_presence(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03")
+    _enable_network_availability_tracking(repo)
+    for index in range(10):
+        _store_topology_snapshot(
+            repo,
+            f"snap-{index}",
+            captured_at=NOW - timedelta(hours=index),
+            node_ieees=["0x01", "0x03"] if index < 2 else ["0x01", "0x02"],
+        )
+
+    topology = _topology_item(device_coverage_for_device(repo, "home", "0x03"))
+    assert topology.label_code is CoverageLabelCode.topology_history_sparse
+    assert topology.params == {
+        "observed_snapshot_count": 2,
+        "snapshot_window_count": 10,
+    }
+
+
+def test_topology_window_is_bounded_to_latest_complete_snapshots(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03")
+    _enable_network_availability_tracking(repo)
+    for index in range(MAX_SNAPSHOT_HISTORY + 1):
+        _store_topology_snapshot(
+            repo,
+            f"snap-{index}",
+            captured_at=NOW - timedelta(hours=index),
+            node_ieees=["0x01", "0x03"],
+        )
+
+    evidence = load_device_coverage_evidence(repo, "home", "0x03")
+    assert evidence is not None
+    assert evidence.topology_observed_snapshot_count == MAX_SNAPSHOT_HISTORY
+    assert evidence.topology_snapshot_window_count == MAX_SNAPSHOT_HISTORY
+
+
+def test_pending_topology_snapshots_do_not_enter_window(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03")
+    _enable_network_availability_tracking(repo)
+    _store_topology_snapshot(
+        repo,
+        "snap-complete",
+        captured_at=NOW,
+        node_ieees=["0x01", "0x03"],
+    )
+    _store_topology_snapshot(
+        repo,
+        "snap-pending",
+        captured_at=NOW - timedelta(hours=1),
+        node_ieees=["0x01", "0x03"],
+        status="pending",
+    )
+
+    evidence = load_device_coverage_evidence(repo, "home", "0x03")
+    assert evidence is not None
+    assert evidence.topology_snapshot_window_count == 1
+    assert evidence.topology_observed_snapshot_count == 1
+
+
+def test_topology_node_ieee_comparison_is_case_insensitive(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03")
+    _enable_network_availability_tracking(repo)
+    _store_topology_snapshot(
+        repo,
+        "snap-case",
+        captured_at=NOW,
+        node_ieees=["0X03"],
+    )
+
+    evidence = load_device_coverage_evidence(repo, "home", "0x03")
+    assert evidence is not None
+    assert evidence.topology_observed_snapshot_count == 1
+
+
+def test_ha_area_linked(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03")
+    _enable_network_availability_tracking(repo)
     _store_snapshot(repo, "snap-latest", captured_at=NOW)
     apply_ha_enrichment(
         repo,
@@ -247,39 +640,110 @@ def test_ha_area_linked_and_not_linked(tmp_path: Path):
         },
     )
 
-    linked = device_coverage_for_device(repo, "home", "0x03")
-    assert linked is not None
-    assert any(item.label_code == CoverageLabelCode.ha_area_linked for item in linked)
+    ha = _ha_item(device_coverage_for_device(repo, "home", "0x03"))
+    assert ha.label_code is CoverageLabelCode.ha_area_linked
+    assert ha.params["area_name"] == "Hall"
 
-    _upsert_device(repo, "0x04")
-    _enable_availability_tracking(repo, "0x04")
-    not_linked = device_coverage_for_device(repo, "home", "0x04")
-    assert not_linked is not None
-    assert any(item.label_code == CoverageLabelCode.ha_areas_not_linked for item in not_linked)
+
+def test_ha_area_not_linked_when_device_missing_area(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03")
+    _enable_network_availability_tracking(repo)
+    _store_snapshot(repo, "snap-latest", captured_at=NOW)
+    apply_ha_enrichment(
+        repo,
+        {
+            "devices": [
+                {
+                    "network_id": "home",
+                    "ieee_address": "0x04",
+                    "ha_device_name": "Kitchen lamp",
+                    "area_name": "Kitchen",
+                    "entity_id": "light.kitchen",
+                }
+            ]
+        },
+    )
+
+    ha = _ha_item(device_coverage_for_device(repo, "home", "0x03"))
+    assert ha.label_code is CoverageLabelCode.ha_areas_not_linked
+
+
+def test_ha_area_not_linked_on_unenriched_network(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03")
+    _enable_network_availability_tracking(repo)
+    _store_snapshot(repo, "snap-latest", captured_at=NOW)
+
+    ha = _ha_item(device_coverage_for_device(repo, "home", "0x03"))
+    assert ha.label_code is CoverageLabelCode.ha_areas_not_linked
 
 
 def test_device_coverage_order_is_deterministic():
     evidence = DeviceCoverageEvidence(
         network_id="home",
         device_ieee="0x03",
-        availability_tracking_enabled=False,
+        availability_tracking_enabled=True,
+        current_availability="online",
+        battery_history_applicable=True,
         battery_sample_count=1,
         lqi_sample_count=1,
-        topology_snapshot_count=2,
-        network_has_usable_ha_areas=True,
+        topology_observed_snapshot_count=2,
+        topology_snapshot_window_count=2,
+        last_seen=NOW,
+        last_payload_at=NOW,
     )
     first = build_device_coverage(evidence)
     second = build_device_coverage(evidence)
     assert first == second
 
 
+def test_battery_device_dimension_order_and_no_duplicates():
+    evidence = DeviceCoverageEvidence(
+        network_id="home",
+        device_ieee="0x03",
+        availability_tracking_enabled=True,
+        current_availability="online",
+        battery_history_applicable=True,
+        battery_sample_count=1,
+        lqi_sample_count=1,
+        topology_observed_snapshot_count=2,
+        topology_snapshot_window_count=2,
+        last_seen=NOW,
+        last_payload_at=NOW,
+    )
+    coverage = build_device_coverage(evidence)
+    _assert_unique_dimensions(coverage)
+    _assert_dimension_order(coverage, EXPECTED_BATTERY_DEVICE_DIMENSIONS)
+    assert len(coverage) == 7
+
+
+def test_mains_device_dimension_order_and_no_duplicates(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(
+        repo,
+        "0x03",
+        device_type="Router",
+        power_source="Mains",
+    )
+    _enable_network_availability_tracking(repo)
+    _store_snapshot(repo, "snap-latest", captured_at=NOW)
+
+    coverage = device_coverage_for_device(repo, "home", "0x03")
+    assert coverage is not None
+    _assert_unique_dimensions(coverage)
+    _assert_dimension_order(coverage, EXPECTED_MAINS_DEVICE_DIMENSIONS)
+    assert len(coverage) == 6
+
+
 def test_build_device_coverage_from_loaded_evidence(tmp_path: Path):
     repo = _repo(tmp_path)
     _upsert_device(repo, "0x03")
-    _enable_availability_tracking(repo, "0x03")
+    _enable_network_availability_tracking(repo)
     _store_snapshot(repo, "snap-latest", captured_at=NOW)
 
     evidence = load_device_coverage_evidence(repo, "home", "0x03")
     assert evidence is not None
-    coverage = build_device_coverage(evidence)
-    assert len(coverage) >= 5
+    loaded = build_device_coverage(evidence)
+    direct = device_coverage_for_device(repo, "home", "0x03")
+    assert loaded == direct

@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 from zigbeelens.decisions.coverage import (
+    availability_available,
     availability_history_building,
     availability_status_unknown,
     availability_tracking_off,
-    battery_history_available,
     battery_history_sparse,
-    ha_area_linked,
     ha_areas_not_linked,
     last_seen_available,
     lqi_history_sparse,
     route_hints_unavailable,
     snapshot_stale,
     topology_history_available,
+    topology_history_not_observed,
+    topology_history_sparse,
 )
 from zigbeelens.decisions.types import CoverageDimension, CoverageLabelCode, CoverageState
 
@@ -24,6 +25,13 @@ def test_availability_tracking_off():
     assert coverage.dimension is CoverageDimension.availability
     assert coverage.state is CoverageState.off
     assert coverage.label_code is CoverageLabelCode.availability_tracking_off
+
+
+def test_availability_available():
+    coverage = availability_available()
+    assert coverage.dimension is CoverageDimension.availability
+    assert coverage.state is CoverageState.available
+    assert coverage.label_code is CoverageLabelCode.availability_available
 
 
 def test_availability_history_building():
@@ -82,10 +90,45 @@ def test_last_seen_available():
 
 
 def test_topology_history_available():
-    coverage = topology_history_available(snapshot_count=2, max_snapshots=10)
+    coverage = topology_history_available(
+        observed_snapshot_count=2,
+        snapshot_window_count=2,
+    )
     assert coverage.dimension is CoverageDimension.historical_snapshots
+    assert coverage.state is CoverageState.available
     assert coverage.label_code is CoverageLabelCode.topology_history_available
-    assert coverage.params == {"snapshot_count": 2, "max_snapshots": 10}
+    assert coverage.params == {
+        "observed_snapshot_count": 2,
+        "snapshot_window_count": 2,
+    }
+
+
+def test_topology_history_sparse():
+    coverage = topology_history_sparse(
+        observed_snapshot_count=2,
+        snapshot_window_count=10,
+    )
+    assert coverage.dimension is CoverageDimension.historical_snapshots
+    assert coverage.state is CoverageState.sparse
+    assert coverage.label_code is CoverageLabelCode.topology_history_sparse
+    assert coverage.params == {
+        "observed_snapshot_count": 2,
+        "snapshot_window_count": 10,
+    }
+
+
+def test_topology_history_not_observed():
+    coverage = topology_history_not_observed(
+        observed_snapshot_count=0,
+        snapshot_window_count=10,
+    )
+    assert coverage.dimension is CoverageDimension.historical_snapshots
+    assert coverage.state is CoverageState.not_observed
+    assert coverage.label_code is CoverageLabelCode.topology_history_not_observed
+    assert coverage.params == {
+        "observed_snapshot_count": 0,
+        "snapshot_window_count": 10,
+    }
 
 
 def test_coverage_helpers_are_side_effect_free():

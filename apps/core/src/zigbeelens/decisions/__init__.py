@@ -5,6 +5,7 @@ can share one vocabulary without coupling to any single surface.
 """
 
 from zigbeelens.decisions.coverage import (
+    availability_available,
     availability_history_building,
     availability_status_unknown,
     availability_tracking_off,
@@ -21,6 +22,8 @@ from zigbeelens.decisions.coverage import (
     route_hints_unavailable,
     snapshot_stale,
     topology_history_available,
+    topology_history_not_observed,
+    topology_history_sparse,
 )
 from zigbeelens.decisions.device_coverage import (
     DeviceCoverageEvidence,
@@ -128,6 +131,7 @@ __all__ = [
     "availability_history_building",
     "availability_status_unknown",
     "availability_tracking_off",
+    "availability_available",
     "battery_history_sparse",
     "battery_history_available",
     "ha_area_linked",
@@ -139,6 +143,8 @@ __all__ = [
     "lqi_history_sparse",
     "lqi_history_available",
     "topology_history_available",
+    "topology_history_sparse",
+    "topology_history_not_observed",
     "route_hints_unavailable",
     "snapshot_stale",
 ]

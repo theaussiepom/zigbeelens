@@ -54,6 +54,15 @@ def availability_status_unknown(**params: Any) -> DataCoverage:
     )
 
 
+def availability_available(**params: Any) -> DataCoverage:
+    return _coverage(
+        dimension=CoverageDimension.availability,
+        state=CoverageState.available,
+        label_code=CoverageLabelCode.availability_available,
+        params=params or None,
+    )
+
+
 def route_hints_unavailable(**params: Any) -> DataCoverage:
     return _coverage(
         dimension=CoverageDimension.route_hints,
@@ -153,12 +162,57 @@ def lqi_history_available(**params: Any) -> DataCoverage:
     )
 
 
-def topology_history_available(**params: Any) -> DataCoverage:
+def topology_history_available(
+    *,
+    observed_snapshot_count: int,
+    snapshot_window_count: int,
+    **params: Any,
+) -> DataCoverage:
     return _coverage(
         dimension=CoverageDimension.historical_snapshots,
         state=CoverageState.available,
         label_code=CoverageLabelCode.topology_history_available,
-        params=params or None,
+        params={
+            "observed_snapshot_count": observed_snapshot_count,
+            "snapshot_window_count": snapshot_window_count,
+            **params,
+        },
+    )
+
+
+def topology_history_sparse(
+    *,
+    observed_snapshot_count: int,
+    snapshot_window_count: int,
+    **params: Any,
+) -> DataCoverage:
+    return _coverage(
+        dimension=CoverageDimension.historical_snapshots,
+        state=CoverageState.sparse,
+        label_code=CoverageLabelCode.topology_history_sparse,
+        params={
+            "observed_snapshot_count": observed_snapshot_count,
+            "snapshot_window_count": snapshot_window_count,
+            **params,
+        },
+    )
+
+
+def topology_history_not_observed(
+    *,
+    observed_snapshot_count: int,
+    snapshot_window_count: int,
+    **params: Any,
+) -> DataCoverage:
+    return _coverage(
+        dimension=CoverageDimension.historical_snapshots,
+        state=CoverageState.not_observed,
+        label_code=CoverageLabelCode.topology_history_not_observed,
+        params={
+            "observed_snapshot_count": observed_snapshot_count,
+            "snapshot_window_count": snapshot_window_count,
+            **params,
+        },
     )
 
 
