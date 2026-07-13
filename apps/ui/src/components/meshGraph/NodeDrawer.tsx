@@ -1,90 +1,33 @@
-import type { MeshEvidenceDevice } from "@/lib/meshEvidence";
-import {
-  meshHealthBucketLabel,
-  meshNodeFlagLabel,
-  meshRoleLabel,
-} from "@/lib/meshEvidence";
-import {
-  DEVICE_DETAILS_PANEL_LABEL,
-  DEVICE_SECTION_OPEN_ISSUE,
-  DEVICE_SECTION_PASSIVE_HINTS,
-  DEVICE_SECTION_RECENT_MISSING,
-  DEVICE_SECTION_STATS,
-  DEVICE_SECTION_STATUS,
-  DEVICE_SECTION_SUMMARY,
-  DEVICE_SECTION_TOPOLOGY,
-} from "@/lib/meshGraphCopy";
+import { useMemo } from "react";
 import { DrawerFact, DrawerSection, DrawerShell } from "@/components/meshGraph/DrawerShell";
 import { SnapshotHistorySection } from "@/components/meshGraph/SnapshotHistorySection";
+import type { MeshEvidenceDevice } from "@/lib/meshEvidence";
+import {
+  buildDeviceDetailsViewModel,
+  type DeviceDetailsSectionViewModel,
+} from "@/viewModels/topology/deviceDetailsViewModel";
 
-function availabilityCopy(device: MeshEvidenceDevice): string {
-  switch (device.availability) {
-    case "online":
-      return "Online";
-    case "offline":
-      return "Offline";
-    default:
-      return "No availability data";
-  }
-}
-
-/** Device details panel: summary, status, and recorded evidence only. */
-export function NodeDrawer({
-  device,
-  onClose,
-}: {
-  device: MeshEvidenceDevice;
-  onClose: () => void;
-}) {
-  return (
-    <DrawerShell label={DEVICE_DETAILS_PANEL_LABEL} onClose={onClose}>
-      <div>
-        <p className="text-base font-semibold text-zl-text">{device.friendly_name}</p>
-        <p className="font-mono text-xs text-zl-muted">{device.ieee_address}</p>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {device.flags.map((flag) => (
-            <span
-              key={flag}
-              className="rounded-full border border-zl-border bg-zl-surface-2 px-2 py-0.5 text-[11px] text-zl-muted"
-            >
-              {meshNodeFlagLabel(flag)}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      <DrawerSection title={DEVICE_SECTION_SUMMARY}>
-        <dl>
-          <DrawerFact label="Network" value={device.network_id} />
-          <DrawerFact label="Role" value={meshRoleLabel(device.role)} />
-          <DrawerFact
-            label="Power"
-            value={
-              device.power === "battery"
-                ? "Battery"
-                : device.power === "mains"
-                  ? "Mains"
-                  : "Unknown power"
-            }
-          />
-          <DrawerFact label="Inventory status" value={device.inventory_status} />
-        </dl>
-      </DrawerSection>
-
-      <DrawerSection title={DEVICE_SECTION_STATUS}>
-        <dl>
-          <DrawerFact label="ZigbeeLens status" value={meshHealthBucketLabel(device.health_bucket)} />
-          <DrawerFact label="Availability" value={availabilityCopy(device)} />
-        </dl>
-        {device.passive_observation_summary ? (
-          <p className="mt-2 text-zl-muted">{device.passive_observation_summary}</p>
-        ) : null}
-      </DrawerSection>
-
-      {device.diagnostic_stats.length > 0 && (
-        <DrawerSection title={DEVICE_SECTION_STATS}>
+function DeviceDetailsSection({ section }: { section: DeviceDetailsSectionViewModel }) {
+  switch (section.id) {
+    case "summary":
+    case "currentStatus":
+      return (
+        <DrawerSection title={section.title}>
           <dl>
-            {device.diagnostic_stats.map((stat) => (
+            {section.facts.map((fact) => (
+              <DrawerFact key={fact.label} label={fact.label} value={fact.value} />
+            ))}
+          </dl>
+          {section.id === "currentStatus" && section.passiveObservationSummary ? (
+            <p className="mt-2 text-zl-muted">{section.passiveObservationSummary}</p>
+          ) : null}
+        </DrawerSection>
+      );
+    case "diagnosticStats":
+      return (
+        <DrawerSection title={section.title}>
+          <dl>
+            {section.stats.map((stat) => (
               <div
                 key={stat.label}
                 className="flex items-baseline justify-between gap-3 py-0.5"
@@ -102,35 +45,66 @@ export function NodeDrawer({
             ))}
           </dl>
         </DrawerSection>
-      )}
-
-      <DrawerSection title={DEVICE_SECTION_TOPOLOGY}>
-        <p>{device.topology_evidence_summary}</p>
-      </DrawerSection>
-
-      {device.historical_topology_summary != null && (
-        <DrawerSection title={DEVICE_SECTION_RECENT_MISSING}>
-          <p>{device.historical_topology_summary}</p>
+      );
+    case "topologyEvidence":
+    case "recentMissing":
+    case "passiveHints":
+      return (
+        <DrawerSection title={section.title}>
+          <p>{section.body}</p>
         </DrawerSection>
-      )}
-
-      <SnapshotHistorySection
-        networkId={device.network_id}
-        deviceIeee={device.ieee_address}
-      />
-
-      {device.passive_hint_summary != null && (
-        <DrawerSection title={DEVICE_SECTION_PASSIVE_HINTS}>
-          <p>{device.passive_hint_summary}</p>
+      );
+    case "snapshotHistory":
+      return (
+        <SnapshotHistorySection
+          networkId={section.networkId}
+          deviceIeee={section.deviceIeee}
+        />
+      );
+    case "openIssue":
+      return (
+        <DrawerSection title={section.title}>
+          <p className="font-medium">{section.issueTitle}</p>
+          <p className="mt-1 text-zl-muted">{section.issueSummary}</p>
         </DrawerSection>
-      )}
+      );
+    default:
+      return null;
+  }
+}
 
-      {device.open_issue && (
-        <DrawerSection title={DEVICE_SECTION_OPEN_ISSUE}>
-          <p className="font-medium">{device.open_issue.title}</p>
-          <p className="mt-1 text-zl-muted">{device.open_issue.summary}</p>
-        </DrawerSection>
-      )}
+/** Device details panel: summary, status, and recorded evidence only. */
+export function NodeDrawer({
+  device,
+  onClose,
+}: {
+  device: MeshEvidenceDevice;
+  onClose: () => void;
+}) {
+  const viewModel = useMemo(() => buildDeviceDetailsViewModel(device), [device]);
+
+  return (
+    <DrawerShell label={viewModel.panelLabel} onClose={onClose}>
+      <div>
+        <p className="text-base font-semibold text-zl-text">{viewModel.header.friendlyName}</p>
+        <p className="font-mono text-xs text-zl-muted">{viewModel.header.ieeeAddress}</p>
+        {viewModel.header.flagLabels.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {viewModel.header.flagLabels.map((label) => (
+              <span
+                key={label}
+                className="rounded-full border border-zl-border bg-zl-surface-2 px-2 py-0.5 text-[11px] text-zl-muted"
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {viewModel.sections.map((section) => (
+        <DeviceDetailsSection key={section.id} section={section} />
+      ))}
     </DrawerShell>
   );
 }
