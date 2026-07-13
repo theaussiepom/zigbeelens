@@ -141,8 +141,10 @@ class PayloadBuilder:
             self.repo,
             network_rows,
             self.config,
-            investigation_network_ids={
-                item.network_id for item in investigation_priorities
+            route_hint_relevant_network_ids={
+                item.network_id
+                for item in investigation_priorities
+                if item.card_type == "router_neighbourhood_review"
             },
         )
 

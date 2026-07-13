@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from zigbeelens.decisions.availability_tracking import availability_tracking_enabled_now
-from zigbeelens.decisions.coverage import availability_history_building
 from zigbeelens.decisions.topology_coverage import build_network_topology_coverage
+from zigbeelens.decisions.topology_facts import build_network_topology_facts
 from zigbeelens.decisions.types import CoverageLabelCode, CoverageState, DataCoverage
 from zigbeelens.schemas import DataCoverageWarningSummary
-from zigbeelens.services.evidence_graph import EvidenceGraphService
 from zigbeelens.services.topology_facts_composition import topology_stale_threshold_hours
 
 if TYPE_CHECKING:
@@ -18,6 +17,8 @@ if TYPE_CHECKING:
 
 MAX_OVERVIEW_COVERAGE_WARNINGS = 4
 
+# Network topology coverage may emit these. Building/unknown remain allowed for
+# future honest evaluator emission but are not manufactured here.
 _OVERVIEW_ALLOWED_LABELS = frozenset(
     {
         CoverageLabelCode.availability_tracking_off,
@@ -60,41 +61,52 @@ def _coverage_to_summary(
     )
 
 
+def _latest_route_edge_count(links: list[dict[str, Any]]) -> int:
+    return sum(
+        1
+        for link in links
+        if link.get("route_count") is not None and link["route_count"] > 0
+    )
+
+
 def compose_dashboard_coverage_warnings(
     repo: Repository,
     networks: list[NetworkRow],
     config: AppConfig,
     *,
-    investigation_network_ids: set[str] | None = None,
+    route_hint_relevant_network_ids: set[str] | None = None,
 ) -> list[DataCoverageWarningSummary]:
-    """Compose Overview-relevant coverage warnings from existing evaluators."""
-    investigation_network_ids = investigation_network_ids or set()
-    service = EvidenceGraphService(repo)
+    """Compose Overview-relevant coverage warnings from latest topology facts.
+
+    Uses snapshot/node/link inputs only — never builds the full Mesh evidence
+    graph or re-aggregates historical/last-known/passive investigation evidence.
+    """
+    route_hint_relevant_network_ids = route_hint_relevant_network_ids or set()
     stale_after_hours = topology_stale_threshold_hours(config)
     summaries: list[DataCoverageWarningSummary] = []
 
     for network in networks:
-        tracking_enabled = availability_tracking_enabled_now(repo, network.id)
-        graph = service.build(network.id)
-        facts = service.build_topology_facts(
-            network.id,
-            evidence_graph=graph,
+        topology = repo.topology
+        latest = topology.get_latest_topology_snapshot(network.id)
+        nodes = topology.list_topology_nodes(latest["snapshot_id"]) if latest else []
+        links = topology.list_topology_links(latest["snapshot_id"]) if latest else []
+        network_facts = build_network_topology_facts(
+            latest_snapshot=latest,
+            nodes=nodes,
+            links=links,
+            counts={
+                "latest_snapshot_route_edges": _latest_route_edge_count(links),
+            },
             stale_after_hours=stale_after_hours,
         )
-        coverage_items = list(
-            build_network_topology_coverage(
-                facts.network_facts,
-                tracking_enabled_now=tracking_enabled,
-                has_known_devices=bool(repo.list_devices(network.id)),
-                has_usable_ha_area_assignments=repo.network_has_usable_ha_area_assignments(
-                    network.id
-                ),
-            )
+        coverage_items = build_network_topology_coverage(
+            network_facts,
+            tracking_enabled_now=availability_tracking_enabled_now(repo, network.id),
+            has_known_devices=bool(repo.list_devices(network.id)),
+            has_usable_ha_area_assignments=repo.network_has_usable_ha_area_assignments(
+                network.id
+            ),
         )
-
-        earliest = repo.availability.get_earliest_availability_change_at(network.id)
-        if tracking_enabled and earliest is None:
-            coverage_items.append(availability_history_building())
 
         for item in coverage_items:
             try:
@@ -105,7 +117,7 @@ def compose_dashboard_coverage_warnings(
                 continue
             if (
                 code == CoverageLabelCode.route_hints_unavailable
-                and network.id not in investigation_network_ids
+                and network.id not in route_hint_relevant_network_ids
             ):
                 continue
             summaries.append(_coverage_to_summary(network.id, item))
