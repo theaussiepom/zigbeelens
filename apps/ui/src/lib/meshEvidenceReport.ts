@@ -20,6 +20,8 @@ import {
   REPORT_SAFETY_NOTE,
   REPORT_TITLE,
 } from "@/lib/meshGraphCopy";
+import { buildDeviceStoryReportSection } from "@/viewModels/topology/deviceStoryReportSection";
+import type { DeviceStoryViewModel } from "@/viewModels/topology/deviceStoryViewModel";
 
 export interface MeshEvidenceReportInput {
   networkId: string;
@@ -35,6 +37,12 @@ export interface MeshEvidenceReportInput {
   compare?: SnapshotCompareDetail | null;
   /** Selected device, included only when a device is selected. */
   selectedDevice?: MeshEvidenceDevice | null;
+  /**
+   * Device Story ViewModel for the selected device. Phase 4A-4 report-readiness
+   * hook — pass a built ViewModel when available; Phase 5 wiring will fetch and
+   * map the Device Story API here. Not fetched by the report builder itself.
+   */
+  deviceStory?: DeviceStoryViewModel | null;
 }
 
 export interface MeshEvidenceReport {
@@ -65,6 +73,14 @@ export interface MeshEvidenceJsonSummary {
     friendly_name: string;
     role: string;
     status: string;
+  } | null;
+  /** Present when a Device Story ViewModel was supplied to the report builder. */
+  device_story: {
+    status_label: string;
+    headline: string;
+    reasons: string[];
+    limitations: string[];
+    suggested_checks: string[];
   } | null;
   limitations: string[];
 }
@@ -331,6 +347,9 @@ export function buildMeshEvidenceReport(input: MeshEvidenceReportInput): MeshEvi
   if (input.selectedDevice) {
     sections.push(selectedDeviceSection(input.selectedDevice, input.edges));
   }
+  if (input.deviceStory) {
+    sections.push(buildDeviceStoryReportSection(input.deviceStory).lines);
+  }
   sections.push(evidenceNotesSection(input.edges));
 
   const markdown = sections.map((section) => section.join("\n")).join("\n\n") + "\n";
@@ -365,6 +384,15 @@ export function buildMeshEvidenceReport(input: MeshEvidenceReportInput): MeshEvi
           friendly_name: input.selectedDevice.friendly_name,
           role: meshRoleLabel(input.selectedDevice.role),
           status: meshHealthBucketLabel(input.selectedDevice.health_bucket),
+        }
+      : null,
+    device_story: input.deviceStory
+      ? {
+          status_label: input.deviceStory.statusPill?.label ?? "Status unknown",
+          headline: input.deviceStory.headline,
+          reasons: input.deviceStory.reasons,
+          limitations: input.deviceStory.limitations,
+          suggested_checks: input.deviceStory.suggestedChecks,
         }
       : null,
     limitations: activeLimitations(input.edges),

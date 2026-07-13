@@ -119,7 +119,11 @@ class DeviceStoryEvidence(BaseModel):
 
 
 class DeviceStory(BaseModel):
-    """One device diagnostic story — presenters map codes to copy."""
+    """One device diagnostic story — presenters map codes to copy.
+
+    Report consumers should use :func:`device_story_report_payload` or the
+    identical Device Story API JSON; keep coded output and map copy in presenters.
+    """
 
     subject_type: str = "device"
     subject_id: str
@@ -506,3 +510,13 @@ def device_story_for_device(
     if evidence is None:
         return None
     return build_device_story(evidence, now=now)
+
+
+def device_story_report_payload(story: DeviceStory) -> dict[str, Any]:
+    """Report-ready coded Device Story payload.
+
+    Phase 5 reports should consume this shape (or the identical API JSON) and map
+    codes to copy through the same presenter path as the UI ViewModel. No final
+    prose belongs here.
+    """
+    return story.model_dump(mode="json")

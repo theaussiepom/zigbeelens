@@ -21,6 +21,7 @@ from zigbeelens.decisions.device_story import (
     HeadlineCode,
     build_device_story,
     device_story_for_device,
+    device_story_report_payload,
     load_device_story_evidence,
 )
 from zigbeelens.decisions.reasons import REASON_CODES, ReasonCode
@@ -81,6 +82,7 @@ __all__ = [
     "build_network_topology_facts",
     "build_topology_facts_from_evidence_graph",
     "device_story_for_device",
+    "device_story_report_payload",
     "load_device_story_evidence",
     "normalize_device_ieee",
     "topology_device_facts_payload",
