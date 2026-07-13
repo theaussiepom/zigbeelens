@@ -32,6 +32,12 @@ from zigbeelens.decisions.types import (
     EvidenceReference,
     SuggestedCheck,
 )
+from zigbeelens.decisions.reporting_rhythm import ReportingRhythm, reporting_rhythm_for_device
+from zigbeelens.decisions.reporting_silence import (
+    ReportingSilence,
+    SilenceState,
+    build_reporting_silence,
+)
 from zigbeelens.topology.device_compare import (
     COVERAGE_BUILDING,
     COVERAGE_UNKNOWN,
@@ -54,6 +60,7 @@ class HeadlineCode(StrEnum):
     low_battery = "low_battery"
     data_coverage_gaps = "data_coverage_gaps"
     no_notable_signals = "no_notable_signals"
+    extended_reporting_silence = "extended_reporting_silence"
 
 
 class CheckCode(StrEnum):
@@ -73,6 +80,7 @@ class LimitationCode(StrEnum):
     route_hints_not_live_routing = "route_hints_not_live_routing"
     absence_from_latest_not_failure = "absence_from_latest_not_failure"
     availability_limits_interpretation = "availability_limits_interpretation"
+    extended_silence_not_failure = "extended_silence_not_failure"
 
 
 DEVICE_STORY_HEADLINE_CODES: frozenset[str] = frozenset(
@@ -116,6 +124,7 @@ class DeviceStoryEvidence(BaseModel):
     latest_snapshot_captured_at: datetime | None = None
     ha_area: str | None = None
     network_has_usable_ha_areas: bool = False
+    reporting_rhythm: ReportingRhythm | None = None
 
 
 class DeviceStory(BaseModel):
@@ -257,6 +266,7 @@ def load_device_story_evidence(
         ),
         ha_area=ha_enrichment.get("area_name") if ha_enrichment else None,
         network_has_usable_ha_areas=repo.network_has_usable_ha_area_assignments(network_id),
+        reporting_rhythm=reporting_rhythm_for_device(repo, network_id, device),
     )
 
 
@@ -413,6 +423,14 @@ def build_device_story(
     if evidence.network_has_usable_ha_areas is False and evidence.ha_area is None:
         _append_unique_reason(reasons, ReasonCode.ha_areas_not_linked)
 
+    _apply_reporting_silence_rules(
+        evidence=evidence,
+        now=now,
+        reasons=reasons,
+        limitations=limitations,
+        checks=checks,
+    )
+
     coverage = build_device_story_coverage(evidence)
 
     status, priority, headline_code = _resolve_story_outcome(
@@ -433,6 +451,42 @@ def build_device_story(
         coverage=coverage,
         timeline=[],
     )
+
+
+def _apply_reporting_silence_rules(
+    *,
+    evidence: DeviceStoryEvidence,
+    now: datetime,
+    reasons: list[DecisionReason],
+    limitations: list[DecisionLimitation],
+    checks: list[SuggestedCheck],
+) -> ReportingSilence | None:
+    """Add rhythm/silence reasons when silence exceeds observed cadence."""
+    if evidence.reporting_rhythm is None:
+        return None
+
+    silence = build_reporting_silence(evidence.reporting_rhythm, now=now)
+    if silence is None or silence.silence_state is not SilenceState.beyond_expected:
+        return silence
+
+    rhythm = evidence.reporting_rhythm
+    _append_unique_reason(
+        reasons,
+        ReasonCode.observed_reporting_rhythm,
+        interval_minutes_p25=rhythm.interval_minutes_p25,
+        interval_minutes_median=rhythm.interval_minutes_median,
+        interval_minutes_p75=rhythm.interval_minutes_p75,
+    )
+    _append_unique_reason(
+        reasons,
+        ReasonCode.reporting_silence_beyond_expected,
+        silence_minutes=silence.silence_minutes,
+        suspicion_threshold_minutes=silence.suspicion_threshold_minutes,
+    )
+    _append_unique_limitation(limitations, LimitationCode.extended_silence_not_failure)
+    _append_unique_check(checks, CheckCode.confirm_powered)
+    _append_unique_check(checks, CheckCode.confirm_reporting_in_z2m)
+    return silence
 
 
 def _resolve_story_outcome(
@@ -462,6 +516,13 @@ def _resolve_story_outcome(
             DecisionStatus.watch,
             DecisionPriority.low,
             HeadlineCode.topology_evidence_gap,
+        )
+
+    if ReasonCode.reporting_silence_beyond_expected in reason_codes:
+        return (
+            DecisionStatus.watch,
+            DecisionPriority.low,
+            HeadlineCode.extended_reporting_silence,
         )
 
     if ReasonCode.last_seen_stale in reason_codes:

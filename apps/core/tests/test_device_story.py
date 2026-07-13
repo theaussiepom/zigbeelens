@@ -179,6 +179,7 @@ def _store_topology_gap_fixtures(repo: Repository) -> None:
 def test_device_story_headline_codes_are_stable():
     assert "current_issue_present" in DEVICE_STORY_HEADLINE_CODES
     assert "topology_evidence_gap" in DEVICE_STORY_HEADLINE_CODES
+    assert "extended_reporting_silence" in DEVICE_STORY_HEADLINE_CODES
     assert "weak_reported_lqi" not in DEVICE_STORY_HEADLINE_CODES
 
 
@@ -610,3 +611,152 @@ def test_build_device_story_from_loaded_evidence(tmp_path: Path):
     assert evidence is not None
     story = build_device_story(evidence, now=NOW)
     assert story.subject_id == "0x03"
+
+
+RHYTHM_BASE = datetime(2026, 7, 13, 0, 0, 0, tzinfo=timezone.utc)
+
+
+def _insert_payload_snapshot(
+    repo: Repository,
+    ieee: str,
+    *,
+    last_payload_at: datetime,
+) -> None:
+    payload_at = last_payload_at.isoformat()
+    repo.db.conn.execute(
+        """
+        INSERT INTO device_snapshots (
+            network_id, ieee_address, availability, last_seen, last_payload_at,
+            linkquality, battery, payload_json, captured_at
+        ) VALUES ('home', ?, 'online', ?, ?, 120, 80, '{}', ?)
+        """,
+        (ieee, payload_at, payload_at, payload_at),
+    )
+    repo.db.conn.commit()
+
+
+def _seed_regular_payload_observations(
+    repo: Repository,
+    ieee: str,
+    *,
+    start: datetime,
+    count: int = 9,
+    interval_minutes: int = 60,
+) -> list[datetime]:
+    observations = [
+        start + timedelta(minutes=interval_minutes * index) for index in range(count)
+    ]
+    for observed_at in observations:
+        _insert_payload_snapshot(repo, ieee, last_payload_at=observed_at)
+    return observations
+
+
+def _healthy_sleepy_story_setup(repo: Repository, ieee: str = "0x03") -> None:
+    _enable_availability_tracking(repo, ieee, changed_at=NOW - timedelta(days=3))
+    _link_ha_area(repo, ieee)
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        links=[
+            {
+                "source": "0x02",
+                "target": ieee,
+                "linkquality": 120,
+                "routes": [{"destination": "0x01"}],
+            }
+        ],
+    )
+
+
+def test_sleepy_device_within_expected_rhythm_is_not_flagged(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", battery=80, linkquality=120)
+    observations = _seed_regular_payload_observations(
+        repo,
+        "0x03",
+        start=RHYTHM_BASE,
+        interval_minutes=60,
+    )
+    _healthy_sleepy_story_setup(repo)
+    now = observations[-1] + timedelta(minutes=90)
+
+    story = device_story_for_device(repo, "home", "0x03", now=now)
+    assert story is not None
+    assert story.status is DecisionStatus.no_notable_change
+    assert story.headline_code == HeadlineCode.no_notable_signals
+    reason_codes = {reason.code for reason in story.reasons}
+    assert ReasonCode.reporting_silence_beyond_expected not in reason_codes
+    assert ReasonCode.observed_reporting_rhythm not in reason_codes
+
+
+def test_sleepy_device_beyond_expected_rhythm_is_watch(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", battery=80, linkquality=120)
+    observations = _seed_regular_payload_observations(
+        repo,
+        "0x03",
+        start=RHYTHM_BASE,
+        interval_minutes=60,
+    )
+    _healthy_sleepy_story_setup(repo)
+    now = observations[-1] + timedelta(hours=4)
+
+    story = device_story_for_device(repo, "home", "0x03", now=now)
+    assert story is not None
+    assert story.status is DecisionStatus.watch
+    assert story.priority is DecisionPriority.low
+    assert story.headline_code == HeadlineCode.extended_reporting_silence
+    assert any(
+        reason.code == ReasonCode.observed_reporting_rhythm for reason in story.reasons
+    )
+    assert any(
+        reason.code == ReasonCode.reporting_silence_beyond_expected
+        for reason in story.reasons
+    )
+    assert any(
+        limitation.code == "extended_silence_not_failure"
+        for limitation in story.limitations
+    )
+
+
+def test_beyond_expected_rhythm_with_current_issue_is_worth_reviewing(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", availability="offline", battery=80, linkquality=120)
+    observations = _seed_regular_payload_observations(
+        repo,
+        "0x03",
+        start=RHYTHM_BASE,
+        interval_minutes=60,
+    )
+    _healthy_sleepy_story_setup(repo)
+    now = observations[-1] + timedelta(hours=4)
+
+    story = device_story_for_device(repo, "home", "0x03", now=now)
+    assert story is not None
+    assert story.status is DecisionStatus.worth_reviewing
+    assert story.headline_code == HeadlineCode.current_issue_present
+    assert any(
+        reason.code == ReasonCode.reporting_silence_beyond_expected
+        for reason in story.reasons
+    )
+
+
+def test_insufficient_rhythm_history_does_not_add_silence_reasons(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", battery=80, linkquality=120)
+    _seed_regular_payload_observations(
+        repo,
+        "0x03",
+        start=RHYTHM_BASE,
+        count=5,
+        interval_minutes=60,
+    )
+    _healthy_sleepy_story_setup(repo)
+    now = RHYTHM_BASE + timedelta(hours=12)
+
+    story = device_story_for_device(repo, "home", "0x03", now=now)
+    assert story is not None
+    reason_codes = {reason.code for reason in story.reasons}
+    assert ReasonCode.reporting_silence_beyond_expected not in reason_codes
+    assert ReasonCode.observed_reporting_rhythm not in reason_codes

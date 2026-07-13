@@ -31,6 +31,11 @@ from zigbeelens.decisions.reporting_rhythm import (
     is_sleepy_device_candidate,
     reporting_rhythm_for_device,
 )
+from zigbeelens.decisions.reporting_silence import (
+    ReportingSilence,
+    SilenceState,
+    build_reporting_silence,
+)
 from zigbeelens.decisions.reasons import REASON_CODES, ReasonCode
 from zigbeelens.decisions.topology_facts import (
     TOPOLOGY_FACT_CODES,
@@ -81,7 +86,9 @@ __all__ = [
     "ReasonCode",
     "ReportingRhythm",
     "ReportingRhythmState",
+    "ReportingSilence",
     "SuggestedCheck",
+    "SilenceState",
     "TOPOLOGY_FACT_CODES",
     "TopologyFactCode",
     "TopologyFacts",
@@ -90,6 +97,7 @@ __all__ = [
     "build_device_story",
     "build_network_topology_facts",
     "build_reporting_rhythm",
+    "build_reporting_silence",
     "build_topology_facts_from_evidence_graph",
     "device_story_for_device",
     "device_story_report_payload",
