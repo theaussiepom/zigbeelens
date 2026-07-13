@@ -11,6 +11,11 @@ from zigbeelens.decisions.availability_event_groups import (
     SHARED_EVENT_MIN_DEVICES,
     SharedAvailabilityEvent,
 )
+from zigbeelens.decisions.model_pattern import (
+    MODEL_PATTERN_MIN_AFFECTED_COUNT,
+    MODEL_PATTERN_MIN_GROUP_SIZE,
+    ObservedModelPattern,
+)
 from zigbeelens.storage.repository import DeviceRow
 from zigbeelens.topology.investigations import (
     DIAGNOSTICS_LIMITED_MIN_DEVICES,
@@ -28,6 +33,7 @@ from zigbeelens.topology.investigations import (
     ROUTER_REVIEW_MIN_ISSUE_NEIGHBOURS,
     ROUTER_REVIEW_MIN_LINKS,
     ROUTER_AREA_LIMITATION,
+    MODEL_PATTERN_LIMITATION,
     SHARED_AVAILABILITY_EVENT_BASE_WEIGHT,
     SHARED_AVAILABILITY_EVENT_LIMITATION,
     STALE_LAST_SEEN_HOURS,
@@ -75,6 +81,16 @@ ROUTER_AREA_FORBIDDEN_PHRASES = [
     "router caused",
 ]
 
+MODEL_PATTERN_FORBIDDEN_PHRASES = [
+    *FORBIDDEN_PHRASES,
+    "bad manufacturer",
+    "faulty manufacturer",
+    "manufacturer is to blame",
+    "defective model",
+    "model is bad",
+    "model failed",
+]
+
 
 def _router_area_claim_text(card: dict) -> str:
     return json.dumps(
@@ -102,6 +118,8 @@ def _device(
     name: str | None = None,
     battery: int | None = None,
     last_seen: str | None = None,
+    manufacturer: str | None = None,
+    model: str | None = None,
 ) -> DeviceRow:
     return DeviceRow(
         network_id="home",
@@ -109,8 +127,8 @@ def _device(
         friendly_name=name or f"Device {ieee}",
         device_type=device_type,
         power_source=power_source,
-        manufacturer=None,
-        model=None,
+        manufacturer=manufacturer,
+        model=model,
         interview_state="successful",
         availability=availability,
         battery=battery,
@@ -183,6 +201,35 @@ def _shared_availability_event(
         device_count=device_count,
         device_ieees=devices,
         duration_minutes=duration_minutes,
+    )
+
+
+def _model_pattern(
+    *,
+    group_size: int = MODEL_PATTERN_MIN_GROUP_SIZE,
+    affected_count: int = MODEL_PATTERN_MIN_AFFECTED_COUNT,
+    manufacturer: str | None = "IKEA",
+    model: str = "TS011F",
+    pattern_id: str = "model-pattern-test",
+) -> ObservedModelPattern:
+    members = [f"0xm{i:02d}" for i in range(group_size)]
+    affected = members[:affected_count]
+    return ObservedModelPattern(
+        pattern_id=pattern_id,
+        manufacturer=manufacturer,
+        model=model,
+        group_size=group_size,
+        affected_count=affected_count,
+        member_ieees=members,
+        affected_ieees=affected,
+        params={
+            "group_size": group_size,
+            "affected_count": affected_count,
+            "lookback_days": 7,
+            "min_group_size": MODEL_PATTERN_MIN_GROUP_SIZE,
+            "min_affected_count": MODEL_PATTERN_MIN_AFFECTED_COUNT,
+            "signal": "offline_in_lookback",
+        },
     )
 
 
@@ -1020,6 +1067,46 @@ def test_passive_pairwise_hints_unchanged_when_shared_events_present():
         c for c in combined_result["investigations"] if c["type"] == "passive_instability_group"
     ]
     assert passive_cards == combined_passive
+
+
+def test_model_pattern_produces_one_review_card():
+    pattern = _model_pattern()
+    result = _build(observed_model_patterns=[pattern])
+    cards = [c for c in result["investigations"] if c["type"] == "model_pattern_review"]
+    assert len(cards) == 1
+    card = cards[0]
+    assert card["title"] == "Review model pattern: IKEA TS011F"
+    assert (
+        card["summary"]
+        == "3 of 5 devices with this model have gone offline in the last 7 days."
+    )
+    assert card["action_group"] == "review_model_pattern"
+    assert MODEL_PATTERN_LIMITATION in card["limitations"]
+
+
+def test_model_pattern_has_no_manufacturer_blame_phrases():
+    pattern = _model_pattern()
+    result = _build(observed_model_patterns=[pattern])
+    card = next(c for c in result["investigations"] if c["type"] == "model_pattern_review")
+    text = json.dumps(card).lower()
+    for phrase in MODEL_PATTERN_FORBIDDEN_PHRASES:
+        assert phrase not in text
+
+
+def test_model_pattern_skips_tailored_device_evidence():
+    pattern = _model_pattern()
+    devices = [
+        _device(ieee, manufacturer="IKEA", model="TS011F", battery=LOW_BATTERY_PERCENT - 1)
+        for ieee in pattern.affected_ieees
+    ]
+    result = _build(
+        devices=devices,
+        observed_model_patterns=[pattern],
+        offline_events={devices[0].ieee_address: [NOW.isoformat()]},
+    )
+    card = next(c for c in result["investigations"] if c["type"] == "model_pattern_review")
+    supporting = json.dumps(card["supporting_evidence"]).lower()
+    assert "battery" not in supporting
 
 
 def test_router_review_below_latest_threshold_does_not_qualify_without_multi_source():

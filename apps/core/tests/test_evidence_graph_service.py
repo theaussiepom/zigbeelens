@@ -130,6 +130,27 @@ def test_build_empty_snapshot_state(tmp_path: Path):
     assert body["counts"]["latest_snapshot_route_edges"] == 0
 
 
+def test_build_composes_observed_model_patterns_once(monkeypatch, tmp_path: Path):
+    repo = _repo(tmp_path)
+    service = EvidenceGraphService(repo)
+    calls = {"count": 0}
+    from zigbeelens.decisions.model_pattern import observed_model_patterns_for_network
+
+    original = observed_model_patterns_for_network
+
+    def _spy(*args, **kwargs):
+        calls["count"] += 1
+        return original(*args, **kwargs)
+
+    from zigbeelens.services import evidence_graph as evidence_graph_module
+
+    monkeypatch.setattr(
+        evidence_graph_module, "observed_model_patterns_for_network", _spy
+    )
+    service.build("home")
+    assert calls["count"] == 1
+
+
 def test_build_composes_observed_router_areas_once(monkeypatch, tmp_path: Path):
     repo = _repo(tmp_path)
     service = EvidenceGraphService(repo)

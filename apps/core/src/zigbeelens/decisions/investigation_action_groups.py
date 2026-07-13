@@ -23,6 +23,8 @@ def action_group_for_investigation_card(card: dict[str, Any]) -> InvestigationAc
         return InvestigationActionGroup.improve_data_coverage
     if card_type == "router_neighbourhood_review":
         return InvestigationActionGroup.review_observed_router_area
+    if card_type == "model_pattern_review":
+        return InvestigationActionGroup.review_model_pattern
     if card_type == "recent_missing_cluster":
         return InvestigationActionGroup.check_power_reporting
     if card_type == "shared_availability_event":

@@ -28,10 +28,15 @@ PHASE_1_REASON_CODES = frozenset(
     }
 )
 
+PHASE_4G_REASON_CODES = frozenset(
+    {
+        "model_pattern_observed",
+    }
+)
+
 SPECULATIVE_FUTURE_REASON_CODES = frozenset(
     {
         "router_area_issue_cluster",
-        "model_pattern_observed",
     }
 )
 
@@ -57,7 +62,13 @@ PHASE_4D_REASON_CODES = frozenset(
 
 
 def test_phase_1_reason_codes_match_conservative_set():
-    assert REASON_CODES == PHASE_1_REASON_CODES | PHASE_4B_REASON_CODES | PHASE_4D_REASON_CODES
+    assert (
+        REASON_CODES
+        == PHASE_1_REASON_CODES
+        | PHASE_4B_REASON_CODES
+        | PHASE_4D_REASON_CODES
+        | PHASE_4G_REASON_CODES
+    )
 
 
 def test_speculative_future_reason_codes_are_not_stabilised():

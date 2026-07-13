@@ -33,9 +33,10 @@ class ReasonCode(StrEnum):
     reporting_silence_beyond_expected = "reporting_silence_beyond_expected"
     observed_lqi_trend = "observed_lqi_trend"
     reported_lqi_declining = "reported_lqi_declining"
+    model_pattern_observed = "model_pattern_observed"
 
 
 REASON_CODES: frozenset[str] = frozenset(member.value for member in ReasonCode)
 
-# Future pattern/cluster codes (e.g. router_area_issue_cluster,
-# model_pattern_observed) belong in later phases once the intelligence exists.
+# Future pattern/cluster codes (e.g. router_area_issue_cluster) belong in later
+# phases once the intelligence exists.
