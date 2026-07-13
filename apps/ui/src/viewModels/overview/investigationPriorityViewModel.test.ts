@@ -89,4 +89,13 @@ describe("investigationPriorityViewModel", () => {
     expect(vm.actionLead).toMatch(/related Mesh evidence/i);
     expect(JSON.stringify(vm)).not.toContain("future_unknown_group");
   });
+
+  it("hides unknown priority codes as Priority unknown without exposing the raw value", () => {
+    const vm = buildInvestigationPriorityViewModel(
+      makePriority({ priority: "review_soon_v2" }),
+    );
+    expect(vm.priorityLabel).toBe("Priority unknown");
+    expect(vm.priorityTone).toBe("muted");
+    expect(JSON.stringify(vm)).not.toContain("review_soon_v2");
+  });
 });

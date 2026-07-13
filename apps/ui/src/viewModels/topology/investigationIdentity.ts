@@ -20,6 +20,17 @@ const UNKNOWN_ACTION_GROUP_LABEL = "Review investigation";
 const UNKNOWN_ACTION_LEAD =
   "Review the related Mesh evidence before changing the network.";
 
+export function investigationPriorityLabel(priority: string): string {
+  switch (priority) {
+    case "Review first":
+    case "Worth checking":
+    case "Lower priority":
+      return priority;
+    default:
+      return "Priority unknown";
+  }
+}
+
 export function investigationPriorityTone(priority: string): DecisionPillTone {
   switch (priority) {
     case "Review first":
@@ -68,7 +79,7 @@ export function buildInvestigationIdentityViewModel(input: {
   actionGroup: string;
 }): InvestigationIdentityViewModel {
   return {
-    priorityLabel: input.priority,
+    priorityLabel: investigationPriorityLabel(input.priority),
     priorityTone: investigationPriorityTone(input.priority),
     actionLabel: investigationActionGroupLabel(input.actionGroup),
     actionLead: investigationActionLead(input.actionGroup),
