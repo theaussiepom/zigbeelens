@@ -209,3 +209,62 @@ def observed_model_patterns_for_network(
         groups=groups,
         affected_ieees=affected_ieees,
     )
+
+
+def stored_model_identity_key(
+    manufacturer: str | None, model: str | None
+) -> str | None:
+    """Stable stored model identity key used for exact grouping."""
+    model_value = str(model or "").strip()
+    if not model_value:
+        return None
+    manufacturer_value = str(manufacturer or "").strip() or None
+    return _group_key(manufacturer_value, model_value)
+
+
+def qualifying_pattern_for_device(
+    patterns: list[ObservedModelPattern],
+    *,
+    manufacturer: str | None,
+    model: str | None,
+    device_ieee: str,
+) -> tuple[ObservedModelPattern, bool] | None:
+    """Return a qualifying pattern and whether the device was offline in lookback."""
+    identity_key = stored_model_identity_key(manufacturer, model)
+    device = _norm(device_ieee)
+    if identity_key is None or not device:
+        return None
+    for pattern in patterns:
+        if stored_model_identity_key(pattern.manufacturer, pattern.model) != identity_key:
+            continue
+        if device not in pattern.member_ieees:
+            continue
+        return pattern, device in pattern.affected_ieees
+    return None
+
+
+def latest_offline_transition_at(
+    repo: Repository,
+    network_id: str,
+    affected_ieees: set[str],
+    *,
+    now: datetime | None = None,
+) -> str | None:
+    """Most recent offline transition among affected devices in the lookback window."""
+    if not affected_ieees:
+        return None
+    now = now or datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=MODEL_PATTERN_LOOKBACK_DAYS)).isoformat()
+    latest: str | None = None
+    for row in repo.availability.list_availability_changes_since(network_id, cutoff):
+        if row.get("to_state") != "offline":
+            continue
+        ieee = _norm(row.get("ieee_address"))
+        if ieee not in affected_ieees:
+            continue
+        changed_at = row.get("changed_at")
+        if not changed_at:
+            continue
+        if latest is None or changed_at > latest:
+            latest = str(changed_at)
+    return latest

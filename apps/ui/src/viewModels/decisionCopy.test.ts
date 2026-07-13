@@ -197,12 +197,26 @@ describe("decisionCopy", () => {
         affected_count: 3,
         group_size: 5,
         lookback_days: 7,
+        current_device_affected: true,
       }),
-    ).toBe("3 of 5 devices with this model have gone offline in the last 7 days.");
+    ).toBe(
+      "This device is one of 3 of 5 devices with the same model that went offline in the last 7 days.",
+    );
+    expect(
+      reasonText("model_pattern_observed", {
+        affected_count: 3,
+        group_size: 5,
+        lookback_days: 7,
+        current_device_affected: false,
+      }),
+    ).toBe(
+      "Other devices with the same model show a recent availability pattern: 3 of 5 went offline in the last 7 days.",
+    );
     const text = reasonText("model_pattern_observed", {
       affected_count: 3,
       group_size: 5,
       lookback_days: 7,
+      current_device_affected: false,
     }).toLowerCase();
     expect(text).not.toContain("manufacturer defect");
     expect(text).not.toContain("bad model");

@@ -33,6 +33,10 @@ from zigbeelens.decisions.types import (
     SuggestedCheck,
 )
 from zigbeelens.decisions.lqi_trend import LqiTrend, LqiTrendState, lqi_trend_for_device
+from zigbeelens.decisions.model_pattern import (
+    observed_model_patterns_for_network,
+    qualifying_pattern_for_device,
+)
 from zigbeelens.decisions.reporting_rhythm import ReportingRhythm, reporting_rhythm_for_device
 from zigbeelens.decisions.reporting_silence import (
     ReportingSilence,
@@ -74,6 +78,8 @@ class CheckCode(StrEnum):
     route_hints_context_only = "route_hints_context_only"
     enable_availability_reporting = "enable_availability_reporting"
     check_battery_level = "check_battery_level"
+    compare_same_model_device_context = "compare_same_model_device_context"
+    review_same_model_availability_history = "review_same_model_availability_history"
 
 
 class LimitationCode(StrEnum):
@@ -84,6 +90,7 @@ class LimitationCode(StrEnum):
     availability_limits_interpretation = "availability_limits_interpretation"
     extended_silence_not_failure = "extended_silence_not_failure"
     reported_lqi_not_path_failure = "reported_lqi_not_path_failure"
+    model_pattern_not_causal = "model_pattern_not_causal"
 
 
 DEVICE_STORY_HEADLINE_CODES: frozenset[str] = frozenset(
@@ -102,6 +109,18 @@ class DeviceStoryTimelineItem(BaseModel):
     code: str
     params: dict[str, Any] = Field(default_factory=dict)
     occurred_at: datetime | None = None
+
+
+class DeviceStoryModelPatternContext(BaseModel):
+    """Qualifying model-pattern context for one device story."""
+
+    pattern_id: str
+    manufacturer: str | None = None
+    model: str
+    group_size: int
+    affected_count: int
+    lookback_days: int
+    current_device_affected: bool
 
 
 class DeviceStoryEvidence(BaseModel):
@@ -129,6 +148,7 @@ class DeviceStoryEvidence(BaseModel):
     network_has_usable_ha_areas: bool = False
     reporting_rhythm: ReportingRhythm | None = None
     lqi_trend: LqiTrend | None = None
+    model_pattern: DeviceStoryModelPatternContext | None = None
 
 
 class DeviceStory(BaseModel):
@@ -272,6 +292,38 @@ def load_device_story_evidence(
         network_has_usable_ha_areas=repo.network_has_usable_ha_area_assignments(network_id),
         reporting_rhythm=reporting_rhythm_for_device(repo, network_id, device),
         lqi_trend=lqi_trend_for_device(repo, network_id, device),
+        model_pattern=_load_device_story_model_pattern(
+            repo, network_id, row, device=device, now=now
+        ),
+    )
+
+
+def _load_device_story_model_pattern(
+    repo: Repository,
+    network_id: str,
+    row: Any,
+    *,
+    device: str,
+    now: datetime,
+) -> DeviceStoryModelPatternContext | None:
+    patterns = observed_model_patterns_for_network(repo, network_id, now=now)
+    match = qualifying_pattern_for_device(
+        patterns.patterns,
+        manufacturer=row.manufacturer,
+        model=row.model,
+        device_ieee=device,
+    )
+    if match is None:
+        return None
+    pattern, current_device_affected = match
+    return DeviceStoryModelPatternContext(
+        pattern_id=pattern.pattern_id,
+        manufacturer=pattern.manufacturer,
+        model=pattern.model,
+        group_size=pattern.group_size,
+        affected_count=pattern.affected_count,
+        lookback_days=int(pattern.params.get("lookback_days", patterns.lookback_days)),
+        current_device_affected=current_device_affected,
     )
 
 
@@ -446,6 +498,12 @@ def build_device_story(
         limitations=limitations,
         checks=checks,
     )
+    _apply_model_pattern_rules(
+        evidence=evidence,
+        reasons=reasons,
+        limitations=limitations,
+        checks=checks,
+    )
 
     coverage = build_device_story_coverage(evidence)
 
@@ -567,6 +625,35 @@ def _apply_lqi_trend_rules(
     _append_unique_check(checks, CheckCode.compare_earlier_snapshot)
     _append_unique_check(checks, CheckCode.confirm_reporting_in_z2m)
     return trend
+
+
+def _apply_model_pattern_rules(
+    *,
+    evidence: DeviceStoryEvidence,
+    reasons: list[DecisionReason],
+    limitations: list[DecisionLimitation],
+    checks: list[SuggestedCheck],
+) -> DeviceStoryModelPatternContext | None:
+    """Add model-pattern context without escalating status on its own."""
+    context = evidence.model_pattern
+    if context is None:
+        return None
+
+    _append_unique_reason(
+        reasons,
+        ReasonCode.model_pattern_observed,
+        pattern_id=context.pattern_id,
+        manufacturer=context.manufacturer,
+        model=context.model,
+        group_size=context.group_size,
+        affected_count=context.affected_count,
+        lookback_days=context.lookback_days,
+        current_device_affected=context.current_device_affected,
+    )
+    _append_unique_limitation(limitations, LimitationCode.model_pattern_not_causal)
+    _append_unique_check(checks, CheckCode.review_same_model_availability_history)
+    _append_unique_check(checks, CheckCode.compare_same_model_device_context)
+    return context
 
 
 def _resolve_story_outcome(

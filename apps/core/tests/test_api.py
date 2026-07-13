@@ -88,6 +88,7 @@ def test_all_mock_scenarios_load(mock_client: TestClient):
         assert isinstance(finding["evidence"], list)
         assert isinstance(finding["limitations"], list)
         assert isinstance(body["shared_availability_events"], list)
+        assert isinstance(body["model_patterns"], list)
 
 
 def test_device_lookup(mock_client: TestClient):

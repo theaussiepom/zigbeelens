@@ -35,6 +35,55 @@ const topologyGapStory: DeviceStoryDto = {
   timeline: [],
 };
 
+const modelPatternAffectedStory: DeviceStoryDto = {
+  subject_type: "device",
+  subject_id: "0xm00",
+  status: "informational",
+  priority: "none",
+  headline_code: "no_notable_signals",
+  reasons: [
+    {
+      code: "model_pattern_observed",
+      params: {
+        pattern_id: "model-pattern-test",
+        manufacturer: "IKEA",
+        model: "TS011F",
+        group_size: 5,
+        affected_count: 3,
+        lookback_days: 7,
+        current_device_affected: true,
+      },
+    },
+  ],
+  evidence: [],
+  limitations: [{ code: "model_pattern_not_causal", params: {} }],
+  suggested_checks: [
+    { code: "review_same_model_availability_history", params: {} },
+    { code: "compare_same_model_device_context", params: {} },
+  ],
+  coverage: [],
+  timeline: [],
+};
+
+const modelPatternContextStory: DeviceStoryDto = {
+  ...modelPatternAffectedStory,
+  subject_id: "0xm04",
+  reasons: [
+    {
+      code: "model_pattern_observed",
+      params: {
+        pattern_id: "model-pattern-test",
+        manufacturer: "IKEA",
+        model: "TS011F",
+        group_size: 5,
+        affected_count: 3,
+        lookback_days: 7,
+        current_device_affected: false,
+      },
+    },
+  ],
+};
+
 const extendedSilenceStory: DeviceStoryDto = {
   subject_type: "device",
   subject_id: "0x03",
@@ -151,5 +200,43 @@ describe("deviceStory report parity", () => {
       suggested_checks: viewModel.suggestedChecks,
     });
     expect(report.markdown).toContain("Extended reporting silence");
+  });
+
+  it("keeps affected model-pattern Device Story aligned between ViewModel and report", () => {
+    const viewModel = buildDeviceStoryViewModel(modelPatternAffectedStory);
+    const section = buildDeviceStoryReportSection(viewModel);
+    const markdown = section.lines.join("\n");
+
+    expect(markdown).toContain(
+      "This device is one of 3 of 5 devices with the same model that went offline in the last 7 days.",
+    );
+    expect(markdown).toContain(viewModel.limitations[0]!);
+    expect(markdown).not.toContain("model_pattern_observed");
+    expect(markdown.toLowerCase()).not.toContain("likely model defect");
+
+    const report = buildMeshEvidenceReport({
+      networkId: "home",
+      generatedAt: new Date(2026, 6, 13, 12, 0),
+      devices: [],
+      edges: [],
+      investigations: [],
+      deviceStory: viewModel,
+    });
+    expect(report.jsonSummary.device_story?.reasons).toEqual(viewModel.reasons);
+    expect(report.jsonSummary.device_story?.limitations).toEqual(viewModel.limitations);
+  });
+
+  it("keeps unaffected same-group model-pattern context non-escalating in reports", () => {
+    const viewModel = buildDeviceStoryViewModel(modelPatternContextStory);
+    const section = buildDeviceStoryReportSection(viewModel);
+    const markdown = section.lines.join("\n");
+
+    expect(markdown).toContain(
+      "Other devices with the same model show a recent availability pattern: 3 of 5 went offline in the last 7 days.",
+    );
+    expect(markdown).toContain("**Informational**");
+    expect(markdown.toLowerCase()).not.toContain("worth reviewing");
+    expect(markdown.toLowerCase()).not.toContain("manufacturer is to blame");
+    expect(markdown).toContain("does not prove a model defect");
   });
 });

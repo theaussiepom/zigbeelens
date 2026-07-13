@@ -285,6 +285,20 @@ class SharedAvailabilityEventSummary(BaseModel):
     device_ieees: list[str] = Field(default_factory=list)
 
 
+class ModelPatternSummary(BaseModel):
+    """Facts-only model pattern for dashboard Overview."""
+
+    pattern_id: str
+    network_id: str
+    manufacturer: str | None = None
+    model: str
+    group_size: int
+    affected_count: int
+    lookback_days: int
+    affected_device_ieees: list[str] = Field(default_factory=list)
+    latest_supporting_evidence_at: str | None = None
+
+
 class DashboardPayload(BaseModel):
     generated_at: str
     scenario: str | None = None
@@ -302,6 +316,7 @@ class DashboardPayload(BaseModel):
     recent_timeline: list[TimelineEvent]
     health_snapshot: HealthSnapshot
     shared_availability_events: list[SharedAvailabilityEventSummary] = Field(default_factory=list)
+    model_patterns: list[ModelPatternSummary] = Field(default_factory=list)
 
 
 class RedactionProfile(str, Enum):

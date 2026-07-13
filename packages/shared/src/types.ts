@@ -274,6 +274,18 @@ export interface SharedAvailabilityEventSummary {
   device_ieees: string[];
 }
 
+export interface ModelPatternSummary {
+  pattern_id: string;
+  network_id: string;
+  manufacturer?: string | null;
+  model: string;
+  group_size: number;
+  affected_count: number;
+  lookback_days: number;
+  affected_device_ieees: string[];
+  latest_supporting_evidence_at?: string | null;
+}
+
 /** Dashboard payload — primary API response for overview */
 export interface DashboardPayload {
   generated_at: string;
@@ -292,6 +304,7 @@ export interface DashboardPayload {
   recent_timeline: TimelineEvent[];
   health_snapshot: HealthSnapshot;
   shared_availability_events: SharedAvailabilityEventSummary[];
+  model_patterns: ModelPatternSummary[];
 }
 
 /** Redaction profile presets */

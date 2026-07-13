@@ -20,7 +20,9 @@ import {
   TimelineEventRow,
 } from "@/components/cards";
 import { SharedAvailabilityEventCard } from "@/components/overview/SharedAvailabilityEventCard";
+import { ModelPatternCard } from "@/components/overview/ModelPatternCard";
 import { buildSharedAvailabilityEventViewModel } from "@/viewModels/overview/sharedAvailabilityEventViewModel";
+import { buildModelPatternViewModel } from "@/viewModels/overview/modelPatternViewModel";
 import { compareIncidents } from "@/lib/format";
 
 const DASHBOARD_EVENTS = [
@@ -59,6 +61,9 @@ export function OverviewPage() {
   const networkNames = Object.fromEntries(data.networks.map((network) => [network.id, network.name]));
   const sharedAvailabilityEvents = data.shared_availability_events.map((event) =>
     buildSharedAvailabilityEventViewModel(event, networkNames[event.network_id]),
+  );
+  const modelPatterns = data.model_patterns.map((pattern) =>
+    buildModelPatternViewModel(pattern, networkNames[pattern.network_id]),
   );
   const allIncidents = incidents.data ?? [];
   const active = allIncidents
@@ -131,6 +136,19 @@ export function OverviewPage() {
           <div className="grid gap-4 md:grid-cols-2">
             {sharedAvailabilityEvents.map((event) => (
               <SharedAvailabilityEventCard key={event.id} event={event} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {modelPatterns.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
+            Recent model patterns
+          </h2>
+          <div className="grid gap-4 md:grid-cols-2">
+            {modelPatterns.map((pattern) => (
+              <ModelPatternCard key={pattern.id} pattern={pattern} />
             ))}
           </div>
         </section>
