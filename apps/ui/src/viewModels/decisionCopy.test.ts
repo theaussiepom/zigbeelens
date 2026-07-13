@@ -30,6 +30,15 @@ const PHASE_4B_REASON_CODES = [
   "reporting_silence_beyond_expected",
 ] as const;
 
+const PHASE_4D_REASON_CODES = [
+  "observed_lqi_trend",
+  "reported_lqi_declining",
+] as const;
+
+const PHASE_4D_HEADLINE_CODES = ["reported_link_quality_changed"] as const;
+
+const PHASE_4D_LIMITATION_CODES = ["reported_lqi_not_path_failure"] as const;
+
 describe("decisionCopy", () => {
   it("maps seeded reason codes to user-facing text", () => {
     expect(reasonText("latest_snapshot_no_links")).toBe(
@@ -138,6 +147,44 @@ describe("decisionCopy", () => {
         extended_silence_threshold_minutes: 150,
       }),
     ).not.toContain("suspicion_threshold_minutes");
+  });
+
+  it("maps Phase 4D LQI trend reason codes without path-failure claims", () => {
+    for (const code of PHASE_4D_REASON_CODES) {
+      expect(isKnownReasonCode(code)).toBe(true);
+    }
+    expect(
+      reasonText("observed_lqi_trend", {
+        earlier_median: 180,
+        recent_median: 80,
+        delta: -100,
+        sample_count: 50,
+        window_size: 3,
+        latest_value: 80,
+      }),
+    ).toBe(
+      "Reported link quality median changed from 180 to 80 across the compared stored observation windows.",
+    );
+    expect(reasonText("observed_lqi_trend", {})).toBe(
+      "Stored reported link-quality observations show a trend across compared observation windows.",
+    );
+    expect(reasonText("reported_lqi_declining")).toBe(
+      "Reported link quality is lower in the recent stored observations.",
+    );
+    const phase4dReasonTexts = [
+      reasonText("observed_lqi_trend", {
+        earlier_median: 180,
+        recent_median: 80,
+      }),
+      reasonText("reported_lqi_declining"),
+    ];
+    for (const text of phase4dReasonTexts) {
+      const lower = text.toLowerCase();
+      expect(lower).not.toContain("route failure");
+      expect(lower).not.toContain("path failure");
+      expect(lower).not.toContain("rf interference");
+      expect(lower).not.toContain("network degradation");
+    }
   });
 
   it("maps required coverage labels", () => {
@@ -274,6 +321,10 @@ describe("decisionCopy", () => {
     expect(headlineText("topology_evidence_gap")).toBe("Topology evidence gap");
     expect(headlineText("current_issue_present")).toBe("Current issue needs attention");
     expect(headlineText("extended_reporting_silence")).toBe("Extended reporting silence");
+    for (const code of PHASE_4D_HEADLINE_CODES) {
+      expect(isKnownHeadlineCode(code)).toBe(true);
+    }
+    expect(headlineText("reported_link_quality_changed")).toBe("Reported link quality changed");
     expect(isKnownHeadlineCode("topology_evidence_gap")).toBe(true);
     expect(isKnownHeadlineCode("extended_reporting_silence")).toBe(true);
     expect(headlineText("future_headline")).toBe("Device story summary unavailable.");
@@ -289,6 +340,12 @@ describe("decisionCopy", () => {
     expect(limitationText("route_hints_not_live_routing")).toMatch(/do not prove live routing/i);
     expect(isKnownLimitationCode("absence_from_latest_not_failure")).toBe(true);
     expect(isKnownLimitationCode("extended_silence_not_failure")).toBe(true);
+    for (const code of PHASE_4D_LIMITATION_CODES) {
+      expect(isKnownLimitationCode(code)).toBe(true);
+    }
+    expect(limitationText("reported_lqi_not_path_failure")).toBe(
+      "A drop in reported link quality does not prove a Zigbee path, route, or device failure.",
+    );
     expect(limitationText("future_limitation")).toMatch(/interpretation is limited/i);
   });
 

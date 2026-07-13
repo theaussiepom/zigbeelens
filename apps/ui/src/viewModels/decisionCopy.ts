@@ -31,6 +31,8 @@ export const REASON_CODES = [
   "insufficient_history",
   "observed_reporting_rhythm",
   "reporting_silence_beyond_expected",
+  "observed_lqi_trend",
+  "reported_lqi_declining",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];
@@ -157,6 +159,21 @@ const REASON_COPY: Record<ReasonCode, CopyRenderer> = {
     }
     return `No payload observed for ${formatMinuteSpan(silenceMinutes)}.`;
   },
+  observed_lqi_trend: (params) => {
+    const earlierMedian = countParam(params, "earlier_median");
+    const recentMedian = countParam(params, "recent_median");
+    if (earlierMedian !== null && recentMedian !== null) {
+      return `Reported link quality median changed from ${earlierMedian} to ${recentMedian} across the compared stored observation windows.`;
+    }
+    const sampleCount = countParam(params, "sample_count");
+    const windowSize = countParam(params, "window_size");
+    if (sampleCount !== null && windowSize !== null) {
+      return `Stored reported link-quality observations from ${sampleCountLabel(sampleCount)} were compared across ${windowSize}-observation windows.`;
+    }
+    return "Stored reported link-quality observations show a trend across compared observation windows.";
+  },
+  reported_lqi_declining: () =>
+    "Reported link quality is lower in the recent stored observations.",
 };
 
 /** Phase 3E network/generic coverage labels. */
@@ -439,6 +456,7 @@ export const HEADLINE_CODES = [
   "data_coverage_gaps",
   "no_notable_signals",
   "extended_reporting_silence",
+  "reported_link_quality_changed",
 ] as const;
 
 export type HeadlineCode = (typeof HEADLINE_CODES)[number];
@@ -448,6 +466,7 @@ export const LIMITATION_CODES = [
   "route_hints_not_live_routing",
   "availability_limits_interpretation",
   "extended_silence_not_failure",
+  "reported_lqi_not_path_failure",
 ] as const;
 
 export type LimitationCode = (typeof LIMITATION_CODES)[number];
@@ -472,6 +491,7 @@ const HEADLINE_COPY: Record<HeadlineCode, string> = {
   data_coverage_gaps: "Data coverage gaps",
   no_notable_signals: "No notable signals",
   extended_reporting_silence: "Extended reporting silence",
+  reported_link_quality_changed: "Reported link quality changed",
 };
 
 const LIMITATION_COPY: Record<LimitationCode, CopyRenderer> = {
@@ -483,6 +503,8 @@ const LIMITATION_COPY: Record<LimitationCode, CopyRenderer> = {
     "Availability and last-seen evidence is limited for this period, so offline or stale interpretation is constrained.",
   extended_silence_not_failure: () =>
     "Silence longer than the observed reporting rhythm does not prove the device failed, lost power, or left the network.",
+  reported_lqi_not_path_failure: () =>
+    "A drop in reported link quality does not prove a Zigbee path, route, or device failure.",
 };
 
 const SUGGESTED_CHECK_COPY: Record<SuggestedCheckCode, CopyRenderer> = {

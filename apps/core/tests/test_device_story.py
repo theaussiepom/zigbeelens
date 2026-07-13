@@ -1016,3 +1016,71 @@ def test_stable_lqi_trend_does_not_add_reasons(tmp_path: Path):
     reason_codes = {reason.code for reason in story.reasons}
     assert ReasonCode.observed_lqi_trend not in reason_codes
     assert ReasonCode.reported_lqi_declining not in reason_codes
+
+
+def _store_recent_missing_link_corroboration_fixtures(
+    repo: Repository,
+    ieee: str = "0x03",
+) -> None:
+    nodes = {
+        "0x01": {"type": "Coordinator"},
+        "0x02": {"type": "Router"},
+        ieee: {"type": "Router"},
+    }
+    _store_snapshot(
+        repo,
+        "snap-old",
+        captured_at=NOW - timedelta(days=1),
+        links=[{"source": ieee, "target": "0x01", "linkquality": 100}],
+        nodes=nodes,
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        links=[
+            {
+                "source": "0x02",
+                "target": ieee,
+                "linkquality": 80,
+                "routes": [{"destination": "0x01"}],
+            }
+        ],
+        nodes=nodes,
+    )
+
+
+def test_declining_lqi_trend_escalates_with_recent_missing_links_without_topology_gap(
+    tmp_path: Path,
+):
+    repo = _repo(tmp_path)
+    ieee = "0x03"
+    _upsert_router_device(repo, ieee, linkquality=80)
+    _seed_declining_lqi_observations(repo, ieee)
+    _enable_availability_tracking(repo, ieee, changed_at=NOW - timedelta(days=3))
+    _link_ha_area(repo, ieee)
+    _store_recent_missing_link_corroboration_fixtures(repo, ieee)
+
+    evidence = load_device_story_evidence(repo, "home", ieee, now=NOW)
+    assert evidence is not None
+    assert evidence.recent_missing_link_count > 0
+    from zigbeelens.decisions.topology_facts import TopologyFactCode
+
+    assert TopologyFactCode.device_has_latest_links in {
+        fact.code for fact in evidence.topology_facts
+    }
+
+    story = device_story_for_device(repo, "home", ieee, now=NOW)
+    assert story is not None
+    reason_codes = {reason.code for reason in story.reasons}
+    assert ReasonCode.latest_snapshot_no_links not in reason_codes
+    assert ReasonCode.reporting_silence_beyond_expected not in reason_codes
+    assert ReasonCode.observed_lqi_trend in reason_codes
+    assert ReasonCode.reported_lqi_declining in reason_codes
+    assert any(
+        limitation.code == "reported_lqi_not_path_failure"
+        for limitation in story.limitations
+    )
+    assert story.status is DecisionStatus.watch
+    assert story.priority is DecisionPriority.low
+    assert story.headline_code == HeadlineCode.reported_link_quality_changed
