@@ -16,6 +16,7 @@ import type {
   TopologyNetworkDetail,
 } from "@/lib/api";
 import { api } from "@/lib/api";
+import type { DataCoverageDto } from "@/types/decisions";
 import {
   LIVE_EVIDENCE_CLASSES,
   evidenceClassLabel,
@@ -1487,7 +1488,7 @@ describe("TopologyGraphPage historical evidence (live)", () => {
   });
 
   it("renders Evidence coverage once in the device details drawer", async () => {
-    vi.spyOn(api, "deviceCoverage").mockResolvedValue([
+    const coverageSpy = vi.spyOn(api, "deviceCoverage").mockResolvedValue([
       {
         dimension: "availability",
         state: "off",
@@ -1502,8 +1503,83 @@ describe("TopologyGraphPage historical evidence (live)", () => {
     await renderLiveAndWaitForLayout();
     fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
     const drawer = screen.getByRole("dialog", { name: /device details/i });
-    expect(await within(drawer).findByText("Availability tracking off")).toBeInTheDocument();
+    expect(coverageSpy).toHaveBeenCalledWith("home", "0xr1");
+    expect(await within(drawer).findByText("Availability: tracking off")).toBeInTheDocument();
+    expect(within(drawer).getByText("HA area: missing")).toBeInTheDocument();
     expect(within(drawer).getAllByText("Evidence coverage")).toHaveLength(1);
+  });
+
+  it("shows unavailable device coverage when the coverage API fails", async () => {
+    vi.spyOn(api, "deviceCoverage").mockRejectedValue(new Error("network error"));
+    await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(await within(drawer).findByText("Evidence coverage")).toBeInTheDocument();
+    expect(
+      within(drawer).getByText("Device coverage is currently unavailable."),
+    ).toBeInTheDocument();
+    expect(within(drawer).queryByText("network error")).not.toBeInTheDocument();
+  });
+
+  it("keeps network and device HA coverage wording distinct", async () => {
+    mockDetail = {
+      ...liveDetailWithHistory,
+      topology_facts: {
+        ...emptyTopologyNetworkFacts,
+        coverage: [
+          {
+            dimension: "ha_enrichment",
+            state: "not_configured",
+            label_code: "ha_areas_not_linked",
+          },
+        ],
+      },
+    };
+    vi.spyOn(api, "deviceCoverage").mockResolvedValue([
+      {
+        dimension: "ha_enrichment",
+        state: "not_configured",
+        label_code: "ha_areas_not_linked",
+      },
+    ]);
+    await renderLiveAndWaitForLayout();
+    const strip = screen.getByTestId("evidence-coverage-strip");
+    expect(within(strip).getByText("HA areas not linked")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(await within(drawer).findByText("HA area: missing")).toBeInTheDocument();
+  });
+
+  it("does not let a stale device coverage response overwrite a newly selected device", async () => {
+    let resolveFirst: ((value: DataCoverageDto[]) => void) | undefined;
+    const firstPromise = new Promise<DataCoverageDto[]>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const coverageSpy = vi
+      .spyOn(api, "deviceCoverage")
+      .mockImplementationOnce(() => firstPromise)
+      .mockResolvedValueOnce([
+        {
+          dimension: "availability",
+          state: "available",
+          label_code: "availability_available",
+        },
+      ]);
+
+    await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
+    fireEvent.click(screen.getByTestId("mesh-node-0xe2"));
+    resolveFirst?.([
+      {
+        dimension: "availability",
+        state: "off",
+        label_code: "availability_tracking_off",
+      },
+    ]);
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(await within(drawer).findByText("Availability: available")).toBeInTheDocument();
+    expect(within(drawer).queryByText("Availability: tracking off")).not.toBeInTheDocument();
+    expect(coverageSpy).toHaveBeenCalledWith("home", "0xe2");
   });
 
   it("frames the historical neighbour details panel as previous-snapshot evidence, never live routing", async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DataCoverageDto } from "@/types/decisions";
 import {
+  buildDeviceCoverageStripViewModel,
   buildEvidenceCoverageStripViewModel,
   DEVICE_DRAWER_COVERAGE_LABEL_CODES,
 } from "./coverageStripViewModel";
@@ -30,7 +31,7 @@ describe("coverageStripViewModel", () => {
       "Availability status unknown",
       "Snapshot stale",
       "Route hints unavailable",
-      "HA area: missing",
+      "HA areas not linked",
     ]);
   });
 
@@ -47,6 +48,12 @@ describe("coverageStripViewModel", () => {
       const vm = buildEvidenceCoverageStripViewModel([coverage(code)]);
       expect(vm.items[0]?.helper.length).toBeGreaterThan(20);
     }
+  });
+
+  it("uses network-neutral HA helper copy", () => {
+    const vm = buildEvidenceCoverageStripViewModel([coverage("ha_areas_not_linked")]);
+    expect(vm.items[0]?.helper).toMatch(/not a zigbee network fault/i);
+    expect(vm.items[0]?.helper.toLowerCase()).not.toContain("for this device");
   });
 
   it("falls back safely for unknown label codes", () => {
@@ -116,13 +123,56 @@ describe("coverageStripViewModel", () => {
           label_code: "last_seen_available",
         },
       ],
-      { sort: "device" },
+      { presentation: "device" },
     );
     expect(vm.items.map((item) => item.label)).toEqual([
       "Availability: available",
       "Last seen: available",
       "HA area: missing",
     ]);
+  });
+
+  it("uses device availability helper copy", () => {
+    const vm = buildDeviceCoverageStripViewModel([
+      {
+        dimension: "availability",
+        state: "building",
+        label_code: "availability_history_building",
+      },
+    ]);
+    expect(vm.items[0]?.label).toBe("Availability: building");
+    expect(vm.items[0]?.helper).toMatch(/this device/i);
+    expect(vm.items[0]?.helper.toLowerCase()).not.toContain("turned on");
+  });
+
+  it("uses device topology helper copy for zero snapshot window", () => {
+    const vm = buildDeviceCoverageStripViewModel([
+      {
+        dimension: "historical_snapshots",
+        state: "not_observed",
+        label_code: "topology_history_not_observed",
+        params: { observed_snapshot_count: 0, snapshot_window_count: 0 },
+      },
+    ]);
+    expect(vm.items[0]?.label).toBe("Topology history: 0 of 0 snapshots");
+    expect(vm.items[0]?.helper).toBe(
+      "No complete stored topology snapshots are available to assess this device yet.",
+    );
+    expect(vm.items[0]?.helper).not.toMatch(/not observed in any considered/i);
+  });
+
+  it("uses device topology helper copy for zero of N", () => {
+    const vm = buildDeviceCoverageStripViewModel([
+      {
+        dimension: "historical_snapshots",
+        state: "not_observed",
+        label_code: "topology_history_not_observed",
+        params: { observed_snapshot_count: 0, snapshot_window_count: 10 },
+      },
+    ]);
+    expect(vm.items[0]?.helper).toMatch(
+      /not observed in the considered stored topology snapshots/i,
+    );
   });
 
   it("returns an empty strip when coverage is empty", () => {

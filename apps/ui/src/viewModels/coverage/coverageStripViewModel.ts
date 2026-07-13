@@ -7,8 +7,12 @@ import {
   coverageHelperText,
   coverageLabel,
   coverageTone,
+  deviceCoverageHelperText,
+  deviceCoverageLabel,
 } from "@/viewModels/decisionCopy";
 import type { DecisionPillTone } from "@/viewModels/types";
+
+export type CoveragePresentation = "network" | "device";
 
 /** Network-level topology coverage strip order (Phase 3E). */
 const NETWORK_COVERAGE_STRIP_ORDER: CoverageLabelCode[] = [
@@ -112,22 +116,30 @@ function sortDeviceCoverageItems(items: DataCoverageDto[]): DataCoverageDto[] {
 export function buildEvidenceCoverageStripViewModel(
   coverage: DataCoverageDto[],
   options?: {
+    presentation?: CoveragePresentation;
     filterLabelCodes?: ReadonlySet<CoverageLabelCode>;
-    sort?: "network" | "device";
   },
 ): EvidenceCoverageStripViewModel {
+  const presentation = options?.presentation ?? "network";
   const filtered = options?.filterLabelCodes
     ? coverage.filter((item) => options.filterLabelCodes!.has(item.label_code))
     : coverage;
 
   const sorted =
-    options?.sort === "device"
+    presentation === "device"
       ? sortDeviceCoverageItems(filtered)
       : sortNetworkCoverageItems(filtered);
 
   return {
     items: sorted.map((item) => {
       const params = item.params ?? {};
+      if (presentation === "device") {
+        return {
+          label: deviceCoverageLabel(item.label_code, params),
+          helper: deviceCoverageHelperText(item.label_code, params),
+          tone: coverageTone(item.label_code),
+        };
+      }
       return {
         label: coverageLabel(item.label_code, params),
         helper: coverageHelperText(item.label_code, params),
@@ -140,5 +152,5 @@ export function buildEvidenceCoverageStripViewModel(
 export function buildDeviceCoverageStripViewModel(
   coverage: DataCoverageDto[],
 ): EvidenceCoverageStripViewModel {
-  return buildEvidenceCoverageStripViewModel(coverage, { sort: "device" });
+  return buildEvidenceCoverageStripViewModel(coverage, { presentation: "device" });
 }

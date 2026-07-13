@@ -8,6 +8,7 @@ import type { DataCoverageDto } from "@/types/decisions";
 import type { MeshEvidenceDevice } from "@/lib/meshEvidence";
 import {
   buildDeviceDetailsViewModel,
+  type DeviceCoverageLoadState,
   type DeviceDetailsSectionViewModel,
 } from "@/viewModels/topology/deviceDetailsViewModel";
 
@@ -75,7 +76,11 @@ function DeviceDetailsSection({ section }: { section: DeviceDetailsSectionViewMo
     case "dataCoverage":
       return (
         <DrawerSection title={section.title}>
-          <EvidenceCoverageStrip items={section.items} />
+          {section.message ? (
+            <p className="text-zl-muted">{section.message}</p>
+          ) : (
+            <EvidenceCoverageStrip items={section.items} />
+          )}
         </DrawerSection>
       );
     case "openIssue":
@@ -99,16 +104,23 @@ export function NodeDrawer({
   onClose: () => void;
 }) {
   const [deviceCoverage, setDeviceCoverage] = useState<DataCoverageDto[]>([]);
+  const [deviceCoverageLoadState, setDeviceCoverageLoadState] =
+    useState<DeviceCoverageLoadState>("loading");
 
   useEffect(() => {
     let cancelled = false;
     setDeviceCoverage([]);
+    setDeviceCoverageLoadState("loading");
     api.deviceCoverage(device.network_id, device.ieee_address).then(
       (data) => {
-        if (!cancelled) setDeviceCoverage(data);
+        if (cancelled) return;
+        setDeviceCoverage(data);
+        setDeviceCoverageLoadState("loaded");
       },
       () => {
-        if (!cancelled) setDeviceCoverage([]);
+        if (cancelled) return;
+        setDeviceCoverage([]);
+        setDeviceCoverageLoadState("unavailable");
       },
     );
     return () => {
@@ -117,8 +129,8 @@ export function NodeDrawer({
   }, [device.network_id, device.ieee_address]);
 
   const viewModel = useMemo(
-    () => buildDeviceDetailsViewModel(device, deviceCoverage),
-    [device, deviceCoverage],
+    () => buildDeviceDetailsViewModel(device, deviceCoverage, deviceCoverageLoadState),
+    [device, deviceCoverage, deviceCoverageLoadState],
   );
 
   return (

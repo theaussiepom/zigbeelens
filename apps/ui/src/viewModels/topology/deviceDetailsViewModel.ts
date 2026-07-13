@@ -98,7 +98,13 @@ export interface DeviceDetailsDataCoverageSectionViewModel {
   id: "dataCoverage";
   title: string;
   items: ReturnType<typeof buildDeviceCoverageStripViewModel>["items"];
+  message: string | null;
 }
+
+export type DeviceCoverageLoadState = "loading" | "loaded" | "unavailable";
+
+export const DEVICE_COVERAGE_UNAVAILABLE_MESSAGE =
+  "Device coverage is currently unavailable.";
 
 export type DeviceDetailsSectionViewModel =
   | DeviceDetailsSummarySectionViewModel
@@ -238,19 +244,34 @@ function buildSnapshotHistorySection(
 
 function buildDataCoverageSection(
   deviceCoverage: DataCoverageDto[],
+  loadState: DeviceCoverageLoadState,
 ): DeviceDetailsDataCoverageSectionViewModel | null {
+  if (loadState === "loading") {
+    return null;
+  }
+
+  if (loadState === "unavailable" || deviceCoverage.length === 0) {
+    return {
+      id: "dataCoverage",
+      title: DEVICE_SECTION_DATA_COVERAGE,
+      items: [],
+      message: DEVICE_COVERAGE_UNAVAILABLE_MESSAGE,
+    };
+  }
+
   const strip = buildDeviceCoverageStripViewModel(deviceCoverage);
-  if (strip.items.length === 0) return null;
   return {
     id: "dataCoverage",
     title: DEVICE_SECTION_DATA_COVERAGE,
     items: strip.items,
+    message: null,
   };
 }
 
 export function buildDeviceDetailsViewModel(
   device: MeshEvidenceDevice,
   deviceCoverage: DataCoverageDto[] = [],
+  deviceCoverageLoadState: DeviceCoverageLoadState = "loaded",
 ): DeviceDetailsViewModel {
   const sections: DeviceDetailsSectionViewModel[] = [
     buildSummarySection(device),
@@ -268,7 +289,7 @@ export function buildDeviceDetailsViewModel(
 
   sections.push(buildSnapshotHistorySection(device));
 
-  const dataCoverage = buildDataCoverageSection(deviceCoverage);
+  const dataCoverage = buildDataCoverageSection(deviceCoverage, deviceCoverageLoadState);
   if (dataCoverage) sections.push(dataCoverage);
 
   const passiveHints = buildPassiveHintsSection(device);
