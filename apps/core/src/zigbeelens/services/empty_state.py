@@ -150,4 +150,5 @@ def build_empty_dashboard(config: AppConfig, networks: list[NetworkRow]) -> Dash
                 for n in net_summaries
             ],
         ),
+        shared_availability_events=[],
     )

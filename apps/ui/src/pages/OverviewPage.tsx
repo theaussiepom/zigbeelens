@@ -19,6 +19,8 @@ import {
   RouterRiskCard,
   TimelineEventRow,
 } from "@/components/cards";
+import { SharedAvailabilityEventCard } from "@/components/overview/SharedAvailabilityEventCard";
+import { buildSharedAvailabilityEventViewModel } from "@/viewModels/overview/sharedAvailabilityEventViewModel";
 import { compareIncidents } from "@/lib/format";
 
 const DASHBOARD_EVENTS = [
@@ -54,6 +56,10 @@ export function OverviewPage() {
   if (dashboard.loading || !dashboard.data) return <LoadingState />;
 
   const data = dashboard.data;
+  const networkNames = Object.fromEntries(data.networks.map((network) => [network.id, network.name]));
+  const sharedAvailabilityEvents = data.shared_availability_events.map((event) =>
+    buildSharedAvailabilityEventViewModel(event, networkNames[event.network_id]),
+  );
   const allIncidents = incidents.data ?? [];
   const active = allIncidents
     .filter((i) => i.status === "open" || i.status === "watching")
@@ -116,6 +122,19 @@ export function OverviewPage() {
       </div>
 
       <CurrentFindingCard finding={data.current_finding} incidentId={topOpenIncidentId} />
+
+      {sharedAvailabilityEvents.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
+            Recent shared availability events
+          </h2>
+          <div className="grid gap-4 md:grid-cols-2">
+            {sharedAvailabilityEvents.map((event) => (
+              <SharedAvailabilityEventCard key={event.id} event={event} />
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">Networks</h2>
