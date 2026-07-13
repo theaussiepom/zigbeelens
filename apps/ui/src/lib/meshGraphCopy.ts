@@ -235,6 +235,34 @@ export const INVESTIGATION_SECTION_SUPPORTING = "Supporting evidence";
 export const INVESTIGATION_SECTION_DOES_NOT_PROVE = "What this does not prove";
 export const INVESTIGATION_SECTION_CHECKS = "Suggested checks";
 
+export type InvestigationActionGroup =
+  | "check_power_reporting"
+  | "review_observed_router_area"
+  | "investigate_shared_event"
+  | "improve_data_coverage"
+  | "watch_only";
+
+export const INVESTIGATION_ACTION_GROUP_LABELS: Record<InvestigationActionGroup, string> = {
+  check_power_reporting: "Check power/reporting",
+  review_observed_router_area: "Review observed router area",
+  investigate_shared_event: "Investigate shared event",
+  improve_data_coverage: "Improve data coverage",
+  watch_only: "Watch only",
+};
+
+export const INVESTIGATION_ACTION_LEADS: Record<InvestigationActionGroup, string> = {
+  check_power_reporting:
+    "Check whether affected devices have power and are reporting before treating this as a mesh problem.",
+  review_observed_router_area:
+    "Review the observed router neighbourhood, power, and placement around this concentration of evidence.",
+  investigate_shared_event:
+    "Investigate these devices together for a shared power, placement, or timing pattern.",
+  improve_data_coverage:
+    "Improve topology evidence coverage before relying on the graph for these devices.",
+  watch_only:
+    "Keep watching — weaker passive evidence is present, but no stronger check is suggested yet.",
+};
+
 /* ------------------------------------------------------------------------ */
 /* Evidence class labels                                                     */
 /* ------------------------------------------------------------------------ */

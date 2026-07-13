@@ -25,6 +25,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
+from zigbeelens.decisions.investigation_action_groups import assign_investigation_action_groups
+
 if TYPE_CHECKING:
     from zigbeelens.storage.repository import DeviceRow, Repository
 
@@ -902,6 +904,8 @@ def build_investigations(
         best_lqi=_best_link_lqi(latest_links),
         now=now,
     )
+
+    assign_investigation_action_groups(cards)
 
     type_rank = {card_type: index for index, card_type in enumerate(CARD_TYPE_ORDER)}
     cards.sort(

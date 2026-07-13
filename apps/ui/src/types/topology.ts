@@ -192,6 +192,13 @@ export interface InvestigationCard {
   primary_neighbourhood_ieee?: string | null;
   created_from_evidence_classes: string[];
   latest_supporting_evidence_at?: string | null;
+  /** Action-led grouping for decision-backed presentation. */
+  action_group:
+    | "check_power_reporting"
+    | "review_observed_router_area"
+    | "investigate_shared_event"
+    | "improve_data_coverage"
+    | "watch_only";
 }
 
 export interface InvestigationCounts {
