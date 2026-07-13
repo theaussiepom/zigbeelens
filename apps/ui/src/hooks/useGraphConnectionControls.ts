@@ -1,11 +1,9 @@
 import { useMemo, useState } from "react";
 import type { MeshEvidenceDevice, MeshEvidenceEdge } from "@/lib/meshEvidence";
 import {
-  DEFAULT_CONNECTION_CONTROLS,
   clearConnectionControls,
   collectIssueDeviceIds,
   collectRouteCoveredPairs,
-  loadConnectionControls,
   saveConnectionControls,
   selectAdaptiveBestNeighbourLinks,
   selectPassiveHintEdges,
@@ -13,6 +11,18 @@ import {
   selectVisibleConnectionEdges,
   type ConnectionControls,
 } from "@/lib/meshGraphDense";
+import {
+  type GraphViewPresetId,
+  type NamedGraphViewPresetId,
+  GRAPH_VIEW_PRESET_CONTROLS,
+  clearViewPreset,
+  controlsMatchPreset,
+  derivePresetFromControls,
+  isNamedGraphViewPresetId,
+  loadInitialGraphViewState,
+  resetGraphViewToDefaultPreset,
+  saveViewPreset,
+} from "@/lib/meshGraphPresets";
 
 export function useGraphConnectionControls({
   devices,
@@ -27,9 +37,9 @@ export function useGraphConnectionControls({
   selectedNodeId: string | null;
   selectedEdge: MeshEvidenceEdge | null;
 }) {
-  const [controls, setControls] = useState<ConnectionControls>(() =>
-    loadConnectionControls(positionStorageId),
-  );
+  const [initial] = useState(() => loadInitialGraphViewState(positionStorageId));
+  const [controls, setControls] = useState<ConnectionControls>(initial.controls);
+  const [activePreset, setActivePreset] = useState<GraphViewPresetId>(initial.preset);
 
   const bestNeighbourEdgeIds = useMemo(() => {
     const excludePairs = controls.routeHints ? collectRouteCoveredPairs(edges) : undefined;
@@ -111,17 +121,41 @@ export function useGraphConnectionControls({
     ],
   );
 
+  const persistControls = (next: ConnectionControls, preset: GraphViewPresetId) => {
+    saveConnectionControls(positionStorageId, next);
+    saveViewPreset(positionStorageId, preset);
+  };
+
   const setControl = (key: keyof ConnectionControls) => (value: boolean) =>
     setControls((current) => {
       const next = { ...current, [key]: value };
-      saveConnectionControls(positionStorageId, next);
+      const preset = derivePresetFromControls(next);
+      persistControls(next, preset);
+      setActivePreset(preset);
       return next;
     });
 
+  const setPreset = (preset: GraphViewPresetId) => {
+    if (preset === "custom") return;
+    const next = { ...GRAPH_VIEW_PRESET_CONTROLS[preset as NamedGraphViewPresetId] };
+    setControls(next);
+    setActivePreset(preset);
+    persistControls(next, preset);
+  };
+
   const resetConnectionChoices = () => {
     clearConnectionControls(positionStorageId);
-    setControls({ ...DEFAULT_CONNECTION_CONTROLS });
+    clearViewPreset(positionStorageId);
+    const { controls: next, preset } = resetGraphViewToDefaultPreset();
+    setControls(next);
+    setActivePreset(preset);
+    persistControls(next, preset);
   };
+
+  const presetMatchesControls = useMemo(() => {
+    if (!isNamedGraphViewPresetId(activePreset)) return false;
+    return controlsMatchPreset(controls, activePreset);
+  }, [activePreset, controls]);
 
   return {
     controls,
@@ -131,7 +165,10 @@ export function useGraphConnectionControls({
     hasRecentMissingLinks,
     hasPassiveHints,
     hasLastKnownLinks,
+    activePreset,
+    presetMatchesControls,
     setControl,
+    setPreset,
     resetConnectionChoices,
   };
 }

@@ -49,7 +49,9 @@ export function GraphPanel({
     hasRecentMissingLinks,
     hasPassiveHints,
     hasLastKnownLinks,
+    activePreset,
     setControl,
+    setPreset,
     resetConnectionChoices,
   } = useGraphConnectionControls({
     devices,
@@ -148,7 +150,9 @@ export function GraphPanel({
           hasOldUncertainLinks={hasOldUncertainLinks}
           hasRecentMissingLinks={hasRecentMissingLinks}
           controls={controls}
+          activePreset={activePreset}
           setControl={setControl}
+          setPreset={setPreset}
           resetConnectionChoices={resetConnectionChoices}
         />
       </div>
