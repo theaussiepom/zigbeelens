@@ -112,6 +112,46 @@ function makeSharedAvailabilityCard(
   });
 }
 
+const MODEL_PATTERN_LIMITATION =
+  "Devices sharing a stored model identity does not prove a product defect. Placement, power, or network factors may explain the pattern.";
+
+function makeModelPatternCard(
+  overrides: Partial<InvestigationCard> = {},
+): InvestigationCard {
+  return makeCard({
+    id: "model-pattern-test",
+    type: "model_pattern_review",
+    priority: "Worth checking",
+    score: 5,
+    title: "Review model pattern: IKEA TS011F",
+    summary: "3 of 5 devices with this model have gone offline in the last 7 days.",
+    why_it_matters:
+      "This is a pattern worth reviewing together. It may point to firmware, battery, placement, or network factors — not proof that the model itself failed.",
+    supporting_evidence: [
+      "Grouped by stored model identity IKEA TS011F.",
+      "3 devices recorded offline availability transitions in the lookback window.",
+      "5 devices with this model identity are in inventory.",
+    ],
+    limitations: [
+      "This is a place to look first based on available ZigbeeLens evidence. It is not a root-cause claim and does not prove live routing or current connectivity.",
+      MODEL_PATTERN_LIMITATION,
+    ],
+    suggested_next_steps: [
+      "Review affected devices together for shared placement, power, or firmware context.",
+      "Compare battery levels where available.",
+      "Select one affected device to inspect its availability history and evidence details.",
+    ],
+    device_ieees: ["0xm00", "0xm01", "0xm02"],
+    edge_ids: [],
+    primary_device_ieee: "0xm00",
+    primary_neighbourhood_ieee: null,
+    created_from_evidence_classes: ["availability_transition", "device_inventory"],
+    latest_supporting_evidence_at: "2026-07-06T08:22:00+00:00",
+    action_group: "review_model_pattern",
+    ...overrides,
+  });
+}
+
 function makeCard(overrides: Partial<InvestigationCard>): InvestigationCard {
   return {
     id: "card-1",
@@ -442,6 +482,34 @@ describe("buildMeshEvidenceReport", () => {
     expect(shared).toBeDefined();
     expect(shared?.edge_ids).toEqual([]);
     expect(shared?.limitations).toContain(SHARED_AVAILABILITY_EVENT_LIMITATION);
+  });
+
+  it("renders model pattern investigation cards with explicit limitations", () => {
+    const card = makeModelPatternCard();
+    const { markdown, jsonSummary } = buildMeshEvidenceReport(
+      baseInput({ investigations: [card] }),
+    );
+    expect(markdown).toContain("## Where to look first");
+    expect(markdown).toContain("### Worth checking: Review model pattern: IKEA TS011F");
+    expect(markdown).toContain("3 of 5 devices with this model have gone offline in the last 7 days.");
+    expect(markdown).toContain("What this does not prove:");
+    expect(markdown).toContain(MODEL_PATTERN_LIMITATION);
+    const modelPattern = jsonSummary.investigation_priorities.find(
+      (item) => item.type === "model_pattern_review",
+    );
+    expect(modelPattern).toBeDefined();
+    expect(modelPattern?.limitations).toContain(MODEL_PATTERN_LIMITATION);
+  });
+
+  it("keeps model pattern suggested checks cautious in report copy", () => {
+    const { markdown } = buildMeshEvidenceReport(
+      baseInput({ investigations: [makeModelPatternCard()] }),
+    );
+    const checksSection = markdown.split("Suggested checks:")[1] ?? "";
+    expect(checksSection.toLowerCase()).not.toMatch(/defective model|manufacturer fault|caused by/);
+    for (const line of checksSection.split("\n").filter((line) => line.startsWith("- "))) {
+      expect(line.toLowerCase()).toMatch(/^- review |^- compare |^- select /);
+    }
   });
 
   it("keeps shared availability suggested checks cautious in report copy", () => {

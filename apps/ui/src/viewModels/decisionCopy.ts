@@ -33,6 +33,7 @@ export const REASON_CODES = [
   "reporting_silence_beyond_expected",
   "observed_lqi_trend",
   "reported_lqi_declining",
+  "model_pattern_observed",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];
@@ -174,6 +175,20 @@ const REASON_COPY: Record<ReasonCode, CopyRenderer> = {
   },
   reported_lqi_declining: () =>
     "Reported link quality is lower in the recent stored observations.",
+  model_pattern_observed: (params) => {
+    const affectedCount = countParam(params, "affected_count");
+    const groupSize = countParam(params, "group_size");
+    const lookbackDays = countParam(params, "lookback_days");
+    const currentDeviceAffected = params.current_device_affected === true;
+    if (affectedCount !== null && groupSize !== null && lookbackDays !== null) {
+      const dayWord = lookbackDays === 1 ? "day" : "days";
+      if (currentDeviceAffected) {
+        return `This device is one of ${affectedCount} of ${groupSize} devices with the same model that went offline in the last ${lookbackDays} ${dayWord}.`;
+      }
+      return `Other devices with the same model show a recent availability pattern: ${affectedCount} of ${groupSize} went offline in the last ${lookbackDays} ${dayWord}.`;
+    }
+    return "Multiple devices with the same stored model identity show a recent availability pattern worth reviewing.";
+  },
 };
 
 /** Phase 3E network/generic coverage labels. */
@@ -467,6 +482,7 @@ export const LIMITATION_CODES = [
   "availability_limits_interpretation",
   "extended_silence_not_failure",
   "reported_lqi_not_path_failure",
+  "model_pattern_not_causal",
 ] as const;
 
 export type LimitationCode = (typeof LIMITATION_CODES)[number];
@@ -478,6 +494,8 @@ export const SUGGESTED_CHECK_CODES = [
   "route_hints_context_only",
   "enable_availability_reporting",
   "check_battery_level",
+  "compare_same_model_device_context",
+  "review_same_model_availability_history",
 ] as const;
 
 export type SuggestedCheckCode = (typeof SUGGESTED_CHECK_CODES)[number];
@@ -505,6 +523,8 @@ const LIMITATION_COPY: Record<LimitationCode, CopyRenderer> = {
     "Silence longer than the observed reporting rhythm does not prove the device failed, lost power, or left the network.",
   reported_lqi_not_path_failure: () =>
     "A drop in reported link quality does not prove a Zigbee path, route, or device failure.",
+  model_pattern_not_causal: () =>
+    "A pattern among devices with the same stored model identity does not prove a model defect, manufacturer fault, or shared cause.",
 };
 
 const SUGGESTED_CHECK_COPY: Record<SuggestedCheckCode, CopyRenderer> = {
@@ -521,6 +541,10 @@ const SUGGESTED_CHECK_COPY: Record<SuggestedCheckCode, CopyRenderer> = {
     if (percent === null) return "Check the reported battery level.";
     return `Check the reported battery level (${percent}%).`;
   },
+  compare_same_model_device_context: () =>
+    "Compare power, placement, firmware or version information where stored for devices with the same model identity.",
+  review_same_model_availability_history: () =>
+    "Review availability timing for affected devices with the same model identity.",
 };
 
 export function isKnownReasonCode(code: string): code is ReasonCode {

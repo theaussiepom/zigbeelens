@@ -150,6 +150,7 @@ class InvestigationActionGroup(StrEnum):
 
     check_power_reporting = "check_power_reporting"
     review_observed_router_area = "review_observed_router_area"
+    review_model_pattern = "review_model_pattern"
     investigate_shared_event = "investigate_shared_event"
     improve_data_coverage = "improve_data_coverage"
     watch_only = "watch_only"

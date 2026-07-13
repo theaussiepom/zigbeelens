@@ -48,6 +48,14 @@ from zigbeelens.decisions.availability_event_groups import (
     build_shared_availability_event_groups,
     shared_availability_event_groups_for_network,
 )
+from zigbeelens.decisions.model_pattern import (
+    ModelPatternSignal,
+    ObservedModelPattern,
+    ObservedModelPatternState,
+    ObservedModelPatterns,
+    build_observed_model_patterns,
+    observed_model_patterns_for_network,
+)
 from zigbeelens.decisions.router_area import (
     ObservedRouterArea,
     ObservedRouterAreaState,
@@ -110,6 +118,10 @@ __all__ = [
     "DeviceStoryEvidence",
     "DeviceCoverageEvidence",
     "HeadlineCode",
+    "ModelPatternSignal",
+    "ObservedModelPattern",
+    "ObservedModelPatternState",
+    "ObservedModelPatterns",
     "ObservedRouterArea",
     "ObservedRouterAreaState",
     "ObservedRouterAreas",
@@ -146,6 +158,7 @@ __all__ = [
     "build_device_story",
     "build_device_coverage",
     "build_network_topology_facts",
+    "build_observed_model_patterns",
     "build_observed_router_areas",
     "build_shared_availability_event_groups",
     "build_lqi_trend",
@@ -160,6 +173,7 @@ __all__ = [
     "load_device_story_evidence",
     "load_device_coverage_evidence",
     "normalize_device_ieee",
+    "observed_model_patterns_for_network",
     "observed_router_areas_for_network",
     "shared_availability_event_groups_for_network",
     "lqi_trend_for_device",

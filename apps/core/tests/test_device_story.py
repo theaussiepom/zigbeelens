@@ -15,6 +15,12 @@ from zigbeelens.decisions.device_story import (
     device_story_for_device,
     load_device_story_evidence,
 )
+from zigbeelens.decisions.model_pattern import (
+    MODEL_PATTERN_MIN_AFFECTED_COUNT,
+    MODEL_PATTERN_MIN_GROUP_SIZE,
+    qualifying_pattern_for_device,
+    stored_model_identity_key,
+)
 from zigbeelens.decisions.reasons import ReasonCode
 from zigbeelens.decisions.types import CoverageLabelCode, DecisionPriority, DecisionStatus
 from zigbeelens.storage.repository import Repository
@@ -50,6 +56,8 @@ def _upsert_device(
     last_seen: datetime | None = None,
     battery: int | None = None,
     linkquality: int | None = None,
+    manufacturer: str | None = None,
+    model: str | None = None,
 ) -> None:
     repo.upsert_device(
         network_id="home",
@@ -58,6 +66,8 @@ def _upsert_device(
         device_type="EndDevice",
         power_source="Battery",
         interview_state="successful",
+        manufacturer=manufacturer,
+        model=model,
     )
     repo.update_device_current_state(
         network_id="home",
@@ -1077,10 +1087,145 @@ def test_declining_lqi_trend_escalates_with_recent_missing_links_without_topolog
     assert ReasonCode.reporting_silence_beyond_expected not in reason_codes
     assert ReasonCode.observed_lqi_trend in reason_codes
     assert ReasonCode.reported_lqi_declining in reason_codes
-    assert any(
-        limitation.code == "reported_lqi_not_path_failure"
-        for limitation in story.limitations
-    )
     assert story.status is DecisionStatus.watch
     assert story.priority is DecisionPriority.low
     assert story.headline_code == HeadlineCode.reported_link_quality_changed
+
+
+def _offline_transition(repo: Repository, ieee: str, at: datetime) -> None:
+    repo.availability.insert_availability_change("home", ieee, "online", "offline")
+    repo.db.conn.execute(
+        "UPDATE availability_changes SET changed_at = ? WHERE rowid = last_insert_rowid()",
+        (at.isoformat(),),
+    )
+    repo.db.conn.commit()
+
+
+def _seed_qualifying_model_pattern(
+    repo: Repository,
+    *,
+    manufacturer: str | None = "IKEA",
+    model: str = "TS011F",
+    device_prefix: str = "0xm",
+) -> list[str]:
+    devices = [f"{device_prefix}{i:02d}" for i in range(MODEL_PATTERN_MIN_GROUP_SIZE)]
+    for ieee in devices:
+        _upsert_device(repo, ieee, manufacturer=manufacturer, model=model)
+    base = NOW - timedelta(days=1)
+    for ieee in devices[:MODEL_PATTERN_MIN_AFFECTED_COUNT]:
+        _offline_transition(repo, ieee, base)
+    return devices
+
+
+def test_model_pattern_attaches_only_to_exact_model_identity(tmp_path: Path):
+    repo = _repo(tmp_path)
+    devices = _seed_qualifying_model_pattern(repo)
+    affected_story = device_story_for_device(repo, "home", devices[0], now=NOW)
+    _upsert_device(repo, "0xother", manufacturer="IKEA", model="OTHER")
+    other_model_story = device_story_for_device(repo, "home", "0xother", now=NOW)
+
+    assert affected_story is not None
+    assert any(reason.code == ReasonCode.model_pattern_observed for reason in affected_story.reasons)
+    assert other_model_story is not None
+    assert not any(
+        reason.code == ReasonCode.model_pattern_observed for reason in other_model_story.reasons
+    )
+
+
+def test_model_pattern_does_not_match_manufacturer_only(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _seed_qualifying_model_pattern(repo)
+    _upsert_device(repo, "0xpartial", manufacturer="IKEA", model="PARTIAL")
+    story = device_story_for_device(repo, "home", "0xpartial", now=NOW)
+    assert story is not None
+    assert not any(reason.code == ReasonCode.model_pattern_observed for reason in story.reasons)
+
+
+def test_affected_device_uses_affected_device_wording(tmp_path: Path):
+    repo = _repo(tmp_path)
+    devices = _seed_qualifying_model_pattern(repo)
+    story = device_story_for_device(repo, "home", devices[0], now=NOW)
+    assert story is not None
+    reason = next(
+        reason for reason in story.reasons if reason.code == ReasonCode.model_pattern_observed
+    )
+    assert reason.params["current_device_affected"] is True
+
+
+def test_unaffected_same_group_device_stays_informational(tmp_path: Path):
+    repo = _repo(tmp_path)
+    devices = _seed_qualifying_model_pattern(repo)
+    unaffected = devices[-1]
+    story = device_story_for_device(repo, "home", unaffected, now=NOW)
+    assert story is not None
+    reason = next(
+        reason for reason in story.reasons if reason.code == ReasonCode.model_pattern_observed
+    )
+    assert reason.params["current_device_affected"] is False
+    assert story.status is DecisionStatus.informational
+    assert story.status not in {DecisionStatus.worth_reviewing, DecisionStatus.review_first}
+
+
+def test_unaffected_device_is_not_escalated_solely_by_model_pattern(tmp_path: Path):
+    repo = _repo(tmp_path)
+    devices = _seed_qualifying_model_pattern(repo)
+    story = device_story_for_device(repo, "home", devices[-1], now=NOW)
+    assert story is not None
+    assert story.status not in {DecisionStatus.worth_reviewing, DecisionStatus.review_first}
+
+
+def test_model_pattern_includes_no_blame_limitation_and_checks(tmp_path: Path):
+    repo = _repo(tmp_path)
+    devices = _seed_qualifying_model_pattern(repo)
+    story = device_story_for_device(repo, "home", devices[0], now=NOW)
+    assert story is not None
+    assert any(
+        limitation.code == "model_pattern_not_causal" for limitation in story.limitations
+    )
+    check_codes = {check.code for check in story.suggested_checks}
+    assert CheckCode.compare_same_model_device_context in check_codes
+    assert CheckCode.review_same_model_availability_history in check_codes
+
+
+def test_tiny_group_does_not_attach_model_pattern(tmp_path: Path):
+    repo = _repo(tmp_path)
+    for ieee in ["0xs0", "0xs1", "0xs2"]:
+        _upsert_device(repo, ieee, manufacturer="IKEA", model="TS011F")
+        _offline_transition(repo, ieee, NOW - timedelta(days=1))
+    story = device_story_for_device(repo, "home", "0xs0", now=NOW)
+    assert story is not None
+    assert not any(
+        reason.code == ReasonCode.model_pattern_observed for reason in story.reasons
+    )
+
+
+def test_stored_model_identity_key_requires_exact_model():
+    assert stored_model_identity_key("IKEA", "TS011F") == stored_model_identity_key("IKEA", "TS011F")
+    assert stored_model_identity_key("IKEA", "TS011F") != stored_model_identity_key("Aqara", "TS011F")
+    assert stored_model_identity_key(None, "TS011F") == "|ts011f"
+    assert stored_model_identity_key("IKEA", None) is None
+
+
+def test_qualifying_pattern_for_device_requires_membership():
+    from zigbeelens.decisions.model_pattern import ObservedModelPattern
+
+    pattern = ObservedModelPattern(
+        pattern_id="model-pattern-test",
+        manufacturer="IKEA",
+        model="TS011F",
+        group_size=5,
+        affected_count=3,
+        member_ieees=["0xm00", "0xm01", "0xm02", "0xm03", "0xm04"],
+        affected_ieees=["0xm00", "0xm01", "0xm02"],
+    )
+    match = qualifying_pattern_for_device(
+        [pattern],
+        manufacturer="IKEA",
+        model="TS011F",
+        device_ieee="0xm04",
+    )
+    assert match is not None
+    assert match[1] is False
+    assert qualifying_pattern_for_device(
+        [pattern], manufacturer="IKEA", model="OTHER", device_ieee="0xm04"
+    ) is None

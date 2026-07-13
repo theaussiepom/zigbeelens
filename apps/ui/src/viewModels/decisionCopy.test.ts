@@ -22,8 +22,9 @@ import {
 
 const SPECULATIVE_FUTURE_REASON_CODES = [
   "router_area_issue_cluster",
-  "model_pattern_observed",
 ] as const;
+
+const PHASE_4G_REASON_CODES = ["model_pattern_observed"] as const;
 
 const PHASE_4B_REASON_CODES = [
   "observed_reporting_rhythm",
@@ -185,6 +186,41 @@ describe("decisionCopy", () => {
       expect(lower).not.toContain("rf interference");
       expect(lower).not.toContain("network degradation");
     }
+  });
+
+  it("maps Phase 4G model pattern reason codes without manufacturer blame", () => {
+    for (const code of PHASE_4G_REASON_CODES) {
+      expect(isKnownReasonCode(code)).toBe(true);
+    }
+    expect(
+      reasonText("model_pattern_observed", {
+        affected_count: 3,
+        group_size: 5,
+        lookback_days: 7,
+        current_device_affected: true,
+      }),
+    ).toBe(
+      "This device is one of 3 of 5 devices with the same model that went offline in the last 7 days.",
+    );
+    expect(
+      reasonText("model_pattern_observed", {
+        affected_count: 3,
+        group_size: 5,
+        lookback_days: 7,
+        current_device_affected: false,
+      }),
+    ).toBe(
+      "Other devices with the same model show a recent availability pattern: 3 of 5 went offline in the last 7 days.",
+    );
+    const text = reasonText("model_pattern_observed", {
+      affected_count: 3,
+      group_size: 5,
+      lookback_days: 7,
+      current_device_affected: false,
+    }).toLowerCase();
+    expect(text).not.toContain("manufacturer defect");
+    expect(text).not.toContain("bad model");
+    expect(text).not.toContain("caused by");
   });
 
   it("maps required coverage labels", () => {

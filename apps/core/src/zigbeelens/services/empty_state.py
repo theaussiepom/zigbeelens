@@ -151,4 +151,5 @@ def build_empty_dashboard(config: AppConfig, networks: list[NetworkRow]) -> Dash
             ],
         ),
         shared_availability_events=[],
+        model_patterns=[],
     )

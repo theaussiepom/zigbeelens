@@ -150,6 +150,9 @@ function cardNeedsLimitation(card: InvestigationCard): boolean {
   if (card.type === "shared_availability_event") {
     return true;
   }
+  if (card.type === "model_pattern_review") {
+    return true;
+  }
   return card.created_from_evidence_classes.some(
     (cls) => cls.includes("passive") || cls.includes("historical"),
   );
@@ -157,6 +160,9 @@ function cardNeedsLimitation(card: InvestigationCard): boolean {
 
 function reportLimitationsForCard(card: InvestigationCard): string[] {
   if (card.type === "shared_availability_event") {
+    return card.limitations;
+  }
+  if (card.type === "model_pattern_review") {
     return card.limitations;
   }
   if (cardNeedsLimitation(card) && card.limitations.length > 0) {

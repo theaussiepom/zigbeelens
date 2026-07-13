@@ -12,6 +12,7 @@ from zigbeelens.decisions.availability_event_groups import (
     shared_availability_event_groups_for_network,
 )
 from zigbeelens.decisions.router_area import observed_router_areas_for_network
+from zigbeelens.decisions.model_pattern import observed_model_patterns_for_network
 from zigbeelens.topology.investigations import issue_device_ieees_from_state
 from zigbeelens.services.topology_facts_composition import compose_network_topology_facts_payload
 from zigbeelens.topology.device_stats import aggregate_device_stats
@@ -92,6 +93,9 @@ class EvidenceGraphService:
             passive_hints=passive["hints"],
             issue_device_ieees=issue_device_ieees,
         )
+        observed_model_patterns = observed_model_patterns_for_network(
+            self._repo, network_id
+        )
         device_stats = aggregate_device_stats(self._repo, network_id)
         investigations = aggregate_investigations(
             self._repo,
@@ -100,6 +104,7 @@ class EvidenceGraphService:
             passive_hints=passive["hints"],
             shared_availability_events=shared_availability.groups,
             observed_router_areas=observed_router_areas.areas,
+            observed_model_patterns=observed_model_patterns.patterns,
             last_known_links=last_known["last_known_links"],
         )
 

@@ -43,6 +43,7 @@ function makeDashboard(
       networks: [],
     },
     shared_availability_events: [],
+    model_patterns: [],
     ...overrides,
   };
 }
@@ -82,6 +83,7 @@ const mockState = vi.hoisted(() => ({
       networks: [],
     },
     shared_availability_events: [],
+    model_patterns: [],
   } as DashboardPayload,
 }));
 
@@ -155,6 +157,52 @@ describe("OverviewPage shared availability events", () => {
       "/topology/home",
     );
     expect(screen.queryByText(/network failure/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/critical/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("OverviewPage model patterns", () => {
+  beforeEach(() => {
+    mockState.dashboard = makeDashboard();
+  });
+
+  it("omits the model-pattern section when the dashboard list is empty", () => {
+    renderOverview();
+    expect(screen.queryByText("Recent model patterns")).not.toBeInTheDocument();
+  });
+
+  it("renders one card per model pattern with limitation and mesh link", () => {
+    mockState.dashboard = makeDashboard({
+      model_patterns: [
+        {
+          pattern_id: "model-pattern-test",
+          network_id: "home",
+          manufacturer: "IKEA",
+          model: "TS011F",
+          group_size: 5,
+          affected_count: 3,
+          lookback_days: 7,
+          affected_device_ieees: ["0xm00", "0xm01", "0xm02"],
+          latest_supporting_evidence_at: "2026-07-06T08:22:00+00:00",
+        },
+      ],
+    });
+    renderOverview();
+    expect(screen.getByText("Recent model patterns")).toBeInTheDocument();
+    expect(screen.getByText("Review devices with the same model")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "3 of 5 devices with this model have gone offline in the last 7 days.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/does not prove the model is defective/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /review mesh evidence/i })).toHaveAttribute(
+      "href",
+      "/topology/home",
+    );
+    expect(screen.queryByText(/faulty model/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/critical/i)).not.toBeInTheDocument();
   });
 });

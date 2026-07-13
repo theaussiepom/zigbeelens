@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 from zigbeelens.decisions.investigation_action_groups import assign_investigation_action_groups
 
 if TYPE_CHECKING:
+    from zigbeelens.decisions.model_pattern import ObservedModelPattern
     from zigbeelens.decisions.router_area import ObservedRouterArea
     from zigbeelens.storage.repository import DeviceRow, Repository
 
@@ -44,6 +45,7 @@ TOPOLOGY_CORROBORATION_WEIGHT = 2
 RECENCY_BOOST_WEIGHT = 1
 DIAGNOSTICS_LIMITED_DEVICE_WEIGHT = 1
 SHARED_AVAILABILITY_EVENT_BASE_WEIGHT = 5
+MODEL_PATTERN_BASE_WEIGHT = 4
 
 # Qualification thresholds — conservative so quiet networks stay quiet.
 ISSUE_CLUSTER_MIN_DEVICES = 2
@@ -109,6 +111,10 @@ ROUTER_AREA_LIMITATION = (
     "An observed router area groups stored evidence around a router. It does not "
     "prove parentage, a current route or path, or that the router caused device issues."
 )
+MODEL_PATTERN_LIMITATION = (
+    "Devices sharing a stored model identity does not prove a product defect. "
+    "Placement, power, or network factors may explain the pattern."
+)
 _TOPOLOGY_EVIDENCE_CLASSES = frozenset(
     {
         "latest_snapshot_neighbor",
@@ -124,6 +130,7 @@ CARD_TYPE_ORDER = (
     "issue_cluster",
     "recent_missing_cluster",
     "shared_availability_event",
+    "model_pattern_review",
     "passive_instability_group",
     "router_neighbourhood_review",
     "diagnostics_limited_group",
@@ -647,6 +654,120 @@ def _shared_availability_event_cards(
     return cards
 
 
+def _model_identity_label(manufacturer: str | None, model: str) -> str:
+    if manufacturer:
+        return f"{manufacturer} {model}"
+    return model
+
+
+def _model_pattern_summary(
+    *,
+    affected_count: int,
+    group_size: int,
+    lookback_days: int,
+) -> str:
+    day_word = "day" if lookback_days == 1 else "days"
+    return (
+        f"{affected_count} of {group_size} devices with this model have gone offline "
+        f"in the last {lookback_days} {day_word}."
+    )
+
+
+def _model_pattern_why_it_matters() -> str:
+    return (
+        "This is a pattern worth reviewing together. It may point to firmware, "
+        "battery, placement, or network factors — not proof that the model itself failed."
+    )
+
+
+def _model_pattern_supporting_evidence(
+    pattern: ObservedModelPattern,
+    *,
+    latest_offline_at: str | None,
+) -> list[str]:
+    identity = _model_identity_label(pattern.manufacturer, pattern.model)
+    supporting = [
+        f"Grouped by stored model identity {identity}.",
+        (
+            f"{_count_phrase(pattern.affected_count, 'device')} recorded offline "
+            "availability transitions in the lookback window."
+        ),
+        f"{_count_phrase(pattern.group_size, 'device')} with this model identity are in inventory.",
+    ]
+    if latest_offline_at:
+        latest_text = _friendly_ts(latest_offline_at)
+        if latest_text:
+            supporting.append(f"Most recent related offline transition at {latest_text}.")
+    return supporting
+
+
+def _model_pattern_latest_offline_at(
+    affected_ieees: list[str],
+    offline_events: dict[str, list[str]],
+) -> str | None:
+    timestamps: list[str] = []
+    for ieee in affected_ieees:
+        timestamps.extend(offline_events.get(ieee, []))
+    return _latest_iso(timestamps)
+
+
+def _model_pattern_cards(
+    *,
+    observed_model_patterns: list[ObservedModelPattern],
+    offline_events: dict[str, list[str]],
+    now: datetime,
+) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+    for pattern in observed_model_patterns:
+        latest_seen = _model_pattern_latest_offline_at(
+            pattern.affected_ieees, offline_events
+        )
+        lookback_days = int(pattern.params.get("lookback_days", DEVICE_EVIDENCE_LOOKBACK_DAYS))
+        score = MODEL_PATTERN_BASE_WEIGHT + _recency_boost(latest_seen, now)
+        identity = _model_identity_label(pattern.manufacturer, pattern.model)
+        cards.append(
+            {
+                "id": pattern.pattern_id,
+                "type": "model_pattern_review",
+                "priority": _priority(score),
+                "score": score,
+                "title": f"Review model pattern: {identity}",
+                "summary": _model_pattern_summary(
+                    affected_count=pattern.affected_count,
+                    group_size=pattern.group_size,
+                    lookback_days=lookback_days,
+                ),
+                "why_it_matters": _model_pattern_why_it_matters(),
+                "supporting_evidence": _model_pattern_supporting_evidence(
+                    pattern,
+                    latest_offline_at=latest_seen,
+                ),
+                "limitations": [
+                    GENERIC_INVESTIGATION_LIMITATION,
+                    MODEL_PATTERN_LIMITATION,
+                ],
+                "suggested_next_steps": [
+                    "Review affected devices together for shared placement, power, or firmware context.",
+                    "Compare battery levels where available.",
+                    "Check whether affected devices share a Zigbee2MQTT device definition or firmware track.",
+                    "Select one affected device to inspect its availability history and evidence details.",
+                ],
+                "device_ieees": list(pattern.affected_ieees)[:MAX_DEVICES_PER_CARD],
+                "edge_ids": [],
+                "primary_device_ieee": pattern.affected_ieees[0]
+                if pattern.affected_ieees
+                else None,
+                "primary_neighbourhood_ieee": None,
+                "created_from_evidence_classes": [
+                    "availability_transition",
+                    "device_inventory",
+                ],
+                "latest_supporting_evidence_at": latest_seen,
+            }
+        )
+    return cards
+
+
 def issue_device_ieees_from_state(
     devices: list[DeviceRow], incident_device_ieees: set[str]
 ) -> set[str]:
@@ -1150,7 +1271,11 @@ def _apply_tailored_evidence(
     stay readable.
     """
     for card in cards:
-        if card.get("type") in {"shared_availability_event", "router_neighbourhood_review"}:
+        if card.get("type") in {
+            "shared_availability_event",
+            "router_neighbourhood_review",
+            "model_pattern_review",
+        }:
             continue
         ordered: list[str] = []
         primary = card.get("primary_device_ieee")
@@ -1193,6 +1318,7 @@ def build_investigations(
     passive_hints: list[dict[str, Any]],
     shared_availability_events: list[Any] | None = None,
     observed_router_areas: list[Any] | None = None,
+    observed_model_patterns: list[Any] | None = None,
     last_known_links: list[dict[str, Any]] | None = None,
     offline_events: dict[str, list[str]] | None = None,
     network_id: str = "home",
@@ -1246,6 +1372,13 @@ def build_investigations(
     cards.extend(
         _shared_availability_event_cards(
             shared_availability_events=shared_availability_events or [],
+            now=now,
+        )
+    )
+    cards.extend(
+        _model_pattern_cards(
+            observed_model_patterns=list(observed_model_patterns or []),
+            offline_events=offline_events or {},
             now=now,
         )
     )
@@ -1310,6 +1443,7 @@ def aggregate_investigations(
     passive_hints: list[dict[str, Any]],
     shared_availability_events: list[Any] | None = None,
     observed_router_areas: list[Any] | None = None,
+    observed_model_patterns: list[Any] | None = None,
     last_known_links: list[dict[str, Any]] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -1343,6 +1477,7 @@ def aggregate_investigations(
         passive_hints=passive_hints,
         shared_availability_events=shared_availability_events,
         observed_router_areas=observed_router_areas,
+        observed_model_patterns=observed_model_patterns,
         last_known_links=last_known_links,
         offline_events=offline_events,
         network_id=network_id,
