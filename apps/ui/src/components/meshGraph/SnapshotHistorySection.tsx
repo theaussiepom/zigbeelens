@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import { relativeTime } from "@/lib/format";
 import { DrawerSection } from "@/components/meshGraph/DrawerShell";
 import {
   buildSnapshotHistoryViewModel,
@@ -225,14 +224,16 @@ export function SnapshotHistorySection({
               <CoverageBanner pill={viewModel.selectedCoverageBanner} />
             )}
 
-            {viewModel.latestSummary && (
+            {viewModel.latest && (
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-zl-muted">
                   {viewModel.latestLabel}
                 </p>
-                <p className="mt-0.5 text-xs text-zl-text">
-                  {relativeTime(history?.latest_snapshot?.captured_at ?? undefined)} ·{" "}
-                  {viewModel.latestSummary}
+                <p
+                  className="mt-0.5 text-xs text-zl-text"
+                  title={viewModel.latest.capturedAtTitle}
+                >
+                  {viewModel.latest.relativeLabel} · {viewModel.latest.summaryText}
                 </p>
               </div>
             )}

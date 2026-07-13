@@ -4,6 +4,7 @@ import type {
   DeviceSnapshotHistoryRow,
 } from "@/types/devices";
 import type { TopologyDeviceFactsDto } from "@/types/decisions";
+import { formatTime, relativeTime } from "@/lib/format";
 import {
   buildSnapshotHistoryViewModel,
   defaultSelectedSnapshotId,
@@ -14,6 +15,12 @@ const emptyTopologyFacts: TopologyDeviceFactsDto = {
   device_facts: [],
   comparison_facts_by_snapshot_id: {},
 };
+
+const worthReviewingReasons = [
+  "Latest snapshot shows no links for this device.",
+  "The selected snapshot showed 6 links.",
+  "This device currently needs attention.",
+];
 
 function makeRow(overrides: Partial<DeviceSnapshotHistoryRow>): DeviceSnapshotHistoryRow {
   return {
@@ -27,11 +34,7 @@ function makeRow(overrides: Partial<DeviceSnapshotHistoryRow>): DeviceSnapshotHi
     availability_state_near_snapshot: "online",
     comparison_to_latest: {
       status: "worth_reviewing",
-      reasons: [
-        "Latest snapshot shows no links for this device.",
-        "The selected snapshot showed 6 links.",
-        "This device currently needs attention.",
-      ],
+      reasons: worthReviewingReasons,
       suggested_checks: [
         "Confirm the device is powered.",
         "Check whether it is reporting in Zigbee2MQTT.",
@@ -147,56 +150,12 @@ describe("snapshotHistoryViewModel", () => {
     const vm = buildSnapshotHistoryViewModel(worthReviewingDetail, "snap-prev");
     expect(vm.comparison?.statusLabel).toBe("Worth reviewing");
     expect(vm.comparison?.statusLead).toContain("device-level changes");
-    expect(vm.comparison?.reasons).toContain(
-      "Latest snapshot shows no links for this device.",
-    );
+    expect(vm.comparison?.reasons).toEqual(worthReviewingReasons);
     expect(vm.comparison?.suggestedChecks).toContain("Confirm the device is powered.");
     expect(vm.comparison?.evidenceDetails.showSelectedOnlyNote).toBe(true);
   });
 
-  it("updates comparison when a different snapshot is selected", () => {
-    const vm = buildSnapshotHistoryViewModel(worthReviewingDetail, "snap-older");
-    expect(vm.rows[1].selected).toBe(true);
-    expect(vm.comparison?.statusLabel).toBe("Changed");
-    expect(vm.comparison?.statusLead).toContain("nothing here stands out");
-  });
-
-  it("shows tracking-off banner when availability reporting is disabled", () => {
-    const detail: DeviceSnapshotHistoryDetail = {
-      ...worthReviewingDetail,
-      availability_tracking: { enabled: false, earliest_observation_at: null },
-      latest_snapshot: makeRow({
-        snapshot_id: "snap-live",
-        captured_at: "2026-07-06T00:30:00+00:00",
-        is_latest: true,
-        links_for_device_count: 0,
-        route_hints_for_device_count: 0,
-        availability_coverage_status: "off",
-        availability_state_near_snapshot: null,
-        comparison_to_latest: null,
-      }),
-      snapshots: [
-        makeRow({
-          snapshot_id: "snap-prev",
-          availability_coverage_status: "off",
-          availability_state_near_snapshot: null,
-        }),
-      ],
-    };
-    const vm = buildSnapshotHistoryViewModel(detail, "snap-prev");
-    expect(vm.trackingOffBanner?.label).toBe("Availability tracking off");
-    expect(vm.selectedCoverageBanner).toBeNull();
-    expect(vm.latestSummary).not.toContain("Online");
-    expect(vm.latestSummary).not.toContain("Offline");
-  });
-
-  it("shows building coverage banner for selected snapshot with limited history", () => {
-    const vm = buildSnapshotHistoryViewModel(worthReviewingDetail, "snap-oldest");
-    expect(vm.selectedCoverageBanner?.label).toBe("Availability history building");
-    expect(vm.rows[2].coveragePill?.label).toBe("Availability history building");
-  });
-
-  it("prefers topology comparison facts for Why when present", () => {
+  it("retains complete backend comparison reasons when topology facts also exist", () => {
     const detail: DeviceSnapshotHistoryDetail = {
       ...worthReviewingDetail,
       topology_facts: {
@@ -227,9 +186,101 @@ describe("snapshotHistoryViewModel", () => {
       },
     };
     const vm = buildSnapshotHistoryViewModel(detail, "snap-prev");
-    expect(vm.comparison?.reasons).toEqual([
-      "Selected snapshot showed 6 links for this device.",
-    ]);
+    expect(vm.comparison?.reasons).toEqual(worthReviewingReasons);
+  });
+
+  it("does not let comparison facts for another snapshot affect the selected comparison", () => {
+    const detail: DeviceSnapshotHistoryDetail = {
+      ...worthReviewingDetail,
+      topology_facts: {
+        stale_threshold_hours: null,
+        device_facts: [],
+        comparison_facts_by_snapshot_id: {
+          "snap-older": [
+            {
+              code: "device_has_selected_snapshot_links",
+              params: {
+                device_ieee: "0xr1",
+                snapshot_id: "snap-older",
+                link_count: 8,
+              },
+            },
+          ],
+        },
+      },
+    };
+    const vm = buildSnapshotHistoryViewModel(detail, "snap-prev");
+    expect(vm.comparison?.reasons).toEqual(worthReviewingReasons);
+    expect(vm.comparison?.statusLabel).toBe("Worth reviewing");
+  });
+
+  it("updates comparison when a different snapshot is selected", () => {
+    const vm = buildSnapshotHistoryViewModel(worthReviewingDetail, "snap-older");
+    expect(vm.rows[1].selected).toBe(true);
+    expect(vm.comparison?.statusLabel).toBe("Changed");
+    expect(vm.comparison?.statusLead).toContain("nothing here stands out");
+    expect(vm.comparison?.reasons).toEqual(["8 links only in the selected snapshot."]);
+  });
+
+  it("shows tracking-off banner when availability reporting is disabled", () => {
+    const detail: DeviceSnapshotHistoryDetail = {
+      ...worthReviewingDetail,
+      availability_tracking: { enabled: false, earliest_observation_at: null },
+      latest_snapshot: makeRow({
+        snapshot_id: "snap-live",
+        captured_at: "2026-07-06T00:30:00+00:00",
+        is_latest: true,
+        links_for_device_count: 0,
+        route_hints_for_device_count: 0,
+        availability_coverage_status: "off",
+        availability_state_near_snapshot: null,
+        comparison_to_latest: null,
+      }),
+      snapshots: [
+        makeRow({
+          snapshot_id: "snap-prev",
+          availability_coverage_status: "off",
+          availability_state_near_snapshot: null,
+        }),
+      ],
+    };
+    const vm = buildSnapshotHistoryViewModel(detail, "snap-prev");
+    expect(vm.trackingOffBanner?.label).toBe("Availability tracking off");
+    expect(vm.selectedCoverageBanner).toBeNull();
+    expect(vm.latest?.summaryText).not.toContain("Online");
+    expect(vm.latest?.summaryText).not.toContain("Offline");
+  });
+
+  it("shows building coverage banner for selected snapshot with limited history", () => {
+    const vm = buildSnapshotHistoryViewModel(worthReviewingDetail, "snap-oldest");
+    expect(vm.selectedCoverageBanner?.label).toBe("Availability history building");
+    expect(vm.rows[2].coveragePill?.label).toBe("Availability history building");
+  });
+
+  it("shows unknown coverage banner for selected snapshot with unknown coverage", () => {
+    const detail: DeviceSnapshotHistoryDetail = {
+      ...worthReviewingDetail,
+      snapshots: [
+        makeRow({
+          snapshot_id: "snap-unknown",
+          availability_coverage_status: "unknown",
+          availability_state_near_snapshot: null,
+        }),
+      ],
+    };
+    const vm = buildSnapshotHistoryViewModel(detail, "snap-unknown");
+    expect(vm.selectedCoverageBanner?.label).toBe("Availability status unknown");
+    expect(vm.rows[0].coveragePill?.label).toBe("Availability status unknown");
+    expect(vm.rows[0].availabilityStateText).toBeNull();
+  });
+
+  it("builds latest snapshot display model with relative label, summary and title", () => {
+    const latest = worthReviewingDetail.latest_snapshot!;
+    const vm = buildSnapshotHistoryViewModel(worthReviewingDetail, "snap-prev");
+    expect(vm.latest).not.toBeNull();
+    expect(vm.latest?.relativeLabel).toBe(relativeTime(latest.captured_at ?? undefined));
+    expect(vm.latest?.summaryText).toBe("0 links shown · no route hints · Offline");
+    expect(vm.latest?.capturedAtTitle).toBe(formatTime(latest.captured_at ?? undefined));
   });
 
   it("exposes empty state copy when no earlier snapshots exist", () => {

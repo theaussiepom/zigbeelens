@@ -10,7 +10,6 @@ import type {
   DeviceSnapshotHistoryDetail,
   DeviceSnapshotHistoryRow,
 } from "@/types/devices";
-import type { EvidenceFactDto } from "@/types/decisions";
 import { formatTime, relativeTime } from "@/lib/format";
 import {
   AVAILABILITY_PILL_BUILDING,
@@ -37,7 +36,6 @@ import {
 import {
   decisionStatusCompactLabel,
   decisionStatusLabel,
-  reasonText,
 } from "@/viewModels/decisionCopy";
 import type { DecisionPillTone } from "@/viewModels/types";
 
@@ -83,13 +81,19 @@ export interface SnapshotComparisonViewModel {
   evidenceDetails: SnapshotEvidenceDetailsViewModel;
 }
 
+export interface SnapshotLatestViewModel {
+  relativeLabel: string;
+  summaryText: string;
+  capturedAtTitle: string;
+}
+
 export interface SnapshotHistoryViewModel {
   loadState: SnapshotHistoryLoadState;
   sectionTitle: string;
   trackingOffBanner: AvailabilityPillViewModel | null;
   selectedCoverageBanner: AvailabilityPillViewModel | null;
   latestLabel: string;
-  latestSummary: string | null;
+  latest: SnapshotLatestViewModel | null;
   compareWithLabel: string;
   emptyCopy: string;
   unavailableCopy: string;
@@ -186,54 +190,8 @@ function evidenceDetailLines(comparison: DeviceSnapshotComparison): {
   return { links, routes };
 }
 
-const TOPOLOGY_FACT_TO_REASON: Record<string, string> = {
-  device_no_latest_links: "latest_snapshot_no_links",
-  device_has_selected_snapshot_links: "selected_snapshot_had_links",
-  availability_coverage_affects_snapshot_comparison: "availability_tracking_off",
-};
-
-function reasonParamsFromTopologyFact(fact: EvidenceFactDto): Record<string, unknown> {
-  const params = fact.params ?? {};
-  if (fact.code === "device_has_selected_snapshot_links") {
-    return { selected_snapshot_link_count: params.link_count };
-  }
-  if (fact.code === "availability_coverage_affects_snapshot_comparison") {
-    const coverage = params.availability_coverage_status;
-    if (coverage === "building") return {};
-    if (coverage === "unknown") return {};
-    return {};
-  }
-  return params;
-}
-
-function reasonCodeFromTopologyFact(fact: EvidenceFactDto): string {
-  if (fact.code === "availability_coverage_affects_snapshot_comparison") {
-    const coverage = fact.params?.availability_coverage_status;
-    if (coverage === "building") return "availability_history_building";
-    if (coverage === "unknown") return "availability_status_unknown";
-    return "availability_tracking_off";
-  }
-  return TOPOLOGY_FACT_TO_REASON[fact.code] ?? fact.code;
-}
-
-function topologyFactReasonText(fact: EvidenceFactDto): string {
-  return reasonText(reasonCodeFromTopologyFact(fact), reasonParamsFromTopologyFact(fact));
-}
-
-function comparisonReasons(
-  comparison: DeviceSnapshotComparison,
-  comparisonFacts: EvidenceFactDto[],
-): string[] {
-  const fromFacts = comparisonFacts
-    .map(topologyFactReasonText)
-    .filter((text) => text !== "Details unavailable.");
-  if (fromFacts.length > 0) return fromFacts;
-  return comparison.reasons;
-}
-
 function buildComparisonViewModel(
   comparison: DeviceSnapshotComparison,
-  comparisonFacts: EvidenceFactDto[],
 ): SnapshotComparisonViewModel {
   const details = evidenceDetailLines(comparison);
   const status = comparison.status;
@@ -241,7 +199,7 @@ function buildComparisonViewModel(
     statusLabel: decisionStatusLabel(status),
     statusLead: SNAPSHOT_COMPARE_STATUS_LEADS[status],
     whyTitle: SNAPSHOT_HISTORY_WHY_TITLE,
-    reasons: comparisonReasons(comparison, comparisonFacts),
+    reasons: comparison.reasons,
     meaningTitle: SNAPSHOT_HISTORY_MEANING_TITLE,
     meaningText: SNAPSHOT_COMPARE_MEANING[status],
     checksTitle: SNAPSHOT_HISTORY_CHECKS_TITLE,
@@ -266,6 +224,14 @@ function buildComparisonViewModel(
 function buildLatestSummary(row: DeviceSnapshotHistoryRow): string {
   const state = availabilityStateCopy(row);
   return `${rowCountsCopy(row)}${state ? ` · ${state}` : ""}`;
+}
+
+function buildLatestViewModel(row: DeviceSnapshotHistoryRow): SnapshotLatestViewModel {
+  return {
+    relativeLabel: relativeTime(row.captured_at ?? undefined),
+    summaryText: buildLatestSummary(row),
+    capturedAtTitle: formatTime(row.captured_at ?? undefined),
+  };
 }
 
 function buildRowViewModel(
@@ -303,10 +269,6 @@ export function buildSnapshotHistoryViewModel(
 ): SnapshotHistoryViewModel {
   const selectedRow =
     detail.snapshots.find((row) => row.snapshot_id === selectedSnapshotId) ?? null;
-  const comparisonFacts =
-    selectedSnapshotId != null
-      ? detail.topology_facts.comparison_facts_by_snapshot_id[selectedSnapshotId] ?? []
-      : [];
 
   let selectedCoverageBanner: AvailabilityPillViewModel | null = null;
   if (
@@ -328,16 +290,14 @@ export function buildSnapshotHistoryViewModel(
       : availabilityPillForStatus("off"),
     selectedCoverageBanner,
     latestLabel: SNAPSHOT_HISTORY_LATEST_LABEL,
-    latestSummary: detail.latest_snapshot
-      ? buildLatestSummary(detail.latest_snapshot)
-      : null,
+    latest: detail.latest_snapshot ? buildLatestViewModel(detail.latest_snapshot) : null,
     compareWithLabel: SNAPSHOT_HISTORY_COMPARE_WITH_LABEL,
     emptyCopy: SNAPSHOT_HISTORY_EMPTY_COPY,
     unavailableCopy: SNAPSHOT_HISTORY_UNAVAILABLE_COPY,
     rows: detail.snapshots.map((row) => buildRowViewModel(row, selectedSnapshotId)),
     comparison:
       selectedRow?.comparison_to_latest != null
-        ? buildComparisonViewModel(selectedRow.comparison_to_latest, comparisonFacts)
+        ? buildComparisonViewModel(selectedRow.comparison_to_latest)
         : null,
     defaultSelectedSnapshotId: defaultSelectedSnapshotId(detail),
   };
@@ -350,7 +310,7 @@ export function loadingSnapshotHistoryViewModel(): SnapshotHistoryViewModel {
     trackingOffBanner: null,
     selectedCoverageBanner: null,
     latestLabel: SNAPSHOT_HISTORY_LATEST_LABEL,
-    latestSummary: null,
+    latest: null,
     compareWithLabel: SNAPSHOT_HISTORY_COMPARE_WITH_LABEL,
     emptyCopy: SNAPSHOT_HISTORY_EMPTY_COPY,
     unavailableCopy: SNAPSHOT_HISTORY_UNAVAILABLE_COPY,
