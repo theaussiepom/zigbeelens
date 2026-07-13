@@ -314,6 +314,18 @@ class InvestigationPrioritySummary(BaseModel):
     latest_supporting_evidence_at: str | None = None
 
 
+class DataCoverageWarningSummary(BaseModel):
+    """Overview-relevant coverage limitation from stored evidence evaluators."""
+
+    id: str
+    network_id: str
+    dimension: str
+    state: str
+    label_code: str
+    scope_type: str = "network"
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
 class DashboardPayload(BaseModel):
     generated_at: str
     scenario: str | None = None
@@ -333,6 +345,7 @@ class DashboardPayload(BaseModel):
     shared_availability_events: list[SharedAvailabilityEventSummary] = Field(default_factory=list)
     model_patterns: list[ModelPatternSummary] = Field(default_factory=list)
     investigation_priorities: list[InvestigationPrioritySummary] = Field(default_factory=list)
+    data_coverage_warnings: list[DataCoverageWarningSummary] = Field(default_factory=list)
 
 
 class RedactionProfile(str, Enum):

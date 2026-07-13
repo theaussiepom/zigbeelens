@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useCallback } from "react";
+import { useEffect, useMemo } from "react";
 import { api } from "@/lib/api";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
@@ -22,13 +22,25 @@ import {
 import { SharedAvailabilityEventCard } from "@/components/overview/SharedAvailabilityEventCard";
 import { ModelPatternCard } from "@/components/overview/ModelPatternCard";
 import { InvestigationPriorityCard } from "@/components/overview/InvestigationPriorityCard";
+import { RecentChangesSection } from "@/components/overview/RecentChangesSection";
+import { DataCoverageWarningCard } from "@/components/overview/DataCoverageWarningCard";
 import { buildSharedAvailabilityEventViewModel } from "@/viewModels/overview/sharedAvailabilityEventViewModel";
 import { buildModelPatternViewModel } from "@/viewModels/overview/modelPatternViewModel";
 import {
   INVESTIGATION_PRIORITY_EMPTY_COPY,
+  INVESTIGATION_PRIORITY_SECTION_SUBTITLE,
   INVESTIGATION_PRIORITY_SECTION_TITLE,
   buildInvestigationPriorityViewModel,
 } from "@/viewModels/overview/investigationPriorityViewModel";
+import { buildRecentChangesSectionViewModel } from "@/viewModels/overview/recentChangesViewModel";
+import {
+  DATA_COVERAGE_SECTION_TITLE,
+  buildDataCoverageWarningViewModel,
+} from "@/viewModels/overview/dataCoverageViewModel";
+import {
+  readOverviewLastViewedAt,
+  writeOverviewLastViewedAt,
+} from "@/lib/overviewVisitStorage";
 import { compareIncidents } from "@/lib/format";
 
 const DASHBOARD_EVENTS = [
@@ -55,12 +67,19 @@ export function OverviewPage() {
     { refetchOn: DASHBOARD_EVENTS },
   );
 
-  const retry = useCallback(() => {
+  const previousLastViewedAt = useMemo(() => readOverviewLastViewedAt(), []);
+  const visitTimestamp = useMemo(() => new Date().toISOString(), []);
+
+  useEffect(() => {
+    if (dashboard.data && !dashboard.loading) {
+      writeOverviewLastViewedAt(visitTimestamp);
+    }
+  }, [dashboard.data, dashboard.loading, visitTimestamp]);
+
+  if (dashboard.error) return <ErrorState message={dashboard.error} onRetry={() => {
     dashboard.refetch();
     incidents.refetch();
-  }, [dashboard, incidents]);
-
-  if (dashboard.error) return <ErrorState message={dashboard.error} onRetry={retry} />;
+  }} />;
   if (dashboard.loading || !dashboard.data) return <LoadingState />;
 
   const data = dashboard.data;
@@ -75,6 +94,14 @@ export function OverviewPage() {
     buildModelPatternViewModel(pattern, networkNames[pattern.network_id]),
   );
   const allIncidents = incidents.data ?? [];
+  const recentChanges = buildRecentChangesSectionViewModel({
+    previousLastViewedAt,
+    dashboard: data,
+    incidents: allIncidents,
+  });
+  const dataCoverageWarnings = (data.data_coverage_warnings ?? []).map((warning) =>
+    buildDataCoverageWarningViewModel(warning, networkNames[warning.network_id]),
+  );
   const active = allIncidents
     .filter((i) => i.status === "open" || i.status === "watching")
     .sort(compareIncidents);
@@ -111,9 +138,12 @@ export function OverviewPage() {
       <CurrentFindingCard finding={data.current_finding} incidentId={topOpenIncidentId} />
 
       <section className="space-y-3" aria-label={INVESTIGATION_PRIORITY_SECTION_TITLE}>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
-          {INVESTIGATION_PRIORITY_SECTION_TITLE}
-        </h2>
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
+            {INVESTIGATION_PRIORITY_SECTION_TITLE}
+          </h2>
+          <p className="mt-1 text-sm text-zl-muted">{INVESTIGATION_PRIORITY_SECTION_SUBTITLE}</p>
+        </div>
         {investigationPriorities.length === 0 ? (
           <EmptyState title={INVESTIGATION_PRIORITY_EMPTY_COPY} />
         ) : (
@@ -128,6 +158,21 @@ export function OverviewPage() {
           </div>
         )}
       </section>
+
+      <RecentChangesSection section={recentChanges} />
+
+      {dataCoverageWarnings.length > 0 && (
+        <section className="space-y-3" aria-label={DATA_COVERAGE_SECTION_TITLE}>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
+            {DATA_COVERAGE_SECTION_TITLE}
+          </h2>
+          <div className="grid gap-4 md:grid-cols-2">
+            {dataCoverageWarnings.map((warning) => (
+              <DataCoverageWarningCard key={warning.id} warning={warning} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {sharedAvailabilityEvents.length > 0 && (
         <section className="space-y-3">

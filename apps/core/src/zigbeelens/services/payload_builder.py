@@ -44,6 +44,7 @@ from zigbeelens.services.dashboard_model_patterns import compose_dashboard_model
 from zigbeelens.services.dashboard_investigation_priorities import (
     compose_dashboard_investigation_priorities,
 )
+from zigbeelens.services.dashboard_coverage_warnings import compose_dashboard_coverage_warnings
 from zigbeelens.services.empty_state import build_empty_dashboard, empty_finding
 from zigbeelens.services.live_dashboard import (
     build_health_snapshot,
@@ -136,6 +137,14 @@ class PayloadBuilder:
         investigation_priorities = compose_dashboard_investigation_priorities(
             self.repo, network_rows
         )
+        data_coverage_warnings = compose_dashboard_coverage_warnings(
+            self.repo,
+            network_rows,
+            self.config,
+            investigation_network_ids={
+                item.network_id for item in investigation_priorities
+            },
+        )
 
         return DashboardPayload(
             generated_at=utc_now_iso(),
@@ -168,6 +177,7 @@ class PayloadBuilder:
             shared_availability_events=shared_availability_events,
             model_patterns=model_patterns,
             investigation_priorities=investigation_priorities,
+            data_coverage_warnings=data_coverage_warnings,
         )
 
     def _fallback_health(self) -> HealthDiagnosticService:

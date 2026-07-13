@@ -8,6 +8,9 @@ import type { DecisionPillTone } from "@/viewModels/types";
 
 export const INVESTIGATION_PRIORITY_SECTION_TITLE = "What needs attention now";
 
+export const INVESTIGATION_PRIORITY_SECTION_SUBTITLE =
+  "Stored evidence can still suggest useful checks even when no current incident is active.";
+
 export const INVESTIGATION_PRIORITY_EMPTY_COPY =
   "No current investigation priorities from stored evidence.";
 
