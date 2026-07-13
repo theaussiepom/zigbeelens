@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 from zigbeelens.decisions.investigation_action_groups import assign_investigation_action_groups
 
 if TYPE_CHECKING:
+    from zigbeelens.decisions.router_area import ObservedRouterArea
     from zigbeelens.storage.repository import DeviceRow, Repository
 
 # --------------------------------------------------------------------------
@@ -51,6 +52,7 @@ PASSIVE_GROUP_MIN_HINTS = 2
 DIAGNOSTICS_LIMITED_MIN_DEVICES = 3
 ROUTER_REVIEW_MIN_LINKS = 8
 ROUTER_REVIEW_MIN_ISSUE_NEIGHBOURS = 2
+ROUTER_REVIEW_MULTI_SOURCE_MIN_MEMBERS = 4
 
 # Supporting evidence within this window earns the recency boost.
 RECENCY_BOOST_HOURS = 24
@@ -102,6 +104,19 @@ DIAGNOSTICS_LIMITED_LIMITATION = (
 SHARED_AVAILABILITY_EVENT_LIMITATION = (
     "Devices changing availability around the same time does not prove they share "
     "a Zigbee route, path, parent, or root cause."
+)
+ROUTER_AREA_LIMITATION = (
+    "An observed router area groups stored evidence around a router. It does not "
+    "prove parentage, a current route or path, or that the router caused device issues."
+)
+_TOPOLOGY_EVIDENCE_CLASSES = frozenset(
+    {
+        "latest_snapshot_neighbor",
+        "historical_neighbor",
+        "historical_route",
+        "last_known_link",
+        "latest_snapshot_route",
+    }
 )
 
 # Stable card-type order used for deterministic tie-breaking.
@@ -632,34 +647,273 @@ def _shared_availability_event_cards(
     return cards
 
 
+def issue_device_ieees_from_state(
+    devices: list[DeviceRow], incident_device_ieees: set[str]
+) -> set[str]:
+    """Shared issue semantics for investigations and router-area facts."""
+    return _issue_device_ids(devices, incident_device_ieees)
+
+
+def _topology_evidence_classes(area: ObservedRouterArea) -> set[str]:
+    return {cls for cls in area.evidence_classes if cls in _TOPOLOGY_EVIDENCE_CLASSES}
+
+
+def _router_area_issue_members_excluding_router(area: ObservedRouterArea) -> set[str]:
+    return {ieee for ieee in area.issue_device_ieees if ieee != area.router_ieee}
+
+
+def _router_area_qualifies(area: ObservedRouterArea) -> bool:
+    topology_classes = _topology_evidence_classes(area)
+    if not topology_classes:
+        return False
+
+    router = area.router_ieee
+    issue_members = set(area.issue_device_ieees)
+    member_issues_excl_router = _router_area_issue_members_excluding_router(area)
+    router_in_issue = router in issue_members
+
+    has_issue_relevance = (
+        len(member_issues_excl_router) >= ROUTER_REVIEW_MIN_ISSUE_NEIGHBOURS
+        or (router_in_issue and len(topology_classes) >= 2)
+    )
+    if not has_issue_relevance:
+        return False
+
+    latest_adjacency_ok = len(area.latest_neighbour_ieees) >= ROUTER_REVIEW_MIN_LINKS
+    multi_source_ok = (
+        len(member_issues_excl_router) >= ROUTER_REVIEW_MIN_ISSUE_NEIGHBOURS
+        and len(topology_classes) >= 2
+        and len(area.member_ieees) >= ROUTER_REVIEW_MULTI_SOURCE_MIN_MEMBERS
+    )
+    return latest_adjacency_ok or multi_source_ok
+
+
+def _router_area_device_ieees(area: ObservedRouterArea) -> list[str]:
+    ordered: list[str] = []
+
+    def add_many(ieees: list[str]) -> None:
+        for ieee in ieees:
+            if ieee and ieee not in ordered:
+                ordered.append(ieee)
+
+    add_many([area.router_ieee])
+    add_many(area.issue_device_ieees)
+    add_many(area.latest_neighbour_ieees)
+    add_many(area.recent_missing_ieees)
+    add_many(area.last_known_ieees)
+    add_many(area.route_hint_ieees)
+    seen = set(ordered)
+    add_many([ieee for ieee in area.passive_hint_ieees if ieee not in seen])
+    return ordered[:MAX_DEVICES_PER_CARD]
+
+
+def _router_area_edge_ids(
+    area: ObservedRouterArea,
+    *,
+    history: dict[str, Any],
+    passive_hints: list[dict[str, Any]],
+) -> list[str]:
+    router = area.router_ieee
+    edge_ids: set[str] = set()
+
+    for neighbour in area.latest_neighbour_ieees:
+        edge_ids.add(_neighbor_edge_id(router, neighbour))
+
+    for edge in list(history.get("historical_neighbors") or []) + list(
+        history.get("historical_routes") or []
+    ):
+        source = _norm(edge.get("source_ieee"))
+        target = _norm(edge.get("target_ieee"))
+        if router not in {source, target}:
+            continue
+        other = target if source == router else source
+        if other not in area.recent_missing_ieees:
+            continue
+        if edge.get("evidence_class") == "historical_route":
+            edge_ids.add(_hist_route_edge_id(source, target))
+        else:
+            edge_ids.add(_hist_neighbor_edge_id(source, target))
+
+    for neighbour in area.last_known_ieees:
+        edge_ids.add(_last_known_edge_id(router, neighbour))
+
+    for ref in area.params.get("route_hint_refs") or []:
+        if _norm(ref.get("router_ieee")) != router:
+            continue
+        source = _norm(ref.get("source_ieee"))
+        target = _norm(ref.get("target_ieee"))
+        if source and target:
+            edge_ids.add(_route_edge_id(source, target))
+
+    for hint in passive_hints:
+        if hint.get("evidence_class") != "passive_derived_association":
+            continue
+        source = _norm(hint.get("source_ieee"))
+        target = _norm(hint.get("target_ieee"))
+        if router not in {source, target}:
+            continue
+        other = target if source == router else source
+        if other in area.passive_hint_ieees:
+            edge_ids.add(_passive_edge_id(source, target))
+
+    return sorted(edge_ids)
+
+
+def _router_area_issue_context(
+    area: ObservedRouterArea,
+) -> tuple[set[str], int, bool]:
+    issue_members_excluding_router = _router_area_issue_members_excluding_router(area)
+    issue_member_count = len(issue_members_excluding_router)
+    router_needs_attention = area.router_ieee in area.issue_device_ieees
+    return issue_members_excluding_router, issue_member_count, router_needs_attention
+
+
+def _router_area_summary(
+    name: str,
+    *,
+    issue_member_count: int,
+    router_needs_attention: bool,
+) -> str:
+    if issue_member_count > 0:
+        return (
+            f"{_count_phrase(issue_member_count, 'device')} needing attention have "
+            f"stored evidence in the observed router area around {name}."
+        )
+    if router_needs_attention:
+        return (
+            f"{name} currently needs attention and has stored evidence across "
+            "this observed router area."
+        )
+    return (
+        f"{_count_phrase(issue_member_count, 'device')} needing attention have "
+        f"stored evidence in the observed router area around {name}."
+    )
+
+
+def _router_area_why_it_matters(
+    *,
+    issue_member_count: int,
+    router_needs_attention: bool,
+) -> str:
+    if issue_member_count > 0:
+        lead = (
+            "A device needing attention appears"
+            if issue_member_count == 1
+            else "Several devices needing attention appear"
+        )
+        return (
+            f"{lead} in stored evidence around the same router area. Reviewing that "
+            "area together may be more useful than treating each device as unrelated."
+        )
+    if router_needs_attention:
+        return (
+            "The router itself currently needs attention, and more than one topology "
+            "evidence source describes devices around this observed area. Reviewing "
+            "the router and that stored context together may be useful."
+        )
+    return (
+        "Several devices needing attention appear in stored evidence around the same "
+        "router area. Reviewing that area together may be more useful than treating "
+        "each device as unrelated."
+    )
+
+
+def _router_area_supporting_evidence(area: ObservedRouterArea) -> list[str]:
+    lines: list[str] = []
+    if area.latest_neighbour_ieees:
+        lines.append(
+            f"{_count_phrase(len(area.latest_neighbour_ieees), 'device')} were observed "
+            "around this router in the latest topology snapshot."
+        )
+    if area.recent_missing_ieees:
+        lines.append(
+            f"{_count_phrase(len(area.recent_missing_ieees), 'device')} have recent "
+            "missing topology evidence involving this router area."
+        )
+    if area.last_known_ieees:
+        lines.append(
+            f"{_count_phrase(len(area.last_known_ieees), 'device')} have last-known "
+            "link evidence involving this router."
+        )
+    if area.route_hint_ieees:
+        lines.append(
+            f"Stored route hints involve {_count_phrase(len(area.route_hint_ieees), 'device')} "
+            "in this router area."
+        )
+    if area.passive_hint_ieees:
+        lines.append(
+            f"Passive investigation hints also involve "
+            f"{_count_phrase(len(area.passive_hint_ieees), 'device')} in this observed area."
+        )
+    member_issues_excl_router = _router_area_issue_members_excluding_router(area)
+    router_needs_attention = area.router_ieee in area.issue_device_ieees
+    if router_needs_attention:
+        lines.append("The router itself currently needs attention.")
+    if member_issues_excl_router:
+        lines.append(
+            f"{_count_phrase(len(member_issues_excl_router), 'device')} in this observed "
+            "area currently need attention."
+        )
+    if area.ha_area_context is not None:
+        ha = area.ha_area_context
+        if ha.area_count == 1:
+            area_name = next(iter(ha.areas), None)
+            if area_name:
+                lines.append(
+                    f"{ha.matched_device_count} matched devices are in {area_name}."
+                )
+        elif ha.area_count > 1:
+            lines.append(
+                f"Matched devices span {ha.area_count} Home Assistant areas."
+            )
+    return lines
+
+
+def _router_area_score(
+    area: ObservedRouterArea,
+    *,
+    latest_captured_at: str | None,
+    now: datetime,
+) -> int:
+    member_issues_excl_router = _router_area_issue_members_excluding_router(area)
+    score = ISSUE_DEVICE_WEIGHT * len(member_issues_excl_router)
+    if len(_topology_evidence_classes(area)) > 1:
+        score += TOPOLOGY_CORROBORATION_WEIGHT
+    if area.router_ieee in area.issue_device_ieees:
+        score += UNAVAILABLE_DEVICE_WEIGHT
+    score += _recency_boost(area.latest_supporting_evidence_at or latest_captured_at, now)
+    return score
+
+
+def _router_area_created_from_evidence_classes(area: ObservedRouterArea) -> list[str]:
+    classes = list(_topology_evidence_classes(area))
+    if area.passive_hint_ieees:
+        classes.append("passive_derived_association")
+    return sorted(set(classes))
+
+
 def _router_review_cards(
     *,
-    issue_ids: set[str],
-    neighbourhoods: dict[str, set[str]],
-    latest_links: list[dict[str, Any]],
+    observed_router_areas: list[ObservedRouterArea],
+    history: dict[str, Any],
+    passive_hints: list[dict[str, Any]],
     devices_by_ieee: dict[str, DeviceRow],
     latest_captured_at: str | None,
     now: datetime,
 ) -> list[dict[str, Any]]:
     cards: list[dict[str, Any]] = []
-    for router, neighbours in sorted(neighbourhoods.items()):
-        device = devices_by_ieee.get(router)
+    for area in observed_router_areas:
+        device = devices_by_ieee.get(area.router_ieee)
         if device is not None and device.device_type not in _INFRA_TYPES:
             continue
-        if len(neighbours) < ROUTER_REVIEW_MIN_LINKS:
+        if not _router_area_qualifies(area):
             continue
-        issue_neighbours = sorted(neighbours & issue_ids)
-        if len(issue_neighbours) < ROUTER_REVIEW_MIN_ISSUE_NEIGHBOURS:
-            continue
-        score = (
-            ISSUE_DEVICE_WEIGHT * len(issue_neighbours)
-            + TOPOLOGY_CORROBORATION_WEIGHT
-            + (UNAVAILABLE_DEVICE_WEIGHT if router in issue_ids else 0)
-            + _recency_boost(latest_captured_at, now)
-        )
+
+        router = area.router_ieee
         name = _name_of(devices_by_ieee, router)
-        edge_ids = sorted(
-            _neighbor_edge_id(router, neighbour) for neighbour in issue_neighbours
+        _, issue_member_count, router_needs_attention = _router_area_issue_context(area)
+        score = _router_area_score(
+            area, latest_captured_at=latest_captured_at, now=now
         )
         cards.append(
             {
@@ -667,37 +921,45 @@ def _router_review_cards(
                 "type": "router_neighbourhood_review",
                 "priority": _priority(score),
                 "score": score,
-                "title": f"Busy router worth reviewing: {name}",
-                "summary": (
-                    f"{name} appears in many observed topology relationships "
-                    f"({_count_phrase(len(neighbours), 'observed neighbour')}) and has "
-                    f"{_count_phrase(len(issue_neighbours), 'issue-adjacent device')} "
-                    "nearby in the evidence graph."
+                "title": f"Review observed router area: {name}",
+                "summary": _router_area_summary(
+                    name,
+                    issue_member_count=issue_member_count,
+                    router_needs_attention=router_needs_attention,
                 ),
-                "why_it_matters": (
-                    "It may be worth checking power, placement, firmware and whether "
-                    "it is a reliable repeater. This is an observation about evidence "
-                    "concentration, not a claim that this router is responsible."
+                "why_it_matters": _router_area_why_it_matters(
+                    issue_member_count=issue_member_count,
+                    router_needs_attention=router_needs_attention,
                 ),
-                "supporting_evidence": [
-                    f"{_count_phrase(len(neighbours), 'observed neighbour')} in the "
-                    "latest snapshot.",
-                    f"{_count_phrase(len(issue_neighbours), 'device')} needing "
-                    "attention in its observed neighbourhood.",
+                "supporting_evidence": _router_area_supporting_evidence(area),
+                "limitations": [
+                    GENERIC_INVESTIGATION_LIMITATION,
+                    ROUTER_AREA_LIMITATION,
                 ],
-                "limitations": [GENERIC_INVESTIGATION_LIMITATION],
                 "suggested_next_steps": [
-                    "Check device power and placement.",
-                    "Check whether nearby router devices are powered.",
-                    "Review recent incidents involving nearby devices.",
-                    "Select the router to inspect its evidence details.",
-                ],
-                "device_ieees": sorted({router, *issue_neighbours})[:MAX_DEVICES_PER_CARD],
-                "edge_ids": edge_ids,
+                    "Check power to the router.",
+                    "Check whether the router is still present and powered.",
+                    "Check physical placement or recent changes around the observed area.",
+                    "Compare recent missing and last-known evidence.",
+                    "Review incidents for devices represented in the area.",
+                    "Select the router to inspect its stored evidence.",
+                ]
+                + (
+                    ["Compare stored route hints with the latest snapshot evidence."]
+                    if area.route_hint_ieees
+                    else []
+                ),
+                "device_ieees": _router_area_device_ieees(area),
+                "edge_ids": _router_area_edge_ids(
+                    area, history=history, passive_hints=passive_hints
+                ),
                 "primary_device_ieee": router,
                 "primary_neighbourhood_ieee": router,
-                "created_from_evidence_classes": ["latest_snapshot_neighbor"],
-                "latest_supporting_evidence_at": latest_captured_at,
+                "created_from_evidence_classes": _router_area_created_from_evidence_classes(
+                    area
+                ),
+                "latest_supporting_evidence_at": area.latest_supporting_evidence_at
+                or latest_captured_at,
             }
         )
     return cards
@@ -888,7 +1150,7 @@ def _apply_tailored_evidence(
     stay readable.
     """
     for card in cards:
-        if card.get("type") == "shared_availability_event":
+        if card.get("type") in {"shared_availability_event", "router_neighbourhood_review"}:
             continue
         ordered: list[str] = []
         primary = card.get("primary_device_ieee")
@@ -930,7 +1192,10 @@ def build_investigations(
     history: dict[str, Any],
     passive_hints: list[dict[str, Any]],
     shared_availability_events: list[Any] | None = None,
+    observed_router_areas: list[Any] | None = None,
+    last_known_links: list[dict[str, Any]] | None = None,
     offline_events: dict[str, list[str]] | None = None,
+    network_id: str = "home",
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Build ranked investigation cards from existing evidence aggregates.
@@ -944,6 +1209,20 @@ def build_investigations(
     issue_ids = _issue_device_ids(devices, incident_device_ieees)
     latest_layout_available = bool(latest_nodes or latest_links)
     neighbourhoods = _router_neighbourhoods(latest_links, devices_by_ieee)
+
+    if observed_router_areas is None:
+        from zigbeelens.decisions.router_area import build_observed_router_areas
+
+        observed_router_areas = build_observed_router_areas(
+            network_id=network_id,
+            devices=devices,
+            latest_links=latest_links,
+            historical_neighbors=list(history.get("historical_neighbors") or []),
+            historical_routes=list(history.get("historical_routes") or []),
+            last_known_links=list(last_known_links or []),
+            passive_hints=passive_hints,
+            issue_device_ieees=issue_ids,
+        ).areas
 
     cards: list[dict[str, Any]] = []
     cards.extend(
@@ -975,9 +1254,9 @@ def build_investigations(
     )
     cards.extend(
         _router_review_cards(
-            issue_ids=issue_ids,
-            neighbourhoods=neighbourhoods,
-            latest_links=latest_links,
+            observed_router_areas=observed_router_areas,
+            history=history,
+            passive_hints=passive_hints,
             devices_by_ieee=devices_by_ieee,
             latest_captured_at=latest_captured_at,
             now=now,
@@ -1030,6 +1309,8 @@ def aggregate_investigations(
     history: dict[str, Any],
     passive_hints: list[dict[str, Any]],
     shared_availability_events: list[Any] | None = None,
+    observed_router_areas: list[Any] | None = None,
+    last_known_links: list[dict[str, Any]] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Gather repository inputs and build investigation cards for a network.
@@ -1061,6 +1342,9 @@ def aggregate_investigations(
         history=history,
         passive_hints=passive_hints,
         shared_availability_events=shared_availability_events,
+        observed_router_areas=observed_router_areas,
+        last_known_links=last_known_links,
         offline_events=offline_events,
+        network_id=network_id,
         now=now,
     )
