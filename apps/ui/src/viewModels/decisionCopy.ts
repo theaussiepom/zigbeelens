@@ -107,6 +107,36 @@ const COVERAGE_LABEL_COPY: Record<CoverageLabelCode, string> = {
   lqi_history_sparse: "LQI history sparse",
 };
 
+const COVERAGE_HELPER_COPY: Record<CoverageLabelCode, string> = {
+  availability_tracking_off:
+    "Enable Zigbee2MQTT availability and last-seen reporting for offline history, passive hints and reports.",
+  availability_history_building:
+    "Availability tracking is enabled, but ZigbeeLens only has history from when it was turned on.",
+  availability_status_unknown:
+    "ZigbeeLens cannot confirm availability/last-seen coverage for this period.",
+  route_hints_unavailable:
+    "Route-hint evidence was not available from the latest topology snapshot. This does not mean routes are absent or prove current routing.",
+  ha_areas_not_linked:
+    "Home Assistant area enrichment is not linked. Grouping and report context may be less useful. This is not a Zigbee network fault.",
+  snapshot_stale:
+    "The latest stored topology snapshot is older than the configured capture cadence. Interpret topology evidence as older stored evidence.",
+  battery_history_sparse:
+    "Battery history is sparse for this network. Battery-related interpretation may be limited.",
+  lqi_history_sparse:
+    "Link-quality history is sparse for this network. LQI-related interpretation may be limited.",
+};
+
+const COVERAGE_TONES: Record<CoverageLabelCode, DecisionPillTone> = {
+  availability_tracking_off: "coverage",
+  availability_history_building: "watch",
+  availability_status_unknown: "muted",
+  route_hints_unavailable: "muted",
+  ha_areas_not_linked: "coverage",
+  snapshot_stale: "watch",
+  battery_history_sparse: "muted",
+  lqi_history_sparse: "muted",
+};
+
 const DECISION_STATUS_LABELS: Record<DecisionStatus, string> = {
   informational: "Informational",
   no_notable_change: "No notable change",
@@ -169,6 +199,20 @@ export function coverageLabel(labelCode: string): string {
     return "Coverage status unknown";
   }
   return COVERAGE_LABEL_COPY[labelCode];
+}
+
+export function coverageHelperText(labelCode: string): string {
+  if (!isKnownCoverageLabelCode(labelCode)) {
+    return "Coverage details are limited. Interpret other evidence conservatively.";
+  }
+  return COVERAGE_HELPER_COPY[labelCode];
+}
+
+export function coverageTone(labelCode: string): DecisionPillTone {
+  if (!isKnownCoverageLabelCode(labelCode)) {
+    return "muted";
+  }
+  return COVERAGE_TONES[labelCode];
 }
 
 export function decisionStatusLabel(status: string): string {

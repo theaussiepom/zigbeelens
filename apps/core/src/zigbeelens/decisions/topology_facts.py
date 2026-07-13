@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from zigbeelens.decisions.types import EvidenceFact
+from zigbeelens.decisions.types import DataCoverage, EvidenceFact
 from zigbeelens.topology.device_compare import (
     COVERAGE_BUILDING,
     COVERAGE_OFF,
@@ -401,11 +401,14 @@ def topology_network_facts_payload(
     facts: TopologyFacts,
     *,
     stale_threshold_hours: int | None,
+    coverage: list[DataCoverage] | None = None,
 ) -> dict[str, Any]:
     """Serialise network topology facts for API/report payloads."""
+    coverage_items = coverage or []
     return {
         "stale_threshold_hours": stale_threshold_hours,
         "network_facts": [fact.model_dump(mode="json") for fact in facts.network_facts],
+        "coverage": [item.model_dump(mode="json") for item in coverage_items],
     }
 
 

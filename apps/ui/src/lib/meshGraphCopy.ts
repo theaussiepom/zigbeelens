@@ -13,6 +13,7 @@ import type {
   MeshNodeFlag,
   MeshRole,
 } from "@/lib/meshEvidence";
+import { coverageHelperText, coverageLabel } from "@/viewModels/decisionCopy";
 
 /* ------------------------------------------------------------------------ */
 /* Safety banner                                                             */
@@ -207,16 +208,21 @@ export const SNAPSHOT_HISTORY_SELECTED_ONLY_NOTE =
 export const SNAPSHOT_HISTORY_ROUTE_HINT_NOTE =
   "Route hints are route-table hints captured during topology collection. They are not proof of current live routing.";
 
-/* Availability tracking pills */
-export const AVAILABILITY_PILL_OFF = "Availability tracking off";
-export const AVAILABILITY_PILL_OFF_HELPER =
-  "Enable Zigbee2MQTT availability and last-seen reporting for offline history, passive hints and reports.";
-export const AVAILABILITY_PILL_BUILDING = "Availability history building";
-export const AVAILABILITY_PILL_BUILDING_HELPER =
-  "Availability tracking is enabled, but ZigbeeLens only has history from when it was turned on.";
-export const AVAILABILITY_PILL_UNKNOWN = "Availability status unknown";
-export const AVAILABILITY_PILL_UNKNOWN_HELPER =
-  "ZigbeeLens cannot confirm availability/last-seen coverage for this period.";
+/* Availability tracking pills — labels and helpers sourced from decisionCopy. */
+
+export const AVAILABILITY_PILL_OFF = coverageLabel("availability_tracking_off");
+export const AVAILABILITY_PILL_OFF_HELPER = coverageHelperText("availability_tracking_off");
+export const AVAILABILITY_PILL_BUILDING = coverageLabel("availability_history_building");
+export const AVAILABILITY_PILL_BUILDING_HELPER = coverageHelperText(
+  "availability_history_building",
+);
+export const AVAILABILITY_PILL_UNKNOWN = coverageLabel("availability_status_unknown");
+export const AVAILABILITY_PILL_UNKNOWN_HELPER = coverageHelperText(
+  "availability_status_unknown",
+);
+
+export const EVIDENCE_COVERAGE_STRIP_TITLE = "Evidence coverage";
+export const DEVICE_SECTION_DATA_COVERAGE = "Evidence coverage";
 
 /* ------------------------------------------------------------------------ */
 /* Investigation panel                                                       */

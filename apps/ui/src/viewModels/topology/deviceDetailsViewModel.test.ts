@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { DataCoverageDto } from "@/types/decisions";
 import type { MeshEvidenceDevice } from "@/lib/meshEvidence";
 import { meshHealthBucketLabel, meshNodeFlagLabel } from "@/lib/meshEvidence";
 import {
+  DEVICE_SECTION_DATA_COVERAGE,
   DEVICE_SECTION_OPEN_ISSUE,
   DEVICE_SECTION_PASSIVE_HINTS,
   DEVICE_SECTION_RECENT_MISSING,
@@ -141,5 +143,46 @@ describe("deviceDetailsViewModel", () => {
     if (snapshotHistory?.id !== "snapshotHistory") return;
     expect(snapshotHistory.networkId).toBe("home");
     expect(snapshotHistory.deviceIeee).toBe("0xr1");
+  });
+
+  it("omits dataCoverage when network coverage is empty", () => {
+    const vm = buildDeviceDetailsViewModel(makeDevice(), []);
+    expect(vm.sections.some((section) => section.id === "dataCoverage")).toBe(false);
+  });
+
+  it("includes filtered network coverage after snapshot history", () => {
+    const coverage: DataCoverageDto[] = [
+      {
+        dimension: "availability",
+        state: "off",
+        label_code: "availability_tracking_off",
+      },
+      {
+        dimension: "availability",
+        state: "building",
+        label_code: "availability_history_building",
+      },
+      {
+        dimension: "topology_snapshot",
+        state: "stale",
+        label_code: "snapshot_stale",
+      },
+    ];
+    const vm = buildDeviceDetailsViewModel(
+      makeDevice({
+        passive_hint_summary: "Passive hints available.",
+      }),
+      coverage,
+    );
+    const ids = sectionIds(vm);
+    const section = vm.sections.find((item) => item.id === "dataCoverage");
+    expect(section?.title).toBe(DEVICE_SECTION_DATA_COVERAGE);
+    if (section?.id !== "dataCoverage") return;
+    expect(section.items.map((item) => item.label)).toEqual([
+      "Availability tracking off",
+      "Snapshot stale",
+    ]);
+    expect(ids.indexOf("dataCoverage")).toBeGreaterThan(ids.indexOf("snapshotHistory"));
+    expect(ids.indexOf("dataCoverage")).toBeLessThan(ids.indexOf("passiveHints"));
   });
 });

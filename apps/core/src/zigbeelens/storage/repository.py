@@ -1450,6 +1450,25 @@ class Repository:
         row = cur.fetchone()
         return dict(row) if row else None
 
+    def network_has_usable_ha_area_assignments(self, network_id: str) -> bool:
+        """True when at least one enrichment row has a non-empty area assignment."""
+        if not self._has_table("ha_device_enrichment"):
+            return False
+        cur = self.db.conn.execute(
+            """
+            SELECT 1
+            FROM ha_device_enrichment
+            WHERE network_id = ?
+              AND (
+                (area_id IS NOT NULL AND TRIM(area_id) != '')
+                OR (area_name IS NOT NULL AND TRIM(area_name) != '')
+              )
+            LIMIT 1
+            """,
+            (network_id,),
+        )
+        return cur.fetchone() is not None
+
     def purge_collected_data_before(self, cutoff_iso: str) -> dict[str, int]:
         """Remove collected telemetry older than *cutoff_iso* (UTC ISO timestamp)."""
         counts: dict[str, int] = {}

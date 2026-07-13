@@ -161,6 +161,7 @@ const HISTORICAL_ROUTE_LIMITATIONS = [
 const emptyTopologyNetworkFacts = {
   stale_threshold_hours: null,
   network_facts: [],
+  coverage: [],
 };
 
 const emptyTopologyDeviceFacts = {
@@ -1336,6 +1337,68 @@ describe("TopologyGraphPage historical evidence (live)", () => {
     expect(
       screen.getByTitle("Devices ZigbeeLens knows from Zigbee2MQTT inventory."),
     ).toBeInTheDocument();
+  });
+
+  it("renders the evidence coverage strip near metrics when coverage exists", async () => {
+    mockDetail = {
+      ...liveDetailWithHistory,
+      topology_facts: {
+        ...emptyTopologyNetworkFacts,
+        coverage: [
+          {
+            dimension: "route_hints",
+            state: "not_observed",
+            label_code: "route_hints_unavailable",
+          },
+          {
+            dimension: "availability",
+            state: "off",
+            label_code: "availability_tracking_off",
+          },
+        ],
+      },
+    };
+    await renderLiveAndWaitForLayout();
+    const strip = screen.getByTestId("evidence-coverage-strip");
+    expect(strip).toHaveTextContent("Evidence coverage");
+    expect(within(strip).getByText("Availability tracking off")).toBeInTheDocument();
+    expect(within(strip).getByText("Route hints unavailable")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/route_hints_unavailable/);
+  });
+
+  it("does not render an empty evidence coverage strip", async () => {
+    mockDetail = {
+      ...liveDetailWithHistory,
+      topology_facts: emptyTopologyNetworkFacts,
+    };
+    await renderLiveAndWaitForLayout();
+    expect(screen.queryByTestId("evidence-coverage-strip")).not.toBeInTheDocument();
+  });
+
+  it("renders Evidence coverage once in the device details drawer", async () => {
+    mockDetail = {
+      ...liveDetailWithHistory,
+      topology_facts: {
+        ...emptyTopologyNetworkFacts,
+        coverage: [
+          {
+            dimension: "availability",
+            state: "off",
+            label_code: "availability_tracking_off",
+          },
+          {
+            dimension: "route_hints",
+            state: "not_observed",
+            label_code: "route_hints_unavailable",
+          },
+        ],
+      },
+    };
+    await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(within(drawer).getByText("Availability tracking off")).toBeInTheDocument();
+    expect(within(drawer).getAllByText("Evidence coverage")).toHaveLength(1);
   });
 
   it("frames the historical neighbour details panel as previous-snapshot evidence, never live routing", async () => {

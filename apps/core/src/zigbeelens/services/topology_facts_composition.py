@@ -10,6 +10,8 @@ from zigbeelens.decisions.topology_facts import (
     topology_device_facts_payload,
     topology_network_facts_payload,
 )
+from zigbeelens.decisions.availability_tracking import availability_tracking_enabled_now
+from zigbeelens.decisions.topology_coverage import build_network_topology_coverage
 from zigbeelens.topology.device_compare import device_snapshot_history
 
 if TYPE_CHECKING:
@@ -35,6 +37,7 @@ def topology_stale_threshold_hours(config: AppConfig) -> int | None:
 
 def compose_network_topology_facts_payload(
     service: EvidenceGraphService,
+    repo: Repository,
     evidence_graph: dict[str, Any],
     *,
     stale_after_hours: int | None,
@@ -46,9 +49,19 @@ def compose_network_topology_facts_payload(
         now=now,
         stale_after_hours=stale_after_hours,
     )
+    network_id = evidence_graph["network_id"]
+    coverage = build_network_topology_coverage(
+        facts.network_facts,
+        tracking_enabled_now=availability_tracking_enabled_now(repo, network_id),
+        has_known_devices=bool(repo.list_devices(network_id)),
+        has_usable_ha_area_assignments=repo.network_has_usable_ha_area_assignments(
+            network_id
+        ),
+    )
     return topology_network_facts_payload(
         facts,
         stale_threshold_hours=stale_after_hours,
+        coverage=coverage,
     )
 
 
