@@ -1,4 +1,13 @@
-import type { TopologyDeviceFactsDto } from "@/types/decisions";
+import type {
+  DataCoverageDto,
+  DecisionLimitationDto,
+  DecisionPriority,
+  DecisionReasonDto,
+  DecisionStatus,
+  EvidenceReferenceDto,
+  SuggestedCheckDto,
+  TopologyDeviceFactsDto,
+} from "@/types/decisions";
 
 /** Device-centric API types from Core topology and device endpoints. */
 
@@ -82,4 +91,26 @@ export interface DeviceStatsWindow {
   days: number;
   max_snapshots: number;
   snapshots_considered: number;
+}
+
+/** One optional timeline item from GET /api/devices/{network_id}/{ieee}/story. */
+export interface DeviceStoryTimelineItemDto {
+  code: string;
+  params?: Record<string, unknown>;
+  occurred_at: string | null;
+}
+
+/** Response of GET /api/devices/{network_id}/{ieee}/story. */
+export interface DeviceStoryDto {
+  subject_type: "device";
+  subject_id: string;
+  status: DecisionStatus;
+  priority: DecisionPriority;
+  headline_code: string;
+  reasons: DecisionReasonDto[];
+  evidence: EvidenceReferenceDto[];
+  limitations: DecisionLimitationDto[];
+  suggested_checks: SuggestedCheckDto[];
+  coverage: DataCoverageDto[];
+  timeline: DeviceStoryTimelineItemDto[];
 }

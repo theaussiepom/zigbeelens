@@ -76,6 +76,8 @@ export function GraphToolbar({
               selectedDevice: selectedNodeId
                 ? (devices.find((device) => device.ieee_address === selectedNodeId) ?? null)
                 : null,
+              // Phase 5: pass buildDeviceStoryViewModel(...) as deviceStory when selected.
+              deviceStory: null,
             })
           }
         />
