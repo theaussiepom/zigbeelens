@@ -299,6 +299,21 @@ class ModelPatternSummary(BaseModel):
     latest_supporting_evidence_at: str | None = None
 
 
+class InvestigationPrioritySummary(BaseModel):
+    """Top mesh investigation card flattened for dashboard Overview."""
+
+    id: str
+    network_id: str
+    card_type: str
+    priority: str
+    score: int
+    action_group: str
+    title: str
+    summary: str
+    device_ieees: list[str] = Field(default_factory=list)
+    latest_supporting_evidence_at: str | None = None
+
+
 class DashboardPayload(BaseModel):
     generated_at: str
     scenario: str | None = None
@@ -317,6 +332,7 @@ class DashboardPayload(BaseModel):
     health_snapshot: HealthSnapshot
     shared_availability_events: list[SharedAvailabilityEventSummary] = Field(default_factory=list)
     model_patterns: list[ModelPatternSummary] = Field(default_factory=list)
+    investigation_priorities: list[InvestigationPrioritySummary] = Field(default_factory=list)
 
 
 class RedactionProfile(str, Enum):

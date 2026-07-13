@@ -44,6 +44,7 @@ function makeDashboard(
     },
     shared_availability_events: [],
     model_patterns: [],
+    investigation_priorities: [],
     ...overrides,
   };
 }
@@ -84,6 +85,7 @@ const mockState = vi.hoisted(() => ({
     },
     shared_availability_events: [],
     model_patterns: [],
+    investigation_priorities: [],
   } as DashboardPayload,
 }));
 

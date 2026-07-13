@@ -1,0 +1,55 @@
+"""Compose mesh investigation priorities for the Overview dashboard (Phase 5A-1)."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from zigbeelens.schemas import InvestigationPrioritySummary
+from zigbeelens.services.evidence_graph import EvidenceGraphService
+
+if TYPE_CHECKING:
+    from zigbeelens.storage.repository import NetworkRow, Repository
+
+MAX_OVERVIEW_INVESTIGATION_PRIORITIES_PER_NETWORK = 3
+MAX_OVERVIEW_INVESTIGATION_PRIORITIES = 6
+
+
+def _card_to_summary(network_id: str, card: dict[str, Any]) -> InvestigationPrioritySummary:
+    return InvestigationPrioritySummary(
+        id=str(card["id"]),
+        network_id=network_id,
+        card_type=str(card["type"]),
+        priority=str(card["priority"]),
+        score=int(card["score"]),
+        action_group=str(card.get("action_group") or ""),
+        title=str(card["title"]),
+        summary=str(card["summary"]),
+        device_ieees=list(card.get("device_ieees") or []),
+        latest_supporting_evidence_at=card.get("latest_supporting_evidence_at"),
+    )
+
+
+def compose_dashboard_investigation_priorities(
+    repo: Repository,
+    networks: list[NetworkRow],
+) -> list[InvestigationPrioritySummary]:
+    """Flatten ranked mesh investigation cards across networks for Overview."""
+    service = EvidenceGraphService(repo)
+    summaries: list[InvestigationPrioritySummary] = []
+    for network in networks:
+        investigations = service.investigations_for_network(network.id)
+        for card in investigations["investigations"][
+            :MAX_OVERVIEW_INVESTIGATION_PRIORITIES_PER_NETWORK
+        ]:
+            summaries.append(_card_to_summary(network.id, card))
+
+    summaries.sort(
+        key=lambda item: (
+            item.score,
+            item.latest_supporting_evidence_at or "",
+            item.network_id,
+            item.id,
+        ),
+        reverse=True,
+    )
+    return summaries[:MAX_OVERVIEW_INVESTIGATION_PRIORITIES]

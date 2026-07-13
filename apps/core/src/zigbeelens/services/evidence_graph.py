@@ -40,6 +40,50 @@ class EvidenceGraphService:
     def __init__(self, repo: Repository) -> None:
         self._repo = repo
 
+    def investigations_for_network(self, network_id: str) -> dict[str, Any]:
+        """Ranked investigation cards for one network (shared by mesh and Overview)."""
+        network = self._repo.networks.get_network(network_id)
+        if network is None:
+            raise NetworkNotFoundError(network_id)
+
+        topology = self._repo.topology
+        latest = topology.get_latest_topology_snapshot(network_id)
+        links = topology.list_topology_links(latest["snapshot_id"]) if latest else []
+        history = aggregate_historical_evidence(self._repo, network_id)
+        last_known = aggregate_last_known_links(self._repo, network_id)
+        passive = aggregate_passive_hints(self._repo, network_id)
+        shared_availability = shared_availability_event_groups_for_network(
+            self._repo, network_id
+        )
+        devices = self._repo.list_devices(network_id)
+        issue_device_ieees = issue_device_ieees_from_state(
+            devices,
+            set(self._repo.incidents.list_active_incident_device_addresses(network_id)),
+        )
+        observed_router_areas = observed_router_areas_for_network(
+            self._repo,
+            network_id,
+            devices=devices,
+            latest_links=links,
+            history=history,
+            last_known_links=last_known["last_known_links"],
+            passive_hints=passive["hints"],
+            issue_device_ieees=issue_device_ieees,
+        )
+        observed_model_patterns = observed_model_patterns_for_network(
+            self._repo, network_id
+        )
+        return aggregate_investigations(
+            self._repo,
+            network_id,
+            history=history,
+            passive_hints=passive["hints"],
+            shared_availability_events=shared_availability.groups,
+            observed_router_areas=observed_router_areas.areas,
+            observed_model_patterns=observed_model_patterns.patterns,
+            last_known_links=last_known["last_known_links"],
+        )
+
     def build(self, network_id: str) -> dict:
         """Graph-ready topology evidence: latest snapshot plus aggregated
         recent-missing (historical) neighbour/route evidence.
@@ -75,38 +119,8 @@ class EvidenceGraphService:
         history = aggregate_historical_evidence(self._repo, network_id)
         last_known = aggregate_last_known_links(self._repo, network_id)
         passive = aggregate_passive_hints(self._repo, network_id)
-        shared_availability = shared_availability_event_groups_for_network(
-            self._repo, network_id
-        )
-        devices = self._repo.list_devices(network_id)
-        issue_device_ieees = issue_device_ieees_from_state(
-            devices,
-            set(self._repo.incidents.list_active_incident_device_addresses(network_id)),
-        )
-        observed_router_areas = observed_router_areas_for_network(
-            self._repo,
-            network_id,
-            devices=devices,
-            latest_links=links,
-            history=history,
-            last_known_links=last_known["last_known_links"],
-            passive_hints=passive["hints"],
-            issue_device_ieees=issue_device_ieees,
-        )
-        observed_model_patterns = observed_model_patterns_for_network(
-            self._repo, network_id
-        )
         device_stats = aggregate_device_stats(self._repo, network_id)
-        investigations = aggregate_investigations(
-            self._repo,
-            network_id,
-            history=history,
-            passive_hints=passive["hints"],
-            shared_availability_events=shared_availability.groups,
-            observed_router_areas=observed_router_areas.areas,
-            observed_model_patterns=observed_model_patterns.patterns,
-            last_known_links=last_known["last_known_links"],
-        )
+        investigations = self.investigations_for_network(network_id)
 
         latest_neighbor_pairs = {
             tuple(sorted((link["source_ieee"].lower(), link["target_ieee"].lower())))
