@@ -30,7 +30,7 @@ src/viewModels/
   README.md
   types.ts
   decisionCopy.ts
-  topology/     # future topology ViewModel builders
+  topology/     # topology ViewModel builders (snapshot history)
   devices/      # future device story ViewModel builders
   reports/      # future report ViewModel builders
 ```
