@@ -55,7 +55,7 @@ from zigbeelens.topology.history import aggregate_historical_evidence, aggregate
 from zigbeelens.topology.investigations import LOW_BATTERY_PERCENT, STALE_LAST_SEEN_HOURS
 
 if TYPE_CHECKING:
-    from zigbeelens.storage.repository import Repository
+    from zigbeelens.storage.repository import DeviceRow, Repository
 
 
 class HeadlineCode(StrEnum):

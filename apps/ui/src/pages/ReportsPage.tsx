@@ -15,8 +15,12 @@ import {
   ErrorState,
   LimitationsList,
   LoadingState,
-  SeverityBadge,
 } from "@/components/ui";
+import { InvestigationPriorityCard } from "@/components/overview/InvestigationPriorityCard";
+import { DataCoverageWarningCard } from "@/components/overview/DataCoverageWarningCard";
+import { EvidenceCoverageStrip } from "@/components/meshGraph/EvidenceCoverageStrip";
+import { buildReportDecisionViewModel } from "@/viewModels/reports/reportDecisionViewModel";
+import type { DecisionPillTone } from "@/viewModels/types";
 
 interface OptionState {
   preserveFriendly: boolean;
@@ -59,7 +63,7 @@ const PROFILE_DEFAULTS: Record<RedactionProfile, OptionState> = {
 };
 
 const SCOPES: { value: ReportScope; label: string }[] = [
-  { value: "full", label: "Full diagnostic" },
+  { value: "full", label: "Full evidence" },
   { value: "incident", label: "Incident" },
   { value: "network", label: "Network" },
   { value: "device", label: "Device" },
@@ -198,14 +202,29 @@ export function ReportsPage() {
   }
 
   const report = preview.data;
+  const reportVm = useMemo(
+    () =>
+      report
+        ? buildReportDecisionViewModel(
+            report,
+            Object.fromEntries(
+              (selectors.data?.networks ?? report.networks).map((network) => [
+                network.id,
+                network.name,
+              ]),
+            ),
+          )
+        : null,
+    [report, selectors.data?.networks],
+  );
 
   return (
     <div className="max-w-6xl space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Reports</h1>
         <p className="mt-1 text-zl-muted">
-          Build a safe, shareable diagnostic snapshot for GitHub issues, Home Assistant community
-          posts, Zigbee2MQTT discussions, or your own notes.
+          Build a redacted evidence report using the same Device Story decisions and investigation
+          priorities shown in ZigbeeLens.
         </p>
       </div>
 
@@ -366,32 +385,76 @@ export function ReportsPage() {
               />
             ) : preview.error ? (
               <ErrorState message={preview.error} onRetry={preview.refetch} />
-            ) : preview.loading || !report ? (
+            ) : preview.loading || !report || !reportVm ? (
               <LoadingState label="Building preview…" />
             ) : (
               <div className="space-y-5">
-                {report.summary && (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <SeverityBadge severity={report.summary.overall_state} />
-                      <span className="text-sm text-zl-muted">
-                        {report.scope} report · v{report.version}
-                      </span>
-                    </div>
-                    <p className="text-sm leading-relaxed text-zl-text">
-                      {report.summary.current_finding}
-                    </p>
-                    <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-                      <Stat label="Networks" value={report.summary.networks_monitored} />
-                      <Stat label="Devices" value={report.summary.total_devices} />
-                      <Stat label="Active incidents" value={report.summary.active_incidents} />
-                      <Stat label="Router risks" value={report.summary.router_risks} />
-                      <Stat label="Unavailable" value={report.summary.unavailable_devices} />
-                      <Stat label="Stale" value={report.summary.stale_devices} />
-                      <Stat label="Weak links" value={report.summary.weak_links} />
-                      <Stat label="Low battery" value={report.summary.low_battery_devices} />
-                    </div>
+                {reportVm.isLegacyFormat ? (
+                  <div className="rounded-lg border border-zl-border/70 bg-zl-surface-2/50 p-3 text-sm text-zl-muted">
+                    {reportVm.legacyNotice}
                   </div>
+                ) : (
+                  <>
+                    <div className="space-y-3">
+                      <p className="text-sm text-zl-muted">
+                        {reportVm.scopeLabel} report · format v{reportVm.reportVersion}
+                      </p>
+                      {reportVm.decisionSummaryItems.length > 0 && (
+                        <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+                          {reportVm.decisionSummaryItems.map((item) => (
+                            <Stat key={item.key} label={item.label} value={item.count} />
+                          ))}
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+                        <Stat label="Networks in scope" value={reportVm.networksInScope} />
+                        <Stat label="Devices in scope" value={reportVm.devicesInScope} />
+                        <Stat label="Incidents in scope" value={reportVm.incidentsInScope} />
+                      </div>
+                    </div>
+
+                    {reportVm.investigationPriorities.length > 0 && (
+                      <section className="space-y-3" aria-label="What to check first">
+                        <h3 className="text-sm font-medium text-zl-text">What to check first</h3>
+                        <div className="grid gap-4">
+                          {reportVm.investigationPriorities.map((priority, index) => (
+                            <InvestigationPriorityCard
+                              key={priority.id}
+                              priority={priority}
+                              emphasized={index === 0}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    )}
+
+                    {reportVm.deviceStories.length > 0 && (
+                      <section className="space-y-3" aria-label="Device stories">
+                        <h3 className="text-sm font-medium text-zl-text">Device stories</h3>
+                        <div className="space-y-4">
+                          {reportVm.deviceStories.map((deviceStory) => (
+                            <ReportDeviceStoryPreview
+                              key={deviceStory.key}
+                              name={deviceStory.name}
+                              networkId={deviceStory.networkId}
+                              story={deviceStory.story}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    )}
+
+                    {reportVm.networkCoverage.length > 0 && (
+                      <section className="space-y-3" aria-label="Data coverage">
+                        <h3 className="text-sm font-medium text-zl-text">Data coverage</h3>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          {reportVm.networkCoverage.map((warning) => (
+                            <DataCoverageWarningCard key={warning.id} warning={warning} />
+                          ))}
+                        </div>
+                      </section>
+                    )}
+                  </>
                 )}
 
                 <div className="flex flex-wrap gap-2">
@@ -504,6 +567,97 @@ export function ReportsPage() {
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+function statusPillClassName(tone: DecisionPillTone): string {
+  if (tone === "coverage") {
+    return "inline-flex items-center rounded-full border border-zl-unavailable/40 bg-zl-unavailable/10 px-2 py-0.5 text-[11px] font-medium text-zl-unavailable";
+  }
+  if (tone === "watch") {
+    return "inline-flex items-center rounded-full border border-zl-watch/40 bg-zl-watch/10 px-2 py-0.5 text-[11px] font-medium text-zl-watch";
+  }
+  if (tone === "action") {
+    return "inline-flex items-center rounded-full border border-zl-accent/40 bg-zl-accent/10 px-2 py-0.5 text-[11px] font-medium text-zl-accent";
+  }
+  if (tone === "info") {
+    return "inline-flex items-center rounded-full border border-zl-border bg-zl-surface-2 px-2 py-0.5 text-[11px] font-medium text-zl-text";
+  }
+  return "inline-flex items-center rounded-full border border-zl-border bg-zl-surface-2 px-2 py-0.5 text-[11px] font-medium text-zl-muted";
+}
+
+function ReportDeviceStoryPreview({
+  name,
+  networkId,
+  story,
+}: {
+  name: string;
+  networkId: string;
+  story: import("@/viewModels/topology/deviceStoryViewModel").DeviceStoryViewModel;
+}) {
+  return (
+    <div
+      data-testid="report-device-story"
+      className="rounded-lg border border-zl-border/70 bg-zl-bg p-4"
+    >
+      <p className="text-xs text-zl-muted">
+        {name} · {networkId}
+      </p>
+      <div className="mt-2">
+        {story.statusPill && (
+          <span className={statusPillClassName(story.statusPill.tone)}>
+            {story.statusPill.label}
+          </span>
+        )}
+        <p className="mt-2 text-sm font-semibold text-zl-text">{story.headline}</p>
+        <p className="mt-0.5 text-xs text-zl-muted">{story.headlineLead}</p>
+      </div>
+
+      {story.reasons.length > 0 && (
+        <div className="mt-3">
+          <h4 className="text-[11px] font-semibold uppercase tracking-wide text-zl-muted">
+            {story.whyTitle}
+          </h4>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-zl-text">
+            {story.reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {story.limitations.length > 0 && (
+        <div className="mt-3">
+          <h4 className="text-[11px] font-semibold uppercase tracking-wide text-zl-muted">
+            {story.limitationsTitle}
+          </h4>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-zl-muted">
+            {story.limitations.map((limitation) => (
+              <li key={limitation}>{limitation}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {story.suggestedChecks.length > 0 && (
+        <div className="mt-3">
+          <h4 className="text-[11px] font-semibold uppercase tracking-wide text-zl-muted">
+            {story.checksTitle}
+          </h4>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-zl-text">
+            {story.suggestedChecks.map((check) => (
+              <li key={check}>{check}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {story.coverageItems.length > 0 && (
+        <div className="mt-3">
+          <EvidenceCoverageStrip title={story.coverageTitle} items={story.coverageItems} />
+        </div>
+      )}
     </div>
   );
 }
