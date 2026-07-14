@@ -168,6 +168,15 @@ class DeviceTrendPoint(BaseModel):
     availability: Availability | None = None
 
 
+class DeviceDecisionBadge(BaseModel):
+    """Compact Device Story projection for inventory/list surfaces (Phase 5B-1)."""
+
+    status: str
+    priority: str
+    headline_code: str
+    coverage_label_codes: list[str] = Field(default_factory=list)
+
+
 class DeviceSummary(BaseModel):
     network_id: str
     ieee_address: str
@@ -189,6 +198,7 @@ class DeviceSummary(BaseModel):
     lens_bucket_label: str = "Unknown"
     lens_bucket_reason: str = ""
     lens_reasons: list[str] = Field(default_factory=list)
+    decision: DeviceDecisionBadge | None = None
 
 
 class DeviceDetail(DeviceSummary):

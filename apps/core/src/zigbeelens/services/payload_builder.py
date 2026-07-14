@@ -45,6 +45,7 @@ from zigbeelens.services.dashboard_investigation_priorities import (
     compose_dashboard_investigation_priorities,
 )
 from zigbeelens.services.dashboard_coverage_warnings import compose_dashboard_coverage_warnings
+from zigbeelens.services.device_decision_badge import device_decision_badge_for_device
 from zigbeelens.services.empty_state import build_empty_dashboard, empty_finding
 from zigbeelens.services.live_dashboard import (
     build_health_snapshot,
@@ -411,6 +412,9 @@ class PayloadBuilder:
             health=device_health,
             incident_affected=incident_affected,
             sort_priority=sort_priority(result) if result else 100,
+            decision=device_decision_badge_for_device(
+                self.repo, row.network_id, row.ieee_address
+            ),
         )
         return enrich_device_summary(summary, bridge_state=bridge_state)
 
