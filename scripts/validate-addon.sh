@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ADDON="${ROOT}/apps/addon/zigbeelens"
 REPO="${ROOT}/apps/addon/repository.yaml"
+STAGE="${ADDON}/.build"
 FAIL=0
 
 fail() {
@@ -38,6 +39,9 @@ require_file "${ADDON}/translations/en.yaml"
 
 require_executable "${ADDON}/run.sh"
 
+echo "==> Release version synchronisation"
+python3 "${ROOT}/scripts/validate-release-version-sync.py" || FAIL=1
+
 if grep -q 'ingress_port: 8377' "${ADDON}/config.yaml"; then
   ok "ingress_port matches Core port 8377"
 else
@@ -60,6 +64,30 @@ if grep -q 'mqtt_discovery: false' "${ADDON}/config.yaml"; then
   ok "mqtt_discovery disabled by default"
 else
   fail "mqtt_discovery should default to false"
+fi
+
+echo "==> Supervisor staging dry run"
+bash "${ROOT}/scripts/prepare-addon.sh" || FAIL=1
+
+for rel in \
+  apps/core/src/zigbeelens/api/summary.py \
+  apps/core/src/zigbeelens/services/reports.py \
+  apps/ui/package.json \
+  packages/shared/package.json \
+  run.sh \
+  Dockerfile
+do
+  if [[ -e "${STAGE}/${rel}" ]]; then
+    ok "stage has ${rel}"
+  else
+    fail "stage missing ${rel}"
+  fi
+done
+
+if [[ -d "${STAGE}/apps/core/src/zigbeelens/decisions" ]]; then
+  ok "stage has decisions package"
+else
+  fail "stage missing apps/core/src/zigbeelens/decisions"
 fi
 
 if [[ -d "${ROOT}/apps/core/.venv" ]]; then

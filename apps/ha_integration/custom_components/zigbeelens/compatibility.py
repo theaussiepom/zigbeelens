@@ -82,3 +82,12 @@ def supports_companion_decisions(capabilities: dict[str, Any] | None) -> bool:
         if surfaces.get(surface) is not True:
             return False
     return True
+
+
+def dashboard_decision_payload_valid(dashboard: dict[str, Any] | None) -> bool:
+    """True when Dashboard advertises the contract-v1 decision surfaces as lists."""
+    return (
+        isinstance(dashboard, dict)
+        and isinstance(dashboard.get("investigation_priorities"), list)
+        and isinstance(dashboard.get("data_coverage_warnings"), list)
+    )

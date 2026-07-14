@@ -6,6 +6,7 @@ from zigbeelens.compatibility import (
     DECISION_CONTRACT_VERSION,
     SUPPORTED_DECISION_CONTRACT_VERSIONS,
     core_version_compatible,
+    dashboard_decision_payload_valid,
     decision_contract_version,
     parse_core_version,
     supports_companion_decisions,
@@ -123,3 +124,57 @@ def test_supports_companion_decisions_exact_contract():
     malformed = _contract_payload()
     malformed["decision_surfaces"] = "nope"
     assert supports_companion_decisions(malformed) is False
+
+
+def test_dashboard_decision_payload_valid():
+    assert dashboard_decision_payload_valid(None) is False
+    assert dashboard_decision_payload_valid({}) is False
+    assert (
+        dashboard_decision_payload_valid(
+            {"investigation_priorities": [], "data_coverage_warnings": []}
+        )
+        is True
+    )
+    assert (
+        dashboard_decision_payload_valid(
+            {
+                "investigation_priorities": [{"id": "p1"}],
+                "data_coverage_warnings": [{"id": "w1"}],
+            }
+        )
+        is True
+    )
+    assert (
+        dashboard_decision_payload_valid(
+            {"investigation_priorities": None, "data_coverage_warnings": []}
+        )
+        is False
+    )
+    assert (
+        dashboard_decision_payload_valid(
+            {"investigation_priorities": [], "data_coverage_warnings": {}}
+        )
+        is False
+    )
+    assert (
+        dashboard_decision_payload_valid(
+            {"investigation_priorities": "x", "data_coverage_warnings": []}
+        )
+        is False
+    )
+    assert (
+        dashboard_decision_payload_valid(
+            {"investigation_priorities": 1, "data_coverage_warnings": []}
+        )
+        is False
+    )
+    # Malformed individual entries do not invalidate the contracted surface shape.
+    assert (
+        dashboard_decision_payload_valid(
+            {
+                "investigation_priorities": ["bad", {"id": "ok"}],
+                "data_coverage_warnings": [],
+            }
+        )
+        is True
+    )

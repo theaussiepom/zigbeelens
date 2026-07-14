@@ -109,6 +109,14 @@ def test_ws_panel_summary_returns_connected_payload(mock_coordinator):
     assert payload["active_incident_count"] == 1
     assert payload["device_count"] == 10
     assert payload["networks"][0]["name"] == "Home"
+    assert "shared_decisions_available" in payload
+    assert "decision_contract_version" in payload
+    assert "core_version_compatible" in payload
+    assert "capabilities" not in payload
+    assert "score" not in json.dumps(payload)
+    assert "action_group" not in json.dumps(payload)
+    assert "card_type" not in json.dumps(payload)
+    assert "device_ieees" not in json.dumps(payload)
     # Must not leak broker URL / credentials.
     serialized = json.dumps(payload).lower()
     assert "mqtt_server" not in payload
@@ -133,6 +141,8 @@ def test_ws_panel_summary_disconnected_is_calm():
     assert payload["core_url"] == "http://192.168.100.5:8377"
     assert payload["error"] == "Cannot connect to ZigbeeLens Core"
     assert payload["networks"] == []
+    assert payload["core_version_compatible"] is None
+    assert payload["shared_decisions_available"] is False
 
 
 @pytest.mark.asyncio

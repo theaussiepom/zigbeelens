@@ -417,10 +417,6 @@ class ZigbeeLensPanel extends HTMLElement {
 
   _statsCard(s) {
     if (this._decisionMode(s)) {
-      const priorityAccent =
-        (s.investigation_priority_count || 0) > 0 ? SEVERITY.watch.color : undefined;
-      const coverageAccent =
-        (s.data_coverage_warning_count || 0) > 0 ? SEVERITY.watch.color : undefined;
       const incidentAccent =
         (s.active_incident_count || 0) > 0 ? SEVERITY.incident.color : undefined;
       const unavailAccent =
@@ -428,8 +424,8 @@ class ZigbeeLensPanel extends HTMLElement {
       return `
         <section class="card">
           <div class="grid">
-            ${this._stat("Investigation priorities", s.investigation_priority_count || 0, priorityAccent)}
-            ${this._stat("Data coverage warnings", s.data_coverage_warning_count || 0, coverageAccent)}
+            ${this._stat("Investigation priorities", s.investigation_priority_count || 0)}
+            ${this._stat("Data coverage warnings", s.data_coverage_warning_count || 0)}
             ${this._stat("Active incidents", s.active_incident_count || 0, incidentAccent)}
             ${this._stat("Networks", s.network_count || 0)}
             ${this._stat("Devices", s.device_count || 0)}
@@ -527,10 +523,14 @@ class ZigbeeLensPanel extends HTMLElement {
       s.decision_contract_version > 0
         ? `v${esc(s.decision_contract_version)}`
         : "unavailable";
-    const compatibility =
-      s.core_version_compatible === false
-        ? `<span class="warn">Incompatible</span>`
-        : `<span class="ok-text">Compatible</span>`;
+    let compatibility;
+    if (s.core_version_compatible === true) {
+      compatibility = `<span class="ok-text">Compatible</span>`;
+    } else if (s.core_version_compatible === false) {
+      compatibility = `<span class="warn">Incompatible</span>`;
+    } else {
+      compatibility = `<span class="muted">Unknown</span>`;
+    }
     return `
       <section class="card">
         <h2>Integration health</h2>

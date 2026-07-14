@@ -108,7 +108,8 @@ flowchart LR
 ## Decision contract (Phase 5E)
 
 The companion displays shared Decision Engine investigation priorities only when Core
-advertises an **exact** supported contract.
+advertises an **exact** supported contract **and** the fetched Dashboard payload
+contains the contracted decision surfaces as lists.
 
 Current supported contract:
 
@@ -122,19 +123,67 @@ Core exposes the contract on `GET /api/capabilities` (also `/api/v1/capabilities
 - `decision_surfaces.dashboard_investigation_priorities`
 - `decision_surfaces.dashboard_data_coverage_warnings`
 
-Companion behaviour:
+`dashboard_recent_changes` is **not** a Core capability. Browser-local “since your last
+visit” UI is not part of this contract.
 
-1. Exact supported contract → show Core-provided investigation priorities in the native panel.
-2. Missing, older, newer, or malformed contracts → decision cards stay off softly.
-3. The rest of the integration (entities, factual summary, Open Full Dashboard) remains usable.
-4. Hard Core version incompatibilities still raise a Home Assistant repair.
+### Dashboard payload validation
 
-The panel passes through Core priority labels, titles, and summaries unchanged. It does
-**not** map Device Story, reason, limitation, suggested-check, coverage, action-group,
-or card-type codes. Coverage warnings contribute a factual count only.
+Contract negotiation is not enough. The Dashboard response must include:
 
-The full Core dashboard remains canonical. Phase 5E-2 adds no Home Assistant entities
-or Zigbee controls; shared decisions stay read-only.
+- `investigation_priorities` as a JSON list (may be empty)
+- `data_coverage_warnings` as a JSON list (may be empty)
+
+Semantics:
+
+| Situation | Companion behaviour |
+|-----------|---------------------|
+| Valid empty priority list | Decision mode on; empty state: “No current investigation priorities from stored evidence.” |
+| Valid priorities | Decision mode on; show up to three Core priorities, then “+N more…” |
+| Missing / non-list surface | Soft disable decision mode; factual fallback summary |
+| Unsupported / malformed contract | Soft disable decision mode; factual fallback summary |
+| Core below minimum version | Decision mode off; Home Assistant repair for incompatible Core |
+
+Malformed individual priority rows are skipped calmly during panel projection. A malformed
+whole surface disables decision mode.
+
+### Compatibility tri-state
+
+Diagnostics and the native panel report Core compatibility as:
+
+- **Compatible** — observed Core version meets the minimum
+- **Incompatible** — observed Core version is below the minimum
+- **Unknown** — Core is disconnected / version not yet observed
+
+Unknown must never be rendered as Compatible. Decision mode requires explicit
+`shared_decisions_available === true` and `core_version_compatible === true`.
+
+### Native panel projection
+
+- Pass-through Core `priority`, `title`, and `summary` (escaped for HTML)
+- Cap at three priorities; expose factual `more_investigation_priority_count`
+- Factual `data_coverage_warning_count` only (no coverage-copy mapping)
+- Per-network factual `investigation_priority_count`
+- No HACS Decision copy tables, score, action_group, card_type, or device IEEE lists
+- Aggregate priority/coverage counts are not coloured as Watch/severity
+
+### Presentation paths
+
+1. **Same-protocol auto-embed:** when HA and Core share a scheme, the sidebar may load the
+   full Core dashboard (canonical Decision Engine UI).
+2. **Native companion summary:** used when embedding is blocked (for example HTTPS HA + HTTP
+   Core). Contract-gated priorities apply only on this path.
+
+There is no “Back to Summary” control. **Open Full ZigbeeLens dashboard** remains the
+route into the full evidence UI.
+
+Diagnostics include safe factual fields:
+
+- `decision_contract_version`
+- `shared_decisions_available`
+- `core_version_compatible`
+
+Phase 5E adds **no** Home Assistant decision entities and **no** Zigbee controls. Shared
+decisions stay read-only.
 
 Do not treat future contract versions as compatible until this HACS package is updated
 for them.

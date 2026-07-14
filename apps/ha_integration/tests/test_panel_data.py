@@ -41,7 +41,7 @@ def _data(
     *,
     shared: bool = False,
     contract: int = 0,
-    compatible: bool = True,
+    compatible: bool | None = True,
 ):
     return ZigbeeLensCoordinatorData(
         health=sample_health,
@@ -244,6 +244,53 @@ def test_summary_disconnected_is_calm():
     assert summary["networks"] == []
     assert summary["device_count"] == 0
     assert summary["investigation_priorities"] == []
+    assert summary["core_version_compatible"] is None
+    assert summary["shared_decisions_available"] is False
+    assert summary["decision_contract_version"] == 0
+
+
+def test_summary_preserves_compatibility_tri_state(
+    sample_health, sample_dashboard, sample_config_status
+):
+    true_data = _data(
+        sample_health,
+        sample_dashboard,
+        sample_config_status,
+        shared=True,
+        contract=1,
+        compatible=True,
+    )
+    assert (
+        build_panel_summary(true_data, core_url="http://core:8377", connected=True)[
+            "core_version_compatible"
+        ]
+        is True
+    )
+    false_data = _data(
+        sample_health,
+        sample_dashboard,
+        sample_config_status,
+        shared=False,
+        contract=1,
+        compatible=False,
+    )
+    assert (
+        build_panel_summary(false_data, core_url="http://core:8377", connected=True)[
+            "core_version_compatible"
+        ]
+        is False
+    )
+    unknown = _data(
+        sample_health,
+        sample_dashboard,
+        sample_config_status,
+        shared=False,
+        contract=1,
+        compatible=None,
+    )
+    summary = build_panel_summary(unknown, core_url="http://core:8377", connected=True)
+    assert summary["core_version_compatible"] is None
+    assert summary["investigation_priorities"] == []
 
 
 def test_panel_frontend_asset_default_summary_with_optional_embed():
@@ -276,10 +323,14 @@ def test_panel_frontend_asset_decision_mode():
     assert "esc(item.summary)" in source
     assert "esc(item.network_name" in source
     assert "!decisionMode ? this._findingCard(s)" in source
-    assert 'Health: ${esc(sev.label)}' in source
-    # Decision mode must not use Health: as authority badge.
-    assert "decisionMode" in source
-    assert "modeBadge" in source
+    assert "Compatible" in source
+    assert "Incompatible" in source
+    assert "Unknown" in source
+    # Decision-mode priority/coverage counts are neutral (no Watch accent).
+    assert 'this._stat("Investigation priorities", s.investigation_priority_count || 0)' in source
+    assert 'this._stat("Data coverage warnings", s.data_coverage_warning_count || 0)' in source
+    assert "priorityAccent" not in source
+    assert "coverageAccent" not in source
 
     for forbidden in (
         "review_first",
@@ -293,7 +344,6 @@ def test_panel_frontend_asset_decision_mode():
     ):
         assert forbidden not in source
 
-    # Companion rendering must not surface scoring/code fields.
     assert "item.score" not in source
     assert "item.action_group" not in source
     assert "item.device_ieees" not in source

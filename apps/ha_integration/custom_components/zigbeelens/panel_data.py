@@ -149,7 +149,7 @@ def build_panel_summary(
         "error": last_exception if not connected else None,
         "shared_decisions_available": False,
         "decision_contract_version": 0,
-        "core_version_compatible": True,
+        "core_version_compatible": None,
         "investigation_priority_count": 0,
         "investigation_priorities": [],
         "more_investigation_priority_count": 0,
@@ -167,7 +167,7 @@ def build_panel_summary(
     summary["core_version"] = data.core_version or str(health.get("version") or "") or None
     summary["shared_decisions_available"] = bool(data.shared_decisions_available)
     summary["decision_contract_version"] = int(data.decision_contract_version or 0)
-    summary["core_version_compatible"] = bool(data.core_version_compatible)
+    summary["core_version_compatible"] = data.core_version_compatible
     summary["overall_severity"] = _severity_label(dashboard.get("overall_severity"))
     summary["overall_health"] = summary["overall_severity"]
 

@@ -2,28 +2,40 @@
 
 ZigbeeLens is a **read-only observability console** for Zigbee2MQTT.
 
-It watches Zigbee2MQTT over MQTT, keeps local history in SQLite, classifies device and network health, correlates incidents, and generates **redacted diagnostic reports** you can share safely.
+It watches Zigbee2MQTT over MQTT, keeps local history in SQLite, runs the shared Decision Engine, and generates **redacted evidence reports** you can share safely.
 
 Open it from the Home Assistant sidebar after install — no extra ports, no Docker knowledge required.
+
+The add-on **runs ZigbeeLens Core itself**. Home Assistant Ingress shows the full canonical Core UI (Overview, Mesh investigations, Devices, Incidents, Reports). There is no separate add-on decision layer. The optional HACS integration can sit alongside the add-on for entities, repairs, and the companion panel; its decision contract talks to Core over HTTP and is not an internal add-on presentation path.
 
 ## What it does
 
 - Multi-network Zigbee2MQTT monitoring
-- Live diagnostic dashboard (Overview, Incidents, Networks, Devices, Routers, Timeline)
+- Live Core dashboard via Ingress (Overview, Mesh, Devices, Incidents, Reports)
+- Shared Decision Engine: investigation priorities, Device Stories, data coverage warnings
 - Evidence-backed incident correlation
-- Redacted JSON / YAML / Markdown reports
+- Redacted JSON / Markdown evidence reports
 - Persistent history under `/data`
 
 ## What it does **not** do
 
-ZigbeeLens is **read-only**. It will never:
+ZigbeeLens is **read-only for Zigbee control**. It never publishes device-control commands:
 
-- Repair or reset devices
-- Remove or re-pair devices
 - Permit join
-- Change Zigbee channels
-- Publish Zigbee2MQTT commands or request topics
-- Mutate Zigbee state
+- Remove / reset / re-pair devices
+- Bind / unbind
+- OTA firmware updates
+- Channel changes
+- Device `/set` commands
+
+When topology policy allows it, Core may publish **only** the allowlisted Zigbee2MQTT network-map request used for topology observation. Default add-on policy keeps topology observational:
+
+- topology enabled
+- startup scan enabled
+- periodic refresh disabled
+- manual / automatic / incident-driven capture disabled unless you change options
+
+MQTT Discovery remains optional and **disabled by default**.
 
 ## Install
 

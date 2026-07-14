@@ -70,6 +70,8 @@ def sample_dashboard():
         "low_batteries": [],
         "stale_devices": [],
         "recent_timeline": [],
+        "investigation_priorities": [],
+        "data_coverage_warnings": [],
         "health_snapshot": {
             "timestamp": "2026-06-14T12:00:00+00:00",
             "overall_severity": "incident",

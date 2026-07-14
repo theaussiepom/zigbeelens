@@ -14,6 +14,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .api import ZigbeeLensApiClient
 from .compatibility import (
     core_version_compatible,
+    dashboard_decision_payload_valid,
     decision_contract_version,
     supports_companion_decisions,
 )
@@ -37,7 +38,7 @@ class ZigbeeLensCoordinatorData:
     capabilities: dict[str, Any] = field(default_factory=dict)
     decision_contract_version: int = 0
     shared_decisions_available: bool = False
-    core_version_compatible: bool = True
+    core_version_compatible: bool | None = None
 
 
 class ZigbeeLensDataUpdateCoordinator(DataUpdateCoordinator[ZigbeeLensCoordinatorData]):
@@ -85,6 +86,7 @@ class ZigbeeLensDataUpdateCoordinator(DataUpdateCoordinator[ZigbeeLensCoordinato
         core_version = str(health.get("version", ""))
         version_compatible = core_version_compatible(core_version)
         contract_supported = supports_companion_decisions(capabilities)
+        decision_payload_valid = dashboard_decision_payload_valid(dashboard)
         self.last_update_success = True
         self.last_exception = None
 
@@ -98,6 +100,8 @@ class ZigbeeLensDataUpdateCoordinator(DataUpdateCoordinator[ZigbeeLensCoordinato
             last_exception=None,
             capabilities=capabilities,
             decision_contract_version=decision_contract_version(capabilities),
-            shared_decisions_available=version_compatible and contract_supported,
+            shared_decisions_available=(
+                version_compatible and contract_supported and decision_payload_valid
+            ),
             core_version_compatible=version_compatible,
         )

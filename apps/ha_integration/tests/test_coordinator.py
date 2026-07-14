@@ -96,7 +96,27 @@ async def test_coordinator_gates_decisions_when_core_incompatible(
 
 
 @pytest.mark.asyncio
-async def test_coordinator_refresh_failure(mock_client):
+async def test_coordinator_rejects_malformed_dashboard_decision_surfaces(mock_client):
+    dashboard = dict(mock_client.async_get_dashboard.return_value)
+    dashboard.pop("investigation_priorities", None)
+    mock_client.async_get_dashboard = AsyncMock(return_value=dashboard)
+    coordinator = _bare_coordinator(mock_client)
+    data = await coordinator._async_update_data()
+    assert coordinator.last_update_success is True
+    assert data.decision_contract_version == 1
+    assert data.shared_decisions_available is False
+    assert data.core_version_compatible is True
+
+
+@pytest.mark.asyncio
+async def test_coordinator_accepts_valid_empty_decision_lists(mock_client):
+    dashboard = dict(mock_client.async_get_dashboard.return_value)
+    dashboard["investigation_priorities"] = []
+    dashboard["data_coverage_warnings"] = []
+    mock_client.async_get_dashboard = AsyncMock(return_value=dashboard)
+    coordinator = _bare_coordinator(mock_client)
+    data = await coordinator._async_update_data()
+    assert data.shared_decisions_available is True
     mock_client.async_get_health = AsyncMock(side_effect=ZigbeeLensConnectionError("down"))
     coordinator = _bare_coordinator(mock_client)
     from homeassistant.helpers.update_coordinator import UpdateFailed

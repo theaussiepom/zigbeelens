@@ -45,6 +45,37 @@ async def test_diagnostics_redacts_secrets(hass_with_coordinator):
     assert payload["core_version"] == "0.1.0"
     assert payload["entity_count"] == 2
     assert "devices" not in payload
+    assert "decision_contract_version" in payload
+    assert "shared_decisions_available" in payload
+    assert "core_version_compatible" in payload
+    assert "capabilities" not in payload
+    assert "investigation_priorities" not in payload
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_preserves_unknown_compatibility():
+    hass = MagicMock()
+    entry = MagicMock()
+    entry.entry_id = "entry1"
+    entry.version = 1
+    entry.data = {"core_url": "http://localhost:8377"}
+    coordinator = MagicMock(spec=ZigbeeLensDataUpdateCoordinator)
+    coordinator.data = None
+    coordinator.last_update_success = False
+    coordinator.last_exception = None
+    hass.data = {"zigbeelens": {"entry1": {"coordinator": coordinator}}}
+
+    with patch("zigbeelens.diagnostics.er.async_get") as mock_er_get:
+        mock_er_get.return_value = MagicMock()
+        with patch(
+            "zigbeelens.diagnostics.er.async_entries_for_config_entry",
+            return_value=[],
+        ):
+            payload = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert payload["decision_contract_version"] == 0
+    assert payload["shared_decisions_available"] is False
+    assert payload["core_version_compatible"] is None
 
 
 def test_repairs_core_unreachable():

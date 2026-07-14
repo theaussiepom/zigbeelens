@@ -37,7 +37,7 @@ def async_manage_repairs(hass: HomeAssistant, coordinator: ZigbeeLensDataUpdateC
     health = data.health
     config_status = data.config_status
 
-    if not data.core_version_compatible:
+    if data.core_version_compatible is False:
         ir.async_create_issue(
             hass,
             DOMAIN,

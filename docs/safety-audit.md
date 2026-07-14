@@ -71,11 +71,17 @@ Tests: report and redaction tests in `apps/core/tests/`
 | Check | Status |
 |-------|--------|
 | Read-only HTTP to Core | Enforced |
-| No Zigbee mutation | Enforced |
+| No Zigbee mutation from HACS | Enforced |
 | Diagnostics redacted | Enforced |
+| Exact decision contract v1 negotiation | Enforced |
+| Soft fallback when contract/payload unsupported | Enforced |
+| No Decision entities or control services | Enforced |
+| No HACS-side Decision wording / diagnosis | Enforced |
 
 Implementation: `apps/ha_integration/custom_components/zigbeelens/`  
 Tests: `apps/ha_integration/tests/`
+
+Core topology may publish only the allowlisted Zigbee2MQTT network-map request for observation. That is Core topology policy, not an HACS action.
 
 ## Diagnostic language
 
