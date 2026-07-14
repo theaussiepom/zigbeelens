@@ -2,6 +2,8 @@
 
 This document covers building, testing, and installing the ZigbeeLens Home Assistant add-on from the monorepo.
 
+The add-on packages **ZigbeeLens Core**. Ingress serves the full canonical Core UI and Decision Engine. There is no separate add-on decision layer. HACS remains optional for entities/repairs/companion panel and talks to Core over HTTP using the companion decision contract.
+
 ## Layout
 
 ```

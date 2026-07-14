@@ -11,11 +11,17 @@ from zigbeelens.mqtt.lifecycle import collector_status_dict
 from zigbeelens.mqtt_discovery import discovery_enabled
 
 
+# Stable contract version for HACS / companion decision surfaces (Phase 5E).
+# Bump only when companion-facing decision fields change incompatibly.
+DECISION_CONTRACT_VERSION = 1
+
+
 def capabilities_dict(ctx: AppContext) -> dict[str, Any]:
     config = ctx.config
     return {
         "product": "zigbeelens",
         "version": __version__,
+        "decision_contract_version": DECISION_CONTRACT_VERSION,
         "capabilities": {
             "dashboard": True,
             "sse": True,
@@ -26,6 +32,16 @@ def capabilities_dict(ctx: AppContext) -> dict[str, Any]:
             "mock_scenarios": True,
             "read_only_observability": True,
             "mqtt_collector": collector_enabled(config),
+            # Coded Decision Engine payloads on dashboard / device / report APIs.
+            "shared_decisions": True,
+            # Companion may consume Overview-aligned decision summaries when True.
+            "companion_decision_summary": True,
+        },
+        "decision_surfaces": {
+            "dashboard_investigation_priorities": True,
+            "dashboard_data_coverage_warnings": True,
+            "device_story": True,
+            "report_device_stories": True,
         },
     }
 

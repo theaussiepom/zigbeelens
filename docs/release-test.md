@@ -131,6 +131,8 @@ If you used `zigbeelens-test/` at repo root instead of `local/zigbeelens-test/`,
 
 ```bash
 curl -s http://localhost:8377/api/health | python3 -m json.tool
+curl -s http://localhost:8377/api/capabilities | python3 -m json.tool
+curl -s http://localhost:8377/api/dashboard | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d.get("investigation_priorities"), list); assert isinstance(d.get("data_coverage_warnings"), list); print("dashboard decision surfaces ok")'
 curl -s http://localhost:8377/api/config/status | python3 -m json.tool
 curl -s http://localhost:8377/api/dashboard | python3 -m json.tool | head -40
 curl -s http://localhost:8377/api/networks | python3 -m json.tool
@@ -161,13 +163,21 @@ Open the dashboard: **http://localhost:8377**
 - [ ] Image pulls from GHCR (`:edge`)
 - [ ] Container starts without crash loop
 - [ ] `/api/health` returns `"status": "ok"` (or equivalent healthy payload)
+- [ ] `/api/capabilities` returns `decision_contract_version == 1`
+- [ ] Capabilities include `shared_decisions` and `companion_decision_summary`
+- [ ] Required Dashboard surfaces are advertised; `dashboard_recent_changes` is absent
+- [ ] `/api/dashboard` includes `investigation_priorities` and `data_coverage_warnings` lists
 - [ ] UI loads at `/`
 - [ ] Static assets load (no blank page / 404 on JS/CSS)
 - [ ] SQLite database created under mounted `/data` (`zigbeelens.sqlite`)
 - [ ] MQTT collector connects (`collector.connected: true` in `/api/health`)
 - [ ] Both configured networks appear (`home`, `home2`)
 - [ ] Devices appear for each network
-- [ ] Health classifications appear on Overview / Devices
+- [ ] Overview shows ranked investigation priorities when evidence qualifies (empty is OK)
+- [ ] Devices list shows Device Story decision badges
+- [ ] Device Detail uses Device Story
+- [ ] Incidents separate recorded event from current device decisions
+- [ ] Reports Version 2 uses shared decisions (`device_stories` present)
 - [ ] Incidents appear only if real conditions warrant (empty is OK)
 - [ ] Settings page shows collector status and both networks
 - [ ] Reports page generates **JSON**
@@ -210,21 +220,30 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 - [ ] Integration installs without errors
 - [ ] Restart completed if required
 - [ ] Config flow accepts Core URL
-- [ ] `sensor.zigbeelens_overall_health` appears
-- [ ] `binary_sensor.zigbeelens_active_incident` appears
-- [ ] Device count / unavailable / router risk sensors appear
+- [ ] Existing summary entities still appear (overall health, active incident, counts)
 - [ ] Per-network sensors appear (`Home`, `Home 2`)
+- [ ] No new decision entities appear for priorities / Device Stories
+- [ ] Existing entity unique IDs remain stable
+- [ ] No mutation controls/services appear
 - [ ] Sidebar **ZigbeeLens** entry appears
-- [ ] Native companion panel loads
-- [ ] Open Full Dashboard opens Core in a new tab
-- [ ] Native companion panel loads with HTTP Core URL
+- [ ] Same-scheme HA/Core may auto-embed the full Core dashboard
+- [ ] Mixed-content (HTTPS HA + HTTP Core) uses the native companion summary
+- [ ] Do **not** expect a Back to Summary control
+- [ ] Diagnostics show `decision_contract_version`, `shared_decisions_available`, `core_version_compatible`
+- [ ] Contract v1 activates decision mode when Dashboard surfaces are valid lists
+- [ ] Panel priority label/title/summary match Core Dashboard exactly
+- [ ] Top-three priority cap and “+N more …” behaviour
+- [ ] Coverage warning count appears as a factual count
+- [ ] Decision mode has no Health authority badge and no Current finding card
+- [ ] Valid empty priorities show: `No current investigation priorities from stored evidence.`
+- [ ] Unsupported/malformed contract uses factual fallback mode
+- [ ] Disconnected Core shows compatibility Unknown, not Compatible
 - [ ] Open Full Dashboard opens Core in a new tab
 - [ ] Try Embedded View shows a friendly explanation if Home Assistant is HTTPS and Core is HTTP
 - [ ] Settings → Devices & services → ZigbeeLens → Configure can change Core URL without delete/re-add
 - [ ] If using an HTTPS Core URL, Try Embedded View displays the full dashboard inside Home Assistant
 - [ ] *(Optional advanced)* Caddy HTTPS stack from [hacs-embedded-view.md](hacs-embedded-view.md): Core URL updated, cert trusted, embedded view works
 - [ ] Core connected state appears
-- [ ] Overall health appears
 - [ ] Active incident count appears
 - [ ] Network count appears
 - [ ] Device count appears
@@ -242,21 +261,32 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 2. In Home Assistant: **Settings → Devices & services → ZigbeeLens → Configure**.
 3. Change Core URL to the HTTPS address (for example `https://zigbeelens.theaussiepom.me`).
 4. Confirm validation succeeds (`GET /api/health`).
-5. Open the ZigbeeLens sidebar — native companion panel loads.
+5. Open the ZigbeeLens sidebar — same-scheme setup may auto-embed Core; otherwise use native summary / Try Embedded View.
 6. **Open Full Dashboard** opens the HTTPS URL in a new tab.
-7. **Try Embedded View** — full dashboard renders inside Home Assistant.
-8. **Back to Summary** works from embedded/blocked views.
+7. **Try Embedded View** — full dashboard renders inside Home Assistant when embedding is allowed.
+8. There is no separate Back to Summary control; reload the sidebar / HA navigation as needed.
 
 ### Companion panel notes
 
 - The **Core dashboard is canonical** — HACS does not build a second dashboard or drill-down pages.
-- The companion panel is a **status/launcher surface**: it renders a redacted summary supplied by the integration over the HA websocket, so the browser never fetches Core directly.
-- This works whether Core is HTTP or HTTPS, and needs **no reverse proxy**.
-- The default HACS view is a native companion panel over the HA websocket. **Open Full Dashboard** opens Core in a new tab. **Try Embedded View** is optional and only works when browser security allows embedding.
-- The **Open Full Dashboard** button opens `http://<docker-host-ip>:8377` in a new tab — that URL must be reachable from your browser.
+- The companion panel is a **status/launcher surface**: it renders a redacted summary supplied by the integration over the HA websocket, so the browser never fetches Core directly for the summary.
+- Same-scheme HA/Core may auto-embed the full Core dashboard; mixed content cannot.
+- **Open Full Dashboard** opens Core in a new tab and remains the reliable investigation route.
+- **Try Embedded View** is optional and only works when browser security allows embedding.
+- Decision mode (contract v1) applies only on the native summary path.
 - Optional HTTPS reverse proxy for embedded view: [hacs-embedded-view.md](hacs-embedded-view.md)
 
 ---
+
+## 4b. Add-on validation path
+
+- [ ] `./scripts/validate-addon.sh`
+- [ ] `./scripts/prepare-addon.sh`
+- [ ] Optional: `./scripts/build-addon.sh` when Docker is available
+- [ ] Ingress loads current Core UI
+- [ ] `/api/capabilities` exposes contract v1
+- [ ] No separate add-on decision wording layer
+- [ ] Topology startup-scan policy matches documented safety limits
 
 ## 5. Safety checks (pre-release)
 

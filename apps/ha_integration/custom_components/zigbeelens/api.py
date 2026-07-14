@@ -97,6 +97,18 @@ class ZigbeeLensApiClient:
             raise ZigbeeLensInvalidResponseError("Config status missing version")
         return payload
 
+    @staticmethod
+    def _validate_capabilities(payload: dict[str, Any]) -> None:
+        if payload.get("product") != "zigbeelens":
+            raise ZigbeeLensInvalidResponseError("Capabilities response missing product")
+        if "capabilities" not in payload or not isinstance(payload["capabilities"], dict):
+            raise ZigbeeLensInvalidResponseError("Capabilities response missing capabilities")
+
+    async def async_get_capabilities(self) -> dict[str, Any]:
+        payload = await self._request_json("api/capabilities")
+        self._validate_capabilities(payload)
+        return payload
+
     async def async_get_version(self) -> dict[str, Any]:
         return await self._request_json("api/version")
 

@@ -1,6 +1,6 @@
 # ZigbeeLens Home Assistant integration
 
-ZigbeeLens connects Home Assistant to **ZigbeeLens Core** — the read-only observability engine for Zigbee2MQTT. This integration is the Home Assistant control surface: summary entities, a native companion panel, diagnostics, and repairs.
+ZigbeeLens connects Home Assistant to **ZigbeeLens Core** — the read-only observability engine for Zigbee2MQTT. This integration is the Home Assistant companion surface: summary entities, a native companion panel, diagnostics, and repairs.
 
 The HACS sidebar panel is a polished **native companion panel** — a status and launcher surface, not the full product UI. The full ZigbeeLens dashboard is served by Core and opens in a new tab with one obvious button. This works for normal Docker installs **without a reverse proxy**, and avoids the browser mixed-content block that occurs when Home Assistant uses HTTPS and Core uses HTTP.
 
@@ -8,9 +8,10 @@ The HACS sidebar panel is a polished **native companion panel** — a status and
 
 - Connects Home Assistant to ZigbeeLens Core over HTTP
 - Adds summary sensors and binary sensors for automations
-- Registers a native companion panel showing connection, health, incidents, networks, devices, and collector status
+- Registers a native companion panel that can show Core decision priorities when contract v1 is available
 - Provides an obvious **Open Full ZigbeeLens dashboard** button (opens Core in a new tab)
-- Exposes redacted diagnostics
+- May auto-embed the full Core dashboard when Home Assistant and Core share the same protocol
+- Exposes redacted diagnostics (including decision-contract availability)
 - Creates repairs for Core/collector/configuration issues
 
 ## What this integration does not do
@@ -18,7 +19,9 @@ The HACS sidebar panel is a polished **native companion panel** — a status and
 - Does **not** collect Zigbee2MQTT data directly
 - Does **not** replace ZigbeeLens Core or store main history in Home Assistant
 - Does **not** mutate Zigbee devices
-- Does **not** publish MQTT commands or request topics
+- Does **not** publish MQTT device-control commands or Zigbee2MQTT request topics for control
+- Does **not** create decision entities for investigation priorities or Device Stories
+- Does **not** invent Decision Engine wording or aggregate severity colouring
 - Does **not** require Lovelace YAML
 
 ## Prerequisites
@@ -106,22 +109,37 @@ Detailed diagnostics remain in the ZigbeeLens Core dashboard.
 
 ## Companion panel
 
-When enabled, **ZigbeeLens** appears in the Home Assistant sidebar. When HA and Core use the same protocol (both HTTP or both HTTPS), the **full Core dashboard** loads automatically. Use the **menu button** (☰) to reopen Home Assistant's main navigation. Mixed content (HTTPS HA + HTTP Core) falls back to the native summary plus **Open Full Dashboard**.
+When enabled, **ZigbeeLens** appears in the Home Assistant sidebar. There are two presentation paths:
 
-The panel shows:
+### Same-protocol auto-embed
 
-- Connection state and overall health
-- Current finding and active incident count
-- Stats: incidents, networks, devices, unavailable, router risks
-- Per-network summaries (device count, bridge state)
-- Integration health: Core URL, collector status, last update
-- A prominent **Open full ZigbeeLens dashboard** button (opens Core in a new tab — primary, always reliable)
-- **Try Embedded View** (optional manual iframe — not used on load)
+When Home Assistant and Core use the same protocol (both HTTP or both HTTPS), the **full Core dashboard** may load automatically in the sidebar. That embedded UI is the **canonical Decision Engine surface**. Use the **menu button** (☰) to reopen Home Assistant navigation. HACS does not reinterpret Core decisions in this path.
+
+### Native companion summary
+
+When embedding is unavailable — typically HTTPS Home Assistant with an HTTP Core URL (mixed content) — the sidebar shows the **native companion panel**.
+
+On that path, HACS negotiates an exact companion decision contract (`decision_contract_version = 1`). When supported and the Dashboard decision payload is valid:
+
+- **What needs attention now** shows up to three Core investigation priorities
+- Core priority labels, titles, and summaries are passed through unchanged
+- Factual counts include investigation priorities, data coverage warnings, active incidents, networks, devices, and unavailable devices
+- Per-network rows show bridge state, device counts, unavailable counts, and priority counts
+- Integration health shows Shared decisions / Decision contract / Core compatibility (Compatible, Incompatible, or Unknown)
+
+There is **no** “Back to Summary” control. Decision mode does **not** use the legacy Current finding card or Health badge as decision authority.
+
+When the contract is missing, unsupported, or the Dashboard surfaces are malformed, the panel falls back to a factual connection/network/incident summary without inventing diagnoses. Disconnected Core shows compatibility **Unknown**, not Compatible.
+
+Always available actions:
+
+- **Open full ZigbeeLens dashboard** (new tab — primary route into full evidence)
+- **Try Embedded View** when browser security allows embedding
 - **Copy Core URL** and **Reload status**
 
-The default view is always the **native summary panel** — it does not iframe Core and works the same whether Core is HTTP or HTTPS. **Open Full Dashboard** opens Core in a new tab. **Try Embedded View** is optional and only loads when you click it. No reverse proxy is required for normal use.
+Phase 5E adds no new Home Assistant entities for decisions. See [docs/hacs.md](../../docs/hacs.md).
 
-To enable embedded view when Home Assistant is HTTPS, put Core behind an HTTPS reverse proxy and update the **Core URL**. See **[HACS embedded view — optional HTTPS reverse proxy](../../docs/hacs-embedded-view.md)** (includes a Caddy Compose example).
+To enable embedded view when Home Assistant is HTTPS, put Core behind an HTTPS reverse proxy and update the **Core URL**. See **[HACS embedded view — optional HTTPS reverse proxy](../../docs/hacs-embedded-view.md)**.
 
 ## Troubleshooting
 
@@ -146,8 +164,8 @@ Tests live in `apps/ha_integration/tests/`.
 
 ## Safety and security
 
-This integration is read-only toward Zigbee and Zigbee2MQTT. It never publishes MQTT, sends Zigbee2MQTT request topics, or mutates Zigbee state.
+This integration is read-only toward Zigbee control. It never publishes device-control MQTT commands (permit join, remove/reset, bind/unbind, OTA, channel changes, or device `/set`).
 
 The HACS integration is **not** an authentication layer for ZigbeeLens Core. If your Core URL is reachable by users or networks you do not trust, consider firewall rules, network isolation, Home Assistant Ingress, or an authenticated reverse proxy. HTTPS Core URLs support optional embedded view in the browser; **HTTPS is not authentication**.
 
-Some Core API routes modify ZigbeeLens local data only (reports, topology snapshots, HA enrichment). See [docs/security.md](../../docs/security.md).
+Some Core API routes modify ZigbeeLens local data only (reports, topology snapshots, HA enrichment). When topology capture is enabled in Core, Core itself may publish only the allowlisted Zigbee2MQTT network-map request used for observation — that is Core topology policy, not an HACS action. See [docs/security.md](../../docs/security.md).

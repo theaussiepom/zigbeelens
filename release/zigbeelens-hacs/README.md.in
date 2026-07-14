@@ -1,0 +1,80 @@
+# ZigbeeLens Home Assistant integration (HACS)
+
+Read-only Home Assistant bridge to [ZigbeeLens Core](https://github.com/@GITHUB_OWNER@/zigbeelens).
+
+## Prerequisites
+
+**ZigbeeLens Core must already be running.** This integration does not collect Zigbee2MQTT data directly.
+
+Run Core using one of:
+
+- **Docker** — `@GITHUB_OWNER@/zigbeelens` image from GHCR (see main repo [docs/docker.md](https://github.com/@GITHUB_OWNER@/zigbeelens/blob/main/docs/docker.md))
+- **Home Assistant OS add-on** — from [zigbeelens-addons](https://github.com/@GITHUB_OWNER@/zigbeelens-addons) (optional)
+
+## Install via HACS
+
+1. **HACS → Integrations → Custom repositories**
+2. Add `https://github.com/@GITHUB_OWNER@/zigbeelens-hacs`
+3. Category: **Integration**
+4. Install **ZigbeeLens** and restart Home Assistant
+5. **Settings → Devices & services → Add integration → ZigbeeLens**
+
+## Core URL examples
+
+| Deployment | Typical URL |
+|------------|-------------|
+| Docker on LAN | `http://<docker-host-ip>:8377` |
+| Docker Compose service | `http://zigbeelens:8377` |
+| HAOS add-on | `http://localhost:8377` |
+
+## Presentation paths
+
+### Same-protocol auto-embed
+
+When Home Assistant and ZigbeeLens Core use the same protocol (HTTP+HTTP or HTTPS+HTTPS), the sidebar may **auto-embed** the full Core dashboard. That embedded UI is the canonical Decision Engine surface. HACS does not reinterpret it.
+
+### Native companion summary
+
+When embedding is unavailable — for example HTTPS Home Assistant with an HTTP Core URL (mixed content) — the integration shows its **native companion panel**.
+
+In that native path, HACS negotiates an **exact companion decision contract**:
+
+- `decision_contract_version = 1` only
+
+When the contract is supported and the Dashboard decision payload is valid:
+
+- the panel shows Core-provided investigation priorities under **What needs attention now**;
+- Core priority labels, titles, and summaries are passed through unchanged;
+- at most three priorities are shown, plus a restrained “+N more in the full ZigbeeLens dashboard” hint;
+- factual counts include investigation priorities, data coverage warnings, active incidents, networks, devices, and unavailable devices;
+- no separate Device Story, reason, coverage, action-group, or card-type wording table exists in HACS.
+
+When the contract is missing, older, newer, or malformed — or the Dashboard decision surfaces are missing/malformed — decision cards stay off softly. Soft fallback: the panel uses a factual integration summary (connection, collector, networks, incidents) without inventing diagnoses.
+
+Disconnected or unobserved Core versions show Core compatibility as **Unknown**, not Compatible.
+
+## What this integration does
+
+- Summary sensors and binary sensors for Home Assistant automations
+- A native companion panel (contract-gated shared decisions when available)
+- **Open Full ZigbeeLens dashboard** (Core in a new tab)
+- Optional **Try Embedded View** when browser security allows
+- Redacted diagnostics (including decision-contract version, availability, and Core compatibility)
+- Repairs for Core reachability / collector / configuration issues
+
+The full ZigbeeLens dashboard remains **canonical**.
+
+## What it does not do
+
+- Does **not** mutate Zigbee devices
+- Does **not** publish MQTT or Zigbee2MQTT device-control commands
+- Does **not** create decision entities for priorities or Device Stories
+- Does **not** add Zigbee control services, buttons, or switches
+- Does **not** invent Decision Engine wording or severity colouring from aggregate counts
+- Entities are summaries only — Core dashboard remains authoritative
+
+## Safety
+
+Read-only bridge to Core.
+
+Issues: https://github.com/@GITHUB_OWNER@/zigbeelens/issues

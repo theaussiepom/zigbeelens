@@ -81,6 +81,10 @@
     "mock_mode_active": {
       "title": "Mock mode active",
       "description": "ZigbeeLens Core is running in mock mode rather than live MQTT collection."
+    },
+    "incompatible_core_version": {
+      "title": "ZigbeeLens Core version is incompatible",
+      "description": "Connected ZigbeeLens Core reports version {version}, which is below the minimum this integration supports. Upgrade Core, then reload the integration."
     }
   }
 }

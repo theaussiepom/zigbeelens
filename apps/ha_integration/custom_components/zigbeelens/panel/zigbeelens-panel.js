@@ -222,6 +222,7 @@ class ZigbeeLensPanel extends HTMLElement {
 
     const s = this._summary || {};
     const connected = !!s.connected;
+    const decisionMode = this._decisionMode(s);
 
     this.shadowRoot.innerHTML = `
       <style>${ZigbeeLensPanel.styles}</style>
@@ -230,7 +231,12 @@ class ZigbeeLensPanel extends HTMLElement {
         ${this._heroCard(s, coreUrl, connected)}
         ${this._loading ? this._loadingCard() : ""}
         ${!this._loading && !connected ? this._disconnectedCard(s, coreUrl) : ""}
-        ${!this._loading && connected ? this._findingCard(s) : ""}
+        ${
+          !this._loading && connected && decisionMode
+            ? this._decisionPrioritiesCard(s)
+            : ""
+        }
+        ${!this._loading && connected && !decisionMode ? this._findingCard(s) : ""}
         ${!this._loading && connected ? this._statsCard(s) : ""}
         ${!this._loading && connected ? this._networksCard(s) : ""}
         ${!this._loading ? this._integrationCard(s, coreUrl, connected) : ""}
@@ -243,6 +249,14 @@ class ZigbeeLensPanel extends HTMLElement {
     `;
 
     this._wire();
+  }
+
+  _decisionMode(s) {
+    return (
+      !!s &&
+      s.shared_decisions_available === true &&
+      s.core_version_compatible === true
+    );
   }
 
   _embeddedView(coreUrl) {
@@ -281,14 +295,20 @@ class ZigbeeLensPanel extends HTMLElement {
   }
 
   _heroCard(s, coreUrl, connected) {
+    const decisionMode = this._decisionMode(s);
     const sev = SEVERITY[s.overall_health] || SEVERITY.unknown;
     const connBadge = connected
       ? `<span class="badge ok">Connected to Core</span>`
       : `<span class="badge off">Not connected</span>`;
-    const healthBadge =
-      connected && s.overall_health
-        ? `<span class="badge" style="--badge:${sev.color}">Health: ${esc(sev.label)}</span>`
-        : "";
+    let modeBadge = "";
+    if (connected && decisionMode) {
+      const contract = s.decision_contract_version
+        ? `Decision contract v${esc(s.decision_contract_version)}`
+        : "Shared decisions";
+      modeBadge = `<span class="badge ok">${contract}</span>`;
+    } else if (connected && s.overall_health) {
+      modeBadge = `<span class="badge" style="--badge:${sev.color}">Health: ${esc(sev.label)}</span>`;
+    }
     const mockBadge = s.mock_mode ? `<span class="badge watch">Mock data</span>` : "";
     return `
       <section class="card hero">
@@ -300,7 +320,7 @@ class ZigbeeLensPanel extends HTMLElement {
               <div class="subtitle">Home Assistant companion panel</div>
             </div>
           </div>
-          <div class="badges">${connBadge}${healthBadge}${mockBadge}</div>
+          <div class="badges">${connBadge}${modeBadge}${mockBadge}</div>
         </div>
         ${this._ctaRow(coreUrl)}
       </section>
@@ -325,6 +345,45 @@ class ZigbeeLensPanel extends HTMLElement {
           ${coreUrl ? this._tryEmbedButton() : ""}
           <button type="button" class="btn" id="reload">Reload status</button>
         </div>
+      </section>
+    `;
+  }
+
+  _decisionPrioritiesCard(s) {
+    const priorities = Array.isArray(s.investigation_priorities) ? s.investigation_priorities : [];
+    const more = Number(s.more_investigation_priority_count || 0);
+    let body;
+    if (!priorities.length) {
+      body = `<p class="muted">No current investigation priorities from stored evidence.</p>`;
+    } else {
+      const rows = priorities
+        .map((item) => {
+          const evidence = item.latest_supporting_evidence_at
+            ? `<div class="priority-time">Evidence ${esc(relativeTime(item.latest_supporting_evidence_at))}</div>`
+            : "";
+          return `
+            <div class="priority-row">
+              <div class="priority-meta">
+                <span class="badge">${esc(item.priority)}</span>
+                <span class="priority-net">${esc(item.network_name || "Network")}</span>
+              </div>
+              <div class="priority-title">${esc(item.title)}</div>
+              <div class="priority-summary">${esc(item.summary)}</div>
+              ${evidence}
+            </div>
+          `;
+        })
+        .join("");
+      const moreLine =
+        more > 0
+          ? `<p class="muted more-line">+${esc(more)} more in the full ZigbeeLens dashboard.</p>`
+          : "";
+      body = `<div class="priority-list">${rows}</div>${moreLine}`;
+    }
+    return `
+      <section class="card">
+        <h2>What needs attention now</h2>
+        ${body}
       </section>
     `;
   }
@@ -357,6 +416,24 @@ class ZigbeeLensPanel extends HTMLElement {
   }
 
   _statsCard(s) {
+    if (this._decisionMode(s)) {
+      const incidentAccent =
+        (s.active_incident_count || 0) > 0 ? SEVERITY.incident.color : undefined;
+      const unavailAccent =
+        (s.unavailable_devices || 0) > 0 ? SEVERITY.watch.color : undefined;
+      return `
+        <section class="card">
+          <div class="grid">
+            ${this._stat("Investigation priorities", s.investigation_priority_count || 0)}
+            ${this._stat("Data coverage warnings", s.data_coverage_warning_count || 0)}
+            ${this._stat("Active incidents", s.active_incident_count || 0, incidentAccent)}
+            ${this._stat("Networks", s.network_count || 0)}
+            ${this._stat("Devices", s.device_count || 0)}
+            ${this._stat("Unavailable", s.unavailable_devices || 0, unavailAccent)}
+          </div>
+        </section>
+      `;
+    }
     const incidentAccent =
       (s.active_incident_count || 0) > 0 ? SEVERITY.incident.color : undefined;
     const unavailAccent =
@@ -380,24 +457,44 @@ class ZigbeeLensPanel extends HTMLElement {
     if (!networks.length) {
       return `<section class="card"><h2>Networks</h2><p class="muted">No networks reported yet.</p></section>`;
     }
+    const decisionMode = this._decisionMode(s);
     const rows = networks
       .map((n) => {
-        const sev = SEVERITY[n.health] || SEVERITY.unknown;
         const online = String(n.bridge_state || "").toLowerCase() === "online";
+        const offline = String(n.bridge_state || "").toLowerCase() === "offline";
+        const bridgeColor = online
+          ? SEVERITY.ok.color
+          : offline
+            ? SEVERITY.incident.color
+            : SEVERITY.unknown.color;
+        const sev = SEVERITY[n.health] || SEVERITY.unknown;
+        const dotColor = decisionMode ? bridgeColor : sev.color;
+        const priorityCount = Number(n.investigation_priority_count || 0);
+        const meta = decisionMode
+          ? `
+              <span>${esc(n.device_count || 0)} devices</span>
+              ${(n.unavailable_devices || 0) > 0 ? `<span class="warn">${esc(n.unavailable_devices)} unavailable</span>` : ""}
+              ${
+                priorityCount > 0
+                  ? `<span>${esc(priorityCount)} investigation priorit${priorityCount === 1 ? "y" : "ies"}</span>`
+                  : ""
+              }
+            `
+          : `
+              <span>${esc(n.device_count || 0)} devices</span>
+              ${(n.unavailable_devices || 0) > 0 ? `<span class="warn">${esc(n.unavailable_devices)} unavailable</span>` : ""}
+              ${(n.router_risks || 0) > 0 ? `<span class="warn">${esc(n.router_risks)} router risk${n.router_risks === 1 ? "" : "s"}</span>` : ""}
+            `;
         return `
           <div class="net-row">
             <div class="net-main">
-              <span class="dot" style="background:${sev.color}"></span>
+              <span class="dot" style="background:${dotColor}"></span>
               <div>
                 <div class="net-name">${esc(n.name)}</div>
                 <div class="net-sub ${online ? "" : "warn"}">${esc(bridgeLabel(n.bridge_state))}</div>
               </div>
             </div>
-            <div class="net-meta">
-              <span>${esc(n.device_count || 0)} devices</span>
-              ${(n.unavailable_devices || 0) > 0 ? `<span class="warn">${esc(n.unavailable_devices)} unavailable</span>` : ""}
-              ${(n.router_risks || 0) > 0 ? `<span class="warn">${esc(n.router_risks)} router risk${n.router_risks === 1 ? "" : "s"}</span>` : ""}
-            </div>
+            <div class="net-meta">${meta}</div>
           </div>
         `;
       })
@@ -418,11 +515,30 @@ class ZigbeeLensPanel extends HTMLElement {
       : `<span class="muted">Unknown</span>`;
     const lastUpdate = connected ? relativeTime(s.last_update) : "—";
     const version = s.core_version ? ` · v${esc(s.core_version)}` : "";
+    const decisions =
+      s.shared_decisions_available === true
+        ? `<span class="ok-text">Available</span>`
+        : `<span class="muted">Unavailable</span>`;
+    const contract =
+      s.decision_contract_version > 0
+        ? `v${esc(s.decision_contract_version)}`
+        : "unavailable";
+    let compatibility;
+    if (s.core_version_compatible === true) {
+      compatibility = `<span class="ok-text">Compatible</span>`;
+    } else if (s.core_version_compatible === false) {
+      compatibility = `<span class="warn">Incompatible</span>`;
+    } else {
+      compatibility = `<span class="muted">Unknown</span>`;
+    }
     return `
       <section class="card">
         <h2>Integration health</h2>
         <dl class="meta">
           <div><dt>Core URL</dt><dd><code>${esc(coreUrl || "not configured")}</code>${version}</dd></div>
+          <div><dt>Shared decisions</dt><dd>${decisions}</dd></div>
+          <div><dt>Decision contract</dt><dd>${esc(contract)}</dd></div>
+          <div><dt>Core compatibility</dt><dd>${compatibility}</dd></div>
           <div><dt>Collector</dt><dd>${collector}</dd></div>
           <div><dt>Last update</dt><dd>${esc(lastUpdate)}</dd></div>
         </dl>
@@ -654,6 +770,37 @@ ZigbeeLensPanel.styles = `
   .stat-value { font-size: 1.7rem; font-weight: 700; line-height: 1; }
   .stat-label { margin-top: 6px; font-size: 0.78rem; color: var(--secondary-text-color, #727272); line-height: 1.3; }
   .net-list { display: flex; flex-direction: column; gap: 10px; }
+  .priority-list { display: flex; flex-direction: column; gap: 12px; }
+  .priority-row {
+    padding: 12px;
+    border-radius: 10px;
+    background: var(--secondary-background-color, #f7f7f7);
+  }
+  .priority-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .priority-net {
+    font-size: 0.85rem;
+    color: var(--secondary-text-color, #727272);
+  }
+  .priority-title { font-weight: 600; word-break: break-word; }
+  .priority-summary {
+    margin-top: 4px;
+    font-size: 0.92rem;
+    line-height: 1.45;
+    color: var(--secondary-text-color, #727272);
+    word-break: break-word;
+  }
+  .priority-time {
+    margin-top: 6px;
+    font-size: 0.8rem;
+    color: var(--secondary-text-color, #727272);
+  }
+  .more-line { margin: 10px 0 0; }
   .net-row {
     display: flex; align-items: flex-start; justify-content: space-between;
     gap: 12px; flex-wrap: wrap;

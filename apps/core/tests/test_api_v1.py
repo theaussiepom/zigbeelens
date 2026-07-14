@@ -32,6 +32,7 @@ def test_v1_capabilities(mock_client: TestClient):
     body = res.json()
     assert body["product"] == "zigbeelens"
     assert "version" in body
+    assert body["decision_contract_version"] == 1
     caps = body["capabilities"]
     assert caps["dashboard"] is True
     assert caps["sse"] is True
@@ -39,9 +40,40 @@ def test_v1_capabilities(mock_client: TestClient):
     assert caps["read_only_observability"] is True
     assert caps["mock_scenarios"] is True
     assert caps["home_assistant_enrichment"] is True
+    assert caps["shared_decisions"] is True
+    assert caps["companion_decision_summary"] is True
     assert isinstance(caps["mqtt_discovery"], bool)
     assert isinstance(caps["topology"], bool)
     assert isinstance(caps["mqtt_collector"], bool)
+    surfaces = body["decision_surfaces"]
+    assert surfaces["dashboard_investigation_priorities"] is True
+    assert surfaces["dashboard_data_coverage_warnings"] is True
+    assert surfaces["device_story"] is True
+    assert surfaces["report_device_stories"] is True
+    assert "dashboard_recent_changes" not in surfaces
+
+    dashboard = mock_client.get("/api/v1/dashboard").json()
+    assert "investigation_priorities" in dashboard
+    assert "data_coverage_warnings" in dashboard
+    assert isinstance(dashboard["investigation_priorities"], list)
+    assert isinstance(dashboard["data_coverage_warnings"], list)
+
+    devices = mock_client.get("/api/v1/devices").json()["items"]
+    assert devices
+    sample_device = devices[0]
+    story = mock_client.get(
+        f"/api/v1/devices/{sample_device['network_id']}/{sample_device['ieee_address']}/story"
+    )
+    assert story.status_code == 200
+    assert "status" in story.json()
+    assert "headline_code" in story.json()
+
+    preview = mock_client.get("/api/v1/reports/preview", params={"profile": "standard"})
+    assert preview.status_code == 200
+    report = preview.json()
+    assert report["report_version"] == 2
+    assert "device_stories" in report
+    assert isinstance(report["device_stories"], list)
 
 
 def test_v1_status(mock_client: TestClient):

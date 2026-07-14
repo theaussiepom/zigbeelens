@@ -9,12 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **HACS companion:** exact decision contract v1 negotiation and native panel decision display (Phase 5E)
+- **Capabilities:** `shared_decisions`, `companion_decision_summary`, and decision-surface advertisement for companion consumers
 - **Reports:** Lens-family aligned sections on stored report detail (`executive_summary`, `health_summary`, `active_incidents`, `collector_status`, `limitations`, `domain_details`, `events_or_timeline`); legacy fields retained
+- **Validation:** release-surface version synchronisation helper; stronger HACS/add-on packaging checks for Phase 5E artefacts
 
 ### Changed
 
+- **HACS:** companion decision mode uses Core Dashboard priorities with soft fallback for missing/unsupported/malformed contracts; Core compatibility is Compatible / Incompatible / Unknown
 - **Topology:** enabled by default with a single startup network map scan after MQTT collector and bridge readiness (`startup_stable_delay_seconds`, default 60); passive MQTT updates thereafter; periodic active scans disabled unless `refresh_interval_seconds` > 0
-- **Docs:** deployment live-state and alignment status refreshed; BenBeast uses rolling `:edge`, not pinned semver
+- **Docs:** deployment live-state and alignment status refreshed; BenBeast uses rolling `:edge`, not pinned semver; HACS/add-on/release-test docs updated for Decision Engine companion behaviour
 
 ## [0.1.13] - 2026-06-16
 
