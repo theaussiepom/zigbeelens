@@ -14,7 +14,7 @@ The add-on **runs ZigbeeLens Core itself**. Home Assistant Ingress shows the ful
 - Live Core dashboard via Ingress (Overview, Mesh, Devices, Incidents, Reports)
 - Shared Decision Engine: investigation priorities, Device Stories, data coverage warnings
 - Evidence-backed incident correlation
-- Redacted JSON / Markdown evidence reports
+- Redacted JSON / YAML / Markdown evidence reports
 - Persistent history under `/data`
 
 ## What it does **not** do
@@ -107,7 +107,7 @@ Diagnostics thresholds, report limits, and feature flags are available under **D
 
 Open **Reports** in the ZigbeeLens UI to generate snapshots:
 
-- **JSON / YAML** — full structured diagnostic data
+- **JSON / YAML** — full structured evidence and decision data
 - **Markdown** — GitHub / forum friendly summary
 
 Redaction profiles:

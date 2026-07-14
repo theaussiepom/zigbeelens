@@ -2,7 +2,7 @@
 
 Home Assistant bridge to **ZigbeeLens Core** — summary entities, a native companion panel, diagnostics, and repairs.
 
-The HACS sidebar provides a **native companion panel** by default, with an **Open Full Dashboard** button (new tab). When Home Assistant and Core share the same protocol (both HTTP or both HTTPS), the panel **auto-embeds** the full Core dashboard in the sidebar. Mixed content (HTTPS HA + HTTP Core) keeps the native summary panel instead.
+The HACS sidebar provides a ZigbeeLens companion entry with an **Open Full Dashboard** button. When Home Assistant and Core share the same protocol, the sidebar may auto-embed the full Core dashboard. Mixed-content setups keep the native companion summary instead.
 
 The Core dashboard is **canonical**. HACS does not collect MQTT or replace the dashboard.
 
@@ -102,7 +102,8 @@ flowchart LR
   HACS --> Panel
   HACS -->|HTTP read-only| Core
   Panel -. Open Full Dashboard new tab .-> Core
-  Core -->|subscribe only| MQTT
+  MQTT -->|observed Zigbee2MQTT topics| Core
+  Core -. allowlisted network-map request when topology policy enables it .-> MQTT
 ```
 
 ## Decision contract (Phase 5E)
