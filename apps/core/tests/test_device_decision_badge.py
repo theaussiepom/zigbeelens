@@ -1,29 +1,51 @@
-"""Device decision badge composition tests (Phase 5B-1)."""
+"""Device decision badge composition tests (Phase 5B-1 / 5B-1 batch fix)."""
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
 
 from zigbeelens.config.models import AppConfig, ModeConfig, NetworkConfig, StorageConfig
 from zigbeelens.db.connection import Database
-from zigbeelens.decisions.device_story import device_story_for_device
+from zigbeelens.decisions.device_story import (
+    device_story_for_device,
+    load_device_story_evidence,
+    load_device_story_network_context,
+)
 from zigbeelens.diagnostics.service import HealthDiagnosticService
+from zigbeelens.schemas import DeviceDecisionBadge
 from zigbeelens.services.device_decision_badge import (
     device_decision_badge_for_device,
     device_decision_badge_from_story,
+    device_decision_badges_for_devices,
 )
 from zigbeelens.services.payload_builder import PayloadBuilder
 from zigbeelens.storage.repository import Repository
+from zigbeelens.topology.parser import parse_networkmap_payload
+
+NOW = datetime(2026, 7, 13, 2, 0, 0, tzinfo=timezone.utc)
+
+DEFAULT_NODES = {
+    "0x01": {"type": "Coordinator"},
+    "0x02": {"type": "Router"},
+    "0x03": {"type": "EndDevice"},
+}
 
 
-def _repo(tmp_path: Path) -> tuple[Repository, AppConfig]:
+def _repo(tmp_path: Path, *, networks: list[NetworkConfig] | None = None) -> tuple[Repository, AppConfig]:
     db_path = tmp_path / "device-decision-badge.sqlite"
     db = Database(db_path)
     db.migrate()
     repo = Repository(db)
+    network_cfgs = networks or [
+        NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt")
+    ]
     config = AppConfig(
         mode=ModeConfig(mock=True),
-        networks=[NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt")],
+        networks=network_cfgs,
         storage=StorageConfig(path=str(db_path)),
     )
     repo.sync_networks(config.networks)
@@ -34,21 +56,139 @@ def _add_device(
     repo: Repository,
     ieee: str,
     *,
+    network_id: str = "home",
     availability: str = "online",
+    friendly_name: str | None = None,
 ) -> None:
     repo.upsert_device(
-        network_id="home",
+        network_id=network_id,
         ieee_address=ieee,
-        friendly_name=f"Device {ieee}",
+        friendly_name=friendly_name or f"Device {ieee}",
         device_type="EndDevice",
         power_source="Mains",
     )
-    repo.ensure_device_current_state("home", ieee)
+    repo.ensure_device_current_state(network_id, ieee)
     repo.update_device_current_state(
-        network_id="home",
+        network_id=network_id,
         ieee_address=ieee,
         availability=availability,
+        last_seen=NOW.isoformat(),
     )
+
+
+def _enable_availability_tracking(
+    repo: Repository,
+    ieee: str,
+    *,
+    network_id: str = "home",
+    changed_at: datetime,
+) -> None:
+    repo.availability.insert_availability_change(
+        network_id, ieee, "unknown", "online"
+    )
+    repo.db.conn.execute(
+        "UPDATE availability_changes SET changed_at = ? WHERE rowid = last_insert_rowid()",
+        (changed_at.isoformat(),),
+    )
+    repo.db.conn.commit()
+
+
+def _link_ha_area(repo: Repository, ieee: str, *, network_id: str = "home") -> None:
+    repo.db.conn.execute(
+        """
+        INSERT INTO ha_device_enrichment (
+            network_id, ieee_address, entity_id, area_id, area_name,
+            match_confidence, updated_at
+        ) VALUES (?, ?, 'light.kitchen', 'area-1', 'Kitchen', 'high', ?)
+        """,
+        (network_id, ieee, NOW.isoformat()),
+    )
+    repo.db.conn.commit()
+
+
+def _store_snapshot(
+    repo: Repository,
+    snapshot_id: str,
+    *,
+    network_id: str = "home",
+    captured_at: datetime,
+    links: list[dict],
+    nodes: dict[str, dict] | None = None,
+) -> None:
+    repo.create_topology_snapshot(
+        snapshot_id=snapshot_id,
+        network_id=network_id,
+        requested_by="test",
+        status="pending",
+        warning_acknowledged=True,
+    )
+    parsed = parse_networkmap_payload(
+        {"nodes": DEFAULT_NODES if nodes is None else nodes, "links": links}
+    )
+    repo.store_topology_parsed(snapshot_id, network_id, parsed, status="complete")
+    repo.db.conn.execute(
+        "UPDATE topology_snapshots SET captured_at = ? WHERE snapshot_id = ?",
+        (captured_at.isoformat(), snapshot_id),
+    )
+    repo.db.conn.commit()
+
+
+def _store_topology_gap_fixtures(repo: Repository, ieee: str = "0x03") -> None:
+    nodes = {
+        "0x01": {"type": "Coordinator"},
+        "0x02": {"type": "Router"},
+        ieee: {"type": "EndDevice"},
+    }
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        links=[],
+        nodes=nodes,
+    )
+    _store_snapshot(
+        repo,
+        "snap-old",
+        captured_at=NOW - timedelta(days=1),
+        links=[{"source": "0x02", "target": ieee, "linkquality": 90}],
+        nodes=nodes,
+    )
+
+
+def _spy_network_composers(monkeypatch):
+    import zigbeelens.decisions.device_story as device_story_module
+    from zigbeelens.decisions.model_pattern import observed_model_patterns_for_network
+    from zigbeelens.topology.history import (
+        aggregate_historical_evidence,
+        aggregate_last_known_links,
+    )
+
+    historical = {"count": 0}
+    last_known = {"count": 0}
+    model_patterns = {"count": 0}
+
+    def _historical(*args, **kwargs):
+        historical["count"] += 1
+        return aggregate_historical_evidence(*args, **kwargs)
+
+    def _last_known(*args, **kwargs):
+        last_known["count"] += 1
+        return aggregate_last_known_links(*args, **kwargs)
+
+    def _model_patterns(*args, **kwargs):
+        model_patterns["count"] += 1
+        return observed_model_patterns_for_network(*args, **kwargs)
+
+    monkeypatch.setattr(
+        device_story_module, "aggregate_historical_evidence", _historical
+    )
+    monkeypatch.setattr(
+        device_story_module, "aggregate_last_known_links", _last_known
+    )
+    monkeypatch.setattr(
+        device_story_module, "observed_model_patterns_for_network", _model_patterns
+    )
+    return historical, last_known, model_patterns
 
 
 def test_badge_matches_device_story_status_priority_and_headline(tmp_path: Path):
@@ -90,3 +230,163 @@ def test_device_list_payload_includes_decision_badge(tmp_path: Path):
 def test_unknown_device_returns_no_badge(tmp_path: Path):
     repo, _ = _repo(tmp_path)
     assert device_decision_badge_for_device(repo, "home", "0xmissing") is None
+
+
+def test_devices_list_loads_network_evidence_once(monkeypatch, tmp_path: Path):
+    repo, config = _repo(tmp_path)
+    for ieee in ("0xa1", "0xa2", "0xa3", "0xa4"):
+        _add_device(repo, ieee, availability="online")
+    historical, last_known, model_patterns = _spy_network_composers(monkeypatch)
+    health = HealthDiagnosticService(config, repo)
+    health.recalculate_all()
+    devices = PayloadBuilder(config, repo, health).devices()
+    assert len(devices) == 4
+    assert historical["count"] == 1
+    assert last_known["count"] == 1
+    assert model_patterns["count"] == 1
+
+
+def test_devices_list_loads_network_evidence_once_per_network(
+    monkeypatch, tmp_path: Path
+):
+    repo, config = _repo(
+        tmp_path,
+        networks=[
+            NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt/home"),
+            NetworkConfig(id="cabin", name="Cabin", base_topic="zigbee2mqtt/cabin"),
+        ],
+    )
+    _add_device(repo, "0xa1", network_id="home")
+    _add_device(repo, "0xa2", network_id="home")
+    _add_device(repo, "0xb1", network_id="cabin")
+    _add_device(repo, "0xb2", network_id="cabin")
+    historical, last_known, model_patterns = _spy_network_composers(monkeypatch)
+    health = HealthDiagnosticService(config, repo)
+    health.recalculate_all()
+    devices = PayloadBuilder(config, repo, health).devices()
+    assert len(devices) == 4
+    assert historical["count"] == 2
+    assert last_known["count"] == 2
+    assert model_patterns["count"] == 2
+
+
+def test_device_summary_does_not_compose_decision_badge(tmp_path: Path):
+    repo, config = _repo(tmp_path)
+    _add_device(repo, "0xa1", availability="offline")
+    health = HealthDiagnosticService(config, repo)
+    health.recalculate_all()
+    builder = PayloadBuilder(config, repo, health)
+    row = repo.get_device("home", "0xa1")
+    assert row is not None
+    explicit = DeviceDecisionBadge(
+        status="review_first",
+        priority="p1",
+        headline_code="current_issue_present",
+        coverage_label_codes=[],
+    )
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            "zigbeelens.services.payload_builder.device_decision_badge_for_device",
+            MagicMock(side_effect=AssertionError("must not compose badge")),
+        )
+        summary = builder._device_summary(row, decision_badge=explicit)
+    assert summary.decision == explicit
+
+
+def test_device_detail_still_includes_decision_badge(tmp_path: Path):
+    repo, config = _repo(tmp_path)
+    _add_device(repo, "0xa1", availability="offline")
+    health = HealthDiagnosticService(config, repo)
+    health.recalculate_all()
+    detail = PayloadBuilder(config, repo, health).device_detail("home", "0xa1")
+    assert detail is not None
+    assert detail.decision is not None
+    story = device_story_for_device(repo, "home", "0xa1", now=NOW)
+    assert story is not None
+    assert detail.decision.status == str(story.status)
+
+
+def test_wrong_network_context_raises(tmp_path: Path):
+    repo, _ = _repo(
+        tmp_path,
+        networks=[
+            NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt/home"),
+            NetworkConfig(id="cabin", name="Cabin", base_topic="zigbee2mqtt/cabin"),
+        ],
+    )
+    _add_device(repo, "0xa1", network_id="home")
+    context = load_device_story_network_context(repo, "cabin", now=NOW)
+    with pytest.raises(ValueError, match="network_id"):
+        load_device_story_evidence(
+            repo,
+            "home",
+            "0xa1",
+            now=NOW,
+            network_context=context,
+        )
+
+
+def test_batch_badges_match_device_story_semantic_parity(tmp_path: Path):
+    repo, _ = _repo(tmp_path)
+
+    # 1. Current issue / offline
+    _add_device(repo, "0xoff", availability="offline", friendly_name="Offline")
+
+    # 2. Topology evidence gap
+    _add_device(repo, "0x03", availability="online", friendly_name="Topo gap")
+    _enable_availability_tracking(
+        repo, "0x03", changed_at=NOW - timedelta(days=3)
+    )
+    _link_ha_area(repo, "0x03")
+    _store_topology_gap_fixtures(repo, ieee="0x03")
+    repo.upsert_device(
+        network_id="home",
+        ieee_address="0x01",
+        friendly_name="Coordinator",
+        device_type="Coordinator",
+        power_source="Mains",
+    )
+    repo.upsert_device(
+        network_id="home",
+        ieee_address="0x02",
+        friendly_name="Router",
+        device_type="Router",
+        power_source="Mains",
+    )
+
+    # 3. Availability tracking off
+    _add_device(repo, "0xtrk", availability="online", friendly_name="Tracking off")
+
+    # 4. Normal / no notable signals
+    _add_device(repo, "0xnrm", availability="online", friendly_name="Normal")
+    _enable_availability_tracking(
+        repo, "0xnrm", changed_at=NOW - timedelta(days=3)
+    )
+    _link_ha_area(repo, "0xnrm")
+    _store_snapshot(
+        repo,
+        "snap-healthy",
+        captured_at=NOW,
+        links=[{"source": "0x02", "target": "0xnrm", "linkquality": 120}],
+        nodes={
+            "0x01": {"type": "Coordinator"},
+            "0x02": {"type": "Router"},
+            "0xnrm": {"type": "EndDevice"},
+            "0x03": {"type": "EndDevice"},
+        },
+    )
+
+    ieees = ("0xoff", "0x03", "0xtrk", "0xnrm")
+    rows = [repo.get_device("home", ieee) for ieee in ieees]
+    assert all(row is not None for row in rows)
+    batch = device_decision_badges_for_devices(repo, rows, now=NOW)
+
+    for ieee in ieees:
+        story = device_story_for_device(repo, "home", ieee, now=NOW)
+        assert story is not None
+        expected = device_decision_badge_from_story(story)
+        badge = batch[("home", ieee)]
+        assert badge.status == str(story.status)
+        assert badge.priority == str(story.priority)
+        assert badge.headline_code == str(story.headline_code)
+        assert badge == expected

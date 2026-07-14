@@ -19,6 +19,7 @@ from zigbeelens.schemas import (
     BridgeState,
     Confidence,
     DashboardPayload,
+    DeviceDecisionBadge,
     DeviceDetail,
     DeviceHealthPrimary,
     DeviceSummary,
@@ -45,7 +46,10 @@ from zigbeelens.services.dashboard_investigation_priorities import (
     compose_dashboard_investigation_priorities,
 )
 from zigbeelens.services.dashboard_coverage_warnings import compose_dashboard_coverage_warnings
-from zigbeelens.services.device_decision_badge import device_decision_badge_for_device
+from zigbeelens.services.device_decision_badge import (
+    device_decision_badge_for_device,
+    device_decision_badges_for_devices,
+)
 from zigbeelens.services.empty_state import build_empty_dashboard, empty_finding
 from zigbeelens.services.live_dashboard import (
     build_health_snapshot,
@@ -208,14 +212,26 @@ class PayloadBuilder:
 
     def devices(self, network_id: str | None = None) -> list[DeviceSummary]:
         rows = self.repo.list_devices(network_id)
-        summaries = [self._device_summary(row) for row in rows]
+        badges = device_decision_badges_for_devices(self.repo, rows)
+        summaries = [
+            self._device_summary(
+                row,
+                decision_badge=badges.get((row.network_id, row.ieee_address)),
+            )
+            for row in rows
+        ]
         return sorted(summaries, key=lambda d: d.sort_priority)
 
     def device_detail(self, network_id: str, ieee_address: str) -> DeviceDetail | None:
         row = self.repo.get_device(network_id, ieee_address)
         if not row:
             return None
-        summary = self._device_summary(row)
+        summary = self._device_summary(
+            row,
+            decision_badge=device_decision_badge_for_device(
+                self.repo, network_id, ieee_address
+            ),
+        )
         health_svc = self._ensure_health()
         result = (
             health_svc.get_device_health(network_id, ieee_address) if health_svc else None
@@ -344,7 +360,12 @@ class PayloadBuilder:
             )
         return events
 
-    def _device_summary(self, row: DeviceRow) -> DeviceSummary:
+    def _device_summary(
+        self,
+        row: DeviceRow,
+        *,
+        decision_badge: DeviceDecisionBadge | None = None,
+    ) -> DeviceSummary:
         health_svc = self._ensure_health()
         result = (
             health_svc.get_device_health(row.network_id, row.ieee_address)
@@ -412,9 +433,7 @@ class PayloadBuilder:
             health=device_health,
             incident_affected=incident_affected,
             sort_priority=sort_priority(result) if result else 100,
-            decision=device_decision_badge_for_device(
-                self.repo, row.network_id, row.ieee_address
-            ),
+            decision=decision_badge,
         )
         return enrich_device_summary(summary, bridge_state=bridge_state)
 
