@@ -18,9 +18,9 @@ import {
   decisionStatusLabel,
   isKnownDecisionStatus,
 } from "@/viewModels/decisionCopy";
-import type { DecisionPillTone } from "@/viewModels/types";
 import {
   buildDeviceDecisionBadgeViewModel,
+  unknownDeviceDecisionBadgeViewModel,
   type DeviceDecisionBadgeViewModel,
 } from "./deviceDecisionBadgeViewModel";
 
@@ -83,13 +83,7 @@ export interface DeviceInventorySummaryCounts {
 }
 
 function unknownDecisionBadge(): DeviceDecisionBadgeViewModel {
-  return {
-    statusLabel: "Status unknown",
-    compactLabel: "Status unknown",
-    tone: "muted" as DecisionPillTone,
-    headline: "Device story summary unavailable.",
-    coverageLabels: [],
-  };
+  return unknownDeviceDecisionBadgeViewModel();
 }
 
 function coverageSummaryFromLabels(labels: string[]): string | null {

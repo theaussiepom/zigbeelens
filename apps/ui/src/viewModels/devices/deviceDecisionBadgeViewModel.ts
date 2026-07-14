@@ -34,3 +34,23 @@ export function buildDeviceDecisionBadgeViewModel(
     coverageLabels: badge.coverage_label_codes.map((code) => coverageLabel(code)),
   };
 }
+
+/** Safe inventory/detail badge when Device Story projection is missing. */
+export function unknownDeviceDecisionBadgeViewModel(): DeviceDecisionBadgeViewModel {
+  return {
+    statusLabel: "Status unknown",
+    compactLabel: "Status unknown",
+    tone: "muted",
+    headline: "Device story summary unavailable.",
+    coverageLabels: [],
+  };
+}
+
+export function buildDeviceDecisionBadgeViewModelOrUnknown(
+  badge: DeviceDecisionBadge | null | undefined,
+): DeviceDecisionBadgeViewModel {
+  if (badge == null) {
+    return unknownDeviceDecisionBadgeViewModel();
+  }
+  return buildDeviceDecisionBadgeViewModel(badge);
+}

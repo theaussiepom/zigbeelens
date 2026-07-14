@@ -1,6 +1,5 @@
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
-import type { DeviceDetail, Incident } from "@zigbeelens/shared";
 import { api } from "@/lib/api";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
@@ -8,26 +7,19 @@ import {
   AvailabilityBadge,
   Badge,
   Card,
-  ConfidenceBadge,
-  CounterEvidenceList,
   DeviceRoleBadge,
   EmptyState,
   ErrorState,
-  EvidenceList,
-  HealthBadge,
-  LensBucketBadge,
-  LimitationsList,
   LoadingState,
   NetworkBadge,
-  SeverityBadge,
 } from "@/components/ui";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
+import { DeviceStorySection } from "@/components/meshGraph/DeviceStorySection";
 import { IncidentCard } from "@/components/cards";
 import {
   availabilityLabel,
   deviceTypeLabel,
   formatTime,
-  healthLabel,
   interviewStateLabel,
   powerSourceLabel,
 } from "@/lib/format";
@@ -38,6 +30,7 @@ import {
   filterDeviceInventoryRows,
   type DeviceRowViewModel,
 } from "@/viewModels/devices/deviceRowViewModel";
+import { buildDeviceDecisionBadgeViewModelOrUnknown } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
 
 const DEVICE_EVENTS = [
   "device_health_updated",
@@ -306,20 +299,6 @@ function Select({
   );
 }
 
-function suggestsLine(device: DeviceDetail, related: Incident[]): string {
-  const active = related.find((i) => i.status === "open" || i.status === "watching");
-  if (active) {
-    return "This device is part of a correlated incident ZigbeeLens is currently tracking.";
-  }
-  if (device.health.primary === "unknown") {
-    return "ZigbeeLens has not observed enough data to classify this device yet.";
-  }
-  if (device.health.primary === "healthy") {
-    return "This device currently looks healthy.";
-  }
-  return "This currently looks isolated to this device.";
-}
-
 export function DeviceDetailPage() {
   const { networkId, ieeeAddress } = useParams();
   const { scenario } = useScenario();
@@ -350,7 +329,7 @@ export function DeviceDetailPage() {
   if (detail.loading || !detail.data) return <LoadingState />;
   const device = detail.data;
   const related = incidents.data ?? [];
-  const flags = (device.health.flags ?? []).filter((f) => f !== device.health.primary);
+  const decision = buildDeviceDecisionBadgeViewModelOrUnknown(device.decision);
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -360,65 +339,51 @@ export function DeviceDetailPage() {
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold">{device.friendly_name}</h1>
-          <LensBucketBadge bucket={device.lens_bucket} />
-          <HealthBadge primary={device.health.primary} />
-          <SeverityBadge severity={device.health.severity} />
-          <ConfidenceBadge confidence={device.health.confidence} />
+          <DeviceDecisionBadge decision={decision} />
         </div>
-        {device.lens_bucket !== "healthy" && device.lens_bucket_reason && (
-          <p className="mt-1 text-sm text-zl-muted">Lens summary: {device.lens_bucket_reason}</p>
-        )}
+        <p className="mt-2 text-sm font-medium text-zl-text">{decision.headline}</p>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-zl-muted">
           <NetworkBadge network={device.network_id} />
           <span className="break-all font-mono">{device.ieee_address}</span>
           <span>{deviceTypeLabel(device.device_type)}</span>
           <span>{powerSourceLabel(device.power_source)}</span>
         </div>
-        {flags.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {flags.map((f) => (
-              <Badge key={f} severity="watch">
-                {healthLabel(f)}
-              </Badge>
-            ))}
-          </div>
-        )}
       </div>
 
+      {networkId && ieee && (
+        <Card>
+          <DeviceStorySection networkId={networkId} deviceIeee={ieee} />
+        </Card>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2">
+        <Card title="Current state">
+          <dl className="space-y-2 text-sm">
+            <Row label="Availability" value={availabilityLabel(device.availability)} />
+            <Row label="Last seen" value={formatTime(device.last_seen)} />
+            <Row label="Last payload" value={formatTime(device.last_payload_at)} />
+            <Row
+              label="Battery"
+              value={device.battery != null ? `${device.battery}%` : undefined}
+            />
+            <Row label="LQI" value={device.linkquality?.toString()} />
+          </dl>
+        </Card>
         <Card title="Identity">
           <dl className="space-y-2 text-sm">
             <Row label="Network" value={device.network_id} mono />
             <Row label="IEEE address" value={device.ieee_address} mono />
             <Row label="Friendly name" value={device.friendly_name} />
+            <Row label="Area" value={device.ha_area} />
             <Row label="Manufacturer" value={device.manufacturer} />
             <Row label="Model" value={device.model} />
-            <Row label="Definition" value={device.definition} />
+            <Row label="Device type" value={deviceTypeLabel(device.device_type)} />
+            <Row label="Power source" value={powerSourceLabel(device.power_source)} />
             <Row label="Interview" value={interviewStateLabel(device.interview_state)} />
-          </dl>
-        </Card>
-        <Card title="Telemetry">
-          <dl className="space-y-2 text-sm">
-            <Row label="Availability" value={availabilityLabel(device.availability)} />
-            <Row label="Last seen" value={formatTime(device.last_seen)} />
-            <Row label="Last payload" value={formatTime(device.last_payload_at)} />
-            <Row label="Link quality" value={device.linkquality?.toString()} />
-            <Row label="Battery" value={device.battery != null ? `${device.battery}%` : undefined} />
+            <Row label="Definition" value={device.definition} />
           </dl>
         </Card>
       </div>
-
-      <Card title="Diagnostic conclusion">
-        <p className="mb-3 text-lg leading-relaxed text-zl-text">{suggestsLine(device, related)}</p>
-        {device.diagnostic.summary && (
-          <p className="mb-4 text-sm text-zl-muted">{device.diagnostic.summary}</p>
-        )}
-        <div className="grid gap-4 md:grid-cols-3">
-          <EvidenceList items={device.diagnostic.evidence} emptyText="No supporting evidence yet." />
-          <CounterEvidenceList items={device.diagnostic.counter_evidence} />
-          <LimitationsList items={device.diagnostic.limitations} />
-        </div>
-      </Card>
 
       {related.length > 0 && (
         <section className="space-y-3">
@@ -428,7 +393,8 @@ export function DeviceDetailPage() {
           <div className="grid gap-3">
             {related.map((inc) => {
               const ref = inc.affected_devices.find(
-                (d) => d.network_id === device.network_id && d.ieee_address === device.ieee_address,
+                (d) =>
+                  d.network_id === device.network_id && d.ieee_address === device.ieee_address,
               );
               return (
                 <div key={inc.id} className="space-y-1">
@@ -455,7 +421,8 @@ export function DeviceDetailPage() {
                   {formatTime(c.timestamp)}
                 </span>
                 <span>
-                  <AvailabilityBadge availability={c.from} /> → <AvailabilityBadge availability={c.to} />
+                  <AvailabilityBadge availability={c.from} /> →{" "}
+                  <AvailabilityBadge availability={c.to} />
                 </span>
               </li>
             ))}
@@ -478,10 +445,16 @@ export function DeviceDetailPage() {
               <tbody className="divide-y divide-zl-border">
                 {device.trends.map((t, i) => (
                   <tr key={i}>
-                    <td className="py-2 pr-4 font-mono text-xs text-zl-muted">{formatTime(t.timestamp)}</td>
+                    <td className="py-2 pr-4 font-mono text-xs text-zl-muted">
+                      {formatTime(t.timestamp)}
+                    </td>
                     <td className="py-2 pr-4">{t.linkquality ?? "—"}</td>
-                    <td className="py-2 pr-4">{t.battery != null ? `${t.battery}%` : "—"}</td>
-                    <td className="py-2">{t.availability ? availabilityLabel(t.availability) : "—"}</td>
+                    <td className="py-2 pr-4">
+                      {t.battery != null ? `${t.battery}%` : "—"}
+                    </td>
+                    <td className="py-2">
+                      {t.availability ? availabilityLabel(t.availability) : "—"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -496,7 +469,15 @@ export function DeviceDetailPage() {
             {device.recent_bridge_logs.map((log, i) => (
               <li key={i} className="flex gap-3">
                 <span className="font-mono text-xs text-zl-muted">{formatTime(log.timestamp)}</span>
-                <Badge severity={log.level === "error" ? "incident" : log.level === "warning" ? "watch" : "healthy"}>
+                <Badge
+                  severity={
+                    log.level === "error"
+                      ? "incident"
+                      : log.level === "warning"
+                        ? "watch"
+                        : "healthy"
+                  }
+                >
                   {log.level}
                 </Badge>
                 <span className="text-zl-muted">{log.message}</span>
@@ -526,7 +507,13 @@ function Row({ label, value, mono }: { label: string; value?: string | null; mon
   return (
     <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
       <dt className="shrink-0 text-zl-muted">{label}</dt>
-      <dd className={mono ? "min-w-0 break-all text-right font-mono" : "min-w-0 break-words text-right"}>{value ?? "—"}</dd>
+      <dd
+        className={
+          mono ? "min-w-0 break-all text-right font-mono" : "min-w-0 break-words text-right"
+        }
+      >
+        {value ?? "—"}
+      </dd>
     </div>
   );
 }
