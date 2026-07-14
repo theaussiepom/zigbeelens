@@ -203,7 +203,12 @@ def build_device_story_evidence_for_scenario(
             continue
 
         if sid == "bridge_offline":
-            evidence_by_device[key] = tracking_off_evidence(device)
+            # Bridge outage leaves availability status unknown; tracking itself
+            # is not configured off.
+            evidence_by_device[key] = device_story_evidence(
+                device,
+                latest_availability_coverage=COVERAGE_UNKNOWN,
+            )
             continue
 
         evidence_by_device[key] = device_story_evidence(device)

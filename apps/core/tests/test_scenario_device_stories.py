@@ -136,6 +136,33 @@ def test_interview_failures_do_not_fabricate_ha_coverage():
     assert story.status == DecisionStatus.no_notable_change
 
 
+def test_bridge_offline_does_not_claim_availability_tracking_is_off():
+    from zigbeelens.topology.device_compare import COVERAGE_UNKNOWN
+
+    raw = BUILDERS["bridge_offline"]()
+    evidence_by_device = build_device_story_evidence_for_scenario(raw)
+    data = get_scenario("bridge_offline")
+    assert data.devices
+
+    for device in data.devices:
+        key = (device.network_id, device.ieee_address)
+        evidence = evidence_by_device[key]
+        assert evidence.availability_tracking_enabled is True
+        assert evidence.latest_availability_coverage == COVERAGE_UNKNOWN
+
+        story = data.device_stories[key]
+        reason_codes = {reason.code for reason in story.reasons}
+        coverage_codes = {item.label_code for item in story.coverage}
+
+        assert ReasonCode.availability_tracking_off not in reason_codes
+        assert CoverageLabelCode.availability_tracking_off not in coverage_codes
+        assert ReasonCode.availability_status_unknown in reason_codes
+        assert CoverageLabelCode.availability_status_unknown in coverage_codes
+
+        expected = build_device_story(evidence, now=NOW)
+        assert story == expected
+
+
 def test_coverage_honesty_across_builtin_scenarios():
     for scenario_id in BUILDERS:
         raw = BUILDERS[scenario_id]()
