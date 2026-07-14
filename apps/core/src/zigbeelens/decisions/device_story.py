@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, Field
 
 from zigbeelens.decisions import coverage as coverage_helpers
-from zigbeelens.decisions.availability_tracking import availability_tracking_enabled_now
 from zigbeelens.decisions.reasons import ReasonCode
 from zigbeelens.decisions.topology_facts import (
     TopologyFactCode,
@@ -47,7 +46,9 @@ from zigbeelens.decisions.reporting_silence import (
 from zigbeelens.topology.device_compare import (
     COVERAGE_BUILDING,
     COVERAGE_UNKNOWN,
-    device_snapshot_history,
+    DeviceSnapshotHistoryNetworkContext,
+    build_device_snapshot_history,
+    load_device_snapshot_history_network_context,
 )
 from zigbeelens.topology.history import aggregate_historical_evidence, aggregate_last_known_links
 from zigbeelens.topology.investigations import LOW_BATTERY_PERCENT, STALE_LAST_SEEN_HOURS
@@ -164,6 +165,7 @@ class DeviceStoryNetworkContext(BaseModel):
     availability_tracking_enabled: bool = False
     network_has_usable_ha_areas: bool = False
     model_patterns: ObservedModelPatterns
+    snapshot_history_context: DeviceSnapshotHistoryNetworkContext
 
 
 class DeviceStory(BaseModel):
@@ -228,13 +230,37 @@ def load_device_story_network_context(
 ) -> DeviceStoryNetworkContext:
     """Load network-scoped Device Story evidence once for a network."""
     reference_now = now or datetime.now(timezone.utc)
+    all_snapshots = repo.list_topology_snapshots(network_id)
+    link_snapshot_ids: list[str] = []
+    for snapshot in all_snapshots:
+        if snapshot.get("status") != "complete":
+            continue
+        snapshot_id = str(snapshot["snapshot_id"])
+        if snapshot_id not in link_snapshot_ids:
+            link_snapshot_ids.append(snapshot_id)
     latest_snapshot = repo.get_latest_topology_snapshot(network_id)
-    latest_snapshot_id = latest_snapshot["snapshot_id"] if latest_snapshot else None
+    latest_snapshot_id = (
+        str(latest_snapshot["snapshot_id"]) if latest_snapshot else None
+    )
+    if latest_snapshot_id and latest_snapshot_id not in link_snapshot_ids:
+        link_snapshot_ids.append(latest_snapshot_id)
+    links_by_snapshot_id = {
+        snapshot_id: list(repo.list_topology_links(snapshot_id))
+        for snapshot_id in link_snapshot_ids
+    }
+    snapshot_history_context = load_device_snapshot_history_network_context(
+        repo,
+        network_id,
+        snapshots=all_snapshots,
+        links_by_snapshot_id=links_by_snapshot_id,
+    )
     latest_nodes = (
         repo.list_topology_nodes(latest_snapshot_id) if latest_snapshot_id else []
     )
     latest_links = (
-        repo.list_topology_links(latest_snapshot_id) if latest_snapshot_id else []
+        links_by_snapshot_id.get(latest_snapshot_id, [])
+        if latest_snapshot_id
+        else []
     )
     return DeviceStoryNetworkContext(
         network_id=network_id,
@@ -242,18 +268,26 @@ def load_device_story_network_context(
         latest_nodes=latest_nodes,
         latest_links=latest_links,
         historical_evidence=aggregate_historical_evidence(
-            repo, network_id, now=reference_now
+            repo,
+            network_id,
+            now=reference_now,
+            snapshots=all_snapshots,
+            links_by_snapshot_id=links_by_snapshot_id,
         ),
-        last_known_links=aggregate_last_known_links(repo, network_id),
-        availability_tracking_enabled=availability_tracking_enabled_now(
-            repo, network_id
+        last_known_links=aggregate_last_known_links(
+            repo,
+            network_id,
+            snapshots=all_snapshots,
+            links_by_snapshot_id=links_by_snapshot_id,
         ),
+        availability_tracking_enabled=snapshot_history_context.tracking_enabled_now,
         network_has_usable_ha_areas=repo.network_has_usable_ha_area_assignments(
             network_id
         ),
         model_patterns=observed_model_patterns_for_network(
             repo, network_id, now=reference_now
         ),
+        snapshot_history_context=snapshot_history_context,
     )
 
 
@@ -299,7 +333,13 @@ def load_device_story_evidence(
         links=latest_links,
     )
 
-    history = device_snapshot_history(repo, network_id, device)
+    history = build_device_snapshot_history(
+        repo,
+        network_context.snapshot_history_context,
+        device,
+        device_row=row,
+        has_current_issue=has_current_issue,
+    )
     for snapshot_row in history.get("snapshots", []):
         topology_facts.extend(
             build_device_snapshot_comparison_facts(

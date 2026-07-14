@@ -401,3 +401,238 @@ def test_batch_badges_match_device_story_semantic_parity(tmp_path: Path):
         assert badge.priority == str(story.priority)
         assert badge.headline_code == str(story.headline_code)
         assert badge == expected
+
+
+def _spy_snapshot_link_loads(repo: Repository, monkeypatch):
+    import zigbeelens.topology.device_compare as device_compare_module
+
+    snapshot_calls: list[str] = []
+    link_calls: list[str] = []
+    tracking_calls: list[str] = []
+    earliest_calls: list[str] = []
+
+    original_list_snapshots = repo.list_topology_snapshots
+    original_list_links = repo.list_topology_links
+    original_earliest = repo.availability.get_earliest_availability_change_at
+    original_tracking = device_compare_module.availability_tracking_enabled_now
+
+    def _list_snapshots(network_id: str):
+        snapshot_calls.append(network_id)
+        return original_list_snapshots(network_id)
+
+    def _list_links(snapshot_id: str):
+        link_calls.append(snapshot_id)
+        return original_list_links(snapshot_id)
+
+    def _earliest(network_id: str):
+        earliest_calls.append(network_id)
+        return original_earliest(network_id)
+
+    def _tracking(repo_arg, network_id: str, **kwargs):
+        tracking_calls.append(network_id)
+        return original_tracking(repo_arg, network_id, **kwargs)
+
+    monkeypatch.setattr(repo, "list_topology_snapshots", _list_snapshots)
+    monkeypatch.setattr(repo, "list_topology_links", _list_links)
+    monkeypatch.setattr(
+        repo.availability, "get_earliest_availability_change_at", _earliest
+    )
+    monkeypatch.setattr(
+        device_compare_module, "availability_tracking_enabled_now", _tracking
+    )
+    return snapshot_calls, link_calls, tracking_calls, earliest_calls
+
+
+def test_devices_list_loads_snapshot_links_once_per_snapshot(monkeypatch, tmp_path: Path):
+    repo, config = _repo(tmp_path)
+    for ieee in ("0xa1", "0xa2", "0xa3", "0xa4"):
+        _add_device(repo, ieee)
+    nodes = {
+        "0x01": {"type": "Coordinator"},
+        "0xa1": {"type": "EndDevice"},
+        "0xa2": {"type": "EndDevice"},
+        "0xa3": {"type": "EndDevice"},
+        "0xa4": {"type": "EndDevice"},
+    }
+    for index, snapshot_id in enumerate(("snap-1", "snap-2", "snap-3")):
+        _store_snapshot(
+            repo,
+            snapshot_id,
+            captured_at=NOW - timedelta(days=2 - index),
+            links=[
+                {"source": "0xa1", "target": "0x01", "linkquality": 100 + index},
+                {"source": "0xa2", "target": "0x01", "linkquality": 90 + index},
+                {"source": "0xa3", "target": "0x01", "linkquality": 80 + index},
+                {"source": "0xa4", "target": "0x01", "linkquality": 70 + index},
+            ],
+            nodes=nodes,
+        )
+    snapshot_calls, link_calls, tracking_calls, earliest_calls = _spy_snapshot_link_loads(
+        repo, monkeypatch
+    )
+    health = HealthDiagnosticService(config, repo)
+    health.recalculate_all()
+    # Reset after health work so only devices() path is counted.
+    snapshot_calls.clear()
+    link_calls.clear()
+    tracking_calls.clear()
+    earliest_calls.clear()
+    devices = PayloadBuilder(config, repo, health).devices()
+    assert len(devices) == 4
+    assert snapshot_calls == ["home"]
+    assert sorted(link_calls) == ["snap-1", "snap-2", "snap-3"]
+    assert link_calls.count("snap-1") == 1
+    assert link_calls.count("snap-2") == 1
+    assert link_calls.count("snap-3") == 1
+    assert tracking_calls == ["home"]
+    assert earliest_calls == ["home"]
+
+
+def test_devices_list_loads_snapshot_context_once_per_network(monkeypatch, tmp_path: Path):
+    repo, config = _repo(
+        tmp_path,
+        networks=[
+            NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt/home"),
+            NetworkConfig(id="office", name="Office", base_topic="zigbee2mqtt/office"),
+        ],
+    )
+    for ieee in ("0xa1", "0xa2"):
+        _add_device(repo, ieee, network_id="home")
+    for ieee in ("0xb1", "0xb2"):
+        _add_device(repo, ieee, network_id="office")
+
+    home_nodes = {
+        "0x01": {"type": "Coordinator"},
+        "0xa1": {"type": "EndDevice"},
+        "0xa2": {"type": "EndDevice"},
+    }
+    office_nodes = {
+        "0x01": {"type": "Coordinator"},
+        "0xb1": {"type": "EndDevice"},
+        "0xb2": {"type": "EndDevice"},
+    }
+    for index, snapshot_id in enumerate(("home-1", "home-2", "home-3")):
+        _store_snapshot(
+            repo,
+            snapshot_id,
+            network_id="home",
+            captured_at=NOW - timedelta(days=2 - index),
+            links=[
+                {"source": "0xa1", "target": "0x01", "linkquality": 100},
+                {"source": "0xa2", "target": "0x01", "linkquality": 90},
+            ],
+            nodes=home_nodes,
+        )
+    for index, snapshot_id in enumerate(("office-1", "office-2")):
+        _store_snapshot(
+            repo,
+            snapshot_id,
+            network_id="office",
+            captured_at=NOW - timedelta(days=1 - index),
+            links=[
+                {"source": "0xb1", "target": "0x01", "linkquality": 80},
+                {"source": "0xb2", "target": "0x01", "linkquality": 70},
+            ],
+            nodes=office_nodes,
+        )
+
+    snapshot_calls, link_calls, tracking_calls, earliest_calls = _spy_snapshot_link_loads(
+        repo, monkeypatch
+    )
+    health = HealthDiagnosticService(config, repo)
+    health.recalculate_all()
+    snapshot_calls.clear()
+    link_calls.clear()
+    tracking_calls.clear()
+    earliest_calls.clear()
+    devices = PayloadBuilder(config, repo, health).devices()
+    assert len(devices) == 4
+    assert snapshot_calls.count("home") == 1
+    assert snapshot_calls.count("office") == 1
+    for snapshot_id in ("home-1", "home-2", "home-3", "office-1", "office-2"):
+        assert link_calls.count(snapshot_id) == 1
+    assert tracking_calls.count("home") == 1
+    assert tracking_calls.count("office") == 1
+    assert earliest_calls.count("home") == 1
+    assert earliest_calls.count("office") == 1
+
+
+def test_dashboard_does_not_compose_inventory_decision_badges(tmp_path: Path):
+    repo, config = _repo(tmp_path)
+    _add_device(repo, "0xa1", availability="offline")
+    health = HealthDiagnosticService(config, repo)
+    health.recalculate_all()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            "zigbeelens.services.payload_builder.device_decision_badges_for_devices",
+            MagicMock(
+                side_effect=AssertionError(
+                    "dashboard must not compose inventory decision badges"
+                )
+            ),
+        )
+        dash = PayloadBuilder(config, repo, health).dashboard()
+    assert dash.top_affected_devices or dash.stale_devices or True
+    nested = (
+        dash.top_affected_devices
+        + dash.recently_unstable
+        + dash.weak_links
+        + dash.low_batteries
+        + dash.stale_devices
+    )
+    assert all(device.decision is None for device in nested)
+
+
+def test_devices_endpoint_composes_badges_once(tmp_path: Path):
+    repo, config = _repo(tmp_path)
+    _add_device(repo, "0xa1", availability="offline")
+    health = HealthDiagnosticService(config, repo)
+    health.recalculate_all()
+    spy = MagicMock(wraps=device_decision_badges_for_devices)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            "zigbeelens.services.payload_builder.device_decision_badges_for_devices",
+            spy,
+        )
+        devices = PayloadBuilder(config, repo, health).devices()
+    assert spy.call_count == 1
+    assert devices[0].decision is not None
+
+
+def test_device_detail_composes_single_device_badge_once(tmp_path: Path):
+    repo, config = _repo(tmp_path)
+    _add_device(repo, "0xa1", availability="offline")
+    health = HealthDiagnosticService(config, repo)
+    health.recalculate_all()
+    spy = MagicMock(wraps=device_decision_badge_for_device)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            "zigbeelens.services.payload_builder.device_decision_badge_for_device",
+            spy,
+        )
+        mp.setattr(
+            "zigbeelens.services.payload_builder.device_decision_badges_for_devices",
+            MagicMock(side_effect=AssertionError("detail must not batch compose")),
+        )
+        detail = PayloadBuilder(config, repo, health).device_detail("home", "0xa1")
+    assert detail is not None
+    assert detail.decision is not None
+    assert spy.call_count == 1
+
+
+def test_dashboard_does_not_load_device_story_network_context(tmp_path: Path):
+    repo, config = _repo(tmp_path)
+    _add_device(repo, "0xa1", availability="online")
+    health = HealthDiagnosticService(config, repo)
+    health.recalculate_all()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            "zigbeelens.decisions.device_story.load_device_story_network_context",
+            MagicMock(
+                side_effect=AssertionError(
+                    "dashboard must not compose Device Story network context"
+                )
+            ),
+        )
+        dash = PayloadBuilder(config, repo, health).dashboard()
+    assert dash.generated_at

@@ -116,7 +116,8 @@ class PayloadBuilder:
         health = self._ensure_health()
         if not health:
             health = self._fallback_health()
-        devices = self.devices()
+        rows = self.repo.list_devices()
+        devices = self._devices_from_rows(rows)
         finding = live_finding(self.repo, self.config, health, self._incident_service)
 
         open_count, watching_count = (
@@ -213,10 +214,22 @@ class PayloadBuilder:
     def devices(self, network_id: str | None = None) -> list[DeviceSummary]:
         rows = self.repo.list_devices(network_id)
         badges = device_decision_badges_for_devices(self.repo, rows)
+        return self._devices_from_rows(rows, decision_badges=badges)
+
+    def _devices_from_rows(
+        self,
+        rows: list[DeviceRow],
+        *,
+        decision_badges: dict[tuple[str, str], DeviceDecisionBadge] | None = None,
+    ) -> list[DeviceSummary]:
         summaries = [
             self._device_summary(
                 row,
-                decision_badge=badges.get((row.network_id, row.ieee_address)),
+                decision_badge=(
+                    None
+                    if decision_badges is None
+                    else decision_badges.get((row.network_id, row.ieee_address))
+                ),
             )
             for row in rows
         ]

@@ -30,11 +30,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel, Field
+
 from zigbeelens.decisions.availability_tracking import availability_tracking_enabled_now
 from zigbeelens.topology.compare import MEANINGFUL_LQI_CHANGE
 
 if TYPE_CHECKING:
-    from zigbeelens.storage.repository import Repository
+    from zigbeelens.storage.repository import DeviceRow, Repository
 
 # Most recent usable snapshots listed for a device (latest + earlier ones).
 MAX_SNAPSHOT_HISTORY = 10
@@ -86,15 +88,25 @@ def _pair_key(a: str, b: str) -> tuple[str, str]:
     return tuple(sorted((a, b)))  # type: ignore[return-value]
 
 
+class DeviceSnapshotHistoryNetworkContext(BaseModel):
+    """Network-scoped snapshot-history evidence loaded once for batch composition."""
+
+    network_id: str
+    usable_snapshots: list[dict[str, Any]] = Field(default_factory=list)
+    links_by_snapshot_id: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    earliest_availability_at: str | None = None
+    tracking_enabled_now: bool = False
+
+
 class _DeviceSnapshotEvidence:
     """Per-device link and route-hint evidence from one snapshot."""
 
-    def __init__(self, repo: Repository, snapshot_id: str, device: str) -> None:
+    def __init__(self, links: list[dict[str, Any]], device: str) -> None:
         # Undirected neighbour pairs involving the device -> best recorded LQI.
         self.link_lqi: dict[tuple[str, str], int | None] = {}
         # Directed route pairs involving the device -> recorded route count.
         self.route_counts: dict[tuple[str, str], int | None] = {}
-        for link in repo.list_topology_links(snapshot_id):
+        for link in links:
             source = _norm(link["source_ieee"])
             target = _norm(link["target_ieee"])
             if not source or not target or source == target:
@@ -333,55 +345,82 @@ def _comparison_to_latest(
     }
 
 
-def device_snapshot_history(
+def load_device_snapshot_history_network_context(
     repo: Repository,
     network_id: str,
-    device_ieee: str,
     *,
     max_snapshots: int = MAX_SNAPSHOT_HISTORY,
-) -> dict[str, Any]:
-    """Snapshot history for one device: recent usable snapshots with
-    per-device counts, availability coverage, and a comparison of each
-    earlier snapshot against the latest.
-
-    Read-only over stored snapshots and availability history. Deterministic
-    ordering (newest first). Unknown values stay None, never zero.
-    """
-    device = _norm(device_ieee)
+    snapshots: list[dict[str, Any]] | None = None,
+    links_by_snapshot_id: dict[str, list[dict[str, Any]]] | None = None,
+) -> DeviceSnapshotHistoryNetworkContext:
+    """Load network-scoped snapshot-history evidence once for a network."""
+    snapshot_rows = (
+        snapshots if snapshots is not None else repo.list_topology_snapshots(network_id)
+    )
     usable = [
         snapshot
-        for snapshot in repo.list_topology_snapshots(network_id)
+        for snapshot in snapshot_rows
         if snapshot.get("status") == "complete"
     ][:max_snapshots]
-
-    device_row = repo.get_device(network_id, device_ieee)
-    has_current_issue = bool(
-        (device_row is not None and device_row.availability == "offline")
-        or repo.incidents.list_incidents_for_device(network_id, device_ieee)
+    resolved_links: dict[str, list[dict[str, Any]]] = {}
+    for snapshot in usable:
+        snapshot_id = str(snapshot["snapshot_id"])
+        if links_by_snapshot_id is not None and snapshot_id in links_by_snapshot_id:
+            resolved_links[snapshot_id] = links_by_snapshot_id[snapshot_id]
+        else:
+            resolved_links[snapshot_id] = list(repo.list_topology_links(snapshot_id))
+    earliest_availability_at = repo.availability.get_earliest_availability_change_at(
+        network_id
+    )
+    return DeviceSnapshotHistoryNetworkContext(
+        network_id=network_id,
+        usable_snapshots=usable,
+        links_by_snapshot_id=resolved_links,
+        earliest_availability_at=earliest_availability_at,
+        tracking_enabled_now=availability_tracking_enabled_now(
+            repo,
+            network_id,
+            earliest_availability_at=earliest_availability_at,
+        ),
     )
 
-    earliest_availability_at = repo.availability.get_earliest_availability_change_at(network_id)
-    tracking_enabled_now = availability_tracking_enabled_now(repo, network_id)
+
+def build_device_snapshot_history(
+    repo: Repository,
+    network_context: DeviceSnapshotHistoryNetworkContext,
+    device_ieee: str,
+    *,
+    device_row: DeviceRow | None,
+    has_current_issue: bool,
+) -> dict[str, Any]:
+    """Build snapshot history for one device from a preloaded network context."""
+    device = _norm(device_ieee)
+    usable = network_context.usable_snapshots
+    tracking_enabled_now = network_context.tracking_enabled_now
+    earliest_availability_at = network_context.earliest_availability_at
     device_changes = list(
         reversed(
             repo.availability.list_availability_changes(
-                network_id, device_ieee, limit=_AVAILABILITY_LOOKUP_LIMIT
+                network_context.network_id,
+                device_ieee,
+                limit=_AVAILABILITY_LOOKUP_LIMIT,
             )
         )
     )  # oldest first
 
+    def _evidence_for(snapshot_id: str) -> _DeviceSnapshotEvidence:
+        links = network_context.links_by_snapshot_id.get(snapshot_id, [])
+        return _DeviceSnapshotEvidence(links, device)
+
     latest_evidence = (
-        _DeviceSnapshotEvidence(repo, usable[0]["snapshot_id"], device) if usable else None
+        _evidence_for(str(usable[0]["snapshot_id"])) if usable else None
     )
 
     snapshots: list[dict[str, Any]] = []
     for index, snapshot in enumerate(usable):
         is_latest = index == 0
-        evidence = (
-            latest_evidence
-            if is_latest
-            else _DeviceSnapshotEvidence(repo, snapshot["snapshot_id"], device)
-        )
+        snapshot_id = str(snapshot["snapshot_id"])
+        evidence = latest_evidence if is_latest else _evidence_for(snapshot_id)
         assert evidence is not None
         coverage = _coverage_for_snapshot(
             snapshot.get("captured_at"),
@@ -416,7 +455,7 @@ def device_snapshot_history(
         snapshots.append(row)
 
     return {
-        "network_id": network_id,
+        "network_id": network_context.network_id,
         "device_ieee": device_ieee,
         "friendly_name": device_row.friendly_name if device_row else None,
         "has_current_issue": has_current_issue,
@@ -427,3 +466,42 @@ def device_snapshot_history(
         "latest_snapshot": snapshots[0] if snapshots else None,
         "snapshots": snapshots[1:],
     }
+
+
+def device_snapshot_history(
+    repo: Repository,
+    network_id: str,
+    device_ieee: str,
+    *,
+    max_snapshots: int = MAX_SNAPSHOT_HISTORY,
+    network_context: DeviceSnapshotHistoryNetworkContext | None = None,
+) -> dict[str, Any]:
+    """Snapshot history for one device: recent usable snapshots with
+    per-device counts, availability coverage, and a comparison of each
+    earlier snapshot against the latest.
+
+    Read-only over stored snapshots and availability history. Deterministic
+    ordering (newest first). Unknown values stay None, never zero.
+    """
+    if network_context is None:
+        network_context = load_device_snapshot_history_network_context(
+            repo, network_id, max_snapshots=max_snapshots
+        )
+    elif network_context.network_id != network_id:
+        raise ValueError(
+            "DeviceSnapshotHistoryNetworkContext network_id does not match "
+            "requested network_id"
+        )
+
+    device_row = repo.get_device(network_id, device_ieee)
+    has_current_issue = bool(
+        (device_row is not None and device_row.availability == "offline")
+        or repo.incidents.list_incidents_for_device(network_id, device_ieee)
+    )
+    return build_device_snapshot_history(
+        repo,
+        network_context,
+        device_ieee,
+        device_row=device_row,
+        has_current_issue=has_current_issue,
+    )
