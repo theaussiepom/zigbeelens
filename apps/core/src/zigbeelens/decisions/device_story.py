@@ -7,6 +7,7 @@ Presenters map codes to user-facing copy — no prose belongs here.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -828,6 +829,39 @@ def _resolve_story_outcome(
         DecisionPriority.none,
         HeadlineCode.no_notable_signals,
     )
+
+
+def device_stories_for_devices(
+    repo: Repository,
+    rows: list[DeviceRow],
+    *,
+    now: datetime | None = None,
+) -> dict[tuple[str, str], DeviceStory]:
+    """Compose full Device Stories for many devices with one network context each."""
+    reference_now = now or datetime.now(timezone.utc)
+    by_network: dict[str, list[DeviceRow]] = defaultdict(list)
+    for row in rows:
+        by_network[row.network_id].append(row)
+
+    stories: dict[tuple[str, str], DeviceStory] = {}
+    for network_id, network_rows in by_network.items():
+        context = load_device_story_network_context(
+            repo, network_id, now=reference_now
+        )
+        for row in network_rows:
+            evidence = load_device_story_evidence(
+                repo,
+                network_id,
+                row.ieee_address,
+                now=reference_now,
+                network_context=context,
+            )
+            if evidence is None:
+                continue
+            stories[(network_id, row.ieee_address)] = build_device_story(
+                evidence, now=reference_now
+            )
+    return stories
 
 
 def device_story_for_device(

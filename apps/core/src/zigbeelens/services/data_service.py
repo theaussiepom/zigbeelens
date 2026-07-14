@@ -3,15 +3,27 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
+from datetime import datetime
 
 from zigbeelens.config.models import AppConfig
-from zigbeelens.schemas import ReportDetail, ReportRequest
+from zigbeelens.decisions.device_story import DeviceStory, device_stories_for_devices
+from zigbeelens.schemas import DeviceSummary, ReportDetail, ReportRequest
 from zigbeelens.diagnostics.incidents.service import IncidentDiagnosticService
 from zigbeelens.diagnostics.service import HealthDiagnosticService
+from zigbeelens.services.device_decision_badge import device_decision_badge_from_story
 from zigbeelens.services.mock_provider import MockProvider
 from zigbeelens.services.payload_builder import PayloadBuilder
 from zigbeelens.services.reports import generate_report
 from zigbeelens.storage.repository import Repository
+
+
+@dataclass(frozen=True)
+class ReportDeviceContext:
+    """Summaries and full Device Stories from one composition batch (Phase 5D)."""
+
+    devices: list[DeviceSummary]
+    stories: dict[tuple[str, str], DeviceStory]
 
 
 class DataService:
@@ -64,6 +76,47 @@ class DataService:
             devices = self._mock(scenario).devices(network_id)
             return sorted(devices, key=lambda d: d.sort_priority)
         return self._builder.devices(network_id)
+
+    def report_device_context(
+        self,
+        scenario: str | None = None,
+        *,
+        network_id: str | None = None,
+        device_keys: set[tuple[str, str]] | None = None,
+        now: datetime | None = None,
+    ) -> ReportDeviceContext:
+        """Load DeviceSummaries and full Device Stories from one story batch."""
+        if self.uses_mock(scenario):
+            mock = self._mock(scenario)
+            devices = mock.devices(network_id)
+            if device_keys is not None:
+                devices = [
+                    d
+                    for d in devices
+                    if (d.network_id, d.ieee_address) in device_keys
+                ]
+            stories: dict[tuple[str, str], DeviceStory] = {}
+            for device in devices:
+                key = (device.network_id, device.ieee_address)
+                story = mock.data.device_stories.get(key)
+                if story is not None:
+                    stories[key] = story
+            return ReportDeviceContext(devices=devices, stories=stories)
+
+        rows = self.repo.list_devices(network_id)
+        if device_keys is not None:
+            rows = [
+                row
+                for row in rows
+                if (row.network_id, row.ieee_address) in device_keys
+            ]
+        stories = device_stories_for_devices(self.repo, rows, now=now)
+        badges = {
+            key: device_decision_badge_from_story(story)
+            for key, story in stories.items()
+        }
+        devices = self._builder._devices_from_rows(rows, decision_badges=badges)
+        return ReportDeviceContext(devices=devices, stories=stories)
 
     def device(self, network_id: str, ieee_address: str, scenario: str | None = None):
         if self.uses_mock(scenario):

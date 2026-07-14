@@ -76,6 +76,16 @@ _STRUCTURED_STRING_KEYS = frozenset(
         "overall_severity",
         "health_state",
         "state",
+        "status",
+        "priority",
+        "headline_code",
+        "label_code",
+        "dimension",
+        "scope_type",
+        "card_type",
+        "action_group",
+        "subject_type",
+        "code",
     }
 )
 
@@ -270,6 +280,10 @@ class Redactor:
                 lk = k.lower()
                 if lk == "ieee_address" and isinstance(v, str):
                     self._ieee(v)
+                elif lk == "device_ieees" and isinstance(v, list):
+                    for item in v:
+                        if isinstance(item, str):
+                            self._ieee(item)
                 elif lk == "friendly_name" and isinstance(v, str):
                     self._friendly(v)
                 else:
@@ -331,6 +345,10 @@ class Redactor:
             return REDACTED if value else value
         if lk == "ieee_address" and isinstance(value, str):
             return self._ieee(value)
+        if lk == "device_ieees" and isinstance(value, list):
+            return [
+                self._ieee(item) if isinstance(item, str) else item for item in value
+            ]
         if lk == "network_id" and isinstance(value, str):
             return self._net_id_map.get(value, value) if self.resolved.network_anon else value
         if lk == "network_ids" and isinstance(value, list):

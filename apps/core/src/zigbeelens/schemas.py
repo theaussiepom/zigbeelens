@@ -447,6 +447,43 @@ class ReportSummary(BaseModel):
     redaction_profile: str = "standard"
 
 
+class ReportDecisionSummary(BaseModel):
+    """Factual Device Story decision counts for a report scope (Phase 5D)."""
+
+    device_story_count: int = 0
+    status_counts: dict[str, int] = Field(default_factory=dict)
+    priority_counts: dict[str, int] = Field(default_factory=dict)
+
+
+class ReportStoryTimelineItem(BaseModel):
+    """Report-compatible Device Story timeline item (avoids schema cycle)."""
+
+    code: str
+    params: dict[str, Any] = Field(default_factory=dict)
+    occurred_at: str | None = None
+
+
+class ReportDeviceStory(BaseModel):
+    """Canonical Device Story payload plus report identity fields (Phase 5D)."""
+
+    network_id: str
+    ieee_address: str
+    friendly_name: str
+
+    subject_type: str = "device"
+    subject_id: str
+    status: str
+    priority: str
+    headline_code: str
+
+    reasons: list[dict[str, Any]] = Field(default_factory=list)
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    limitations: list[dict[str, Any]] = Field(default_factory=list)
+    suggested_checks: list[dict[str, Any]] = Field(default_factory=list)
+    coverage: list[dict[str, Any]] = Field(default_factory=list)
+    timeline: list[ReportStoryTimelineItem] = Field(default_factory=list)
+
+
 class ReportDetail(BaseModel):
     id: str
     product: str = "ZigbeeLens"
@@ -462,6 +499,10 @@ class ReportDetail(BaseModel):
     executive_summary: str | None = None
     summary: ReportSummaryBlock | None = None
     health_summary: LensHealthSummary | None = None
+    decision_summary: ReportDecisionSummary | None = None
+    investigation_priorities: list[InvestigationPrioritySummary] = Field(default_factory=list)
+    device_stories: list[ReportDeviceStory] = Field(default_factory=list)
+    data_coverage_warnings: list[DataCoverageWarningSummary] = Field(default_factory=list)
     active_incidents: list[Incident] = Field(default_factory=list)
     config_summary: dict[str, Any]
     collector: dict[str, Any] = Field(default_factory=dict)

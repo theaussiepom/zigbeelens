@@ -44,7 +44,7 @@ def test_full_json_report(mock_client: TestClient):
     assert summary["format"] == "json"
     detail = mock_client.get(f"/api/reports/{summary['id']}").json()
     assert detail["product"] == "ZigbeeLens"
-    assert detail["report_version"] == 1
+    assert detail["report_version"] == 2
     assert detail["summary"]["networks_monitored"] >= 1
     assert detail["limitations"]
     assert detail["raw_counts"]["devices_included"] == len(detail["devices"])
@@ -308,9 +308,12 @@ def test_lens_report_alignment_fields(mock_client: TestClient):
     assert detail["generated_at"]
     assert detail["redaction_profile"] == "public_safe"
     assert detail["mode"] in {"mock", "live"}
-    assert detail["executive_summary"]
-    assert detail["health_summary"]["vocabulary"] == "lens_family"
-    assert "bucket_counts" in detail["health_summary"]
+    assert detail["report_version"] == 2
+    # Phase 5D: Version 2 reports do not use Lens/executive prose as authority.
+    assert detail["executive_summary"] is None
+    assert detail["health_summary"] is None
+    assert detail["decision_summary"] is not None
+    assert detail["device_stories"]
     assert detail["collector_status"]["mqtt_collector"] in {
         "connected",
         "disconnected",
