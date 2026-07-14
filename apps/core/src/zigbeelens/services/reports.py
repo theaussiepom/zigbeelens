@@ -582,11 +582,66 @@ def generate_report(
 # -- rendering -----------------------------------------------------------
 
 
+_DEVICE_STORY_STATUS_ORDER = (
+    "review_first",
+    "worth_reviewing",
+    "improve_data_coverage",
+    "watch",
+    "changed",
+    "informational",
+    "no_notable_change",
+    "data_unavailable",
+)
+
+
 def _title(value: str) -> str:
     return value.replace("_", " ").title()
 
 
-def render_markdown(detail: ReportDetail) -> str:
+def _evidence_line(ref: dict[str, Any]) -> str:
+    source = str(ref.get("source") or "")
+    ref_id = ref.get("id")
+    captured_at = ref.get("captured_at")
+    if source == "topology_snapshot":
+        parts = ["Latest stored topology snapshot"]
+        if captured_at:
+            parts.append(f"captured {captured_at}")
+        if ref_id:
+            parts.append(f"({ref_id})")
+        return " · ".join(parts)
+    if ref_id:
+        return f"Stored evidence ({ref_id})"
+    return "Stored evidence reference"
+
+
+def _ordered_device_stories(detail: ReportDetail):
+    order = {status: index for index, status in enumerate(_DEVICE_STORY_STATUS_ORDER)}
+
+    def sort_key(story):
+        return (
+            order.get(str(story.status), len(order)),
+            story.friendly_name.lower(),
+            story.ieee_address,
+        )
+
+    return sorted(detail.device_stories, key=sort_key)
+
+
+def _decision_list_summary(detail: ReportDetail) -> str:
+    """Persisted/list summary from shared Decision output only (Version 2)."""
+    from zigbeelens.presentation.report_decision_copy import headline_text
+
+    if detail.investigation_priorities:
+        return detail.investigation_priorities[0].title
+    ordered = _ordered_device_stories(detail)
+    if ordered:
+        story = ordered[0]
+        return f"{story.friendly_name} — {headline_text(story.headline_code)}"
+    return "No notable Device Story decisions in this report scope."
+
+
+def render_markdown_v1(detail: ReportDetail) -> str:
+    """Legacy Markdown for stored Version 1 report bodies (compatibility only)."""
     s = detail.summary
     lines = [
         "# ZigbeeLens diagnostic report",
@@ -690,6 +745,189 @@ def render_markdown(detail: ReportDetail) -> str:
     return "\n".join(lines)
 
 
+def render_markdown_v2(detail: ReportDetail) -> str:
+    """Decision-backed Markdown for Version 2 evidence reports."""
+    from zigbeelens.presentation.report_decision_copy import (
+        decision_status_label,
+        device_coverage_label,
+        headline_text,
+        limitation_text,
+        reason_text,
+        suggested_check_text,
+        coverage_label,
+    )
+
+    lines = [
+        "# ZigbeeLens evidence report",
+        "",
+        f"Product: {detail.product}",
+        f"Version: {detail.version}",
+        f"Generated: {detail.generated_at}",
+        f"Scope: {_title(detail.scope)}",
+        f"Mode: {detail.mode or 'unknown'}",
+        f"Redaction profile: {detail.redaction_profile or detail.redaction.profile}",
+        "",
+        "## Summary",
+        "",
+        f"Networks in scope: {len(detail.networks)}",
+        f"Devices in scope: {len(detail.devices)}",
+        f"Incident records in scope: {len(detail.incidents)}",
+    ]
+    if detail.decision_summary and detail.decision_summary.status_counts:
+        lines += ["", "Current Device Story decisions:"]
+        for status in _DEVICE_STORY_STATUS_ORDER:
+            count = detail.decision_summary.status_counts.get(status, 0)
+            if count:
+                lines.append(f"- {decision_status_label(status)}: {count}")
+        for status, count in sorted(detail.decision_summary.status_counts.items()):
+            if status not in _DEVICE_STORY_STATUS_ORDER and count:
+                lines.append(f"- {decision_status_label(status)}: {count}")
+
+    if detail.investigation_priorities:
+        lines += ["", "## What to check first", ""]
+        for priority in detail.investigation_priorities:
+            lines.append(f"### {priority.title}")
+            lines.append("")
+            lines.append(priority.summary)
+            lines.append(f"Network: {priority.network_id}")
+            if priority.device_ieees:
+                lines.append(f"Devices referenced: {len(priority.device_ieees)}")
+            lines.append("")
+
+    ordered_stories = _ordered_device_stories(detail)
+    if ordered_stories:
+        lines += ["## Device stories", ""]
+        for story in ordered_stories:
+            lines.append(f"### {story.friendly_name}")
+            lines.append("")
+            lines.append(f"Status: {decision_status_label(story.status)}")
+            lines.append(headline_text(story.headline_code))
+            if story.reasons:
+                lines += ["", "Why:"]
+                for reason in story.reasons:
+                    code = str(reason.get("code") if isinstance(reason, dict) else reason.code)
+                    params = (
+                        reason.get("params") if isinstance(reason, dict) else reason.params
+                    ) or {}
+                    lines.append(f"- {reason_text(code, params)}")
+            if story.limitations:
+                lines += ["", "Data limitations:"]
+                for item in story.limitations:
+                    code = str(item.get("code") if isinstance(item, dict) else item.code)
+                    params = (
+                        item.get("params") if isinstance(item, dict) else item.params
+                    ) or {}
+                    lines.append(f"- {limitation_text(code, params)}")
+            lines.append("")
+
+    coverage_lines: list[str] = []
+    if detail.data_coverage_warnings:
+        coverage_lines.append("### Network coverage")
+        coverage_lines.append("")
+        for warning in detail.data_coverage_warnings:
+            coverage_lines.append(
+                f"- {coverage_label(warning.label_code, warning.params)} ({warning.network_id})"
+            )
+        coverage_lines.append("")
+    device_cov_any = False
+    for story in ordered_stories:
+        if not story.coverage:
+            continue
+        if not device_cov_any:
+            coverage_lines.append("### Device coverage")
+            coverage_lines.append("")
+            device_cov_any = True
+        coverage_lines.append(f"### {story.friendly_name}")
+        for item in story.coverage:
+            code = str(item.get("label_code") if isinstance(item, dict) else item.label_code)
+            params = (item.get("params") if isinstance(item, dict) else item.params) or {}
+            coverage_lines.append(f"- {device_coverage_label(code, params)}")
+        coverage_lines.append("")
+    if coverage_lines:
+        lines += ["## Data coverage", ""] + coverage_lines
+
+    evidence_blocks: list[str] = []
+    for story in ordered_stories:
+        if not story.evidence:
+            continue
+        evidence_blocks.append(f"### {story.friendly_name}")
+        for ref in story.evidence:
+            evidence_blocks.append(f"- {_evidence_line(ref if isinstance(ref, dict) else ref.model_dump())}")
+        evidence_blocks.append("")
+    if evidence_blocks:
+        lines += ["## Evidence", ""] + evidence_blocks
+
+    if detail.incidents:
+        lines += ["## Incident records", ""]
+        for inc in detail.incidents:
+            lines.append(f"### {inc.title}")
+            lines.append("")
+            lines.append(f"Lifecycle: {_title(inc.status.value)}")
+            lines.append(f"Recorded summary: {inc.summary}")
+            lines.append(f"Networks: {', '.join(inc.network_ids)}")
+            lines.append(f"Opened: {inc.opened_at}")
+            lines.append(f"Updated: {inc.updated_at}")
+            if inc.resolved_at:
+                lines.append(f"Resolved: {inc.resolved_at}")
+            if inc.conclusion and inc.conclusion.summary:
+                lines += ["", "Recorded interpretation:", "", inc.conclusion.summary]
+            if inc.evidence:
+                lines += ["", "Stored evidence:"]
+                lines += [f"- {e.summary}" for e in inc.evidence]
+            if inc.limitations:
+                lines += ["", "Recorded limitations:"]
+                lines += [f"- {limitation.summary}" for limitation in inc.limitations]
+            lines.append("")
+
+    limitation_texts: list[str] = [lim.summary for lim in detail.limitations]
+    for story in ordered_stories:
+        for item in story.limitations:
+            code = str(item.get("code") if isinstance(item, dict) else item.code)
+            params = (item.get("params") if isinstance(item, dict) else item.params) or {}
+            text = limitation_text(code, params)
+            if text not in limitation_texts:
+                limitation_texts.append(text)
+    if limitation_texts:
+        lines += ["## Limitations", ""]
+        lines += [f"- {text}" for text in limitation_texts]
+        lines.append("")
+
+    check_blocks: list[str] = []
+    for story in ordered_stories:
+        if not story.suggested_checks:
+            continue
+        seen: set[str] = set()
+        check_blocks.append(f"### {story.friendly_name}")
+        for item in story.suggested_checks:
+            code = str(item.get("code") if isinstance(item, dict) else item.code)
+            params = (item.get("params") if isinstance(item, dict) else item.params) or {}
+            text = suggested_check_text(code, params)
+            if text in seen:
+                continue
+            seen.add(text)
+            check_blocks.append(f"- {text}")
+        check_blocks.append("")
+    if check_blocks:
+        lines += ["## Suggested checks", ""] + check_blocks
+
+    if detail.collector_status:
+        lines += [
+            "## Collector status",
+            "",
+            f"MQTT collector: {detail.collector_status.get('mqtt_collector', 'unknown')}",
+            f"Zigbee2MQTT bridge: {detail.collector_status.get('zigbee2mqtt_bridge', 'unknown')}",
+            "",
+        ]
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def render_markdown(detail: ReportDetail) -> str:
+    if detail.report_version >= 2:
+        return render_markdown_v2(detail)
+    return render_markdown_v1(detail)
+
+
 # -- serialization -------------------------------------------------------
 
 
@@ -705,6 +943,8 @@ def report_body_as_yaml(detail: ReportDetail) -> str:
 
 
 def _finding_text(detail: ReportDetail) -> str:
+    if detail.report_version >= 2:
+        return _decision_list_summary(detail)
     if detail.summary and detail.summary.current_finding:
         return detail.summary.current_finding
     if detail.diagnostic_conclusions:

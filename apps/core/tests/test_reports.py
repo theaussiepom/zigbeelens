@@ -65,8 +65,11 @@ def test_markdown_report_downloads(mock_client: TestClient):
     res = mock_client.get(f"/api/reports/{summary['id']}/download")
     assert res.status_code == 200
     assert "markdown" in res.headers["content-type"]
-    assert res.text.startswith("# ZigbeeLens diagnostic report")
-    assert "## Executive summary" in res.text
+    assert res.text.startswith("# ZigbeeLens evidence report")
+    assert "## Summary" in res.text
+    assert "## Executive summary" not in res.text
+    assert "## Health summary" not in res.text
+    assert "## Unhealthy devices" not in res.text
     assert "## Limitations" in res.text
 
 
