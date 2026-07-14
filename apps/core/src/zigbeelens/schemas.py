@@ -235,6 +235,7 @@ class IncidentDeviceRef(BaseModel):
     name: str = ""
     reason: str = ""
     classification: str = ""
+    decision: DeviceDecisionBadge | None = None
 
 
 class TimelineEvent(BaseModel):

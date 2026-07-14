@@ -238,6 +238,7 @@ export interface IncidentDeviceRef {
   lens_bucket: LensBucket;
   lens_bucket_label: string;
   lens_bucket_reason: string;
+  decision?: DeviceDecisionBadge | null;
 }
 
 /** Alias for clarity in API responses */

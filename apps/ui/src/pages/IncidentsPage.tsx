@@ -1,35 +1,35 @@
 import { Link, useParams } from "react-router-dom";
 import { useMemo, useState } from "react";
-import type { Incident, IncidentStatus } from "@zigbeelens/shared";
+import type { IncidentStatus } from "@zigbeelens/shared";
 import { api } from "@/lib/api";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
 import {
   Badge,
   Card,
-  ConfidenceBadge,
   CounterEvidenceList,
-  DeviceRoleBadge,
   EmptyState,
   ErrorState,
   EvidenceList,
-  LensBucketBadge,
   LifecycleBadge,
   LimitationsList,
   LoadingState,
   NetworkBadge,
-  SeverityBadge,
 } from "@/components/ui";
-import { IncidentCard, TimelineEventRow } from "@/components/cards";
+import { IncidentRecordCard } from "@/components/incidents/IncidentRecordCard";
+import { TimelineEventRow } from "@/components/cards";
+import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
+import { incidentTypeLabel, scopeLabel } from "@/lib/format";
 import {
-  compareIncidents,
-  devicePath,
-  formatTime,
-  healthRank,
-  incidentTypeLabel,
-  relativeTime,
-  scopeLabel,
-} from "@/lib/format";
+  buildIncidentRecordViewModel,
+  compareIncidentsByRecordTiming,
+  incidentMatchesSearch,
+} from "@/viewModels/incidents/incidentViewModel";
+import {
+  buildIncidentDetailViewModel,
+  incidentTimingLine,
+  recordedSeverityConfidenceLine,
+} from "@/viewModels/incidents/incidentDetailViewModel";
 
 const INCIDENT_EVENTS = [
   "incident_opened",
@@ -48,7 +48,6 @@ export function IncidentsPage() {
   );
 
   const [network, setNetwork] = useState("");
-  const [severity, setSeverity] = useState("");
   const [scope, setScope] = useState("");
   const [type, setType] = useState("");
   const [lifecycle, setLifecycle] = useState("");
@@ -73,29 +72,18 @@ export function IncidentsPage() {
   }, [incidents]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
     return incidents
       .filter((inc) => {
         if (network && !inc.network_ids.includes(network)) return false;
-        if (severity && inc.severity !== severity) return false;
         if (scope && inc.scope !== scope) return false;
         if (type && inc.type !== type) return false;
         if (lifecycle && inc.status !== lifecycle) return false;
-        if (q) {
-          const haystack = [
-            inc.title,
-            inc.summary,
-            ...inc.affected_devices.map((d) => d.friendly_name),
-            ...inc.affected_devices.map((d) => d.ieee_address),
-          ]
-            .join(" ")
-            .toLowerCase();
-          if (!haystack.includes(q)) return false;
-        }
+        if (!incidentMatchesSearch(inc, search)) return false;
         return true;
       })
-      .sort(compareIncidents);
-  }, [incidents, network, severity, scope, type, lifecycle, search]);
+      .sort(compareIncidentsByRecordTiming)
+      .map(buildIncidentRecordViewModel);
+  }, [incidents, network, scope, type, lifecycle, search]);
 
   if (error) return <ErrorState message={error} onRetry={refetch} />;
   if (loading) return <LoadingState />;
@@ -111,32 +99,42 @@ export function IncidentsPage() {
       <div>
         <h1 className="text-2xl font-semibold">Incidents</h1>
         <p className="mt-1 text-zl-muted">
-          Evidence-backed explanations — correlation, not guaranteed root cause.
+          Recorded incidents and lifecycle history, with current Device Story
+          decisions for affected devices.
         </p>
       </div>
 
       {incidents.length === 0 ? (
-        <EmptyState title="No active incidents" detail="All monitored networks look stable." />
+        <EmptyState
+          title="No incident records"
+          detail="No incident history is available for the current view."
+        />
       ) : (
         <>
           <Card>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <Select label="Network" value={network} onChange={setNetwork} options={options.networks} />
               <Select
-                label="Severity"
-                value={severity}
-                onChange={setSeverity}
-                options={["healthy", "watch", "incident", "critical"]}
-              />
-              <Select label="Scope" value={scope} onChange={setScope} options={options.scopes} labeller={scopeLabel as (v: string) => string} />
-              <Select label="Type" value={type} onChange={setType} options={options.types} labeller={incidentTypeLabel} />
-              <Select
                 label="Lifecycle"
                 value={lifecycle}
                 onChange={setLifecycle}
                 options={["open", "watching", "resolved"]}
               />
-              <label className="flex flex-col gap-1 text-xs text-zl-muted">
+              <Select
+                label="Scope"
+                value={scope}
+                onChange={setScope}
+                options={options.scopes}
+                labeller={scopeLabel as (v: string) => string}
+              />
+              <Select
+                label="Type"
+                value={type}
+                onChange={setType}
+                options={options.types}
+                labeller={incidentTypeLabel}
+              />
+              <label className="flex flex-col gap-1 text-xs text-zl-muted sm:col-span-2">
                 Search
                 <input
                   type="search"
@@ -153,15 +151,15 @@ export function IncidentsPage() {
             <EmptyState title="No incidents match" detail="Try clearing filters." />
           ) : (
             groups.map(({ key, label }) => {
-              const items = filtered.filter((i) => i.status === key);
+              const items = filtered.filter((i) => i.lifecycle === key);
               if (items.length === 0) return null;
               return (
                 <section key={key} className="space-y-3">
                   <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
                     {label} · {items.length}
                   </h2>
-                  {items.map((inc) => (
-                    <IncidentCard key={inc.id} incident={inc} />
+                  {items.map((record) => (
+                    <IncidentRecordCard key={record.id} record={record} />
                   ))}
                 </section>
               );
@@ -217,11 +215,7 @@ export function IncidentDetailPage() {
   if (error) return <ErrorState message={error} onRetry={refetch} />;
   if (loading || !inc) return <LoadingState />;
 
-  const affected = [...inc.affected_devices].sort(
-    (a, b) => healthRank(a.health_primary) - healthRank(b.health_primary),
-  );
-  const routerCandidates = affected.filter((d) => d.health_primary === "router_risk");
-  const reportSnippet = buildSnippet(inc);
+  const detail = buildIncidentDetailViewModel(inc);
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -229,93 +223,92 @@ export function IncidentDetailPage() {
         <Link to="/incidents" className="text-sm text-zl-accent hover:underline">
           ← Incidents
         </Link>
-        <h1 className="mt-2 text-2xl font-semibold">{inc.title}</h1>
+        <h1 className="mt-2 text-2xl font-semibold">{detail.record.title}</h1>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <LifecycleBadge status={inc.status} />
-          <SeverityBadge severity={inc.severity} />
-          <Badge>{incidentTypeLabel(inc.type)}</Badge>
-          <span className="text-xs text-zl-muted">{scopeLabel(inc.scope)}</span>
-          <ConfidenceBadge confidence={inc.confidence} />
-          {inc.network_ids.map((n) => (
+          <LifecycleBadge status={detail.record.lifecycle} />
+          <Badge>{detail.record.typeLabel}</Badge>
+          <span className="text-xs text-zl-muted">{detail.record.scopeLabel}</span>
+          {detail.record.networks.map((n) => (
             <NetworkBadge key={n} network={n} />
           ))}
         </div>
-        <p className="mt-3 text-xs text-zl-muted" title={`${inc.opened_at} → ${inc.updated_at}`}>
-          Opened {formatTime(inc.opened_at)} · Updated {relativeTime(inc.updated_at)}
-          {inc.resolved_at ? ` · Resolved ${formatTime(inc.resolved_at)}` : ""}
+        <p className="mt-2 text-xs text-zl-muted">{recordedSeverityConfidenceLine(inc)}</p>
+        <p
+          className="mt-1 text-xs text-zl-muted"
+          title={`${inc.opened_at} → ${inc.updated_at}`}
+        >
+          {incidentTimingLine(inc)}
         </p>
       </div>
 
-      <Card title="What ZigbeeLens thinks">
-        <p className="leading-relaxed text-zl-text">{inc.interpretation || inc.summary}</p>
+      <Card title="Incident record">
+        <p className="leading-relaxed text-zl-text">{detail.record.recordSummary}</p>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <EvidenceList items={inc.evidence} />
-        <CounterEvidenceList items={inc.counter_evidence} />
-        <LimitationsList items={inc.limitations} />
-      </div>
-
-      <Card title="Affected devices" subtitle="Bad-first — identity is network + IEEE address">
-        {affected.length === 0 ? (
-          <p className="text-sm text-zl-muted">No devices attached to this incident.</p>
-        ) : (
-          <ul className="divide-y divide-zl-border">
-            {affected.map((d) => (
-              <li key={`${d.network_id}-${d.ieee_address}`} className="py-3">
-                <Link
-                  to={devicePath(d.network_id, d.ieee_address)}
-                  className="flex items-center justify-between gap-3 hover:text-zl-accent"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{d.friendly_name}</div>
-                    <div className="mt-0.5 flex items-center gap-2 text-xs text-zl-muted">
-                      <NetworkBadge network={d.network_id} />
-                      <span className="break-all font-mono">{d.ieee_address}</span>
-                    </div>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <LensBucketBadge bucket={d.lens_bucket} />
-                    {d.lens_bucket_reason && (
-                      <p className="mt-0.5 text-xs text-zl-muted">{d.lens_bucket_reason}</p>
-                    )}
-                  </div>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      {routerCandidates.length > 0 && (
+      {detail.recordedInterpretation ? (
         <Card
-          title="Related router candidates"
-          subtitle="ZigbeeLens cannot confirm dependent routes without topology data."
+          title="Recorded interpretation"
+          subtitle="Stored with this incident when it was created or updated."
         >
-          <ul className="space-y-2">
-            {routerCandidates.map((d) => (
-              <li key={`${d.network_id}-${d.ieee_address}`} className="flex items-center gap-2">
-                <DeviceRoleBadge role="router candidate" />
-                <Link to={devicePath(d.network_id, d.ieee_address)} className="hover:text-zl-accent">
-                  {d.friendly_name}
-                </Link>
+          <p className="leading-relaxed text-zl-muted">{detail.recordedInterpretation}</p>
+        </Card>
+      ) : null}
+
+      {detail.currentDeviceDecisions.length > 0 ? (
+        <Card
+          title="Current device decisions"
+          subtitle="Current Device Story decisions are shown separately from the stored incident record."
+        >
+          <ul className="divide-y divide-zl-border">
+            {detail.currentDeviceDecisions.map((device) => (
+              <li key={device.key} className="py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{device.name}</div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-zl-muted">
+                      <NetworkBadge network={device.networkId} />
+                      <span className="break-all font-mono">{device.ieeeAddress}</span>
+                    </div>
+                    <p className="mt-2 text-sm text-zl-text">{device.decision.headline}</p>
+                    <Link
+                      to={device.deviceHref}
+                      className="mt-2 inline-block text-sm text-zl-accent hover:underline"
+                    >
+                      View device →
+                    </Link>
+                  </div>
+                  <div className="shrink-0">
+                    <DeviceDecisionBadge decision={device.decision} />
+                  </div>
+                </div>
               </li>
             ))}
           </ul>
         </Card>
-      )}
+      ) : null}
 
-      {inc.timeline.length > 0 && (
+      <div className="space-y-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
+          Stored incident evidence
+        </h2>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <EvidenceList items={detail.evidence} />
+          <CounterEvidenceList items={detail.counterEvidence} />
+          <LimitationsList items={detail.limitations} />
+        </div>
+      </div>
+
+      {detail.timeline.length > 0 && (
         <Card title="Timeline">
           <div className="space-y-1">
-            {inc.timeline.map((e) => (
+            {detail.timeline.map((e) => (
               <TimelineEventRow key={e.id} event={e} />
             ))}
           </div>
         </Card>
       )}
 
-      <CopyableSnippet text={reportSnippet} />
+      <CopyableSnippet text={detail.snippet} />
     </div>
   );
 }
@@ -324,8 +317,8 @@ function CopyableSnippet({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <Card
-      title="Report snippet"
-      subtitle="Copyable summary for GitHub issues or community posts"
+      title="Incident record snippet"
+      subtitle="Copyable record summary for GitHub issues or community posts"
       actions={
         <button
           type="button"
@@ -345,31 +338,4 @@ function CopyableSnippet({ text }: { text: string }) {
       </pre>
     </Card>
   );
-}
-
-function buildSnippet(inc: Incident): string {
-  const lines = [
-    `# ${inc.title}`,
-    "",
-    `- Type: ${incidentTypeLabel(inc.type)}`,
-    `- Lifecycle: ${inc.status}`,
-    `- Severity: ${inc.severity}`,
-    `- Scope: ${scopeLabel(inc.scope)}`,
-    `- Confidence: ${inc.confidence}`,
-    `- Networks: ${inc.network_ids.join(", ") || "—"}`,
-    `- Affected devices: ${inc.affected_device_count}`,
-    "",
-    "## What ZigbeeLens thinks",
-    inc.interpretation || inc.summary,
-  ];
-  if (inc.evidence.length) {
-    lines.push("", "## Evidence", ...inc.evidence.map((e) => `- ${e.summary}`));
-  }
-  if (inc.counter_evidence.length) {
-    lines.push("", "## Counter-evidence", ...inc.counter_evidence.map((e) => `- ${e.summary}`));
-  }
-  if (inc.limitations.length) {
-    lines.push("", "## Limitations", ...inc.limitations.map((l) => `- ${l.summary}`));
-  }
-  return lines.join("\n");
 }
