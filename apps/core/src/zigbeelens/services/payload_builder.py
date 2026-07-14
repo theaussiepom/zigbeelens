@@ -19,6 +19,7 @@ from zigbeelens.schemas import (
     BridgeState,
     Confidence,
     DashboardPayload,
+    DeviceDecisionBadge,
     DeviceDetail,
     DeviceHealthPrimary,
     DeviceSummary,
@@ -45,6 +46,10 @@ from zigbeelens.services.dashboard_investigation_priorities import (
     compose_dashboard_investigation_priorities,
 )
 from zigbeelens.services.dashboard_coverage_warnings import compose_dashboard_coverage_warnings
+from zigbeelens.services.device_decision_badge import (
+    device_decision_badge_for_device,
+    device_decision_badges_for_devices,
+)
 from zigbeelens.services.empty_state import build_empty_dashboard, empty_finding
 from zigbeelens.services.live_dashboard import (
     build_health_snapshot,
@@ -111,7 +116,8 @@ class PayloadBuilder:
         health = self._ensure_health()
         if not health:
             health = self._fallback_health()
-        devices = self.devices()
+        rows = self.repo.list_devices()
+        devices = self._devices_from_rows(rows)
         finding = live_finding(self.repo, self.config, health, self._incident_service)
 
         open_count, watching_count = (
@@ -207,14 +213,38 @@ class PayloadBuilder:
 
     def devices(self, network_id: str | None = None) -> list[DeviceSummary]:
         rows = self.repo.list_devices(network_id)
-        summaries = [self._device_summary(row) for row in rows]
+        badges = device_decision_badges_for_devices(self.repo, rows)
+        return self._devices_from_rows(rows, decision_badges=badges)
+
+    def _devices_from_rows(
+        self,
+        rows: list[DeviceRow],
+        *,
+        decision_badges: dict[tuple[str, str], DeviceDecisionBadge] | None = None,
+    ) -> list[DeviceSummary]:
+        summaries = [
+            self._device_summary(
+                row,
+                decision_badge=(
+                    None
+                    if decision_badges is None
+                    else decision_badges.get((row.network_id, row.ieee_address))
+                ),
+            )
+            for row in rows
+        ]
         return sorted(summaries, key=lambda d: d.sort_priority)
 
     def device_detail(self, network_id: str, ieee_address: str) -> DeviceDetail | None:
         row = self.repo.get_device(network_id, ieee_address)
         if not row:
             return None
-        summary = self._device_summary(row)
+        summary = self._device_summary(
+            row,
+            decision_badge=device_decision_badge_for_device(
+                self.repo, network_id, ieee_address
+            ),
+        )
         health_svc = self._ensure_health()
         result = (
             health_svc.get_device_health(network_id, ieee_address) if health_svc else None
@@ -343,7 +373,12 @@ class PayloadBuilder:
             )
         return events
 
-    def _device_summary(self, row: DeviceRow) -> DeviceSummary:
+    def _device_summary(
+        self,
+        row: DeviceRow,
+        *,
+        decision_badge: DeviceDecisionBadge | None = None,
+    ) -> DeviceSummary:
         health_svc = self._ensure_health()
         result = (
             health_svc.get_device_health(row.network_id, row.ieee_address)
@@ -388,6 +423,14 @@ class PayloadBuilder:
         bridge_state = None
         if network_row is not None and network_row.bridge_state in BridgeState.__members__:
             bridge_state = BridgeState(network_row.bridge_state)
+        ha_enrichment = self.repo.get_ha_device_enrichment(
+            row.network_id, row.ieee_address
+        )
+        ha_area = None
+        if ha_enrichment:
+            area_name = ha_enrichment.get("area_name")
+            if isinstance(area_name, str) and area_name.strip():
+                ha_area = area_name.strip()
         summary = DeviceSummary(
             network_id=row.network_id,
             ieee_address=row.ieee_address,
@@ -411,6 +454,8 @@ class PayloadBuilder:
             health=device_health,
             incident_affected=incident_affected,
             sort_priority=sort_priority(result) if result else 100,
+            decision=decision_badge,
+            ha_area=ha_area,
         )
         return enrich_device_summary(summary, bridge_state=bridge_state)
 

@@ -2721,7 +2721,7 @@ describe("device-led snapshot history", () => {
     expect(
       within(section).getByText(/latest snapshot shows no links for this device/i),
     ).toBeInTheDocument();
-    expect(api.deviceStory).toHaveBeenCalledWith("home", "0xr1");
+    expect(api.deviceStory).toHaveBeenCalledWith("home", "0xr1", undefined);
   });
 
   it("removes the global Compare snapshots control and panel from the graph view", async () => {

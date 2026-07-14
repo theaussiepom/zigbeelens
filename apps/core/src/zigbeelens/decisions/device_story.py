@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, Field
 
 from zigbeelens.decisions import coverage as coverage_helpers
-from zigbeelens.decisions.availability_tracking import availability_tracking_enabled_now
 from zigbeelens.decisions.reasons import ReasonCode
 from zigbeelens.decisions.topology_facts import (
     TopologyFactCode,
@@ -34,6 +33,7 @@ from zigbeelens.decisions.types import (
 )
 from zigbeelens.decisions.lqi_trend import LqiTrend, LqiTrendState, lqi_trend_for_device
 from zigbeelens.decisions.model_pattern import (
+    ObservedModelPatterns,
     observed_model_patterns_for_network,
     qualifying_pattern_for_device,
 )
@@ -46,7 +46,9 @@ from zigbeelens.decisions.reporting_silence import (
 from zigbeelens.topology.device_compare import (
     COVERAGE_BUILDING,
     COVERAGE_UNKNOWN,
-    device_snapshot_history,
+    DeviceSnapshotHistoryNetworkContext,
+    build_device_snapshot_history,
+    load_device_snapshot_history_network_context,
 )
 from zigbeelens.topology.history import aggregate_historical_evidence, aggregate_last_known_links
 from zigbeelens.topology.investigations import LOW_BATTERY_PERCENT, STALE_LAST_SEEN_HOURS
@@ -151,6 +153,21 @@ class DeviceStoryEvidence(BaseModel):
     model_pattern: DeviceStoryModelPatternContext | None = None
 
 
+class DeviceStoryNetworkContext(BaseModel):
+    """Network-scoped evidence loaded once for batch Device Story composition."""
+
+    network_id: str
+    latest_snapshot: dict[str, Any] | None = None
+    latest_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    latest_links: list[dict[str, Any]] = Field(default_factory=list)
+    historical_evidence: dict[str, Any] = Field(default_factory=dict)
+    last_known_links: dict[str, Any] = Field(default_factory=dict)
+    availability_tracking_enabled: bool = False
+    network_has_usable_ha_areas: bool = False
+    model_patterns: ObservedModelPatterns
+    snapshot_history_context: DeviceSnapshotHistoryNetworkContext
+
+
 class DeviceStory(BaseModel):
     """One device diagnostic story — presenters map codes to copy.
 
@@ -205,12 +222,82 @@ def _network_route_hints_available(links: list[dict[str, Any]]) -> bool:
     return any((link.get("route_count") or 0) > 0 for link in links)
 
 
+def load_device_story_network_context(
+    repo: Repository,
+    network_id: str,
+    *,
+    now: datetime | None = None,
+) -> DeviceStoryNetworkContext:
+    """Load network-scoped Device Story evidence once for a network."""
+    reference_now = now or datetime.now(timezone.utc)
+    all_snapshots = repo.list_topology_snapshots(network_id)
+    link_snapshot_ids: list[str] = []
+    for snapshot in all_snapshots:
+        if snapshot.get("status") != "complete":
+            continue
+        snapshot_id = str(snapshot["snapshot_id"])
+        if snapshot_id not in link_snapshot_ids:
+            link_snapshot_ids.append(snapshot_id)
+    latest_snapshot = repo.get_latest_topology_snapshot(network_id)
+    latest_snapshot_id = (
+        str(latest_snapshot["snapshot_id"]) if latest_snapshot else None
+    )
+    if latest_snapshot_id and latest_snapshot_id not in link_snapshot_ids:
+        link_snapshot_ids.append(latest_snapshot_id)
+    links_by_snapshot_id = {
+        snapshot_id: list(repo.list_topology_links(snapshot_id))
+        for snapshot_id in link_snapshot_ids
+    }
+    snapshot_history_context = load_device_snapshot_history_network_context(
+        repo,
+        network_id,
+        snapshots=all_snapshots,
+        links_by_snapshot_id=links_by_snapshot_id,
+    )
+    latest_nodes = (
+        repo.list_topology_nodes(latest_snapshot_id) if latest_snapshot_id else []
+    )
+    latest_links = (
+        links_by_snapshot_id.get(latest_snapshot_id, [])
+        if latest_snapshot_id
+        else []
+    )
+    return DeviceStoryNetworkContext(
+        network_id=network_id,
+        latest_snapshot=latest_snapshot,
+        latest_nodes=latest_nodes,
+        latest_links=latest_links,
+        historical_evidence=aggregate_historical_evidence(
+            repo,
+            network_id,
+            now=reference_now,
+            snapshots=all_snapshots,
+            links_by_snapshot_id=links_by_snapshot_id,
+        ),
+        last_known_links=aggregate_last_known_links(
+            repo,
+            network_id,
+            snapshots=all_snapshots,
+            links_by_snapshot_id=links_by_snapshot_id,
+        ),
+        availability_tracking_enabled=snapshot_history_context.tracking_enabled_now,
+        network_has_usable_ha_areas=repo.network_has_usable_ha_area_assignments(
+            network_id
+        ),
+        model_patterns=observed_model_patterns_for_network(
+            repo, network_id, now=reference_now
+        ),
+        snapshot_history_context=snapshot_history_context,
+    )
+
+
 def load_device_story_evidence(
     repo: Repository,
     network_id: str,
     device_ieee: str,
     *,
     now: datetime | None = None,
+    network_context: DeviceStoryNetworkContext | None = None,
 ) -> DeviceStoryEvidence | None:
     """Load bounded stored evidence for one device. Returns None when unknown."""
     device = normalize_device_ieee(device_ieee)
@@ -221,18 +308,23 @@ def load_device_story_evidence(
     if row is None:
         return None
 
-    now = now or datetime.now(timezone.utc)
+    reference_now = now or datetime.now(timezone.utc)
+    if network_context is None:
+        network_context = load_device_story_network_context(
+            repo, network_id, now=reference_now
+        )
+    elif network_context.network_id != network_id:
+        raise ValueError(
+            "DeviceStoryNetworkContext network_id does not match requested network_id"
+        )
+
     active_incident_ids = repo.incidents.list_incidents_for_device(network_id, device)
     has_current_issue = row.availability == "offline" or bool(active_incident_ids)
 
-    latest_snapshot = repo.get_latest_topology_snapshot(network_id)
+    latest_snapshot = network_context.latest_snapshot
+    latest_nodes = network_context.latest_nodes
+    latest_links = network_context.latest_links
     latest_snapshot_id = latest_snapshot["snapshot_id"] if latest_snapshot else None
-    latest_nodes = (
-        repo.list_topology_nodes(latest_snapshot_id) if latest_snapshot_id else []
-    )
-    latest_links = (
-        repo.list_topology_links(latest_snapshot_id) if latest_snapshot_id else []
-    )
 
     topology_facts = build_device_latest_topology_facts(
         device_ieee=device,
@@ -241,7 +333,13 @@ def load_device_story_evidence(
         links=latest_links,
     )
 
-    history = device_snapshot_history(repo, network_id, device)
+    history = build_device_snapshot_history(
+        repo,
+        network_context.snapshot_history_context,
+        device,
+        device_row=row,
+        has_current_issue=has_current_issue,
+    )
     for snapshot_row in history.get("snapshots", []):
         topology_facts.extend(
             build_device_snapshot_comparison_facts(
@@ -250,8 +348,8 @@ def load_device_story_evidence(
             )
         )
 
-    historical = aggregate_historical_evidence(repo, network_id, now=now)
-    last_known = aggregate_last_known_links(repo, network_id)
+    historical = network_context.historical_evidence
+    last_known = network_context.last_known_links
 
     ha_enrichment = repo.get_ha_device_enrichment(network_id, device)
 
@@ -273,7 +371,7 @@ def load_device_story_evidence(
         battery=row.battery,
         has_current_issue=has_current_issue,
         active_incident_ids=list(active_incident_ids),
-        availability_tracking_enabled=availability_tracking_enabled_now(repo, network_id),
+        availability_tracking_enabled=network_context.availability_tracking_enabled,
         latest_availability_coverage=latest_availability_coverage,
         topology_facts=topology_facts,
         recent_missing_link_count=_count_touching_device(
@@ -289,24 +387,23 @@ def load_device_story_evidence(
             latest_snapshot.get("captured_at") if latest_snapshot else None
         ),
         ha_area=ha_enrichment.get("area_name") if ha_enrichment else None,
-        network_has_usable_ha_areas=repo.network_has_usable_ha_area_assignments(network_id),
+        network_has_usable_ha_areas=network_context.network_has_usable_ha_areas,
         reporting_rhythm=reporting_rhythm_for_device(repo, network_id, device),
         lqi_trend=lqi_trend_for_device(repo, network_id, device),
         model_pattern=_load_device_story_model_pattern(
-            repo, network_id, row, device=device, now=now
+            network_context.model_patterns,
+            row,
+            device=device,
         ),
     )
 
 
 def _load_device_story_model_pattern(
-    repo: Repository,
-    network_id: str,
+    patterns: ObservedModelPatterns,
     row: Any,
     *,
     device: str,
-    now: datetime,
 ) -> DeviceStoryModelPatternContext | None:
-    patterns = observed_model_patterns_for_network(repo, network_id, now=now)
     match = qualifying_pattern_for_device(
         patterns.patterns,
         manufacturer=row.manufacturer,
@@ -741,10 +838,20 @@ def device_story_for_device(
     now: datetime | None = None,
 ) -> DeviceStory | None:
     """Build a device story from stored evidence. Returns None when unknown."""
-    evidence = load_device_story_evidence(repo, network_id, device_ieee, now=now)
+    reference_now = now or datetime.now(timezone.utc)
+    context = load_device_story_network_context(
+        repo, network_id, now=reference_now
+    )
+    evidence = load_device_story_evidence(
+        repo,
+        network_id,
+        device_ieee,
+        now=reference_now,
+        network_context=context,
+    )
     if evidence is None:
         return None
-    return build_device_story(evidence, now=now)
+    return build_device_story(evidence, now=reference_now)
 
 
 def device_story_report_payload(story: DeviceStory) -> dict[str, Any]:

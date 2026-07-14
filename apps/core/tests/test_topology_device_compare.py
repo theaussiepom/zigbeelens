@@ -536,3 +536,112 @@ def test_history_is_deterministic(tmp_path: Path):
     first = device_snapshot_history(repo, "home", "0x02")
     second = device_snapshot_history(repo, "home", "0x02")
     assert first == second
+
+
+def test_device_snapshot_evidence_has_no_repository_access():
+    import inspect
+
+    from zigbeelens.topology.device_compare import _DeviceSnapshotEvidence
+
+    source = inspect.getsource(_DeviceSnapshotEvidence.__init__)
+    assert "repo" not in source
+    assert "list_topology_links" not in source
+    evidence = _DeviceSnapshotEvidence(
+        [
+            {
+                "source_ieee": "0x02",
+                "target_ieee": "0x01",
+                "linkquality": 120,
+                "route_count": 2,
+            }
+        ],
+        "0x02",
+    )
+    assert evidence.link_lqi[("0x01", "0x02")] == 120
+    assert evidence.route_counts[("0x02", "0x01")] == 2
+
+
+def test_snapshot_history_parity_batch_vs_ordinary(tmp_path: Path):
+    from zigbeelens.topology.device_compare import (
+        build_device_snapshot_history,
+        load_device_snapshot_history_network_context,
+    )
+
+    repo = _repo(tmp_path)
+    _device(repo, "0x01", "Coordinator", "Coordinator")
+    _device(repo, "0x02", "Hall Router")
+    _device(repo, "0x03", "Living Router")
+    _device(repo, "0x04", "Sensor", "EndDevice")
+    repo.ensure_device_current_state("home", "0x04")
+    repo.update_device_current_state(
+        network_id="home",
+        ieee_address="0x04",
+        availability="offline",
+    )
+    _insert_availability_change(repo, "0x02", "online", NOW - timedelta(days=2))
+    _store_snapshot(
+        repo,
+        "snap-old",
+        captured_at=NOW - timedelta(days=2),
+        links=[
+            {"source": "0x02", "target": "0x01", "linkquality": 100},
+            {
+                "source": "0x02",
+                "target": "0x04",
+                "linkquality": 80,
+                "routes": [{"destinationAddress": 4}],
+            },
+            {"source": "0x03", "target": "0x01", "linkquality": 90},
+        ],
+    )
+    _store_snapshot(
+        repo,
+        "snap-mid",
+        captured_at=NOW - timedelta(days=1),
+        links=[
+            {"source": "0x02", "target": "0x01", "linkquality": 110},
+            {"source": "0x03", "target": "0x01", "linkquality": 95},
+        ],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        links=[
+            {"source": "0x02", "target": "0x01", "linkquality": 120},
+            {"source": "0x03", "target": "0x01", "linkquality": 100},
+        ],
+    )
+
+    context = load_device_snapshot_history_network_context(repo, "home")
+    for ieee in ("0x02", "0x03", "0x04"):
+        ordinary = device_snapshot_history(repo, "home", ieee)
+        row = repo.get_device("home", ieee)
+        batch = build_device_snapshot_history(
+            repo,
+            context,
+            ieee,
+            device_row=row,
+            has_current_issue=ordinary["has_current_issue"],
+        )
+        assert batch == ordinary
+
+
+def test_wrong_snapshot_history_network_context_raises(tmp_path: Path):
+    from zigbeelens.topology.device_compare import load_device_snapshot_history_network_context
+
+    repo = _repo(tmp_path)
+    cfg = AppConfig(
+        mode=ModeConfig(mock=True),
+        networks=[
+            NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt/home"),
+            NetworkConfig(id="office", name="Office", base_topic="zigbee2mqtt/office"),
+        ],
+        storage=StorageConfig(path=str(tmp_path / "device-compare.sqlite")),
+    )
+    repo.sync_networks(cfg.networks)
+    context = load_device_snapshot_history_network_context(repo, "office")
+    import pytest
+
+    with pytest.raises(ValueError, match="network_id"):
+        device_snapshot_history(repo, "home", "0x02", network_context=context)

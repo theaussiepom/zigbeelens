@@ -128,6 +128,14 @@ export interface CoordinatorSummary {
   extended_pan_id?: string;
 }
 
+/** Compact Device Story projection for inventory badges (Phase 5B-1) */
+export interface DeviceDecisionBadge {
+  status: string;
+  priority: string;
+  headline_code: string;
+  coverage_label_codes: string[];
+}
+
 /** Device list row */
 export interface DeviceSummary {
   network_id: string;
@@ -150,6 +158,9 @@ export interface DeviceSummary {
   lens_bucket_label: string;
   lens_bucket_reason: string;
   lens_reasons: string[];
+  decision?: DeviceDecisionBadge | null;
+  /** Home Assistant area name when enrichment is linked */
+  ha_area?: string | null;
 }
 
 /** Full device detail for drilldown */

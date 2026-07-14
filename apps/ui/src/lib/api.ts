@@ -151,9 +151,14 @@ export const api = {
     fetchJson<Paginated<DeviceSummary>>("api/devices", { scenario, network_id: networkId }),
   device: (networkId: string, ieee: string, scenario?: string) =>
     fetchJson<DeviceDetail>(`api/devices/${networkId}/${encodeURIComponent(ieee)}`, { scenario }),
-  deviceStory: (networkId: string, ieee: string) =>
+  deviceStory: (
+    networkId: string,
+    ieee: string,
+    scenario?: string,
+  ) =>
     fetchJson<DeviceStoryDto>(
       `api/devices/${encodeURIComponent(networkId)}/${encodeURIComponent(ieee)}/story`,
+      { scenario },
     ),
   deviceCoverage: (networkId: string, ieee: string) =>
     fetchJson<DataCoverageDto[]>(

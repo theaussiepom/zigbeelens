@@ -175,17 +175,18 @@ def device_detail(
 
 
 @router.get("/devices/{network_id}/{ieee_address}/story")
-def device_story(network_id: str, ieee_address: str, ctx: AppContext = Depends(ctx_dep)) -> dict:
-    """Read-only deterministic device story from stored evidence.
+def device_story(
+    network_id: str,
+    ieee_address: str,
+    scenario: str | None = Query(default=None),
+    ctx: AppContext = Depends(ctx_dep),
+) -> dict:
+    """Read-only deterministic device story from stored evidence or scenario fixtures.
 
     Returns coded decision output only — no final user-facing prose. Unknown
-    devices and networks use the same not-found contract as other device routes.
+    devices use the same not-found contract as other device routes.
     """
-    from zigbeelens.decisions.device_story import device_story_for_device
-
-    if ctx.repo.get_network(network_id) is None:
-        raise HTTPException(status_code=404, detail="Network not found")
-    story = device_story_for_device(ctx.repo, network_id, ieee_address)
+    story = ctx.data.device_story(network_id, ieee_address, scenario)
     if story is None:
         raise HTTPException(status_code=404, detail="Device not found")
     return story.model_dump(mode="json")
