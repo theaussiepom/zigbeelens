@@ -6,8 +6,6 @@
 
 import type { InvestigationCard } from "@/types/topology";
 import {
-  INVESTIGATION_ACTION_GROUP_LABELS,
-  INVESTIGATION_ACTION_LEADS,
   INVESTIGATION_EMPTY_COPY,
   INVESTIGATION_PANEL_SUBTITLE,
   INVESTIGATION_PANEL_TITLE,
@@ -17,6 +15,7 @@ import {
   type InvestigationActionGroup,
 } from "@/lib/meshGraphCopy";
 import type { DecisionPillTone } from "@/viewModels/types";
+import { buildInvestigationIdentityViewModel } from "./investigationIdentity";
 
 export interface InvestigationCardViewModel {
   id: string;
@@ -38,17 +37,6 @@ export interface InvestigationPanelViewModel {
   subtitle: string;
   emptyCopy: string;
   cards: InvestigationCardViewModel[];
-}
-
-function priorityTone(priority: InvestigationCard["priority"]): DecisionPillTone {
-  switch (priority) {
-    case "Review first":
-      return "watch";
-    case "Worth checking":
-      return "action";
-    case "Lower priority":
-      return "muted";
-  }
 }
 
 function actionGroupForCard(card: InvestigationCard): InvestigationActionGroup {
@@ -79,20 +67,23 @@ export function buildInvestigationCardViewModel(
   card: InvestigationCard,
 ): InvestigationCardViewModel {
   const actionGroup = actionGroupForCard(card);
-  const actionLead = INVESTIGATION_ACTION_LEADS[actionGroup];
+  const identity = buildInvestigationIdentityViewModel({
+    priority: card.priority,
+    actionGroup,
+  });
   return {
     id: card.id,
-    priorityLabel: card.priority,
-    priorityTone: priorityTone(card.priority),
-    actionGroupLabel: INVESTIGATION_ACTION_GROUP_LABELS[actionGroup],
-    actionLead,
+    priorityLabel: identity.priorityLabel,
+    priorityTone: identity.priorityTone,
+    actionGroupLabel: identity.actionLabel,
+    actionLead: identity.actionLead,
     contextTitle: card.title,
     contextSummary: card.summary,
     whyItMatters: card.why_it_matters,
     supportingEvidence: card.supporting_evidence,
     limitations: card.limitations,
     suggestedChecks: card.suggested_next_steps,
-    focusLabel: actionLead,
+    focusLabel: identity.actionLead,
   };
 }
 

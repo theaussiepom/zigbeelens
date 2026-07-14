@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useCallback } from "react";
+import { useEffect, useMemo } from "react";
 import { api } from "@/lib/api";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
@@ -21,8 +21,26 @@ import {
 } from "@/components/cards";
 import { SharedAvailabilityEventCard } from "@/components/overview/SharedAvailabilityEventCard";
 import { ModelPatternCard } from "@/components/overview/ModelPatternCard";
+import { InvestigationPriorityCard } from "@/components/overview/InvestigationPriorityCard";
+import { RecentChangesSection } from "@/components/overview/RecentChangesSection";
+import { DataCoverageWarningCard } from "@/components/overview/DataCoverageWarningCard";
 import { buildSharedAvailabilityEventViewModel } from "@/viewModels/overview/sharedAvailabilityEventViewModel";
 import { buildModelPatternViewModel } from "@/viewModels/overview/modelPatternViewModel";
+import {
+  INVESTIGATION_PRIORITY_EMPTY_COPY,
+  INVESTIGATION_PRIORITY_SECTION_SUBTITLE,
+  INVESTIGATION_PRIORITY_SECTION_TITLE,
+  buildInvestigationPriorityViewModel,
+} from "@/viewModels/overview/investigationPriorityViewModel";
+import { buildRecentChangesSectionViewModel } from "@/viewModels/overview/recentChangesViewModel";
+import {
+  DATA_COVERAGE_SECTION_TITLE,
+  buildDataCoverageWarningViewModel,
+} from "@/viewModels/overview/dataCoverageViewModel";
+import {
+  readOverviewLastViewedAt,
+  writeOverviewLastViewedAt,
+} from "@/lib/overviewVisitStorage";
 import { compareIncidents } from "@/lib/format";
 
 const DASHBOARD_EVENTS = [
@@ -49,16 +67,26 @@ export function OverviewPage() {
     { refetchOn: DASHBOARD_EVENTS },
   );
 
-  const retry = useCallback(() => {
+  const previousLastViewedAt = useMemo(() => readOverviewLastViewedAt(), []);
+  const visitTimestamp = useMemo(() => new Date().toISOString(), []);
+
+  useEffect(() => {
+    if (dashboard.data && !dashboard.loading) {
+      writeOverviewLastViewedAt(visitTimestamp);
+    }
+  }, [dashboard.data, dashboard.loading, visitTimestamp]);
+
+  if (dashboard.error) return <ErrorState message={dashboard.error} onRetry={() => {
     dashboard.refetch();
     incidents.refetch();
-  }, [dashboard, incidents]);
-
-  if (dashboard.error) return <ErrorState message={dashboard.error} onRetry={retry} />;
+  }} />;
   if (dashboard.loading || !dashboard.data) return <LoadingState />;
 
   const data = dashboard.data;
   const networkNames = Object.fromEntries(data.networks.map((network) => [network.id, network.name]));
+  const investigationPriorities = data.investigation_priorities.map((priority) =>
+    buildInvestigationPriorityViewModel(priority, networkNames[priority.network_id]),
+  );
   const sharedAvailabilityEvents = data.shared_availability_events.map((event) =>
     buildSharedAvailabilityEventViewModel(event, networkNames[event.network_id]),
   );
@@ -66,6 +94,14 @@ export function OverviewPage() {
     buildModelPatternViewModel(pattern, networkNames[pattern.network_id]),
   );
   const allIncidents = incidents.data ?? [];
+  const recentChanges = buildRecentChangesSectionViewModel({
+    previousLastViewedAt,
+    dashboard: data,
+    incidents: allIncidents,
+  });
+  const dataCoverageWarnings = (data.data_coverage_warnings ?? []).map((warning) =>
+    buildDataCoverageWarningViewModel(warning, networkNames[warning.network_id]),
+  );
   const active = allIncidents
     .filter((i) => i.status === "open" || i.status === "watching")
     .sort(compareIncidents);
@@ -81,14 +117,12 @@ export function OverviewPage() {
         <SeverityBadge severity={data.overall_severity} />
       </header>
 
-      <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-3">
         <StatTile
           label="Active incidents"
           value={data.active_incident_count}
           severity={data.active_incident_count ? "incident" : "healthy"}
         />
-        <StatTile label="Networks" value={data.networks.length} />
-        <StatTile label="Devices" value={data.health_snapshot.device_count} />
         <StatTile
           label="Unavailable"
           value={data.health_snapshot.unavailable_count}
@@ -99,34 +133,46 @@ export function OverviewPage() {
           value={data.watching_incident_count}
           severity={data.watching_incident_count ? "watch" : "healthy"}
         />
-        <StatTile
-          label="Router risks"
-          value={data.router_risks.length}
-          severity={data.router_risks.length ? "watch" : "healthy"}
-        />
-        <StatTile
-          label="Recently unstable"
-          value={data.recently_unstable.length}
-          severity={data.recently_unstable.length ? "watch" : "healthy"}
-        />
-        <StatTile
-          label="Stale"
-          value={data.stale_devices.length}
-          severity={data.stale_devices.length ? "watch" : "healthy"}
-        />
-        <StatTile
-          label="Weak links"
-          value={data.weak_links.length}
-          severity={data.weak_links.length ? "watch" : "healthy"}
-        />
-        <StatTile
-          label="Low battery"
-          value={data.low_batteries.length}
-          severity={data.low_batteries.length ? "watch" : "healthy"}
-        />
       </div>
 
       <CurrentFindingCard finding={data.current_finding} incidentId={topOpenIncidentId} />
+
+      <section className="space-y-3" aria-label={INVESTIGATION_PRIORITY_SECTION_TITLE}>
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
+            {INVESTIGATION_PRIORITY_SECTION_TITLE}
+          </h2>
+          <p className="mt-1 text-sm text-zl-muted">{INVESTIGATION_PRIORITY_SECTION_SUBTITLE}</p>
+        </div>
+        {investigationPriorities.length === 0 ? (
+          <EmptyState title={INVESTIGATION_PRIORITY_EMPTY_COPY} />
+        ) : (
+          <div className="grid gap-4">
+            {investigationPriorities.map((priority, index) => (
+              <InvestigationPriorityCard
+                key={priority.id}
+                priority={priority}
+                emphasized={index === 0}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <RecentChangesSection section={recentChanges} />
+
+      {dataCoverageWarnings.length > 0 && (
+        <section className="space-y-3" aria-label={DATA_COVERAGE_SECTION_TITLE}>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
+            {DATA_COVERAGE_SECTION_TITLE}
+          </h2>
+          <div className="grid gap-4 md:grid-cols-2">
+            {dataCoverageWarnings.map((warning) => (
+              <DataCoverageWarningCard key={warning.id} warning={warning} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {sharedAvailabilityEvents.length > 0 && (
         <section className="space-y-3">
@@ -219,6 +265,36 @@ export function OverviewPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
+          System summary
+        </h2>
+        <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+          <StatTile label="Networks" value={data.networks.length} />
+          <StatTile label="Devices" value={data.health_snapshot.device_count} />
+          <StatTile
+            label="Recently unstable"
+            value={data.recently_unstable.length}
+            severity={data.recently_unstable.length ? "watch" : "healthy"}
+          />
+          <StatTile
+            label="Stale"
+            value={data.stale_devices.length}
+            severity={data.stale_devices.length ? "watch" : "healthy"}
+          />
+          <StatTile
+            label="Weak links"
+            value={data.weak_links.length}
+            severity={data.weak_links.length ? "watch" : "healthy"}
+          />
+          <StatTile
+            label="Low battery"
+            value={data.low_batteries.length}
+            severity={data.low_batteries.length ? "watch" : "healthy"}
+          />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
           Health signal summaries
         </h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -273,4 +349,3 @@ function SignalGroup({
     </Card>
   );
 }
-

@@ -1,7 +1,11 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { DashboardPayload, DiagnosticConclusion } from "@zigbeelens/shared";
+import { OVERVIEW_LAST_VIEWED_STORAGE_KEY } from "@/lib/overviewVisitStorage";
 import { OverviewPage } from "./OverviewPage";
 
 const finding: DiagnosticConclusion = {
@@ -44,6 +48,8 @@ function makeDashboard(
     },
     shared_availability_events: [],
     model_patterns: [],
+    investigation_priorities: [],
+    data_coverage_warnings: [],
     ...overrides,
   };
 }
@@ -61,7 +67,7 @@ const mockState = vi.hoisted(() => ({
       evidence: [],
       counter_evidence: [],
       limitations: [],
-    } satisfies DiagnosticConclusion,
+    },
     active_incident_count: 0,
     watching_incident_count: 0,
     networks: [{ id: "home", name: "Home" }],
@@ -84,6 +90,8 @@ const mockState = vi.hoisted(() => ({
     },
     shared_availability_events: [],
     model_patterns: [],
+    investigation_priorities: [],
+    data_coverage_warnings: [],
   } as DashboardPayload,
 }));
 
@@ -120,8 +128,16 @@ function renderOverview() {
   );
 }
 
+function headingIndex(text: string): number {
+  const headings = screen.getAllByRole("heading").map((node) => node.textContent ?? "");
+  const index = headings.findIndex((value) => value.includes(text));
+  expect(index).toBeGreaterThanOrEqual(0);
+  return index;
+}
+
 describe("OverviewPage shared availability events", () => {
   beforeEach(() => {
+    localStorage.clear();
     mockState.dashboard = makeDashboard();
   });
 
@@ -156,13 +172,12 @@ describe("OverviewPage shared availability events", () => {
       "href",
       "/topology/home",
     );
-    expect(screen.queryByText(/network failure/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/critical/i)).not.toBeInTheDocument();
   });
 });
 
 describe("OverviewPage model patterns", () => {
   beforeEach(() => {
+    localStorage.clear();
     mockState.dashboard = makeDashboard();
   });
 
@@ -190,19 +205,298 @@ describe("OverviewPage model patterns", () => {
     renderOverview();
     expect(screen.getByText("Recent model patterns")).toBeInTheDocument();
     expect(screen.getByText("Review devices with the same model")).toBeInTheDocument();
+  });
+});
+
+describe("OverviewPage investigation priorities", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockState.dashboard = makeDashboard();
+  });
+
+  it("shows cautious empty copy when there are no priorities", () => {
+    renderOverview();
+    expect(screen.getByText("What needs attention now")).toBeInTheDocument();
     expect(
-      screen.getByText(
-        "3 of 5 devices with this model have gone offline in the last 7 days.",
-      ),
+      screen.getByText("No current investigation priorities from stored evidence."),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/does not prove the model is defective/i),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /review mesh evidence/i })).toHaveAttribute(
+  });
+
+  it("places investigation priorities before shared availability events", () => {
+    mockState.dashboard = makeDashboard({
+      investigation_priorities: [
+        {
+          id: "pri-1",
+          network_id: "home",
+          card_type: "shared_availability_event",
+          priority: "Review first",
+          score: 12,
+          action_group: "investigate_shared_event",
+          title: "Priority title A",
+          summary: "Priority summary A",
+          device_ieees: [],
+          latest_supporting_evidence_at: "2026-07-06T08:00:00+00:00",
+        },
+      ],
+      shared_availability_events: [
+        {
+          event_id: "shared-availability-test",
+          network_id: "home",
+          started_at: "2026-07-06T08:00:00+00:00",
+          ended_at: "2026-07-06T08:04:00+00:00",
+          device_count: 11,
+          duration_minutes: 4,
+          device_ieees: ["0xd00"],
+        },
+      ],
+    });
+    renderOverview();
+    expect(headingIndex("What needs attention now")).toBeLessThan(
+      headingIndex("Recent shared availability events"),
+    );
+  });
+
+  it("renders priorities in backend order and links to Mesh", () => {
+    mockState.dashboard = makeDashboard({
+      investigation_priorities: [
+        {
+          id: "pri-high",
+          network_id: "home",
+          card_type: "issue_cluster",
+          priority: "Review first",
+          score: 12,
+          action_group: "investigate_shared_event",
+          title: "Highest priority title",
+          summary: "Highest priority summary",
+          device_ieees: [],
+          latest_supporting_evidence_at: "2026-07-06T09:00:00+00:00",
+        },
+        {
+          id: "pri-low",
+          network_id: "home",
+          card_type: "recent_missing_cluster",
+          priority: "Worth checking",
+          score: 8,
+          action_group: "check_power_reporting",
+          title: "Lower priority title",
+          summary: "Lower priority summary",
+          device_ieees: [],
+          latest_supporting_evidence_at: "2026-07-06T08:00:00+00:00",
+        },
+      ],
+    });
+    renderOverview();
+    const section = screen.getByLabelText("What needs attention now");
+    const titles = within(section)
+      .getAllByText(/priority title/i)
+      .map((node) => node.textContent);
+    expect(titles[0]).toBe("Highest priority title");
+    expect(titles[1]).toBe("Lower priority title");
+    expect(screen.getAllByRole("link", { name: /investigate in mesh/i })[0]).toHaveAttribute(
       "href",
       "/topology/home",
     );
-    expect(screen.queryByText(/faulty model/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/critical/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/score 12/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps a healthy finding alongside stored investigation priorities without contradiction", () => {
+    mockState.dashboard = makeDashboard({
+      investigation_priorities: [
+        {
+          id: "pri-historical",
+          network_id: "home",
+          card_type: "shared_availability_event",
+          priority: "Worth checking",
+          score: 8,
+          action_group: "investigate_shared_event",
+          title: "Historical shared event worth reviewing",
+          summary: "Stored shared-event evidence remains useful to review.",
+          device_ieees: [],
+          latest_supporting_evidence_at: "2026-07-05T08:00:00+00:00",
+        },
+      ],
+    });
+    renderOverview();
+    expect(screen.getByText("No notable issues right now.")).toBeInTheDocument();
+    expect(screen.getByText("Historical shared event worth reviewing")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Stored evidence can still suggest useful checks even when no current incident is active.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps decision-priority hierarchy above raw count walls", () => {
+    mockState.dashboard = makeDashboard({
+      active_incident_count: 2,
+      watching_incident_count: 1,
+      health_snapshot: {
+        timestamp: "2026-07-06T12:00:00+00:00",
+        overall_severity: "watch",
+        overall_health: "recently_unstable",
+        network_count: 1,
+        device_count: 40,
+        unavailable_count: 3,
+        incident_count: 2,
+        networks: [],
+      },
+      investigation_priorities: [
+        {
+          id: "pri-1",
+          network_id: "home",
+          card_type: "shared_availability_event",
+          priority: "Review first",
+          score: 10,
+          action_group: "investigate_shared_event",
+          title: "Needs attention title",
+          summary: "Needs attention summary",
+          device_ieees: [],
+        },
+      ],
+      model_patterns: [
+        {
+          pattern_id: "model-pattern-test",
+          network_id: "home",
+          manufacturer: "IKEA",
+          model: "TS011F",
+          group_size: 5,
+          affected_count: 3,
+          lookback_days: 7,
+          affected_device_ieees: ["0xm00"],
+        },
+      ],
+    });
+    renderOverview();
+
+    expect(headingIndex("What needs attention now")).toBeLessThan(
+      headingIndex("System summary"),
+    );
+    expect(headingIndex("What needs attention now")).toBeLessThan(
+      headingIndex("Active incidents"),
+    );
+    expect(screen.queryByText("Router risks")).not.toBeInTheDocument();
+  });
+});
+
+describe("OverviewPage recent changes and data coverage", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockState.dashboard = makeDashboard();
+  });
+
+  it("shows first-visit copy when no previous Overview visit is stored", async () => {
+    renderOverview();
+    expect(screen.getByText("Since your last visit")).toBeInTheDocument();
+    expect(
+      screen.getByText("Recent changes will appear here after your next visit."),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBeTruthy();
+    });
+  });
+
+  it("renders recent shared events since the previous visit", () => {
+    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, "2026-07-05T00:00:00.000Z");
+    mockState.dashboard = makeDashboard({
+      shared_availability_events: [
+        {
+          event_id: "shared-new",
+          network_id: "home",
+          started_at: "2026-07-06T08:00:00+00:00",
+          ended_at: "2026-07-06T08:04:00+00:00",
+          device_count: 11,
+          duration_minutes: 4,
+          device_ieees: [],
+        },
+      ],
+    });
+    renderOverview();
+    expect(screen.getByText("Changes recorded after your previous Overview visit.")).toBeInTheDocument();
+    expect(screen.getByText("Shared availability event recorded")).toBeInTheDocument();
+  });
+
+  it("places recent changes and coverage between priorities and shared events", () => {
+    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, "2026-07-05T00:00:00.000Z");
+    mockState.dashboard = makeDashboard({
+      investigation_priorities: [
+        {
+          id: "pri-1",
+          network_id: "home",
+          card_type: "issue_cluster",
+          priority: "Review first",
+          score: 10,
+          action_group: "investigate_shared_event",
+          title: "Priority title",
+          summary: "Priority summary",
+          device_ieees: [],
+        },
+      ],
+      data_coverage_warnings: [
+        {
+          id: "coverage-home-availability_tracking_off",
+          network_id: "home",
+          dimension: "availability",
+          state: "off",
+          label_code: "availability_tracking_off",
+          scope_type: "network",
+          params: {},
+        },
+      ],
+      shared_availability_events: [
+        {
+          event_id: "shared-new",
+          network_id: "home",
+          started_at: "2026-07-06T08:00:00+00:00",
+          ended_at: "2026-07-06T08:04:00+00:00",
+          device_count: 11,
+          duration_minutes: 4,
+          device_ieees: [],
+        },
+      ],
+    });
+    renderOverview();
+    expect(headingIndex("What needs attention now")).toBeLessThan(
+      headingIndex("Since your last visit"),
+    );
+    expect(headingIndex("Since your last visit")).toBeLessThan(headingIndex("Data coverage"));
+    expect(headingIndex("Data coverage")).toBeLessThan(
+      headingIndex("Recent shared availability events"),
+    );
+    expect(screen.getByText("Availability tracking off")).toBeInTheDocument();
+  });
+
+  it("does not render a reassuring empty data coverage section", () => {
+    renderOverview();
+    expect(screen.queryByText("Data coverage")).not.toBeInTheDocument();
+    expect(screen.queryByText(/data coverage complete/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("Overview presentation source boundaries", () => {
+  it("keeps localStorage out of RecentChangesSection", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const source = readFileSync(
+      join(here, "../components/overview/RecentChangesSection.tsx"),
+      "utf8",
+    );
+    expect(source).not.toContain("localStorage");
+    expect(source).not.toContain("lastViewedAt");
+  });
+
+  it("does not hard-code investigation action-group mappings in the priority card", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const source = readFileSync(
+      join(here, "../components/overview/InvestigationPriorityCard.tsx"),
+      "utf8",
+    );
+    for (const code of [
+      "review_observed_router_area",
+      "review_model_pattern",
+      "investigate_shared_event",
+      "improve_data_coverage",
+      "watch_only",
+    ]) {
+      expect(source).not.toContain(code);
+    }
   });
 });

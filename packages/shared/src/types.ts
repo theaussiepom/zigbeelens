@@ -286,6 +286,29 @@ export interface ModelPatternSummary {
   latest_supporting_evidence_at?: string | null;
 }
 
+export interface InvestigationPrioritySummary {
+  id: string;
+  network_id: string;
+  card_type: string;
+  priority: string;
+  score: number;
+  action_group: string;
+  title: string;
+  summary: string;
+  device_ieees: string[];
+  latest_supporting_evidence_at?: string | null;
+}
+
+export interface DataCoverageWarningSummary {
+  id: string;
+  network_id: string;
+  dimension: string;
+  state: string;
+  label_code: string;
+  scope_type: string;
+  params?: Record<string, unknown>;
+}
+
 /** Dashboard payload — primary API response for overview */
 export interface DashboardPayload {
   generated_at: string;
@@ -305,6 +328,8 @@ export interface DashboardPayload {
   health_snapshot: HealthSnapshot;
   shared_availability_events: SharedAvailabilityEventSummary[];
   model_patterns: ModelPatternSummary[];
+  investigation_priorities: InvestigationPrioritySummary[];
+  data_coverage_warnings: DataCoverageWarningSummary[];
 }
 
 /** Redaction profile presets */
