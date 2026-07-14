@@ -778,3 +778,193 @@ def test_scenario_isolation_exact_identity(tmp_path):
     )
     assert coded == expected
     assert "Live override" not in report_story.friendly_name
+
+
+HOME_PRIVATE_ID = "home-private-id"
+HOME_PRIVATE_NAME = "Private Home Name"
+HOME_PRIVATE_TOPIC = "zigbee2mqtt/private-home"
+OFFICE_SECRET_ID = "office-secret-id"
+OFFICE_SECRET_NAME = "Secret Office Name"
+OFFICE_SECRET_TOPIC = "zigbee2mqtt/secret-office"
+
+_RAW_NETWORK_VALUES = (
+    HOME_PRIVATE_ID,
+    HOME_PRIVATE_NAME,
+    HOME_PRIVATE_TOPIC,
+    OFFICE_SECRET_ID,
+    OFFICE_SECRET_NAME,
+    OFFICE_SECRET_TOPIC,
+)
+
+
+def _two_network_service(tmp_path) -> tuple[DataService, AppConfig, Repository]:
+    from zigbeelens.config.models import ModeConfig, NetworkConfig, StorageConfig
+
+    db_path = tmp_path / "two_net.sqlite"
+    db = Database(db_path)
+    db.migrate()
+    repo = Repository(db)
+    config = AppConfig(
+        mode=ModeConfig(mock=False),
+        networks=[
+            NetworkConfig(
+                id=HOME_PRIVATE_ID,
+                name=HOME_PRIVATE_NAME,
+                base_topic=HOME_PRIVATE_TOPIC,
+            ),
+            NetworkConfig(
+                id=OFFICE_SECRET_ID,
+                name=OFFICE_SECRET_NAME,
+                base_topic=OFFICE_SECRET_TOPIC,
+            ),
+        ],
+        storage=StorageConfig(path=str(db_path)),
+    )
+    repo.sync_networks(config.networks)
+    _add_device(
+        repo,
+        "0xhome1",
+        network_id=HOME_PRIVATE_ID,
+        friendly_name="Home Plug",
+        availability="online",
+    )
+    return DataService(config, repo), config, repo
+
+
+def _home_scoped_request(profile: RedactionProfile, *, redact_networks: bool | None = None) -> ReportRequest:
+    opts = RedactionOptions(profile=profile)
+    if redact_networks is False:
+        opts = RedactionOptions(
+            profile=profile,
+            redact_network_names=False,
+            hash_ieee_addresses=False,
+            preserve_friendly_names=True,
+        )
+    return ReportRequest(
+        scope=ReportScope.network,
+        network_id=HOME_PRIVATE_ID,
+        redaction=opts,
+    )
+
+
+def _assert_stable_decision_vocab(detail: ReportDetail) -> None:
+    """Network text replacement must not corrupt structured Decision vocabulary."""
+    for story in detail.device_stories:
+        assert story.status
+        assert story.priority
+        assert story.headline_code
+        for raw in _RAW_NETWORK_VALUES:
+            assert raw not in story.status
+            assert raw not in story.priority
+            assert raw not in story.headline_code
+            assert raw not in story.subject_id
+    for card in detail.investigation_priorities:
+        assert card.card_type
+        assert card.action_group
+        assert card.priority
+        for raw in _RAW_NETWORK_VALUES:
+            assert raw not in card.card_type
+            assert raw not in card.action_group
+            assert raw not in card.priority
+    for warning in detail.data_coverage_warnings:
+        assert warning.label_code
+        for raw in _RAW_NETWORK_VALUES:
+            assert raw not in warning.label_code
+    for limitation in detail.limitations:
+        payload = (
+            limitation.model_dump(mode="json")
+            if hasattr(limitation, "model_dump")
+            else dict(limitation)
+        )
+        for key in ("code", "limitation_code", "reason_code", "suggested_check_code"):
+            value = payload.get(key)
+            if isinstance(value, str):
+                for raw in _RAW_NETWORK_VALUES:
+                    assert raw not in value
+
+
+def test_scoped_report_redacts_out_of_scope_configured_networks(tmp_path):
+    """Home-scoped reports must anonymise Office config_summary entries too."""
+    data, config, repo = _two_network_service(tmp_path)
+
+    for profile in (RedactionProfile.public_safe, RedactionProfile.strict):
+        detail = generate_report(
+            data=data,
+            config=config,
+            reporting=config.reporting,
+            collector={},
+            request=_home_scoped_request(profile),
+            repo=repo,
+        )
+        blob = json.dumps(detail.model_dump(mode="json"), sort_keys=True)
+        for raw in _RAW_NETWORK_VALUES:
+            assert raw not in blob, f"{profile.value}: leaked {raw!r}"
+
+        assert len(detail.networks) == 1
+        home_top = detail.networks[0]
+        assert home_top.id != HOME_PRIVATE_ID
+        assert home_top.name != HOME_PRIVATE_NAME
+        assert home_top.base_topic != HOME_PRIVATE_TOPIC
+        assert home_top.id.startswith("network_")
+
+        configured = detail.config_summary["networks"]
+        assert len(configured) == 2
+        configured_ids = {n["id"] for n in configured}
+        configured_names = {n["name"] for n in configured}
+        configured_topics = {n["base_topic"] for n in configured}
+        assert HOME_PRIVATE_ID not in configured_ids
+        assert OFFICE_SECRET_ID not in configured_ids
+        assert HOME_PRIVATE_NAME not in configured_names
+        assert OFFICE_SECRET_NAME not in configured_names
+        assert HOME_PRIVATE_TOPIC not in configured_topics
+        assert OFFICE_SECRET_TOPIC not in configured_topics
+        assert all(str(i).startswith("network_") for i in configured_ids)
+        assert len(configured_ids) == 2
+
+        home_cfg = next(n for n in configured if n["id"] == home_top.id)
+        office_cfg = next(n for n in configured if n["id"] != home_top.id)
+        assert home_cfg["name"] == home_top.id
+        assert home_cfg["id"] == home_top.id
+        assert office_cfg["id"] != home_top.id
+        assert office_cfg["name"] == office_cfg["id"]
+        assert office_cfg["base_topic"] != home_cfg["base_topic"]
+        if profile == RedactionProfile.public_safe:
+            assert home_top.id == "network_001"
+            assert office_cfg["id"] == "network_002"
+            assert home_cfg["base_topic"].startswith("topic_")
+            assert office_cfg["base_topic"].startswith("topic_")
+        else:
+            assert home_top.id.startswith("network_") and len(home_top.id) > len("network_")
+            assert office_cfg["id"].startswith("network_")
+
+        assert detail.markdown_summary
+        for raw in _RAW_NETWORK_VALUES:
+            assert raw not in detail.markdown_summary
+
+        _assert_stable_decision_vocab(detail)
+        for story in detail.device_stories:
+            assert story.network_id == home_top.id
+
+    # Standard / preserved-network control: raw configured identities remain.
+    preserved = generate_report(
+        data=data,
+        config=config,
+        reporting=config.reporting,
+        collector={},
+        request=_home_scoped_request(RedactionProfile.standard, redact_networks=False),
+        repo=repo,
+    )
+    assert len(preserved.networks) == 1
+    assert preserved.networks[0].id == HOME_PRIVATE_ID
+    assert preserved.networks[0].name == HOME_PRIVATE_NAME
+    assert preserved.networks[0].base_topic == HOME_PRIVATE_TOPIC
+    configured = preserved.config_summary["networks"]
+    assert len(configured) == 2
+    by_id = {n["id"]: n for n in configured}
+    assert by_id[HOME_PRIVATE_ID]["name"] == HOME_PRIVATE_NAME
+    assert by_id[HOME_PRIVATE_ID]["base_topic"] == HOME_PRIVATE_TOPIC
+    assert by_id[OFFICE_SECRET_ID]["name"] == OFFICE_SECRET_NAME
+    assert by_id[OFFICE_SECRET_ID]["base_topic"] == OFFICE_SECRET_TOPIC
+    blob = json.dumps(preserved.model_dump(mode="json"), sort_keys=True)
+    for raw in _RAW_NETWORK_VALUES:
+        assert raw in blob

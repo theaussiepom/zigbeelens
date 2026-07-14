@@ -211,6 +211,50 @@ def resolve_redaction(
     )
 
 
+def _report_network_records(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """Deterministic union of scoped report networks and configured networks.
+
+    Order: report.networks first, then previously unseen config_summary.networks.
+    Deduplicate by non-empty string network ID (first record wins; later records
+    may fill missing name / base_topic).
+    """
+    scoped = report.get("networks") or []
+    config = report.get("config_summary")
+    configured: list[Any] = []
+    if isinstance(config, dict):
+        configured = config.get("networks") or []
+
+    records: list[dict[str, Any]] = []
+    by_id: dict[str, dict[str, Any]] = {}
+
+    def _append(raw: Any) -> None:
+        if not isinstance(raw, dict):
+            return
+        nid = raw.get("id")
+        if isinstance(nid, str) and nid:
+            existing = by_id.get(nid)
+            if existing is not None:
+                if not existing.get("name") and isinstance(raw.get("name"), str):
+                    existing["name"] = raw["name"]
+                if not existing.get("base_topic") and isinstance(raw.get("base_topic"), str):
+                    existing["base_topic"] = raw["base_topic"]
+                return
+            # Copy so merge fills do not mutate the report dict in place.
+            record = dict(raw)
+            by_id[nid] = record
+            records.append(record)
+            return
+        records.append(dict(raw))
+
+    if isinstance(scoped, list):
+        for item in scoped:
+            _append(item)
+    if isinstance(configured, list):
+        for item in configured:
+            _append(item)
+    return records
+
+
 @dataclass
 class Redactor:
     resolved: ResolvedRedaction
@@ -399,7 +443,7 @@ class Redactor:
 
     def redact(self, report: dict[str, Any]) -> dict[str, Any]:
         """Return a redacted copy of a report dict."""
-        self._build_network_maps(report.get("networks", []) or [])
+        self._build_network_maps(_report_network_records(report))
         self._collect(report)
         self._build_text_replacements()
         return self._walk(report)
