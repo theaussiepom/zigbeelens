@@ -107,21 +107,37 @@ flowchart LR
 
 ## Decision contract (Phase 5E)
 
-Before the companion shows Decision Engine summaries, it checks Core compatibility:
+The companion displays shared Decision Engine investigation priorities only when Core
+advertises an **exact** supported contract.
 
-1. `GET /api/capabilities` (also `/api/v1/capabilities`) exposes:
-   - `decision_contract_version` (currently `1`)
-   - `capabilities.shared_decisions`
-   - `capabilities.companion_decision_summary`
-   - `decision_surfaces` for Overview/device/report decision fields
-2. The integration sets soft flags on the panel summary:
-   - `shared_decisions_available`
-   - `decision_contract_version`
-   - `core_version_compatible`
-3. Older Core builds that omit these fields keep working — companion decision display stays off.
-4. Hard incompatibilities (Core below the absolute minimum version) raise a Home Assistant repair issue.
+Current supported contract:
 
-The companion must not invent its own decision wording. Shared Decision Engine statuses from Core remain authoritative.
+- `decision_contract_version = 1` only
+
+Core exposes the contract on `GET /api/capabilities` (also `/api/v1/capabilities`):
+
+- `decision_contract_version`
+- `capabilities.shared_decisions`
+- `capabilities.companion_decision_summary`
+- `decision_surfaces.dashboard_investigation_priorities`
+- `decision_surfaces.dashboard_data_coverage_warnings`
+
+Companion behaviour:
+
+1. Exact supported contract → show Core-provided investigation priorities in the native panel.
+2. Missing, older, newer, or malformed contracts → decision cards stay off softly.
+3. The rest of the integration (entities, factual summary, Open Full Dashboard) remains usable.
+4. Hard Core version incompatibilities still raise a Home Assistant repair.
+
+The panel passes through Core priority labels, titles, and summaries unchanged. It does
+**not** map Device Story, reason, limitation, suggested-check, coverage, action-group,
+or card-type codes. Coverage warnings contribute a factual count only.
+
+The full Core dashboard remains canonical. Phase 5E-2 adds no Home Assistant entities
+or Zigbee controls; shared decisions stay read-only.
+
+Do not treat future contract versions as compatible until this HACS package is updated
+for them.
 
 ## HACS vs MQTT Discovery
 

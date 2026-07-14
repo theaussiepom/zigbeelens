@@ -50,6 +50,30 @@ def test_v1_capabilities(mock_client: TestClient):
     assert surfaces["dashboard_data_coverage_warnings"] is True
     assert surfaces["device_story"] is True
     assert surfaces["report_device_stories"] is True
+    assert "dashboard_recent_changes" not in surfaces
+
+    dashboard = mock_client.get("/api/v1/dashboard").json()
+    assert "investigation_priorities" in dashboard
+    assert "data_coverage_warnings" in dashboard
+    assert isinstance(dashboard["investigation_priorities"], list)
+    assert isinstance(dashboard["data_coverage_warnings"], list)
+
+    devices = mock_client.get("/api/v1/devices").json()["items"]
+    assert devices
+    sample_device = devices[0]
+    story = mock_client.get(
+        f"/api/v1/devices/{sample_device['network_id']}/{sample_device['ieee_address']}/story"
+    )
+    assert story.status_code == 200
+    assert "status" in story.json()
+    assert "headline_code" in story.json()
+
+    preview = mock_client.get("/api/v1/reports/preview", params={"profile": "standard"})
+    assert preview.status_code == 200
+    report = preview.json()
+    assert report["report_version"] == 2
+    assert "device_stories" in report
+    assert isinstance(report["device_stories"], list)
 
 
 def test_v1_status(mock_client: TestClient):

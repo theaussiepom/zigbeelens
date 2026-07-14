@@ -4,11 +4,37 @@ from __future__ import annotations
 
 from zigbeelens.compatibility import (
     DECISION_CONTRACT_VERSION,
+    SUPPORTED_DECISION_CONTRACT_VERSIONS,
     core_version_compatible,
     decision_contract_version,
     parse_core_version,
     supports_companion_decisions,
 )
+
+
+def _contract_payload(
+    *,
+    version: object = 1,
+    shared: object = True,
+    companion: object = True,
+    surfaces: object | None = None,
+) -> dict:
+    if surfaces is None:
+        surfaces = {
+            "dashboard_investigation_priorities": True,
+            "dashboard_data_coverage_warnings": True,
+            "device_story": True,
+            "report_device_stories": True,
+        }
+    return {
+        "product": "zigbeelens",
+        "decision_contract_version": version,
+        "capabilities": {
+            "shared_decisions": shared,
+            "companion_decision_summary": companion,
+        },
+        "decision_surfaces": surfaces,
+    }
 
 
 def test_parse_core_version_handles_suffixes():
@@ -26,40 +52,74 @@ def test_core_version_compatible_unknown_is_soft_ok():
     assert core_version_compatible("0.1.0") is True
 
 
-def test_supports_companion_decisions_requires_contract():
+def test_decision_contract_version_strict_parsing():
+    assert decision_contract_version({"decision_contract_version": 1}) == 1
+    assert decision_contract_version({"decision_contract_version": "1"}) == 1
+    assert decision_contract_version({"decision_contract_version": 0}) == 0
+    assert decision_contract_version(None) == 0
+    assert decision_contract_version({}) == 0
+    assert decision_contract_version({"decision_contract_version": None}) == 0
+    assert decision_contract_version({"decision_contract_version": True}) == 0
+    assert decision_contract_version({"decision_contract_version": False}) == 0
+    assert decision_contract_version({"decision_contract_version": 1.0}) == 0
+    assert decision_contract_version({"decision_contract_version": 1.5}) == 0
+    assert decision_contract_version({"decision_contract_version": -1}) == 0
+    assert decision_contract_version({"decision_contract_version": "-1"}) == 0
+    assert decision_contract_version({"decision_contract_version": ""}) == 0
+    assert decision_contract_version({"decision_contract_version": "  "}) == 0
+    assert decision_contract_version({"decision_contract_version": "1x"}) == 0
+    assert decision_contract_version({"decision_contract_version": object()}) == 0
+    assert decision_contract_version({"decision_contract_version": []}) == 0
+    assert decision_contract_version({"decision_contract_version": {}}) == 0
+
+
+def test_supports_companion_decisions_exact_contract():
+    assert DECISION_CONTRACT_VERSION == 1
+    assert SUPPORTED_DECISION_CONTRACT_VERSIONS == frozenset({1})
     assert supports_companion_decisions(None) is False
     assert supports_companion_decisions({}) is False
+    assert supports_companion_decisions(_contract_payload(version=0)) is False
+    assert supports_companion_decisions(_contract_payload()) is True
+    assert supports_companion_decisions(_contract_payload(version="1")) is True
+    assert supports_companion_decisions(_contract_payload(version=2)) is False
+    assert supports_companion_decisions(_contract_payload(shared=False)) is False
+    assert supports_companion_decisions(_contract_payload(shared=1)) is False
+    assert supports_companion_decisions(_contract_payload(companion="true")) is False
+    assert supports_companion_decisions(_contract_payload(surfaces={})) is False
     assert (
         supports_companion_decisions(
-            {
-                "decision_contract_version": DECISION_CONTRACT_VERSION,
-                "capabilities": {"shared_decisions": True},
-            }
+            _contract_payload(
+                surfaces={
+                    "dashboard_investigation_priorities": True,
+                    "dashboard_data_coverage_warnings": False,
+                }
+            )
         )
         is False
     )
     assert (
         supports_companion_decisions(
-            {
-                "decision_contract_version": DECISION_CONTRACT_VERSION,
-                "capabilities": {
-                    "shared_decisions": True,
-                    "companion_decision_summary": True,
-                },
-            }
+            _contract_payload(
+                surfaces={
+                    "dashboard_investigation_priorities": True,
+                    "dashboard_data_coverage_warnings": 1,
+                }
+            )
+        )
+        is False
+    )
+    assert (
+        supports_companion_decisions(
+            _contract_payload(
+                surfaces={
+                    "dashboard_investigation_priorities": True,
+                    "dashboard_data_coverage_warnings": True,
+                    "extra_surface": True,
+                }
+            )
         )
         is True
     )
-    assert decision_contract_version({"decision_contract_version": "1"}) == 1
-    assert (
-        supports_companion_decisions(
-            {
-                "decision_contract_version": 0,
-                "capabilities": {
-                    "shared_decisions": True,
-                    "companion_decision_summary": True,
-                },
-            }
-        )
-        is False
-    )
+    malformed = _contract_payload()
+    malformed["decision_surfaces"] = "nope"
+    assert supports_companion_decisions(malformed) is False

@@ -40,7 +40,6 @@ def capabilities_dict(ctx: AppContext) -> dict[str, Any]:
         "decision_surfaces": {
             "dashboard_investigation_priorities": True,
             "dashboard_data_coverage_warnings": True,
-            "dashboard_recent_changes": True,
             "device_story": True,
             "report_device_stories": True,
         },

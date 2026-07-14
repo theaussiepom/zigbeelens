@@ -127,6 +127,33 @@ def test_repairs_incompatible_core_version(sample_health, sample_dashboard, samp
         assert any(call.args[2] == ISSUE_INCOMPATIBLE_VERSION for call in create_issue.call_args_list)
 
 
+def test_unsupported_decision_contract_does_not_create_version_repair(
+    sample_health, sample_dashboard, sample_config_status
+):
+    hass = MagicMock()
+    coord = MagicMock(spec=ZigbeeLensDataUpdateCoordinator)
+    coord.data = ZigbeeLensCoordinatorData(
+        health=sample_health,
+        dashboard=sample_dashboard,
+        config_status=sample_config_status,
+        core_version="0.1.13",
+        collector_connected=True,
+        last_update_success=True,
+        decision_contract_version=2,
+        shared_decisions_available=False,
+        core_version_compatible=True,
+    )
+    coord.last_update_success = True
+
+    with patch("zigbeelens.repairs.ir.async_create_issue") as create_issue, patch(
+        "zigbeelens.repairs.ir.async_delete_issue"
+    ):
+        async_manage_repairs(hass, coord)
+        assert not any(
+            call.args[2] == ISSUE_INCOMPATIBLE_VERSION for call in create_issue.call_args_list
+        )
+
+
 def test_clear_repairs():
     hass = MagicMock()
     with patch("zigbeelens.repairs.ir.async_delete_issue") as delete_issue:

@@ -36,6 +36,7 @@ async def core_app(aiohttp_server, sample_health, sample_dashboard, sample_confi
                 },
                 "decision_surfaces": {
                     "dashboard_investigation_priorities": True,
+                    "dashboard_data_coverage_warnings": True,
                 },
             }
         )

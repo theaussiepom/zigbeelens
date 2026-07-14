@@ -83,6 +83,8 @@ class ZigbeeLensDataUpdateCoordinator(DataUpdateCoordinator[ZigbeeLensCoordinato
         collector = health.get("collector") or {}
         connected = bool(collector.get("connected"))
         core_version = str(health.get("version", ""))
+        version_compatible = core_version_compatible(core_version)
+        contract_supported = supports_companion_decisions(capabilities)
         self.last_update_success = True
         self.last_exception = None
 
@@ -96,6 +98,6 @@ class ZigbeeLensDataUpdateCoordinator(DataUpdateCoordinator[ZigbeeLensCoordinato
             last_exception=None,
             capabilities=capabilities,
             decision_contract_version=decision_contract_version(capabilities),
-            shared_decisions_available=supports_companion_decisions(capabilities),
-            core_version_compatible=core_version_compatible(core_version),
+            shared_decisions_available=version_compatible and contract_supported,
+            core_version_compatible=version_compatible,
         )
