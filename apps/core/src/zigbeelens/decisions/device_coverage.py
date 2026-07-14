@@ -18,7 +18,7 @@ from zigbeelens.decisions.types import CoverageDimension, DataCoverage
 from zigbeelens.topology.device_compare import MAX_SNAPSHOT_HISTORY
 
 if TYPE_CHECKING:
-    from zigbeelens.storage.repository import Repository
+    from zigbeelens.storage.repository import DeviceRow, Repository
 
 # Minimum stored payload snapshots with a value before history is "available".
 MIN_HISTORY_SAMPLES = 3
@@ -54,6 +54,17 @@ class DeviceCoverageEvidence(BaseModel):
     ha_area_id: str | None = None
     ha_area_name: str | None = None
 
+
+
+def _availability_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    enum_value = getattr(value, "value", None)
+    if isinstance(enum_value, str):
+        return enum_value
+    if isinstance(value, str):
+        return value
+    return None
 
 def _parse_ts(value: str | None) -> datetime | None:
     if not value:
@@ -110,6 +121,42 @@ def _topology_observation_counts(
     return observed, len(window)
 
 
+
+def build_device_coverage_evidence(
+    *,
+    device_row: DeviceRow,
+    tracking_enabled: bool,
+    device_snapshots: list[dict[str, Any]],
+    availability_changes: list[dict[str, Any]],
+    topology_observed_snapshot_count: int,
+    topology_snapshot_window_count: int,
+    ha_enrichment: dict[str, Any] | None,
+) -> DeviceCoverageEvidence:
+    """Compose canonical per-device coverage evidence from loaded facts."""
+    device = normalize_device_ieee(device_row.ieee_address)
+    battery_sample_count = _count_snapshot_field(device_snapshots, "battery")
+    lqi_sample_count = _count_snapshot_field(device_snapshots, "linkquality")
+    return DeviceCoverageEvidence(
+        network_id=device_row.network_id,
+        device_ieee=device,
+        availability_tracking_enabled=tracking_enabled,
+        has_device_availability_history=bool(availability_changes),
+        current_availability=_availability_value(device_row.availability),
+        last_seen=_parse_ts(device_row.last_seen),
+        last_payload_at=_parse_ts(device_row.last_payload_at),
+        battery_history_applicable=(
+            device_row.power_source == "Battery"
+            or device_row.battery is not None
+            or battery_sample_count > 0
+        ),
+        battery_sample_count=battery_sample_count,
+        lqi_sample_count=lqi_sample_count,
+        topology_observed_snapshot_count=topology_observed_snapshot_count,
+        topology_snapshot_window_count=topology_snapshot_window_count,
+        ha_area_id=ha_enrichment.get("area_id") if ha_enrichment else None,
+        ha_area_name=ha_enrichment.get("area_name") if ha_enrichment else None,
+    )
+
 def load_device_coverage_evidence(
     repo: Repository,
     network_id: str,
@@ -125,31 +172,18 @@ def load_device_coverage_evidence(
         return None
 
     snapshots = repo.devices.list_device_snapshots(network_id, device, limit=MAX_SNAPSHOT_HISTORY)
-    battery_sample_count = _count_snapshot_field(snapshots, "battery")
-    lqi_sample_count = _count_snapshot_field(snapshots, "linkquality")
     device_changes = repo.availability.list_availability_changes(network_id, device, limit=1)
     ha_enrichment = repo.get_ha_device_enrichment(network_id, device)
     topology_observed, topology_window = _topology_observation_counts(repo, network_id, device)
 
-    return DeviceCoverageEvidence(
-        network_id=network_id,
-        device_ieee=device,
-        availability_tracking_enabled=availability_tracking_enabled_now(repo, network_id),
-        has_device_availability_history=bool(device_changes),
-        current_availability=row.availability,
-        last_seen=_parse_ts(row.last_seen),
-        last_payload_at=_parse_ts(row.last_payload_at),
-        battery_history_applicable=(
-            row.power_source == "Battery"
-            or row.battery is not None
-            or battery_sample_count > 0
-        ),
-        battery_sample_count=battery_sample_count,
-        lqi_sample_count=lqi_sample_count,
+    return build_device_coverage_evidence(
+        device_row=row,
+        tracking_enabled=availability_tracking_enabled_now(repo, network_id),
+        device_snapshots=snapshots,
+        availability_changes=device_changes,
         topology_observed_snapshot_count=topology_observed,
         topology_snapshot_window_count=topology_window,
-        ha_area_id=ha_enrichment.get("area_id") if ha_enrichment else None,
-        ha_area_name=ha_enrichment.get("area_name") if ha_enrichment else None,
+        ha_enrichment=ha_enrichment,
     )
 
 

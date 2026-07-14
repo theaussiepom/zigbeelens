@@ -86,6 +86,7 @@ function reportStoryToDeviceStoryDto(story: ReportDeviceStory): DeviceStoryDto {
     limitations: story.limitations,
     suggested_checks: story.suggested_checks,
     coverage: story.coverage as unknown as DeviceStoryDto["coverage"],
+    related_unresolved_incident_ids: story.related_unresolved_incident_ids ?? [],
     timeline: story.timeline.map((item) => ({
       code: item.code,
       params: item.params,

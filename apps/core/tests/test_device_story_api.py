@@ -23,6 +23,7 @@ STORY_TOP_LEVEL_KEYS = {
     "limitations",
     "suggested_checks",
     "coverage",
+    "related_unresolved_incident_ids",
     "timeline",
 }
 
@@ -421,5 +422,5 @@ def test_scenario_inventory_badges_match_device_stories(mock_client: TestClient)
         assert device.decision == device_decision_badge_from_story(story)
         statuses.add(story.status)
     assert "worth_reviewing" in statuses
-    assert "no_notable_change" in statuses
+    assert "informational" in statuses
     assert MockProvider(scenario_id).device_story("home", "0xmissing") is None

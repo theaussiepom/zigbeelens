@@ -14,7 +14,10 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from zigbeelens.decisions import coverage as coverage_helpers
+from zigbeelens.decisions.device_coverage import (
+    build_device_coverage,
+    build_device_coverage_evidence,
+)
 from zigbeelens.decisions.reasons import ReasonCode
 from zigbeelens.decisions.topology_facts import (
     TopologyFactCode,
@@ -23,6 +26,7 @@ from zigbeelens.decisions.topology_facts import (
     normalize_device_ieee,
 )
 from zigbeelens.decisions.types import (
+    CoverageLabelCode,
     DataCoverage,
     DecisionLimitation,
     DecisionPriority,
@@ -38,21 +42,26 @@ from zigbeelens.decisions.model_pattern import (
     observed_model_patterns_for_network,
     qualifying_pattern_for_device,
 )
-from zigbeelens.decisions.reporting_rhythm import ReportingRhythm, reporting_rhythm_for_device
+from zigbeelens.decisions.reporting_rhythm import (
+    MAX_SNAPSHOTS as REPORTING_SNAPSHOT_LIMIT,
+    ReportingRhythm,
+    reporting_rhythm_for_device,
+)
 from zigbeelens.decisions.reporting_silence import (
     ReportingSilence,
     SilenceState,
     build_reporting_silence,
 )
 from zigbeelens.topology.device_compare import (
-    COVERAGE_BUILDING,
-    COVERAGE_UNKNOWN,
+    MAX_SNAPSHOT_HISTORY,
     DeviceSnapshotHistoryNetworkContext,
     build_device_snapshot_history,
     load_device_snapshot_history_network_context,
 )
 from zigbeelens.topology.history import aggregate_historical_evidence, aggregate_last_known_links
 from zigbeelens.topology.investigations import LOW_BATTERY_PERCENT, STALE_LAST_SEEN_HOURS
+
+AVAILABILITY_LOOKUP_LIMIT = 500
 
 if TYPE_CHECKING:
     from zigbeelens.storage.repository import DeviceRow, Repository
@@ -138,7 +147,7 @@ class DeviceStoryEvidence(BaseModel):
     linkquality: int | None = None
     battery: int | None = None
     has_current_issue: bool = False
-    active_incident_ids: list[str] = Field(default_factory=list)
+    related_unresolved_incident_ids: list[str] = Field(default_factory=list)
     availability_tracking_enabled: bool = False
     latest_availability_coverage: str | None = None
     topology_facts: list[EvidenceFact] = Field(default_factory=list)
@@ -152,6 +161,7 @@ class DeviceStoryEvidence(BaseModel):
     reporting_rhythm: ReportingRhythm | None = None
     lqi_trend: LqiTrend | None = None
     model_pattern: DeviceStoryModelPatternContext | None = None
+    coverage: list[DataCoverage] = Field(default_factory=list)
 
 
 class DeviceStoryNetworkContext(BaseModel):
@@ -161,6 +171,7 @@ class DeviceStoryNetworkContext(BaseModel):
     latest_snapshot: dict[str, Any] | None = None
     latest_nodes: list[dict[str, Any]] = Field(default_factory=list)
     latest_links: list[dict[str, Any]] = Field(default_factory=list)
+    nodes_by_snapshot_id: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     historical_evidence: dict[str, Any] = Field(default_factory=dict)
     last_known_links: dict[str, Any] = Field(default_factory=dict)
     availability_tracking_enabled: bool = False
@@ -186,6 +197,7 @@ class DeviceStory(BaseModel):
     limitations: list[DecisionLimitation] = Field(default_factory=list)
     suggested_checks: list[SuggestedCheck] = Field(default_factory=list)
     coverage: list[DataCoverage] = Field(default_factory=list)
+    related_unresolved_incident_ids: list[str] = Field(default_factory=list)
     timeline: list[DeviceStoryTimelineItem] = Field(default_factory=list)
 
 
@@ -255,9 +267,14 @@ def load_device_story_network_context(
         snapshots=all_snapshots,
         links_by_snapshot_id=links_by_snapshot_id,
     )
-    latest_nodes = (
-        repo.list_topology_nodes(latest_snapshot_id) if latest_snapshot_id else []
-    )
+    coverage_snapshot_ids = link_snapshot_ids[:MAX_SNAPSHOT_HISTORY]
+    if latest_snapshot_id and latest_snapshot_id not in coverage_snapshot_ids:
+        coverage_snapshot_ids.append(latest_snapshot_id)
+    nodes_by_snapshot_id = {
+        snapshot_id: repo.list_topology_nodes(snapshot_id)
+        for snapshot_id in coverage_snapshot_ids
+    }
+    latest_nodes = nodes_by_snapshot_id.get(latest_snapshot_id, []) if latest_snapshot_id else []
     latest_links = (
         links_by_snapshot_id.get(latest_snapshot_id, [])
         if latest_snapshot_id
@@ -268,6 +285,7 @@ def load_device_story_network_context(
         latest_snapshot=latest_snapshot,
         latest_nodes=latest_nodes,
         latest_links=latest_links,
+        nodes_by_snapshot_id=nodes_by_snapshot_id,
         historical_evidence=aggregate_historical_evidence(
             repo,
             network_id,
@@ -319,8 +337,8 @@ def load_device_story_evidence(
             "DeviceStoryNetworkContext network_id does not match requested network_id"
         )
 
-    active_incident_ids = repo.incidents.list_incidents_for_device(network_id, device)
-    has_current_issue = row.availability == "offline" or bool(active_incident_ids)
+    related_unresolved_incident_ids = repo.incidents.list_incidents_for_device(network_id, device)
+    has_current_issue = row.availability == "offline"
 
     latest_snapshot = network_context.latest_snapshot
     latest_nodes = network_context.latest_nodes
@@ -334,12 +352,20 @@ def load_device_story_evidence(
         links=latest_links,
     )
 
+    device_snapshots = repo.devices.list_device_snapshots(
+        network_id, device, limit=REPORTING_SNAPSHOT_LIMIT
+    )
+    availability_changes = repo.availability.list_availability_changes(
+        network_id, device, limit=AVAILABILITY_LOOKUP_LIMIT
+    )
+
     history = build_device_snapshot_history(
         repo,
         network_context.snapshot_history_context,
         device,
         device_row=row,
         has_current_issue=has_current_issue,
+        availability_changes=availability_changes,
     )
     for snapshot_row in history.get("snapshots", []):
         topology_facts.extend(
@@ -361,6 +387,27 @@ def load_device_story_evidence(
         if isinstance(coverage, str):
             latest_availability_coverage = coverage
 
+    coverage_snapshots = device_snapshots[:MAX_SNAPSHOT_HISTORY]
+    topology_window = network_context.snapshot_history_context.usable_snapshots[:MAX_SNAPSHOT_HISTORY]
+    topology_observed = 0
+    for snapshot in topology_window:
+        snapshot_id = str(snapshot["snapshot_id"])
+        if any(
+            normalize_device_ieee(node.get("ieee_address")) == device
+            for node in network_context.nodes_by_snapshot_id.get(snapshot_id, [])
+        ):
+            topology_observed += 1
+    coverage_evidence = build_device_coverage_evidence(
+        device_row=row,
+        tracking_enabled=network_context.availability_tracking_enabled,
+        device_snapshots=coverage_snapshots,
+        availability_changes=availability_changes,
+        topology_observed_snapshot_count=topology_observed,
+        topology_snapshot_window_count=len(topology_window),
+        ha_enrichment=ha_enrichment,
+    )
+    canonical_coverage = build_device_coverage(coverage_evidence)
+
     return DeviceStoryEvidence(
         network_id=network_id,
         device_ieee=device,
@@ -371,7 +418,7 @@ def load_device_story_evidence(
         linkquality=row.linkquality,
         battery=row.battery,
         has_current_issue=has_current_issue,
-        active_incident_ids=list(active_incident_ids),
+        related_unresolved_incident_ids=list(related_unresolved_incident_ids),
         availability_tracking_enabled=network_context.availability_tracking_enabled,
         latest_availability_coverage=latest_availability_coverage,
         topology_facts=topology_facts,
@@ -389,13 +436,18 @@ def load_device_story_evidence(
         ),
         ha_area=ha_enrichment.get("area_name") if ha_enrichment else None,
         network_has_usable_ha_areas=network_context.network_has_usable_ha_areas,
-        reporting_rhythm=reporting_rhythm_for_device(repo, network_id, device),
-        lqi_trend=lqi_trend_for_device(repo, network_id, device),
+        reporting_rhythm=reporting_rhythm_for_device(
+            repo, network_id, device, device_row=row, snapshots=device_snapshots
+        ),
+        lqi_trend=lqi_trend_for_device(
+            repo, network_id, device, device_exists=True, snapshots=device_snapshots
+        ),
         model_pattern=_load_device_story_model_pattern(
             network_context.model_patterns,
             row,
             device=device,
         ),
+        coverage=canonical_coverage,
     )
 
 
@@ -426,29 +478,8 @@ def _load_device_story_model_pattern(
 
 
 def build_device_story_coverage(evidence: DeviceStoryEvidence) -> list[DataCoverage]:
-    """Compose device-scoped coverage from stored evidence signals."""
-    items: list[DataCoverage] = []
-
-    if not evidence.availability_tracking_enabled:
-        items.append(coverage_helpers.availability_tracking_off())
-
-    if evidence.latest_availability_coverage == COVERAGE_BUILDING:
-        items.append(coverage_helpers.availability_history_building())
-
-    if evidence.latest_availability_coverage == COVERAGE_UNKNOWN:
-        items.append(coverage_helpers.availability_status_unknown())
-
-    if not evidence.route_hints_available and evidence.latest_snapshot_id is not None:
-        items.append(coverage_helpers.route_hints_unavailable())
-
-    if (
-        evidence.network_has_usable_ha_areas is False
-        and evidence.ha_area is None
-        and evidence.friendly_name is not None
-    ):
-        items.append(coverage_helpers.ha_areas_not_linked())
-
-    return items
+    """Return canonical per-device coverage for the Device Story subject."""
+    return list(evidence.coverage)
 
 
 def _topology_gap(evidence: DeviceStoryEvidence) -> bool:
@@ -540,14 +571,16 @@ def build_device_story(
         _append_unique_check(checks, CheckCode.compare_earlier_snapshot)
         _append_unique_check(checks, CheckCode.confirm_powered)
 
-    if not evidence.availability_tracking_enabled:
+    coverage_label_codes = {item.label_code for item in evidence.coverage}
+
+    if CoverageLabelCode.availability_tracking_off in coverage_label_codes:
         _append_unique_reason(reasons, ReasonCode.availability_tracking_off)
         _append_unique_check(checks, CheckCode.enable_availability_reporting)
 
-    if evidence.latest_availability_coverage == COVERAGE_BUILDING:
+    if CoverageLabelCode.availability_history_building in coverage_label_codes:
         _append_unique_reason(reasons, ReasonCode.availability_history_building)
 
-    if evidence.latest_availability_coverage == COVERAGE_UNKNOWN:
+    if CoverageLabelCode.availability_status_unknown in coverage_label_codes:
         _append_unique_reason(reasons, ReasonCode.availability_status_unknown)
         _append_unique_limitation(
             limitations, LimitationCode.availability_limits_interpretation
@@ -578,7 +611,7 @@ def build_device_story(
         _append_unique_limitation(limitations, LimitationCode.route_hints_not_live_routing)
         _append_unique_check(checks, CheckCode.route_hints_context_only)
 
-    if evidence.network_has_usable_ha_areas is False and evidence.ha_area is None:
+    if CoverageLabelCode.ha_areas_not_linked in coverage_label_codes:
         _append_unique_reason(reasons, ReasonCode.ha_areas_not_linked)
 
     _apply_reporting_silence_rules(
@@ -621,6 +654,7 @@ def build_device_story(
         limitations=limitations,
         suggested_checks=checks,
         coverage=coverage,
+        related_unresolved_incident_ids=list(evidence.related_unresolved_incident_ids),
         timeline=[],
     )
 

@@ -477,8 +477,33 @@ def test_devices_list_loads_snapshot_links_once_per_snapshot(monkeypatch, tmp_pa
     link_calls.clear()
     tracking_calls.clear()
     earliest_calls.clear()
+    device_snapshot_calls: list[str] = []
+    availability_calls: list[str] = []
+    node_calls: list[str] = []
+    original_device_snapshots = repo.devices.list_device_snapshots
+    original_availability_changes = repo.availability.list_availability_changes
+    original_nodes = repo.list_topology_nodes
+
+    def _device_snapshots(network_id: str, ieee_address: str, *, limit: int):
+        device_snapshot_calls.append(ieee_address)
+        return original_device_snapshots(network_id, ieee_address, limit=limit)
+
+    def _availability_changes(network_id: str, ieee_address: str, *, limit: int):
+        availability_calls.append(ieee_address)
+        return original_availability_changes(network_id, ieee_address, limit=limit)
+
+    def _nodes(snapshot_id: str):
+        node_calls.append(snapshot_id)
+        return original_nodes(snapshot_id)
+
+    monkeypatch.setattr(repo.devices, "list_device_snapshots", _device_snapshots)
+    monkeypatch.setattr(repo.availability, "list_availability_changes", _availability_changes)
+    monkeypatch.setattr(repo, "list_topology_nodes", _nodes)
     devices = PayloadBuilder(config, repo, health).devices()
     assert len(devices) == 4
+    assert sorted(device_snapshot_calls) == ["0xa1", "0xa2", "0xa3", "0xa4"]
+    assert sorted(availability_calls) == ["0xa1", "0xa2", "0xa3", "0xa4"]
+    assert len(set(node_calls)) <= 3
     assert snapshot_calls == ["home"]
     assert sorted(link_calls) == ["snap-1", "snap-2", "snap-3"]
     assert link_calls.count("snap-1") == 1

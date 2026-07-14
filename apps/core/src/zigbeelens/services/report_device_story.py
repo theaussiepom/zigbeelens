@@ -38,6 +38,9 @@ def report_device_story_from_story(
         limitations=list(payload.get("limitations") or []),
         suggested_checks=list(payload.get("suggested_checks") or []),
         coverage=list(payload.get("coverage") or []),
+        related_unresolved_incident_ids=list(
+            payload.get("related_unresolved_incident_ids") or []
+        ),
         timeline=timeline,
     )
 

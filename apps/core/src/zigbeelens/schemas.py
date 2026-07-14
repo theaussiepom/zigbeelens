@@ -481,6 +481,7 @@ class ReportDeviceStory(BaseModel):
     limitations: list[dict[str, Any]] = Field(default_factory=list)
     suggested_checks: list[dict[str, Any]] = Field(default_factory=list)
     coverage: list[dict[str, Any]] = Field(default_factory=list)
+    related_unresolved_incident_ids: list[str] = Field(default_factory=list)
     timeline: list[ReportStoryTimelineItem] = Field(default_factory=list)
 
 

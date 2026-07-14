@@ -53,10 +53,7 @@ class EvidenceGraphService:
             self._repo, network_id
         )
         devices = self._repo.list_devices(network_id)
-        issue_device_ieees = issue_device_ieees_from_state(
-            devices,
-            set(self._repo.incidents.list_active_incident_device_addresses(network_id)),
-        )
+        issue_device_ieees = issue_device_ieees_from_state(devices)
         observed_router_areas = observed_router_areas_for_network(
             self._repo,
             network_id,

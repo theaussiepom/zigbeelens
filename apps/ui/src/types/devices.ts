@@ -112,5 +112,6 @@ export interface DeviceStoryDto {
   limitations: DecisionLimitationDto[];
   suggested_checks: SuggestedCheckDto[];
   coverage: DataCoverageDto[];
+  related_unresolved_incident_ids: string[];
   timeline: DeviceStoryTimelineItemDto[];
 }
