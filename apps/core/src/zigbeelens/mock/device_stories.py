@@ -21,7 +21,7 @@ from zigbeelens.decisions.lqi_trend import LqiTrend
 from zigbeelens.decisions.reporting_rhythm import ReportingRhythm
 from zigbeelens.decisions.topology_facts import TopologyFactCode
 from zigbeelens.decisions.types import EvidenceFact
-from zigbeelens.schemas import Availability, DeviceSummary
+from zigbeelens.schemas import Availability, DeviceSummary, Incident
 from zigbeelens.services.device_decision_badge import device_decision_badge_from_story
 from zigbeelens.topology.device_compare import COVERAGE_UNKNOWN
 
@@ -163,6 +163,27 @@ def apply_device_story_badges(
     return updated
 
 
+def apply_incident_device_story_badges(
+    incidents: list[Incident],
+    stories: dict[tuple[str, str], DeviceStory],
+) -> list[Incident]:
+    """Project DeviceDecisionBadge onto incident affected-device refs from stories."""
+    updated: list[Incident] = []
+    for incident in incidents:
+        new_affected = []
+        for ref in incident.affected_devices:
+            key = (ref.network_id, ref.ieee_address)
+            story = stories.get(key)
+            decision = (
+                device_decision_badge_from_story(story) if story is not None else None
+            )
+            new_affected.append(ref.model_copy(update={"decision": decision}))
+        updated.append(
+            incident.model_copy(update={"affected_devices": new_affected})
+        )
+    return updated
+
+
 def build_device_story_evidence_for_scenario(
     data: ScenarioData,
 ) -> dict[tuple[str, str], DeviceStoryEvidence]:
@@ -237,4 +258,10 @@ def finalize_scenario_device_stories(
     """Attach canonical Device Stories and project decision badges onto devices."""
     stories = build_device_stories_for_scenario(data, now=now)
     devices = apply_device_story_badges(data.devices, stories)
-    return replace(data, devices=devices, device_stories=stories)
+    incidents = apply_incident_device_story_badges(data.incidents, stories)
+    return replace(
+        data,
+        devices=devices,
+        device_stories=stories,
+        incidents=incidents,
+    )

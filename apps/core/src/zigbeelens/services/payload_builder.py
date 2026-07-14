@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from zigbeelens.config.models import AppConfig
 from zigbeelens.diagnostics.incidents.service import IncidentDiagnosticService
 from zigbeelens.diagnostics.models import HealthFlag
@@ -344,15 +346,40 @@ class PayloadBuilder:
         return sorted(items, key=lambda r: r.risk.severity.value)
 
     def incidents(self) -> list[Incident]:
+        rows = self.repo.incidents.list_incidents()
+        device_rows = self._unique_device_rows_for_incidents(rows)
+        reference_now = datetime.now(timezone.utc)
+        badges = device_decision_badges_for_devices(
+            self.repo, device_rows, now=reference_now
+        )
         return [
             inc
-            for row in self.repo.incidents.list_incidents()
-            if (inc := self._incident_from_row(row)) is not None
+            for row in rows
+            if (inc := self._incident_from_row(row, decision_badges=badges)) is not None
         ]
 
     def incident(self, incident_id: str) -> Incident | None:
         row = self.repo.incidents.get_incident(incident_id)
-        return self._incident_from_row(row) if row else None
+        if not row:
+            return None
+        device_rows = self._unique_device_rows_for_incidents([row])
+        badges = device_decision_badges_for_devices(
+            self.repo, device_rows, now=datetime.now(timezone.utc)
+        )
+        return self._incident_from_row(row, decision_badges=badges)
+
+    def _unique_device_rows_for_incidents(self, rows: list[dict]) -> list[DeviceRow]:
+        """Collect existing DeviceRows for incident refs once, by (network, ieee)."""
+        seen: dict[tuple[str, str], DeviceRow] = {}
+        for row in rows:
+            for ref in self.repo.incidents.list_incident_devices(row["id"]):
+                key = (ref["network_id"], ref["ieee_address"])
+                if key in seen:
+                    continue
+                device = self.repo.get_device(ref["network_id"], ref["ieee_address"])
+                if device is not None:
+                    seen[key] = device
+        return list(seen.values())
 
     def timeline(self, network_id: str | None = None) -> list[TimelineEvent]:
         events: list[TimelineEvent] = []
@@ -459,12 +486,18 @@ class PayloadBuilder:
         )
         return enrich_device_summary(summary, bridge_state=bridge_state)
 
-    def _incident_from_row(self, row: dict) -> Incident | None:
+    def _incident_from_row(
+        self,
+        row: dict,
+        *,
+        decision_badges: dict[tuple[str, str], DeviceDecisionBadge] | None = None,
+    ) -> Incident | None:
         if not row:
             return None
         refs = self.repo.incidents.list_incident_devices(row["id"])
         affected = []
         for ref in refs:
+            key = (ref["network_id"], ref["ieee_address"])
             dev = self.repo.get_device(ref["network_id"], ref["ieee_address"])
             health_primary = DeviceHealthPrimary.unknown
             device_health = None
@@ -492,6 +525,7 @@ class PayloadBuilder:
             friendly = dev.friendly_name if dev else ref["ieee_address"]
             bucket = presentation.get("lens_bucket", "unknown")
             bucket_reason = presentation.get("lens_bucket_reason", "")
+            decision = None if decision_badges is None else decision_badges.get(key)
             affected.append(
                 IncidentDeviceRef(
                     network_id=ref["network_id"],
@@ -501,6 +535,7 @@ class PayloadBuilder:
                     name=friendly,
                     classification=str(bucket),
                     reason=bucket_reason or str(presentation.get("lens_bucket_label", "")),
+                    decision=decision,
                     **presentation,
                 )
             )
