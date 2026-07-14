@@ -32,6 +32,7 @@ def test_v1_capabilities(mock_client: TestClient):
     body = res.json()
     assert body["product"] == "zigbeelens"
     assert "version" in body
+    assert body["decision_contract_version"] == 1
     caps = body["capabilities"]
     assert caps["dashboard"] is True
     assert caps["sse"] is True
@@ -39,9 +40,16 @@ def test_v1_capabilities(mock_client: TestClient):
     assert caps["read_only_observability"] is True
     assert caps["mock_scenarios"] is True
     assert caps["home_assistant_enrichment"] is True
+    assert caps["shared_decisions"] is True
+    assert caps["companion_decision_summary"] is True
     assert isinstance(caps["mqtt_discovery"], bool)
     assert isinstance(caps["topology"], bool)
     assert isinstance(caps["mqtt_collector"], bool)
+    surfaces = body["decision_surfaces"]
+    assert surfaces["dashboard_investigation_priorities"] is True
+    assert surfaces["dashboard_data_coverage_warnings"] is True
+    assert surfaces["device_story"] is True
+    assert surfaces["report_device_stories"] is True
 
 
 def test_v1_status(mock_client: TestClient):

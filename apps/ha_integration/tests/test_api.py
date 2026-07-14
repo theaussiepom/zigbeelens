@@ -23,11 +23,29 @@ async def core_app(aiohttp_server, sample_health, sample_dashboard, sample_confi
     async def version(_request):
         return web.json_response({"version": "0.1.0", "name": "zigbeelens-core"})
 
+    async def capabilities(_request):
+        return web.json_response(
+            {
+                "product": "zigbeelens",
+                "version": "0.1.0",
+                "decision_contract_version": 1,
+                "capabilities": {
+                    "dashboard": True,
+                    "shared_decisions": True,
+                    "companion_decision_summary": True,
+                },
+                "decision_surfaces": {
+                    "dashboard_investigation_priorities": True,
+                },
+            }
+        )
+
     app = web.Application()
     app.router.add_get("/api/health", health)
     app.router.add_get("/api/dashboard", dashboard)
     app.router.add_get("/api/config/status", config_status)
     app.router.add_get("/api/version", version)
+    app.router.add_get("/api/capabilities", capabilities)
     return await aiohttp_server(app)
 
 
@@ -93,6 +111,16 @@ async def test_connection_error():
         client = ZigbeeLensApiClient(session, "http://127.0.0.1:1/")
         with pytest.raises(ZigbeeLensConnectionError):
             await client.async_get_health()
+
+
+@pytest.mark.asyncio
+async def test_capabilities_success(core_url):
+    async with ClientSession() as session:
+        client = ZigbeeLensApiClient(session, core_url)
+        payload = await client.async_get_capabilities()
+    assert payload["product"] == "zigbeelens"
+    assert payload["decision_contract_version"] == 1
+    assert payload["capabilities"]["companion_decision_summary"] is True
 
 
 @pytest.mark.asyncio

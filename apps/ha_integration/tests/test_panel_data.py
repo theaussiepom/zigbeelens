@@ -45,6 +45,9 @@ def test_summary_connected_has_expected_fields(
     assert summary["router_risks"] == 1
     assert summary["collector_connected"] is True
     assert summary["current_finding"].startswith("4 devices")
+    assert summary["shared_decisions_available"] is False
+    assert summary["decision_contract_version"] == 0
+    assert summary["core_version_compatible"] is True
     assert summary["networks"][0] == {
         "id": "home",
         "name": "Home",
@@ -54,6 +57,19 @@ def test_summary_connected_has_expected_fields(
         "router_risks": 1,
         "health": "incident",
     }
+
+
+def test_summary_exposes_decision_contract_flags(
+    sample_health, sample_dashboard, sample_config_status
+):
+    data = _data(sample_health, sample_dashboard, sample_config_status)
+    data.shared_decisions_available = True
+    data.decision_contract_version = 1
+    data.core_version_compatible = True
+    summary = build_panel_summary(data, core_url="http://core:8377", connected=True)
+    assert summary["shared_decisions_available"] is True
+    assert summary["decision_contract_version"] == 1
+    assert summary["core_version_compatible"] is True
 
 
 def test_summary_excludes_secrets(sample_health, sample_dashboard, sample_config_status):

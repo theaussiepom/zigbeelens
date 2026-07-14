@@ -63,6 +63,10 @@ def build_panel_summary(
         "mock_mode": False,
         "networks": [],
         "error": last_exception if not connected else None,
+        # Phase 5E-1 contract flags — decision cards arrive in 5E-2.
+        "shared_decisions_available": False,
+        "decision_contract_version": 0,
+        "core_version_compatible": True,
     }
 
     if data is None:
@@ -74,6 +78,9 @@ def build_panel_summary(
     collector = health.get("collector") or {}
 
     summary["core_version"] = data.core_version or str(health.get("version") or "") or None
+    summary["shared_decisions_available"] = bool(data.shared_decisions_available)
+    summary["decision_contract_version"] = int(data.decision_contract_version or 0)
+    summary["core_version_compatible"] = bool(data.core_version_compatible)
     summary["overall_severity"] = _severity_label(dashboard.get("overall_severity"))
     summary["overall_health"] = summary["overall_severity"]
 

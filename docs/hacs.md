@@ -105,6 +105,24 @@ flowchart LR
   Core -->|subscribe only| MQTT
 ```
 
+## Decision contract (Phase 5E)
+
+Before the companion shows Decision Engine summaries, it checks Core compatibility:
+
+1. `GET /api/capabilities` (also `/api/v1/capabilities`) exposes:
+   - `decision_contract_version` (currently `1`)
+   - `capabilities.shared_decisions`
+   - `capabilities.companion_decision_summary`
+   - `decision_surfaces` for Overview/device/report decision fields
+2. The integration sets soft flags on the panel summary:
+   - `shared_decisions_available`
+   - `decision_contract_version`
+   - `core_version_compatible`
+3. Older Core builds that omit these fields keep working — companion decision display stays off.
+4. Hard incompatibilities (Core below the absolute minimum version) raise a Home Assistant repair issue.
+
+The companion must not invent its own decision wording. Shared Decision Engine statuses from Core remain authoritative.
+
 ## HACS vs MQTT Discovery
 
 | | HACS integration | MQTT Discovery |

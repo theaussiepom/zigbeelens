@@ -9,6 +9,7 @@ from .const import (
     DOMAIN,
     ISSUE_COLLECTOR_DISCONNECTED,
     ISSUE_CORE_UNREACHABLE,
+    ISSUE_INCOMPATIBLE_VERSION,
     ISSUE_MOCK_MODE,
     ISSUE_NO_MQTT_DATA,
     ISSUE_NO_NETWORKS,
@@ -35,6 +36,19 @@ def async_manage_repairs(hass: HomeAssistant, coordinator: ZigbeeLensDataUpdateC
     dashboard = data.dashboard
     health = data.health
     config_status = data.config_status
+
+    if not data.core_version_compatible:
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            ISSUE_INCOMPATIBLE_VERSION,
+            is_fixable=False,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key=ISSUE_INCOMPATIBLE_VERSION,
+            translation_placeholders={"version": data.core_version or "unknown"},
+        )
+    else:
+        ir.async_delete_issue(hass, DOMAIN, ISSUE_INCOMPATIBLE_VERSION)
 
     if not data.collector_connected:
         ir.async_create_issue(
@@ -91,6 +105,7 @@ def async_manage_repairs(hass: HomeAssistant, coordinator: ZigbeeLensDataUpdateC
 def async_clear_repairs(hass: HomeAssistant) -> None:
     for issue_id in (
         ISSUE_CORE_UNREACHABLE,
+        ISSUE_INCOMPATIBLE_VERSION,
         ISSUE_COLLECTOR_DISCONNECTED,
         ISSUE_NO_NETWORKS,
         ISSUE_NO_MQTT_DATA,
