@@ -145,7 +145,7 @@ describe("reportDecisionViewModel", () => {
         priority_counts: { low: 1 },
       },
     });
-    const vm = buildReportDecisionViewModel(report, { home: "Home" });
+    const vm = buildReportDecisionViewModel(report);
     const direct = buildDeviceStoryViewModel({
       subject_type: "device",
       subject_id: story.subject_id,
@@ -178,7 +178,7 @@ describe("reportDecisionViewModel", () => {
       investigation_priorities: [priority],
       device_stories: [makeStory()],
     });
-    const vm = buildReportDecisionViewModel(report, { home: "Home" });
+    const vm = buildReportDecisionViewModel(report);
     const direct = buildInvestigationPriorityViewModel(priority, "Home");
 
     expect(vm.investigationPriorities).toHaveLength(1);
@@ -194,7 +194,7 @@ describe("reportDecisionViewModel", () => {
       data_coverage_warnings: [warning],
       device_stories: [makeStory()],
     });
-    const vm = buildReportDecisionViewModel(report, { home: "Home" });
+    const vm = buildReportDecisionViewModel(report);
     const direct = buildDataCoverageWarningViewModel(warning, "Home");
 
     expect(vm.networkCoverage).toHaveLength(1);
@@ -302,5 +302,58 @@ describe("reportDecisionViewModel", () => {
     });
     const vm = buildReportDecisionViewModel(report);
     expect(vm.deviceStories.map((item) => item.name)).toEqual(["Alpha", "Beta", "Zebra"]);
+  });
+
+  it("derives network labels only from report.networks and enables Mesh when preserved", () => {
+    const report = baseReport({
+      redaction: {
+        applied: true,
+        profile: "standard",
+        mqtt_credentials: true,
+        secrets: true,
+        hostnames: false,
+        ip_addresses: false,
+        ieee_addresses_hashed: true,
+        friendly_names: "preserved",
+        network_names: "preserved",
+      },
+      networks: [{ id: "home", name: "Home From Report", base_topic: "zigbee2mqtt/home" }],
+      investigation_priorities: [makePriority()],
+      data_coverage_warnings: [makeCoverageWarning()],
+      device_stories: [makeStory()],
+    });
+    const vm = buildReportDecisionViewModel(report);
+    expect(vm.meshNavigationAvailable).toBe(true);
+    expect(vm.investigationPriorities[0]!.networkLabel).toBe("Home From Report");
+    expect(vm.investigationPriorities[0]!.meshHref).toBe("/topology/home");
+    expect(vm.networkCoverage[0]!.networkLabel).toBe("Home From Report");
+  });
+
+  it("disables Mesh navigation when network names are anonymised", () => {
+    const report = baseReport({
+      redaction: {
+        applied: true,
+        profile: "public_safe",
+        mqtt_credentials: true,
+        secrets: true,
+        hostnames: true,
+        ip_addresses: true,
+        ieee_addresses_hashed: true,
+        friendly_names: "labeled",
+        network_names: "labeled",
+      },
+      networks: [{ id: "network_001", name: "network_001", base_topic: "topic_001" }],
+      investigation_priorities: [
+        makePriority({ network_id: "network_001", title: "Anon priority" }),
+      ],
+      data_coverage_warnings: [
+        makeCoverageWarning({ network_id: "network_001" }),
+      ],
+      device_stories: [makeStory({ network_id: "network_001" })],
+    });
+    const vm = buildReportDecisionViewModel(report);
+    expect(vm.meshNavigationAvailable).toBe(false);
+    expect(vm.investigationPriorities[0]!.networkLabel).toBe("network_001");
+    expect(JSON.stringify(vm)).not.toContain('"home"');
   });
 });

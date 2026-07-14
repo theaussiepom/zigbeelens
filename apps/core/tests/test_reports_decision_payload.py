@@ -224,24 +224,25 @@ def test_full_report_decision_sections_present(mock_client: TestClient):
 
 def test_device_scoped_report_only_target_story(mock_client: TestClient):
     devices = mock_client.get("/api/devices").json()["items"]
-    target = devices[0]
+    target = next(d for d in devices if d.get("decision"))
     detail = mock_client.get(
         "/api/reports/preview",
         params={
             "scope": "device",
             "network_id": target["network_id"],
             "device": target["ieee_address"],
+            "hash_ieee_addresses": "false",
+            "preserve_friendly_names": "true",
         },
     ).json()
     assert detail["report_version"] == 2
     assert len(detail["devices"]) == 1
-    assert len(detail["device_stories"]) <= 1
-    if detail["device_stories"]:
-        story = detail["device_stories"][0]
-        device = detail["devices"][0]
-        assert story["ieee_address"] == device["ieee_address"]
-        assert story["network_id"] == device["network_id"]
-        assert story["friendly_name"] == device["friendly_name"]
+    assert len(detail["device_stories"]) == 1
+    story = detail["device_stories"][0]
+    device = detail["devices"][0]
+    assert story["ieee_address"] == device["ieee_address"]
+    assert story["network_id"] == device["network_id"]
+    assert story["friendly_name"] == device["friendly_name"]
 
 
 def test_scenario_report_story_isolation(tmp_path):
@@ -280,20 +281,29 @@ def test_scenario_report_story_isolation(tmp_path):
         config=config,
         reporting=config.reporting,
         collector={},
-        request=ReportRequest(scope=ReportScope.full),
+        request=ReportRequest(
+            scope=ReportScope.full,
+            redaction=RedactionOptions(
+                profile=RedactionProfile.standard,
+                preserve_friendly_names=True,
+                hash_ieee_addresses=False,
+                redact_network_names=False,
+            ),
+        ),
         scenario=SCENARIO,
         repo=repo,
     )
     report_story = next(
         s
         for s in detail.device_stories
-        if s.friendly_name == scenario_device.friendly_name
-        or s.status == str(scenario_story.status)
+        if s.network_id == key[0] and s.ieee_address == key[1]
     )
-    # Identity fields are redacted; coded decision fields must match scenario.
-    assert report_story.status == str(scenario_story.status)
-    assert report_story.headline_code == str(scenario_story.headline_code)
-    assert report_story.reasons == device_story_report_payload(scenario_story)["reasons"]
+    expected = device_story_report_payload(scenario_story)
+    coded = report_story.model_dump(
+        mode="json",
+        exclude={"network_id", "ieee_address", "friendly_name"},
+    )
+    assert coded == expected
 
     device_detail = generate_report(
         data=data,
@@ -304,6 +314,12 @@ def test_scenario_report_story_isolation(tmp_path):
             scope=ReportScope.device,
             network_id=key[0],
             device=key[1],
+            redaction=RedactionOptions(
+                profile=RedactionProfile.standard,
+                preserve_friendly_names=True,
+                hash_ieee_addresses=False,
+                redact_network_names=False,
+            ),
         ),
         scenario=SCENARIO,
         repo=repo,
@@ -347,8 +363,11 @@ def test_redaction_identity_consistent_across_decision_sections(tmp_path):
     assert story.ieee_address.startswith("ieee_")
     for priority in detail.investigation_priorities:
         for ieee in priority.device_ieees:
-            assert not ieee.startswith("0x") or ieee.startswith("ieee_")
-    # Stable codes must survive redaction.
-    assert story.status
-    assert "_" in story.headline_code or story.headline_code.isalpha()
+            assert ieee.startswith("ieee_")
+    for d in detail.devices:
+        assert d.ieee_address.startswith("ieee_")
+    for s in detail.device_stories:
+        assert s.ieee_address.startswith("ieee_")
     assert not story.status.startswith("ieee_")
+    assert story.headline_code
+    assert not story.headline_code.startswith("ieee_")

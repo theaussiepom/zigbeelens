@@ -19,9 +19,11 @@ function priorityBadgeClass(tone: DecisionPillTone): string {
 export function InvestigationPriorityCard({
   priority,
   emphasized = false,
+  showMeshLink = true,
 }: {
   priority: InvestigationPriorityViewModel;
   emphasized?: boolean;
+  showMeshLink?: boolean;
 }) {
   return (
     <Card
@@ -48,10 +50,14 @@ export function InvestigationPriorityCard({
         </span>
       </div>
       <p className="mb-1 text-sm font-medium text-zl-text">{priority.title}</p>
-      <p className="mb-4 text-sm leading-relaxed text-zl-muted">{priority.summary}</p>
-      <Link to={priority.meshHref} className="text-sm text-zl-accent hover:underline">
-        {priority.meshLinkLabel}
-      </Link>
+      <p className={`text-sm leading-relaxed text-zl-muted ${showMeshLink ? "mb-4" : ""}`}>
+        {priority.summary}
+      </p>
+      {showMeshLink ? (
+        <Link to={priority.meshHref} className="text-sm text-zl-accent hover:underline">
+          {priority.meshLinkLabel}
+        </Link>
+      ) : null}
     </Card>
   );
 }

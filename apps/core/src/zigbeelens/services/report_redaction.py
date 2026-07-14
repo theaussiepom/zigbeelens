@@ -223,6 +223,7 @@ class Redactor:
         self._net_id_map: dict[str, str] = {}
         self._net_name_map: dict[str, str] = {}
         self._net_topic_map: dict[str, str] = {}
+        self._net_label_counter = 0
         self._text_replacements: list[tuple[str, str]] = []
 
     # -- hashing ---------------------------------------------------------
@@ -249,21 +250,36 @@ class Redactor:
                 self._friendly_map[value] = f"device_{self._friendly_counter:03d}"
         return self._friendly_map[value]
 
+    def _network_id(self, value: str) -> str:
+        """Stable per-report network-ID mapping, including orphaned IDs."""
+        if not self.resolved.network_anon or not value:
+            return value
+        if value in self._net_id_map:
+            return self._net_id_map[value]
+        if self.resolved.network_mode == "hashed":
+            label = self._hash(value, "network")
+        else:
+            self._net_label_counter += 1
+            label = f"network_{self._net_label_counter:03d}"
+        self._net_id_map[value] = label
+        return label
+
     # -- network maps ----------------------------------------------------
     def _build_network_maps(self, networks: list[dict[str, Any]]) -> None:
         if not self.resolved.network_anon:
             return
         for i, net in enumerate(networks):
-            label = (
-                self._hash(str(net.get("id", i)), "network")
-                if self.resolved.network_mode == "hashed"
-                else f"network_{i + 1:03d}"
-            )
             nid = net.get("id")
             name = net.get("name")
             topic = net.get("base_topic")
             if isinstance(nid, str):
-                self._net_id_map[nid] = label
+                label = self._network_id(nid)
+            else:
+                label = (
+                    self._hash(str(i), "network")
+                    if self.resolved.network_mode == "hashed"
+                    else f"network_{i + 1:03d}"
+                )
             if isinstance(name, str):
                 self._net_name_map[name] = label
             if isinstance(topic, str):
@@ -284,6 +300,12 @@ class Redactor:
                     for item in v:
                         if isinstance(item, str):
                             self._ieee(item)
+                elif lk == "network_id" and isinstance(v, str):
+                    self._network_id(v)
+                elif lk == "network_ids" and isinstance(v, list):
+                    for item in v:
+                        if isinstance(item, str):
+                            self._network_id(item)
                 elif lk == "friendly_name" and isinstance(v, str):
                     self._friendly(v)
                 else:
@@ -350,11 +372,11 @@ class Redactor:
                 self._ieee(item) if isinstance(item, str) else item for item in value
             ]
         if lk == "network_id" and isinstance(value, str):
-            return self._net_id_map.get(value, value) if self.resolved.network_anon else value
+            return self._network_id(value)
         if lk == "network_ids" and isinstance(value, list):
-            if self.resolved.network_anon:
-                return [self._net_id_map.get(x, x) if isinstance(x, str) else x for x in value]
-            return value
+            return [
+                self._network_id(x) if isinstance(x, str) else x for x in value
+            ]
         if lk == "base_topic" and isinstance(value, str):
             return self._net_topic_map.get(value, value) if self.resolved.network_anon else value
         if lk == "id" and isinstance(value, str) and self.resolved.network_anon and value in self._net_id_map:

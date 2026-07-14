@@ -53,6 +53,7 @@ export interface ReportDecisionViewModel {
   scopeLabel: string;
   isLegacyFormat: boolean;
   legacyNotice: string | null;
+  meshNavigationAvailable: boolean;
   decisionSummaryItems: ReportDecisionSummaryItem[];
   networksInScope: number;
   devicesInScope: number;
@@ -139,14 +140,18 @@ function compareReportDeviceStories(
   });
 }
 
-export function buildReportDecisionViewModel(
-  report: ReportDetail,
-  networkNames?: Record<string, string>,
-): ReportDecisionViewModel {
-  const legacy = isLegacyReport(report);
-  const names = networkNames ?? Object.fromEntries(
+function networkNamesFromReport(report: ReportDetail): Record<string, string> {
+  return Object.fromEntries(
     report.networks.map((network) => [network.id, network.name]),
   );
+}
+
+export function buildReportDecisionViewModel(
+  report: ReportDetail,
+): ReportDecisionViewModel {
+  const legacy = isLegacyReport(report);
+  const names = networkNamesFromReport(report);
+  const meshNavigationAvailable = report.redaction.network_names === "preserved";
 
   const decisionSummaryItems = legacy
     ? []
@@ -181,6 +186,7 @@ export function buildReportDecisionViewModel(
     scopeLabel: SCOPE_LABELS[report.scope] ?? report.scope,
     isLegacyFormat: legacy,
     legacyNotice: legacy ? REPORT_LEGACY_NOTICE : null,
+    meshNavigationAvailable,
     decisionSummaryItems,
     networksInScope: report.networks.length,
     devicesInScope:

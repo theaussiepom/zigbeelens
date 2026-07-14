@@ -241,12 +241,19 @@ class PayloadBuilder:
         row = self.repo.get_device(network_id, ieee_address)
         if not row:
             return None
-        summary = self._device_summary(
-            row,
-            decision_badge=device_decision_badge_for_device(
-                self.repo, network_id, ieee_address
-            ),
-        )
+        badge = device_decision_badge_for_device(self.repo, network_id, ieee_address)
+        return self._device_detail_from_row(row, decision_badge=badge)
+
+    def _device_detail_from_row(
+        self,
+        row: DeviceRow,
+        *,
+        decision_badge: DeviceDecisionBadge | None = None,
+    ) -> DeviceDetail:
+        """Build DeviceDetail without composing Device Story decisions."""
+        network_id = row.network_id
+        ieee_address = row.ieee_address
+        summary = self._device_summary(row, decision_badge=decision_badge)
         health_svc = self._ensure_health()
         result = (
             health_svc.get_device_health(network_id, ieee_address) if health_svc else None

@@ -393,5 +393,72 @@ describe("ReportsPage", () => {
     expect(source).not.toMatch(/SeverityBadge/);
     expect(source).not.toMatch(/router_risks/);
     expect(source).not.toMatch(/unavailable_devices/);
+    expect(source).not.toMatch(/selectors\.data\?\.networks/);
+    expect(source).toMatch(/buildReportDecisionViewModel\(report\)/);
+  });
+
+  it("loads selector inventories lazily by selected scope", async () => {
+    const networks = api.networks as Mock;
+    const incidents = api.incidents as Mock;
+    const devices = api.devices as Mock;
+
+    renderReportsPage();
+    await screen.findByText("Topology evidence gap");
+    expect(previewReport).toHaveBeenCalled();
+    expect(networks).not.toHaveBeenCalled();
+    expect(incidents).not.toHaveBeenCalled();
+    expect(devices).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("Network"));
+    await waitFor(() => expect(networks).toHaveBeenCalled());
+    expect(incidents).not.toHaveBeenCalled();
+    expect(devices).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("Incident"));
+    await waitFor(() => expect(incidents).toHaveBeenCalled());
+    expect(devices).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("Device"));
+    await waitFor(() => expect(devices).toHaveBeenCalled());
+  });
+
+  it("hides Mesh links for anonymised public_safe reports", async () => {
+    previewReport.mockResolvedValue(
+      makeDecisionReport({
+        redaction: {
+          applied: true,
+          profile: "public_safe",
+          mqtt_credentials: true,
+          secrets: true,
+          hostnames: true,
+          ip_addresses: true,
+          ieee_addresses_hashed: true,
+          friendly_names: "labeled",
+          network_names: "labeled",
+        },
+        networks: [{ id: "network_001", name: "network_001", base_topic: "topic_001" }],
+        investigation_priorities: [
+          makePriority({ network_id: "network_001", title: "Anon priority title" }),
+        ],
+        data_coverage_warnings: [
+          makeCoverageWarning({ network_id: "network_001" }),
+        ],
+        device_stories: [makeStory({ network_id: "network_001" })],
+      }),
+    );
+
+    renderReportsPage();
+    expect(await screen.findByText("Anon priority title")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /review mesh/i })).not.toBeInTheDocument();
+    expect(document.body.innerHTML).not.toContain("/topology/network_001");
+    expect(document.body.textContent ?? "").not.toMatch(/\bhome\b/);
+  });
+
+  it("keeps Mesh links for preserved-network reports", async () => {
+    renderReportsPage();
+    expect(await screen.findByText("Topology evidence gap")).toBeInTheDocument();
+    const meshLinks = screen.getAllByRole("link", { name: /review mesh/i });
+    expect(meshLinks.length).toBeGreaterThan(0);
+    expect(meshLinks[0]).toHaveAttribute("href", "/topology/home");
   });
 });

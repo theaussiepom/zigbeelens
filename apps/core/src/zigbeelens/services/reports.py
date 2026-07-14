@@ -72,6 +72,7 @@ class ReportDataSource(Protocol):
         *,
         network_id: str | None = None,
         device_keys: set[tuple[str, str]] | None = None,
+        include_device_details: bool = False,
         now=None,
     ): ...
     def device(self, network_id: str, ieee_address: str, scenario: str | None = None): ...
@@ -399,10 +400,12 @@ def _assemble(
             else:
                 device_keys = set()
 
+    include_details = request.scope in {ReportScope.incident, ReportScope.device}
     device_ctx = data.report_device_context(
         scenario,
         network_id=context_network_id,
         device_keys=device_keys,
+        include_device_details=include_details,
     )
     devices = device_ctx.devices
     stories = device_ctx.stories
@@ -411,13 +414,16 @@ def _assemble(
         devices = [
             d for d in devices if (d.network_id, d.ieee_address) in device_keys
         ]
-        for d in devices:
-            det = data.device(d.network_id, d.ieee_address, scenario)
-            if det:
-                device_details.append(det)
+        device_details = [
+            device_ctx.device_details[key]
+            for d in devices
+            if (key := (d.network_id, d.ieee_address)) in device_ctx.device_details
+        ]
     elif request.scope == ReportScope.device:
         if devices:
-            det = data.device(devices[0].network_id, devices[0].ieee_address, scenario)
+            first = devices[0]
+            key = (first.network_id, first.ieee_address)
+            det = device_ctx.device_details.get(key)
             if det:
                 device_details = [det]
                 devices = [_as_summary(det)]
@@ -534,6 +540,43 @@ def _assemble(
     )
 
 
+def _without_timelines(detail: ReportDetail) -> ReportDetail:
+    """Clear every timeline/event collection controlled by include_timeline."""
+    device_stories = [
+        story.model_copy(update={"timeline": []}) for story in detail.device_stories
+    ]
+    incidents = [
+        incident.model_copy(update={"timeline": []}) for incident in detail.incidents
+    ]
+    active_incidents = [
+        incident.model_copy(update={"timeline": []})
+        for incident in detail.active_incidents
+    ]
+    device_details = [
+        det.model_copy(update={"recent_events": []}) for det in detail.device_details
+    ]
+    return detail.model_copy(
+        update={
+            "timeline": [],
+            "events_or_timeline": [],
+            "device_stories": device_stories,
+            "incidents": incidents,
+            "active_incidents": active_incidents,
+            "device_details": device_details,
+        }
+    )
+
+
+def _recorded_incident_interpretation(incident: Incident) -> str | None:
+    """Historical Incident.interpretation when distinct from the event summary."""
+    text = (incident.interpretation or "").strip()
+    if not text:
+        return None
+    if text == (incident.summary or "").strip():
+        return None
+    return text
+
+
 def generate_report(
     *,
     data: ReportDataSource,
@@ -569,12 +612,13 @@ def generate_report(
     redacted = ReportDetail.model_validate(redacted_dict)
 
     if not resolved.include_timeline:
-        redacted.timeline = []
+        redacted = _without_timelines(redacted)
     redacted.redaction = resolved.to_status()
     redacted.scope = request.scope.value
     redacted.format = request.format.value
-    redacted.raw_counts["events_included"] = len(redacted.timeline)
+    # Compatibility aliases/active incidents must be built after timeline clearing.
     redacted = _apply_lens_report_sections(redacted)
+    redacted.raw_counts["events_included"] = len(redacted.timeline)
     redacted.markdown_summary = render_markdown(redacted)
     return redacted
 
@@ -869,8 +913,9 @@ def render_markdown_v2(detail: ReportDetail) -> str:
             lines.append(f"Updated: {inc.updated_at}")
             if inc.resolved_at:
                 lines.append(f"Resolved: {inc.resolved_at}")
-            if inc.conclusion and inc.conclusion.summary:
-                lines += ["", "Recorded interpretation:", "", inc.conclusion.summary]
+            recorded = _recorded_incident_interpretation(inc)
+            if recorded:
+                lines += ["", "Recorded interpretation:", "", recorded]
             if inc.evidence:
                 lines += ["", "Stored evidence:"]
                 lines += [f"- {e.summary}" for e in inc.evidence]

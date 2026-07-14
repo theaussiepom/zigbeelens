@@ -100,21 +100,36 @@ export function ReportsPage() {
     setOptions(PROFILE_DEFAULTS[profile]);
   }, [profile]);
 
-  const selectors = useLiveResource(
-    async () => {
-      const [networks, incidents, devices] = await Promise.all([
-        api.networks(scen),
-        api.incidents(scen),
-        api.devices(scen),
-      ]);
-      return {
-        networks: networks.items,
-        incidents: incidents.items,
-        devices: devices.items,
-      };
+  function changeScope(next: ReportScope) {
+    setScope(next);
+    if (next !== "network") setNetworkId("");
+    if (next !== "incident") setIncidentId("");
+    if (next !== "device") setDeviceKey("");
+  }
+
+  const networksResource = useLiveResource(
+    () => api.networks(scen).then((res) => res.items),
+    [scenario, scope],
+    {
+      enabled: scope === "network",
+      refetchOn: ["dashboard_updated", "incidents_updated"],
     },
-    [scenario],
-    { refetchOn: ["dashboard_updated", "incidents_updated"] },
+  );
+  const incidentsResource = useLiveResource(
+    () => api.incidents(scen).then((res) => res.items),
+    [scenario, scope],
+    {
+      enabled: scope === "incident",
+      refetchOn: ["dashboard_updated", "incidents_updated"],
+    },
+  );
+  const devicesResource = useLiveResource(
+    () => api.devices(scen).then((res) => res.items),
+    [scenario, scope],
+    {
+      enabled: scope === "device",
+      refetchOn: ["dashboard_updated", "incidents_updated"],
+    },
   );
 
   const [deviceNetwork, deviceIeee] = deviceKey ? deviceKey.split("|") : ["", ""];
@@ -203,19 +218,8 @@ export function ReportsPage() {
 
   const report = preview.data;
   const reportVm = useMemo(
-    () =>
-      report
-        ? buildReportDecisionViewModel(
-            report,
-            Object.fromEntries(
-              (selectors.data?.networks ?? report.networks).map((network) => [
-                network.id,
-                network.name,
-              ]),
-            ),
-          )
-        : null,
-    [report, selectors.data?.networks],
+    () => (report ? buildReportDecisionViewModel(report) : null),
+    [report],
   );
 
   return (
@@ -253,7 +257,7 @@ export function ReportsPage() {
                 <Segmented
                   options={SCOPES}
                   value={scope}
-                  onChange={(v) => setScope(v as ReportScope)}
+                  onChange={(v) => changeScope(v as ReportScope)}
                 />
               </Field>
 
@@ -263,7 +267,7 @@ export function ReportsPage() {
                     value={networkId}
                     onChange={setNetworkId}
                     placeholder="Select a network"
-                    options={(selectors.data?.networks ?? []).map((n) => ({
+                    options={(networksResource.data ?? []).map((n) => ({
                       value: n.id,
                       label: `${n.name} (${n.id})`,
                     }))}
@@ -276,7 +280,7 @@ export function ReportsPage() {
                     value={incidentId}
                     onChange={setIncidentId}
                     placeholder="Select an incident"
-                    options={(selectors.data?.incidents ?? []).map((i) => ({
+                    options={(incidentsResource.data ?? []).map((i) => ({
                       value: i.id,
                       label: i.title,
                     }))}
@@ -289,7 +293,7 @@ export function ReportsPage() {
                     value={deviceKey}
                     onChange={setDeviceKey}
                     placeholder="Select a device"
-                    options={(selectors.data?.devices ?? []).map((d) => ({
+                    options={(devicesResource.data ?? []).map((d) => ({
                       value: `${d.network_id}|${d.ieee_address}`,
                       label: `${d.friendly_name} · ${d.network_id}`,
                     }))}
@@ -422,6 +426,7 @@ export function ReportsPage() {
                               key={priority.id}
                               priority={priority}
                               emphasized={index === 0}
+                              showMeshLink={reportVm.meshNavigationAvailable}
                             />
                           ))}
                         </div>
@@ -449,7 +454,11 @@ export function ReportsPage() {
                         <h3 className="text-sm font-medium text-zl-text">Data coverage</h3>
                         <div className="grid gap-4 md:grid-cols-2">
                           {reportVm.networkCoverage.map((warning) => (
-                            <DataCoverageWarningCard key={warning.id} warning={warning} />
+                            <DataCoverageWarningCard
+                              key={warning.id}
+                              warning={warning}
+                              showMeshLink={reportVm.meshNavigationAvailable}
+                            />
                           ))}
                         </div>
                       </section>

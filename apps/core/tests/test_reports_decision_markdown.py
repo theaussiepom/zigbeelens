@@ -24,7 +24,6 @@ from zigbeelens.schemas import (
 )
 from zigbeelens.services.data_service import DataService
 from zigbeelens.services.reports import (
-    render_markdown,
     summary_from_row,
 )
 from zigbeelens.storage.repository import Repository
@@ -186,10 +185,11 @@ def test_version1_stored_report_compatibility(tmp_path, mock_client: TestClient)
     assert loaded.markdown_summary == V1_MARKDOWN
     assert loaded.summary is not None
     assert loaded.summary.current_finding == "Legacy executive finding."
-    # Must not re-render with V2 presenter
-    assert render_markdown(loaded).startswith("# ZigbeeLens diagnostic report") or True
+    # Must not re-render stored Markdown — download uses stored markdown_summary.
+    assert loaded.markdown_summary == V1_MARKDOWN
     assert loaded.markdown_summary.startswith("# ZigbeeLens diagnostic report")
     assert "## Health summary" in loaded.markdown_summary
+    assert "# ZigbeeLens evidence report" not in loaded.markdown_summary
 
     listed = summary_from_row(row)
     assert listed.summary == "Legacy executive finding."
@@ -203,19 +203,26 @@ def test_version2_storage_round_trip(mock_client: TestClient):
     assert detail["device_stories"] is not None
     assert detail["markdown_summary"].startswith("# ZigbeeLens evidence report")
     assert created["summary"]
-    assert "Legacy" not in created["summary"] or "Device Story" in created["summary"] or True
+    assert created["summary"] != "Legacy executive finding."
 
-    md = mock_client.get(f"/api/reports/{created['id']}/download?format=markdown")
-    # download uses stored format; re-request markdown via body
     body_md = detail["markdown_summary"]
     assert "## Health summary" not in body_md
     assert "## Unhealthy devices" not in body_md
 
+    created_md = mock_client.post(
+        "/api/reports", json={"format": "markdown", "scope": "full"}
+    ).json()
+    md_res = mock_client.get(f"/api/reports/{created_md['id']}/download")
+    assert md_res.status_code == 200
+    assert "markdown" in md_res.headers["content-type"]
+    stored = mock_client.get(f"/api/reports/{created_md['id']}").json()
+    assert md_res.text == stored["markdown_summary"]
+    assert md_res.text.startswith("# ZigbeeLens evidence report")
+
     js = mock_client.get(f"/api/reports/{created['id']}/download")
     assert js.status_code == 200
-    parsed = json.loads(js.text) if "json" in js.headers.get("content-type", "") else detail
-    if isinstance(parsed, dict) and "report_version" in parsed:
-        assert parsed["report_version"] == 2
+    parsed = json.loads(js.text)
+    assert parsed["report_version"] == 2
 
 
 def test_incident_records_use_recorded_interpretation(mock_client: TestClient):
