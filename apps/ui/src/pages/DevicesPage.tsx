@@ -21,16 +21,23 @@ import {
   NetworkBadge,
   SeverityBadge,
 } from "@/components/ui";
-import { DeviceHealthCard, IncidentCard } from "@/components/cards";
+import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
+import { IncidentCard } from "@/components/cards";
 import {
   availabilityLabel,
-  compareDevices,
   deviceTypeLabel,
   formatTime,
   healthLabel,
   interviewStateLabel,
   powerSourceLabel,
 } from "@/lib/format";
+import {
+  DEVICE_DECISION_FILTER_OPTIONS,
+  buildDeviceInventoryRows,
+  deviceInventorySummaryCounts,
+  filterDeviceInventoryRows,
+  type DeviceRowViewModel,
+} from "@/viewModels/devices/deviceRowViewModel";
 
 const DEVICE_EVENTS = [
   "device_health_updated",
@@ -54,58 +61,46 @@ export function DevicesPage() {
   );
 
   const [network, setNetwork] = useState(initialNetwork);
-  const [health, setHealth] = useState("");
-  const [deviceType, setDeviceType] = useState("");
-  const [power, setPower] = useState("");
+  const [decisionStatus, setDecisionStatus] = useState("");
   const [availability, setAvailability] = useState("");
-  const [hasIncident, setHasIncident] = useState(false);
+  const [coverageFilter, setCoverageFilter] = useState<"" | "limitations">("");
   const [search, setSearch] = useState("");
-  const [showHealthy, setShowHealthy] = useState(false);
 
   useEffect(() => setNetwork(initialNetwork), [initialNetwork]);
 
   const devices = data ?? [];
 
+  const inventoryRows = useMemo(
+    () => buildDeviceInventoryRows(devices),
+    [devices],
+  );
+
   const options = useMemo(() => {
     const networks = new Set<string>();
-    const types = new Set<string>();
-    const powers = new Set<string>();
-    const healths = new Set<string>();
     for (const d of devices) {
       networks.add(d.network_id);
-      types.add(d.device_type);
-      powers.add(d.power_source);
-      healths.add(d.health.primary);
     }
     return {
       networks: [...networks].sort(),
-      types: [...types].sort(),
-      powers: [...powers].sort(),
-      healths: [...healths].sort(),
     };
   }, [devices]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return devices
-      .filter((d) => {
-        if (network && d.network_id !== network) return false;
-        if (health && d.health.primary !== health) return false;
-        if (deviceType && d.device_type !== deviceType) return false;
-        if (power && d.power_source !== power) return false;
-        if (availability && d.availability !== availability) return false;
-        if (hasIncident && !d.incident_affected) return false;
-        if (q) {
-          const hay = `${d.friendly_name} ${d.ieee_address}`.toLowerCase();
-          if (!hay.includes(q)) return false;
-        }
-        return true;
-      })
-      .sort(compareDevices);
-  }, [devices, network, health, deviceType, power, availability, hasIncident, search]);
+  const filtered = useMemo(
+    () =>
+      filterDeviceInventoryRows(inventoryRows, {
+        networkId: network,
+        decisionStatus,
+        availability,
+        coverageFilter,
+        search,
+      }),
+    [inventoryRows, network, decisionStatus, availability, coverageFilter, search],
+  );
 
-  const concerning = filtered.filter((d) => d.incident_affected || d.health.primary !== "healthy");
-  const healthy = filtered.filter((d) => !d.incident_affected && d.health.primary === "healthy");
+  const summary = useMemo(
+    () => deviceInventorySummaryCounts(inventoryRows),
+    [inventoryRows],
+  );
 
   if (error) return <ErrorState message={error} onRetry={refetch} />;
   if (loading) return <LoadingState />;
@@ -115,87 +110,165 @@ export function DevicesPage() {
       <div>
         <h1 className="text-2xl font-semibold">Devices</h1>
         <p className="mt-1 text-zl-muted">
-          Bad-first. Identity is network + IEEE address — never friendly name alone.
+          Inventory with Device Story decisions — search, filter, and open device detail.
+        </p>
+        <p className="mt-2 text-sm text-zl-muted">
+          {summary.total} device{summary.total === 1 ? "" : "s"}
+          {" · "}
+          {summary.reviewFirst} review first
+          {" · "}
+          {summary.worthReviewing} worth reviewing
+          {" · "}
+          {summary.coverage} with coverage limitations
         </p>
       </div>
 
       <Card>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <Select label="Network" value={network} onChange={setNetwork} options={options.networks} />
-          <Select label="Health" value={health} onChange={setHealth} options={options.healths} labeller={healthLabel as (v: string) => string} />
-          <Select label="Device type" value={deviceType} onChange={setDeviceType} options={options.types} labeller={deviceTypeLabel} />
-          <Select label="Power source" value={power} onChange={setPower} options={options.powers} labeller={powerSourceLabel} />
-          <Select label="Availability" value={availability} onChange={setAvailability} options={["online", "offline", "unknown"]} labeller={availabilityLabel as (v: string) => string} />
+          <Select
+            label="Network"
+            value={network}
+            onChange={setNetwork}
+            options={options.networks}
+          />
           <label className="flex flex-col gap-1 text-xs text-zl-muted">
+            Decision
+            <select
+              value={decisionStatus}
+              onChange={(e) => setDecisionStatus(e.target.value)}
+              className="rounded-lg border border-zl-border bg-zl-bg px-3 py-2 text-sm text-zl-text"
+            >
+              <option value="">All decisions</option>
+              {DEVICE_DECISION_FILTER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Select
+            label="Availability"
+            value={availability}
+            onChange={setAvailability}
+            options={["online", "offline", "unknown"]}
+            labeller={availabilityLabel as (v: string) => string}
+            allLabel="All availability"
+          />
+          <label className="flex flex-col gap-1 text-xs text-zl-muted">
+            Coverage
+            <select
+              value={coverageFilter}
+              onChange={(e) =>
+                setCoverageFilter(e.target.value === "limitations" ? "limitations" : "")
+              }
+              className="rounded-lg border border-zl-border bg-zl-bg px-3 py-2 text-sm text-zl-text"
+            >
+              <option value="">All coverage</option>
+              <option value="limitations">Coverage limitations</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-zl-muted sm:col-span-2">
             Search
             <input
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Friendly name or IEEE…"
+              placeholder="Name, IEEE, manufacturer, model, area…"
               className="rounded-lg border border-zl-border bg-zl-bg px-3 py-2 text-sm text-zl-text"
             />
           </label>
         </div>
-        <label className="mt-3 inline-flex items-center gap-2 text-sm text-zl-muted">
-          <input
-            type="checkbox"
-            checked={hasIncident}
-            onChange={(e) => setHasIncident(e.target.checked)}
-          />
-          Only devices in an incident
-        </label>
       </Card>
 
       {filtered.length === 0 ? (
         <EmptyState title="No devices match" detail="Try clearing filters." />
       ) : (
-        <>
-          {concerning.length === 0 ? (
-            <EmptyState title="No current device health concerns" />
-          ) : (
-            <div className="grid gap-3 md:grid-cols-2">
-              {concerning.map((d) => (
-                <DeviceHealthCard key={`${d.network_id}-${d.ieee_address}`} device={d} />
-              ))}
-            </div>
-          )}
-
-          {healthy.length > 0 && (
-            <Card>
-              <button
-                type="button"
-                onClick={() => setShowHealthy((v) => !v)}
-                className="flex w-full items-center justify-between text-sm text-zl-muted"
-              >
-                <span>
-                  {healthy.length} healthy device{healthy.length === 1 ? "" : "s"}
-                </span>
-                <span>{showHealthy ? "Hide" : "Show"}</span>
-              </button>
-              {showHealthy && (
-                <ul className="mt-3 divide-y divide-zl-border">
-                  {healthy.map((d) => (
-                    <li key={`${d.network_id}-${d.ieee_address}`}>
-                      <Link
-                        to={`/devices/${d.network_id}/${encodeURIComponent(d.ieee_address)}`}
-                        className="flex items-center justify-between gap-3 py-2 text-sm hover:text-zl-accent"
-                      >
-                        <span className="truncate">{d.friendly_name}</span>
-                        <span className="flex items-center gap-2 text-xs text-zl-muted">
-                          <NetworkBadge network={d.network_id} />
-                          {deviceTypeLabel(d.device_type)}
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
-          )}
-        </>
+        <div className="overflow-hidden rounded-xl border border-zl-border bg-zl-surface shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead className="border-b border-zl-border bg-zl-surface-2 text-xs uppercase tracking-wide text-zl-muted">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Device</th>
+                  <th className="px-4 py-3 font-medium">Decision</th>
+                  <th className="hidden px-4 py-3 font-medium md:table-cell">
+                    Availability / coverage
+                  </th>
+                  <th className="hidden px-4 py-3 font-medium lg:table-cell">
+                    Battery / LQI
+                  </th>
+                  <th className="hidden px-4 py-3 font-medium sm:table-cell">Last seen</th>
+                  <th className="hidden px-4 py-3 font-medium xl:table-cell">
+                    Area / model
+                  </th>
+                  <th className="px-4 py-3 font-medium">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zl-border">
+                {filtered.map((row) => (
+                  <DeviceInventoryRow key={row.key} row={row} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </div>
+  );
+}
+
+function DeviceInventoryRow({ row }: { row: DeviceRowViewModel }) {
+  return (
+    <tr className="align-top">
+      <td className="px-4 py-3">
+        <div className="font-medium text-zl-text">{row.name}</div>
+        <div className="mt-0.5 text-xs text-zl-muted">{row.secondaryLabel}</div>
+        <div className="mt-2 space-y-1 md:hidden">
+          <div className="text-xs text-zl-muted">
+            {row.availabilityLabel}
+            {row.coverageSummary ? ` · ${row.coverageSummary}` : ""}
+          </div>
+          <div className="text-xs text-zl-muted">
+            {row.batterySummary} · {row.lqiSummary}
+          </div>
+        </div>
+      </td>
+      <td className="px-4 py-3">
+        <DeviceDecisionBadge decision={row.decision} />
+        <p className="mt-1 max-w-[14rem] text-xs text-zl-muted">{row.decision.headline}</p>
+      </td>
+      <td className="hidden px-4 py-3 md:table-cell">
+        <div className="text-zl-text">{row.availabilityLabel}</div>
+        {row.coverageSummary && (
+          <div className="mt-1 text-xs text-zl-muted">{row.coverageSummary}</div>
+        )}
+      </td>
+      <td className="hidden px-4 py-3 text-zl-muted lg:table-cell">
+        <div>{row.batterySummary}</div>
+        <div>{row.lqiSummary}</div>
+      </td>
+      <td
+        className="hidden px-4 py-3 text-zl-muted sm:table-cell"
+        title={row.lastSeenExact}
+      >
+        {row.lastSeenLabel}
+      </td>
+      <td className="hidden px-4 py-3 xl:table-cell">
+        {row.areaLabel && <div className="text-zl-text">{row.areaLabel}</div>}
+        <div className={row.areaLabel ? "mt-0.5 text-xs text-zl-muted" : "text-zl-muted"}>
+          {row.modelLabel}
+        </div>
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex flex-col gap-1 text-sm">
+          <Link to={row.deviceHref} className="text-zl-accent hover:underline">
+            View device →
+          </Link>
+          <Link to={row.meshHref} className="text-xs text-zl-muted hover:text-zl-accent">
+            Review in Mesh
+          </Link>
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -205,12 +278,14 @@ function Select({
   onChange,
   options,
   labeller,
+  allLabel = "All",
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: string[];
   labeller?: (v: string) => string;
+  allLabel?: string;
 }) {
   return (
     <label className="flex flex-col gap-1 text-xs text-zl-muted">
@@ -220,7 +295,7 @@ function Select({
         onChange={(e) => onChange(e.target.value)}
         className="rounded-lg border border-zl-border bg-zl-bg px-3 py-2 text-sm text-zl-text"
       >
-        <option value="">All</option>
+        <option value="">{allLabel}</option>
         {options.map((o) => (
           <option key={o} value={o}>
             {labeller ? labeller(o) : o}

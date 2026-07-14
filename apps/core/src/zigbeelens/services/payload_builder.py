@@ -410,6 +410,14 @@ class PayloadBuilder:
         bridge_state = None
         if network_row is not None and network_row.bridge_state in BridgeState.__members__:
             bridge_state = BridgeState(network_row.bridge_state)
+        ha_enrichment = self.repo.get_ha_device_enrichment(
+            row.network_id, row.ieee_address
+        )
+        ha_area = None
+        if ha_enrichment:
+            area_name = ha_enrichment.get("area_name")
+            if isinstance(area_name, str) and area_name.strip():
+                ha_area = area_name.strip()
         summary = DeviceSummary(
             network_id=row.network_id,
             ieee_address=row.ieee_address,
@@ -434,6 +442,7 @@ class PayloadBuilder:
             incident_affected=incident_affected,
             sort_priority=sort_priority(result) if result else 100,
             decision=decision_badge,
+            ha_area=ha_area,
         )
         return enrich_device_summary(summary, bridge_state=bridge_state)
 

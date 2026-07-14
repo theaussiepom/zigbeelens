@@ -159,6 +159,8 @@ export interface DeviceSummary {
   lens_bucket_reason: string;
   lens_reasons: string[];
   decision?: DeviceDecisionBadge | null;
+  /** Home Assistant area name when enrichment is linked */
+  ha_area?: string | null;
 }
 
 /** Full device detail for drilldown */

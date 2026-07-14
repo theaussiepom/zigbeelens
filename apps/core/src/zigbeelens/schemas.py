@@ -199,6 +199,7 @@ class DeviceSummary(BaseModel):
     lens_bucket_reason: str = ""
     lens_reasons: list[str] = Field(default_factory=list)
     decision: DeviceDecisionBadge | None = None
+    ha_area: str | None = None
 
 
 class DeviceDetail(DeviceSummary):

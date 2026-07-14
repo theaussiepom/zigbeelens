@@ -227,6 +227,17 @@ def test_device_list_payload_includes_decision_badge(tmp_path: Path):
     assert devices[0].decision.headline_code == str(story.headline_code)
 
 
+def test_device_summary_includes_ha_area_when_enriched(tmp_path: Path):
+    repo, config = _repo(tmp_path)
+    _add_device(repo, "0xa1", availability="online")
+    _link_ha_area(repo, "0xa1")
+    health = HealthDiagnosticService(config, repo)
+    health.recalculate_all()
+    devices = PayloadBuilder(config, repo, health).devices()
+    assert len(devices) == 1
+    assert devices[0].ha_area == "Kitchen"
+
+
 def test_unknown_device_returns_no_badge(tmp_path: Path):
     repo, _ = _repo(tmp_path)
     assert device_decision_badge_for_device(repo, "home", "0xmissing") is None
