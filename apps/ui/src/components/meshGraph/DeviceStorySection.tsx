@@ -34,9 +34,11 @@ function statusPillClassName(tone: DecisionPillTone): string {
 export function DeviceStorySection({
   networkId,
   deviceIeee,
+  scenario,
 }: {
   networkId: string;
   deviceIeee: string;
+  scenario?: string;
 }) {
   const [story, setStory] = useState<Awaited<ReturnType<typeof api.deviceStory>> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,7 +49,7 @@ export function DeviceStorySection({
     setStory(null);
     setLoading(true);
     setError(false);
-    api.deviceStory(networkId, deviceIeee).then(
+    api.deviceStory(networkId, deviceIeee, scenario).then(
       (data) => {
         if (cancelled) return;
         setStory(data);
@@ -62,7 +64,7 @@ export function DeviceStorySection({
     return () => {
       cancelled = true;
     };
-  }, [networkId, deviceIeee]);
+  }, [networkId, deviceIeee, scenario]);
 
   const viewModel = useMemo(() => {
     if (loading) return loadingDeviceStoryViewModel();

@@ -70,6 +70,18 @@ class DataService:
             return self._mock(scenario).device(network_id, ieee_address)
         return self._builder.device_detail(network_id, ieee_address)
 
+    def device_story(
+        self,
+        network_id: str,
+        ieee_address: str,
+        scenario: str | None = None,
+    ):
+        if self.uses_mock(scenario):
+            return self._mock(scenario).device_story(network_id, ieee_address)
+        from zigbeelens.decisions.device_story import device_story_for_device
+
+        return device_story_for_device(self.repo, network_id, ieee_address)
+
     def routers(self, scenario: str | None = None):
         if self.uses_mock(scenario):
             return self._mock(scenario).routers()

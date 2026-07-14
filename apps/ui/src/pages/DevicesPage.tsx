@@ -352,7 +352,7 @@ export function DeviceDetailPage() {
 
       {networkId && ieee && (
         <Card>
-          <DeviceStorySection networkId={networkId} deviceIeee={ieee} />
+          <DeviceStorySection networkId={networkId} deviceIeee={ieee} scenario={s} />
         </Card>
       )}
 

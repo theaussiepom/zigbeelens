@@ -6,6 +6,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { DeviceDetail, Incident } from "@zigbeelens/shared";
 import type { DeviceStoryDto } from "@/types/devices";
+import { api } from "@/lib/api";
 import { DeviceDetailPage } from "./DevicesPage";
 import {
   decisionStatusLabel,
@@ -16,6 +17,7 @@ const mockState = vi.hoisted(() => ({
   detail: null as DeviceDetail | null,
   incidents: [] as Incident[],
   story: null as DeviceStoryDto | null,
+  scenario: "",
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -27,12 +29,17 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/context/ScenarioContext", () => ({
-  useScenario: () => ({ scenario: "", status: { topology: { enabled: true } } }),
+  useScenario: () => ({
+    scenario: mockState.scenario,
+    status: { topology: { enabled: true } },
+  }),
 }));
 
 vi.mock("@/hooks/useLiveResource", () => ({
   useLiveResource: (fetcher: () => unknown) => {
     const source = fetcher.toString();
+    // Invoke so scenario args are recorded on api mocks.
+    void fetcher();
     if (source.includes("incidents")) {
       return {
         data: mockState.incidents.filter((inc) =>
@@ -197,6 +204,10 @@ describe("DeviceDetailPage decision authority", () => {
     mockState.detail = makeDetail();
     mockState.incidents = [];
     mockState.story = makeStory();
+    mockState.scenario = "";
+    vi.mocked(api.device).mockClear();
+    vi.mocked(api.incidents).mockClear();
+    vi.mocked(api.deviceStory).mockClear();
   });
 
   it("renders decision status and Device Story headline", async () => {
@@ -287,5 +298,57 @@ describe("DeviceDetailPage decision authority", () => {
     expect(source).not.toMatch(/worth_reviewing/);
     expect(source).not.toMatch(/improve_data_coverage/);
     expect(source).not.toMatch(/no_notable_change/);
+  });
+
+  it("propagates the active scenario to device, incidents, and Device Story", async () => {
+    mockState.scenario = "offline_cluster";
+    renderDetail();
+    await waitFor(() => {
+      expect(api.deviceStory).toHaveBeenCalled();
+    });
+    expect(api.device).toHaveBeenCalledWith("home", "0xa1", "offline_cluster");
+    expect(api.incidents).toHaveBeenCalledWith("offline_cluster");
+    expect(api.deviceStory).toHaveBeenCalledWith("home", "0xa1", "offline_cluster");
+  });
+
+  it("keeps Device Detail and Device Story on the same scenario decision", async () => {
+    mockState.scenario = "offline_cluster";
+    mockState.detail = makeDetail({
+      decision: {
+        status: "review_first",
+        priority: "high",
+        headline_code: "current_issue_present",
+        coverage_label_codes: ["availability_tracking_off"],
+      },
+    });
+    mockState.story = makeStory({
+      status: "review_first",
+      priority: "high",
+      headline_code: "current_issue_present",
+      reasons: [{ code: "current_issue_present", params: {} }],
+      coverage: [
+        {
+          dimension: "availability",
+          state: "off",
+          label_code: "availability_tracking_off",
+          params: {},
+        },
+      ],
+    });
+
+    renderDetail();
+
+    expect(screen.getAllByText(decisionStatusLabel("review_first")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(headlineText("current_issue_present")).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getByTestId("device-story-section")).toBeInTheDocument();
+    });
+    const story = screen.getByTestId("device-story-section");
+    expect(within(story).getAllByText(headlineText("current_issue_present")).length).toBeGreaterThan(
+      0,
+    );
+    expect(within(story).getByText(/Availability tracking off/i)).toBeInTheDocument();
+    expect(screen.queryByText(headlineText("stale_last_seen"))).not.toBeInTheDocument();
+    expect(screen.queryByText(decisionStatusLabel("watch"))).not.toBeInTheDocument();
   });
 });

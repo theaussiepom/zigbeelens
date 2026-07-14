@@ -138,12 +138,12 @@ def _seed_topology_gap_fixture(repo) -> None:
     )
 
 
-def test_device_story_api_topology_gap_exact_response_shape(topology_client: TestClient):
-    ctx = topology_client.app.state.ctx
+def test_device_story_api_topology_gap_exact_response_shape(live_client: TestClient):
+    ctx = live_client.app.state.ctx
     _upsert_device(ctx.repo, "0x03")
     _seed_topology_gap_fixture(ctx.repo)
 
-    res = topology_client.get("/api/devices/home/0x03/story")
+    res = live_client.get("/api/devices/home/0x03/story")
     assert res.status_code == 200
     body = res.json()
     assert set(body.keys()) == STORY_TOP_LEVEL_KEYS
@@ -184,8 +184,8 @@ def test_device_story_api_topology_gap_exact_response_shape(topology_client: Tes
         assert set(item.keys()) == TIMELINE_KEYS
 
 
-def test_device_story_api_current_issue_serialisation(topology_client: TestClient):
-    ctx = topology_client.app.state.ctx
+def test_device_story_api_current_issue_serialisation(live_client: TestClient):
+    ctx = live_client.app.state.ctx
     _upsert_device(ctx.repo, "0x03", availability="offline")
     _store_snapshot(
         ctx.repo,
@@ -194,7 +194,7 @@ def test_device_story_api_current_issue_serialisation(topology_client: TestClien
         links=[{"source": "0x02", "target": "0x03", "linkquality": 120}],
     )
 
-    res = topology_client.get("/api/devices/home/0x03/story")
+    res = live_client.get("/api/devices/home/0x03/story")
     assert res.status_code == 200
     body = res.json()
     assert body["status"] == "worth_reviewing"
@@ -203,12 +203,12 @@ def test_device_story_api_current_issue_serialisation(topology_client: TestClien
     assert ReasonCode.current_issue_present in {reason["code"] for reason in body["reasons"]}
 
 
-def test_device_story_api_current_issue_plus_topology_gap(topology_client: TestClient):
-    ctx = topology_client.app.state.ctx
+def test_device_story_api_current_issue_plus_topology_gap(live_client: TestClient):
+    ctx = live_client.app.state.ctx
     _upsert_device(ctx.repo, "0x03", availability="offline")
     _seed_topology_gap_fixture(ctx.repo)
 
-    res = topology_client.get("/api/devices/home/0x03/story")
+    res = live_client.get("/api/devices/home/0x03/story")
     assert res.status_code == 200
     body = res.json()
     assert body["status"] == "review_first"
@@ -216,8 +216,8 @@ def test_device_story_api_current_issue_plus_topology_gap(topology_client: TestC
     assert body["headline_code"] == "current_issue_present"
 
 
-def test_device_story_api_coverage_serialisation(topology_client: TestClient):
-    ctx = topology_client.app.state.ctx
+def test_device_story_api_coverage_serialisation(live_client: TestClient):
+    ctx = live_client.app.state.ctx
     _upsert_device(ctx.repo, "0x03", availability="unknown")
     _store_snapshot(
         ctx.repo,
@@ -226,7 +226,7 @@ def test_device_story_api_coverage_serialisation(topology_client: TestClient):
         links=[{"source": "0x02", "target": "0x03", "linkquality": 120}],
     )
 
-    res = topology_client.get("/api/devices/home/0x03/story")
+    res = live_client.get("/api/devices/home/0x03/story")
     assert res.status_code == 200
     body = res.json()
     assert body["coverage"]
@@ -242,20 +242,20 @@ def test_device_story_api_coverage_serialisation(topology_client: TestClient):
     assert tracking_off["label_code"] == "availability_tracking_off"
 
 
-def test_device_story_api_unknown_network(topology_client: TestClient):
-    res = topology_client.get("/api/devices/nope/0x03/story")
-    assert res.status_code == 404
-    assert res.json() == {"detail": "Network not found"}
-
-
-def test_device_story_api_unknown_device(topology_client: TestClient):
-    res = topology_client.get("/api/devices/home/0xmissing/story")
+def test_device_story_api_unknown_network(live_client: TestClient):
+    res = live_client.get("/api/devices/nope/0x03/story")
     assert res.status_code == 404
     assert res.json() == {"detail": "Device not found"}
 
 
-def test_device_story_api_ieee_normalisation(topology_client: TestClient):
-    ctx = topology_client.app.state.ctx
+def test_device_story_api_unknown_device(live_client: TestClient):
+    res = live_client.get("/api/devices/home/0xmissing/story")
+    assert res.status_code == 404
+    assert res.json() == {"detail": "Device not found"}
+
+
+def test_device_story_api_ieee_normalisation(live_client: TestClient):
+    ctx = live_client.app.state.ctx
     _upsert_device(ctx.repo, "0x03")
     _store_snapshot(
         ctx.repo,
@@ -264,18 +264,18 @@ def test_device_story_api_ieee_normalisation(topology_client: TestClient):
         links=[{"source": "0x02", "target": "0x03", "linkquality": 120}],
     )
 
-    res = topology_client.get("/api/devices/home/0X03/story")
+    res = live_client.get("/api/devices/home/0X03/story")
     assert res.status_code == 200
     assert res.json()["subject_id"] == "0x03"
 
 
-def test_device_story_api_output_remains_coded(topology_client: TestClient):
-    ctx = topology_client.app.state.ctx
+def test_device_story_api_output_remains_coded(live_client: TestClient):
+    ctx = live_client.app.state.ctx
     _upsert_device(ctx.repo, "0x03", availability="offline")
     _open_incident_for(ctx.repo, "0x03")
     _seed_topology_gap_fixture(ctx.repo)
 
-    body = topology_client.get("/api/devices/home/0x03/story").json()
+    body = live_client.get("/api/devices/home/0x03/story").json()
     text = str(body).lower()
     assert "caused by" not in text
     assert "broken link" not in text
@@ -286,3 +286,136 @@ def test_device_story_api_output_remains_coded(topology_client: TestClient):
     for reason in body["reasons"]:
         assert reason["code"]
         assert " " not in reason["code"]
+
+
+def test_device_story_api_scenario_returns_fixture_story(mock_client: TestClient):
+    from zigbeelens.services.mock_provider import MockProvider
+
+    scenario_id = "single_device_unavailable"
+    provider = MockProvider(scenario_id)
+    device = next(d for d in provider.devices() if d.decision and d.decision.status == "review_first")
+    expected = provider.device_story(device.network_id, device.ieee_address)
+    assert expected is not None
+
+    res = mock_client.get(
+        f"/api/devices/{device.network_id}/{device.ieee_address}/story",
+        params={"scenario": scenario_id},
+    )
+    assert res.status_code == 200
+    assert res.json() == expected.model_dump(mode="json")
+
+
+def test_device_story_api_scenario_unknown_device_does_not_fall_through(
+    live_client: TestClient,
+):
+    """Valid scenario isolates story lookup from live repository devices."""
+    ctx = live_client.app.state.ctx
+    _upsert_device(ctx.repo, "0xliveonly")
+    _store_snapshot(
+        ctx.repo,
+        "snap-latest",
+        captured_at=NOW,
+        links=[{"source": "0x02", "target": "0xliveonly", "linkquality": 120}],
+        nodes={
+            "0x01": {"type": "Coordinator"},
+            "0x02": {"type": "Router"},
+            "0xliveonly": {"type": "EndDevice"},
+        },
+    )
+
+    live = live_client.get("/api/devices/home/0xliveonly/story")
+    assert live.status_code == 200
+
+    missing = live_client.get(
+        "/api/devices/home/0xnotinscenario/story",
+        params={"scenario": "single_device_unavailable"},
+    )
+    assert missing.status_code == 404
+    assert missing.json() == {"detail": "Device not found"}
+
+    live_under_scenario = live_client.get(
+        "/api/devices/home/0xliveonly/story",
+        params={"scenario": "single_device_unavailable"},
+    )
+    assert live_under_scenario.status_code == 404
+    assert live_under_scenario.json() == {"detail": "Device not found"}
+
+
+def test_device_story_api_scenario_does_not_bleed_live_repository(
+    live_client: TestClient,
+):
+    """Matching live network/IEEE must not override the selected scenario story."""
+    from zigbeelens.decisions.device_story import device_story_for_device
+    from zigbeelens.services.mock_provider import MockProvider
+
+    scenario_id = "single_device_unavailable"
+    provider = MockProvider(scenario_id)
+    device = next(d for d in provider.devices() if d.decision and d.decision.status == "review_first")
+    scenario_story = provider.device_story(device.network_id, device.ieee_address)
+    assert scenario_story is not None
+    assert scenario_story.status == "review_first"
+
+    ctx = live_client.app.state.ctx
+    _upsert_device(ctx.repo, device.ieee_address, availability="online")
+    _store_snapshot(
+        ctx.repo,
+        "snap-latest",
+        captured_at=NOW,
+        links=[{"source": "0x02", "target": device.ieee_address, "linkquality": 180}],
+        nodes={
+            "0x01": {"type": "Coordinator"},
+            "0x02": {"type": "Router"},
+            device.ieee_address: {"type": "EndDevice"},
+        },
+    )
+    live_story = device_story_for_device(ctx.repo, device.network_id, device.ieee_address)
+    assert live_story is not None
+    assert live_story.status != scenario_story.status
+
+    res = live_client.get(
+        f"/api/devices/{device.network_id}/{device.ieee_address}/story",
+        params={"scenario": scenario_id},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body == scenario_story.model_dump(mode="json")
+    assert body["status"] == scenario_story.status
+    assert body["headline_code"] == scenario_story.headline_code
+    assert body["status"] != live_story.status
+    assert body["headline_code"] != live_story.headline_code
+
+
+def test_device_story_api_no_scenario_uses_live_repository(live_client: TestClient):
+    from zigbeelens.decisions.device_story import device_story_for_device
+
+    ctx = live_client.app.state.ctx
+    _upsert_device(ctx.repo, "0x03")
+    _seed_topology_gap_fixture(ctx.repo)
+    expected = device_story_for_device(ctx.repo, "home", "0x03")
+    assert expected is not None
+
+    res = live_client.get("/api/devices/home/0x03/story")
+    assert res.status_code == 200
+    assert res.json() == expected.model_dump(mode="json")
+
+
+def test_scenario_inventory_badges_match_device_stories(mock_client: TestClient):
+    from zigbeelens.services.device_decision_badge import device_decision_badge_from_story
+    from zigbeelens.services.mock_provider import MockProvider
+
+    scenario_id = "single_device_unavailable"
+    ctx = mock_client.app.state.ctx
+    devices = ctx.data.devices(scenario_id)
+    assert any(d.decision is not None for d in devices)
+
+    statuses = set()
+    for device in devices:
+        if device.decision is None:
+            continue
+        story = ctx.data.device_story(device.network_id, device.ieee_address, scenario_id)
+        assert story is not None
+        assert device.decision == device_decision_badge_from_story(story)
+        statuses.add(story.status)
+    assert "review_first" in statuses
+    assert "no_notable_change" in statuses
+    assert MockProvider(scenario_id).device_story("home", "0xmissing") is None

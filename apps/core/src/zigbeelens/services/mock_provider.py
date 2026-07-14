@@ -54,6 +54,9 @@ class MockProvider:
                 return device_detail_from_summary(d, self.data)
         return None
 
+    def device_story(self, network_id: str, ieee_address: str):
+        return self.data.device_stories.get((network_id, ieee_address))
+
     def routers(self):
         from zigbeelens.mock.fixtures import conclusion
         from zigbeelens.schemas import IncidentScope, RouterRisk, Severity

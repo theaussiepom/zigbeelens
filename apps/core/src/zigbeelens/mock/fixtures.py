@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from zigbeelens.presentation.lens_buckets import enrich_device_summary
 from zigbeelens.schemas import (
@@ -33,6 +33,9 @@ from zigbeelens.schemas import (
     Severity,
     TimelineEvent,
 )
+
+if TYPE_CHECKING:
+    from zigbeelens.decisions.device_story import DeviceStory
 
 NOW = datetime(2026, 6, 14, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -222,6 +225,7 @@ class ScenarioData:
     incidents: list[Incident] = field(default_factory=list)
     router_risks: list[RouterRisk] = field(default_factory=list)
     timeline: list[TimelineEvent] = field(default_factory=list)
+    device_stories: dict[tuple[str, str], DeviceStory] = field(default_factory=dict)
 
 
 def _build_all_ok_single() -> ScenarioData:
@@ -1085,10 +1089,12 @@ DEFAULT_SCENARIO = "four_devices_same_room_unavailable"
 
 
 def get_scenario(scenario_id: str | None = None) -> ScenarioData:
+    from zigbeelens.mock.device_stories import finalize_scenario_device_stories
+
     sid = scenario_id or DEFAULT_SCENARIO
     if sid not in BUILDERS:
         sid = DEFAULT_SCENARIO
-    return BUILDERS[sid]()
+    return finalize_scenario_device_stories(BUILDERS[sid]())
 
 
 def list_scenarios() -> list[dict[str, str]]:
