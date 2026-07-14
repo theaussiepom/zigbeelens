@@ -236,7 +236,6 @@ def _model_pattern(
 def _build(**overrides) -> dict:
     defaults = dict(
         devices=[],
-        incident_device_ieees=set(),
         latest_nodes=[],
         latest_links=[],
         latest_captured_at=(NOW - timedelta(hours=1)).isoformat(),

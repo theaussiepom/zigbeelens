@@ -88,6 +88,34 @@ def _store_snapshot(
     repo.db.conn.commit()
 
 
+
+def _open_incident_for(repo: Repository, ieee: str) -> None:
+    repo.insert_incident(
+        incident_id="inc-compare",
+        dedup_key="dedup-compare",
+        incident_type="single_device_unavailable",
+        lifecycle_state="open",
+        severity="warning",
+        scope="device",
+        confidence="medium",
+        title="Device unavailable",
+        summary="Device stopped reporting.",
+        explanation="Stored incident.",
+        evidence=[],
+        counter_evidence=[],
+        limitations=[],
+        opened_at=NOW.isoformat(),
+        updated_at=NOW.isoformat(),
+    )
+    repo.db.conn.execute(
+        """
+        INSERT INTO incident_devices (incident_id, network_id, ieee_address, role)
+        VALUES ('inc-compare', 'home', ?, 'affected')
+        """,
+        (ieee,),
+    )
+    repo.db.conn.commit()
+
 def _changes_of(result: dict, change_type: str) -> list[dict]:
     return [c for c in result["changes"] if c["type"] == change_type]
 
@@ -779,6 +807,71 @@ def test_small_router_change_does_not_trigger_large_change_insight(tmp_path: Pat
         i for i in result["worth_reviewing"] if i["type"] == "large_router_evidence_change"
     ]
 
+
+
+def test_active_incident_does_not_create_issue_linked_compare_insight(tmp_path: Path):
+    repo = _repo(tmp_path)
+    repo.upsert_device(
+        network_id="home",
+        ieee_address="0x02",
+        friendly_name="Hall Router",
+        device_type="Router",
+        power_source="Mains",
+    )
+    repo.update_device_current_state(
+        network_id="home", ieee_address="0x02", availability="online"
+    )
+    _open_incident_for(repo, "0x02")
+    _store_snapshot(
+        repo,
+        "snap-prev",
+        captured_at=NOW - timedelta(days=1),
+        links=[{"source": "0x02", "target": "0x01", "linkquality": 100}],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW - timedelta(hours=1),
+        links=[{"source": "0x02", "target": "0x01", "linkquality": 40}],
+    )
+
+    result = compare_snapshots(repo, "home")
+    assert not any(
+        insight["type"] == "issue_linked_topology_change"
+        for insight in result["worth_reviewing"]
+    )
+
+
+def test_offline_state_still_creates_issue_linked_compare_insight(tmp_path: Path):
+    repo = _repo(tmp_path)
+    repo.upsert_device(
+        network_id="home",
+        ieee_address="0x02",
+        friendly_name="Hall Router",
+        device_type="Router",
+        power_source="Mains",
+    )
+    repo.update_device_current_state(
+        network_id="home", ieee_address="0x02", availability="offline"
+    )
+    _store_snapshot(
+        repo,
+        "snap-prev",
+        captured_at=NOW - timedelta(days=1),
+        links=[{"source": "0x02", "target": "0x01", "linkquality": 100}],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW - timedelta(hours=1),
+        links=[{"source": "0x02", "target": "0x01", "linkquality": 40}],
+    )
+
+    result = compare_snapshots(repo, "home")
+    assert any(
+        insight["type"] == "issue_linked_topology_change"
+        for insight in result["worth_reviewing"]
+    )
 
 def test_worth_reviewing_is_empty_without_issue_signals(tmp_path: Path):
     repo = _repo(tmp_path)

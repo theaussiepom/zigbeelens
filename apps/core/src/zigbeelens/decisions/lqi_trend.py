@@ -116,14 +116,26 @@ def lqi_trend_for_device(
     repo: Repository,
     network_id: str,
     device_ieee: str,
+    *,
+    device_exists: bool | None = None,
+    snapshots: list[dict[str, Any]] | None = None,
 ) -> LqiTrend | None:
     """Load stored snapshots and compute reported LQI trend for one device."""
     device = normalize_device_ieee(device_ieee)
     if not device:
         return None
 
-    if repo.devices.get_device(network_id, device) is None:
+    resolved_device_exists = (
+        device_exists
+        if device_exists is not None
+        else repo.devices.get_device(network_id, device) is not None
+    )
+    if not resolved_device_exists:
         return None
 
-    snapshots = repo.devices.list_device_snapshots(network_id, device, limit=MAX_SNAPSHOTS)
-    return build_lqi_trend(device_ieee=device, lqi_samples=_lqi_samples(snapshots))
+    resolved_snapshots = (
+        snapshots
+        if snapshots is not None
+        else repo.devices.list_device_snapshots(network_id, device, limit=MAX_SNAPSHOTS)
+    )
+    return build_lqi_trend(device_ieee=device, lqi_samples=_lqi_samples(resolved_snapshots))

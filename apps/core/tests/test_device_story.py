@@ -7,6 +7,7 @@ from pathlib import Path
 
 from zigbeelens.config.models import AppConfig, ModeConfig, NetworkConfig, StorageConfig
 from zigbeelens.db.connection import Database
+from zigbeelens.decisions.device_coverage import device_coverage_for_device
 from zigbeelens.decisions.device_story import (
     CheckCode,
     DEVICE_STORY_HEADLINE_CODES,
@@ -132,12 +133,12 @@ def _store_snapshot(
     repo.db.conn.commit()
 
 
-def _open_incident_for(repo: Repository, ieee: str) -> None:
+def _open_incident_for(repo: Repository, ieee: str, *, incident_type: str = "single_device_unavailable", lifecycle_state: str = "open") -> None:
     repo.insert_incident(
         incident_id="inc-1",
         dedup_key="dedup-1",
-        incident_type="single_device_unavailable",
-        lifecycle_state="open",
+        incident_type=incident_type,
+        lifecycle_state=lifecycle_state,
         severity="warning",
         scope="device",
         confidence="medium",
@@ -218,10 +219,11 @@ def test_current_issue_offline_device(tmp_path: Path):
     assert any(check.code == CheckCode.confirm_powered for check in story.suggested_checks)
 
 
-def test_current_issue_active_incident(tmp_path: Path):
+def test_active_incident_remains_reference_not_current_issue(tmp_path: Path):
     repo = _repo(tmp_path)
-    _upsert_device(repo, "0x03", availability="online")
-    _open_incident_for(repo, "0x03")
+    _upsert_device(repo, "0x03", availability="online", battery=12)
+    _enable_availability_tracking(repo, "0x03", changed_at=NOW - timedelta(days=1))
+    _open_incident_for(repo, "0x03", incident_type="low_battery_cluster")
     _store_snapshot(
         repo,
         "snap-latest",
@@ -231,9 +233,97 @@ def test_current_issue_active_incident(tmp_path: Path):
 
     story = device_story_for_device(repo, "home", "0x03", now=NOW)
     assert story is not None
-    assert story.status is DecisionStatus.worth_reviewing
-    assert any(reason.code == ReasonCode.current_issue_present for reason in story.reasons)
+    assert story.status is DecisionStatus.watch
+    assert story.priority is DecisionPriority.low
+    assert story.headline_code == HeadlineCode.low_battery
+    assert story.status is not DecisionStatus.worth_reviewing
+    assert story.status is not DecisionStatus.review_first
+    assert not any(reason.code == ReasonCode.current_issue_present for reason in story.reasons)
+    assert "inc-1" in story.related_unresolved_incident_ids
 
+
+def test_non_availability_incident_types_do_not_promote_device_story(tmp_path: Path):
+    for incident_type in (
+        "stale_reporting_cluster",
+        "unknown_pattern",
+        "router_risk",
+        "single_device_unavailable",
+    ):
+        repo = _repo(tmp_path / incident_type)
+        _upsert_device(repo, "0x03", availability="online", battery=80, linkquality=120)
+        _enable_availability_tracking(repo, "0x03", changed_at=NOW - timedelta(days=1))
+        _link_ha_area(repo, "0x03")
+        _open_incident_for(
+            repo,
+            "0x03",
+            incident_type=incident_type,
+            lifecycle_state="watching" if incident_type == "single_device_unavailable" else "open",
+        )
+        _store_snapshot(
+            repo,
+            "snap-latest",
+            captured_at=NOW,
+            links=[
+                {
+                    "source": "0x02",
+                    "target": "0x03",
+                    "linkquality": 120,
+                    "routes": [{"destination": "0x01"}],
+                }
+            ],
+        )
+
+        story = device_story_for_device(repo, "home", "0x03", now=NOW)
+        assert story is not None
+        assert story.status is DecisionStatus.no_notable_change
+        assert story.priority is DecisionPriority.none
+        assert story.headline_code == HeadlineCode.no_notable_signals
+        assert not any(reason.code == ReasonCode.current_issue_present for reason in story.reasons)
+        assert "inc-1" in story.related_unresolved_incident_ids
+
+
+
+def test_single_device_unavailable_incident_is_reference_only(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", availability="online", battery=80, linkquality=120)
+    _enable_availability_tracking(repo, "0x03", changed_at=NOW - timedelta(days=1))
+    _link_ha_area(repo, "0x03")
+    _open_incident_for(repo, "0x03", incident_type="single_device_unavailable")
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        links=[
+            {
+                "source": "0x02",
+                "target": "0x03",
+                "linkquality": 120,
+                "routes": [{"destination": "0x01"}],
+            }
+        ],
+    )
+
+    story = device_story_for_device(repo, "home", "0x03", now=NOW)
+    assert story is not None
+    assert story.status is DecisionStatus.no_notable_change
+    assert not any(reason.code == ReasonCode.current_issue_present for reason in story.reasons)
+    assert story.related_unresolved_incident_ids == ["inc-1"]
+    assert all(ref.source != "incident" for ref in story.evidence)
+
+
+def test_active_incident_plus_topology_gap_does_not_review_first(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", availability="online")
+    _open_incident_for(repo, "0x03", incident_type="single_device_unavailable")
+    _store_topology_gap_fixtures(repo)
+
+    story = device_story_for_device(repo, "home", "0x03", now=NOW)
+    assert story is not None
+    assert story.status is DecisionStatus.watch
+    assert story.priority is DecisionPriority.low
+    assert story.status is not DecisionStatus.review_first
+    assert not any(reason.code == ReasonCode.current_issue_present for reason in story.reasons)
+    assert story.related_unresolved_incident_ids == ["inc-1"]
 
 def test_current_issue_plus_topology_gap_is_review_first(tmp_path: Path):
     repo = _repo(tmp_path)
@@ -270,6 +360,57 @@ def test_topology_gap_without_current_issue_is_watch(tmp_path: Path):
         for limitation in story.limitations
     )
 
+
+
+def test_device_story_coverage_matches_device_coverage_endpoint_matrix(tmp_path: Path):
+    cases = [
+        ("tracking_off", "online", False, False, False),
+        ("online", "online", True, False, True),
+        ("offline", "offline", True, False, True),
+        ("unknown_no_history", "unknown", True, False, False),
+        ("unknown_with_history", "unknown", True, True, False),
+    ]
+    for case_id, availability, tracking, history, linked_area in cases:
+        repo = _repo(tmp_path / case_id)
+        _upsert_device(repo, "0x03", availability=availability, battery=80, linkquality=120)
+        if tracking:
+            _enable_availability_tracking(repo, "0x99", changed_at=NOW - timedelta(days=2))
+        if history:
+            _enable_availability_tracking(repo, "0x03", changed_at=NOW - timedelta(days=1))
+        if linked_area:
+            _link_ha_area(repo, "0x03")
+        _store_snapshot(
+            repo,
+            "snap-latest",
+            captured_at=NOW,
+            links=[{"source": "0x02", "target": "0x03", "linkquality": 120}],
+        )
+        for idx in range(3):
+            repo.db.conn.execute(
+                """
+                INSERT INTO device_snapshots (
+                    network_id, ieee_address, availability, last_seen, last_payload_at,
+                    linkquality, battery, payload_json, captured_at
+                ) VALUES ('home', '0x03', ?, ?, ?, ?, ?, '{}', ?)
+                """,
+                (
+                    availability,
+                    (NOW - timedelta(hours=idx)).isoformat(),
+                    (NOW - timedelta(hours=idx)).isoformat(),
+                    100 + idx,
+                    80 - idx,
+                    (NOW - timedelta(hours=idx)).isoformat(),
+                ),
+            )
+        repo.db.conn.commit()
+
+        story = device_story_for_device(repo, "home", "0x03", now=NOW)
+        endpoint_coverage = device_coverage_for_device(repo, "home", "0x03")
+        assert story is not None
+        assert endpoint_coverage is not None
+        assert [item.model_dump(mode="json") for item in story.coverage] == [
+            item.model_dump(mode="json") for item in endpoint_coverage
+        ]
 
 def test_availability_tracking_off_primary_when_no_stronger_signal(tmp_path: Path):
     repo = _repo(tmp_path)

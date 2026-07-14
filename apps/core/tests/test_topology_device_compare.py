@@ -123,6 +123,81 @@ def _device(repo: Repository, ieee: str, name: str, device_type: str = "Router")
     )
 
 
+
+def _open_incident_for(repo: Repository, ieee: str) -> None:
+    repo.insert_incident(
+        incident_id="inc-device-compare",
+        dedup_key="dedup-device-compare",
+        incident_type="single_device_unavailable",
+        lifecycle_state="open",
+        severity="warning",
+        scope="device",
+        confidence="medium",
+        title="Device unavailable",
+        summary="Device stopped reporting.",
+        explanation="Stored incident.",
+        evidence=[],
+        counter_evidence=[],
+        limitations=[],
+        opened_at=NOW.isoformat(),
+        updated_at=NOW.isoformat(),
+    )
+    repo.db.conn.execute(
+        """
+        INSERT INTO incident_devices (incident_id, network_id, ieee_address, role)
+        VALUES ('inc-device-compare', 'home', ?, 'affected')
+        """,
+        (ieee,),
+    )
+    repo.db.conn.commit()
+
+
+def test_active_incident_does_not_make_snapshot_history_worth_reviewing(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _device(repo, "0x02", "Hall Router")
+    repo.update_device_current_state(
+        network_id="home", ieee_address="0x02", availability="online"
+    )
+    _open_incident_for(repo, "0x02")
+    _store_snapshot(
+        repo,
+        "snap-prev",
+        captured_at=NOW - timedelta(days=1),
+        links=[{"source": "0x02", "target": "0x01", "linkquality": 100}],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW - timedelta(hours=1),
+        links=[{"source": "0x02", "target": "0x01", "linkquality": 40}],
+    )
+
+    result = device_snapshot_history(repo, "home", "0x02")
+    assert result["snapshots"][0]["comparison_to_latest"]["status"] is not STATUS_WORTH_REVIEWING
+
+
+def test_offline_state_still_makes_snapshot_history_worth_reviewing(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _device(repo, "0x02", "Hall Router")
+    repo.update_device_current_state(
+        network_id="home", ieee_address="0x02", availability="offline"
+    )
+    _store_snapshot(
+        repo,
+        "snap-prev",
+        captured_at=NOW - timedelta(days=1),
+        links=[{"source": "0x02", "target": "0x01", "linkquality": 100}],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW - timedelta(hours=1),
+        links=[{"source": "0x02", "target": "0x01", "linkquality": 40}],
+    )
+
+    result = device_snapshot_history(repo, "home", "0x02")
+    assert result["snapshots"][0]["comparison_to_latest"]["status"] == STATUS_WORTH_REVIEWING
+
 def test_history_returns_multiple_previous_usable_snapshots_newest_first(tmp_path: Path):
     repo = _repo(tmp_path)
     links = [{"source": "0x02", "target": "0x01", "linkquality": 100}]

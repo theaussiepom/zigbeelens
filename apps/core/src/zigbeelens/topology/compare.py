@@ -485,15 +485,11 @@ def compare_snapshots(
     churn = _churn(counts, base=base, latest=latest)
     summary = _churn_summary(churn, counts)
 
-    incident_ieees = {
-        _norm(ieee) for ieee in repo.incidents.list_active_incident_device_addresses(network_id)
-    }
     worth_reviewing = _worth_reviewing_insights(
         changes=changes,
         base=base,
         latest=latest,
         devices=devices,
-        incident_ieees=incident_ieees,
         name_for=name_for,
     )
 
@@ -693,14 +689,13 @@ def _worth_reviewing_insights(
     base: _SnapshotEvidence,
     latest: _SnapshotEvidence,
     devices: dict[str, Any],
-    incident_ieees: set[str],
     name_for: Any,
 ) -> list[dict[str, Any]]:
     """Device-centric compare insights that are actually worth reviewing.
 
-    Built only from the generated compare changes plus existing issue signals
-    (currently reported unavailable, or linked to an active incident). No new
-    issue inference, no causality — these are places to look first.
+    Built only from generated compare changes plus independently current
+    issue signals (currently reported unavailable). No new issue inference,
+    no causality — these are places to look first.
     """
     change_count: dict[str, int] = {}
     neighbour_change_count: dict[str, int] = {}
@@ -715,7 +710,7 @@ def _worth_reviewing_insights(
     def neighbour_count(evidence: _SnapshotEvidence, ieee: str) -> int:
         return sum(1 for pair in evidence.neighbour_lqi if ieee in pair)
 
-    issue_ids = set(incident_ieees)
+    issue_ids: set[str] = set()
     for ieee, row in devices.items():
         if row.availability == "offline":
             issue_ids.add(ieee)

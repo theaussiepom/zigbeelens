@@ -28,6 +28,7 @@ from zigbeelens.decisions.coverage import (
 from zigbeelens.decisions.device_coverage import (
     DeviceCoverageEvidence,
     build_device_coverage,
+    build_device_coverage_evidence,
     device_coverage_for_device,
     load_device_coverage_evidence,
 )
@@ -161,6 +162,7 @@ __all__ = [
     "build_device_snapshot_comparison_facts",
     "build_device_story",
     "build_device_coverage",
+    "build_device_coverage_evidence",
     "build_network_topology_facts",
     "build_observed_model_patterns",
     "build_observed_router_areas",

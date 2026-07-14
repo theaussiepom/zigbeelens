@@ -248,10 +248,9 @@ class _UnionFind:
             self._parent[large] = small
 
 
-def _issue_device_ids(devices: list[DeviceRow], incident_ieees: set[str]) -> set[str]:
-    """Existing issue signals only: currently offline or linked to an active
-    incident. No new issue inference is derived here."""
-    issues = {ieee for ieee in (_norm(i) for i in incident_ieees) if ieee}
+def _issue_device_ids(devices: list[DeviceRow]) -> set[str]:
+    """Independent current issue signals only; incidents remain history refs."""
+    issues: set[str] = set()
     for device in devices:
         if device.availability == "offline":
             issues.add(_norm(device.ieee_address))
@@ -768,11 +767,9 @@ def _model_pattern_cards(
     return cards
 
 
-def issue_device_ieees_from_state(
-    devices: list[DeviceRow], incident_device_ieees: set[str]
-) -> set[str]:
-    """Shared issue semantics for investigations and router-area facts."""
-    return _issue_device_ids(devices, incident_device_ieees)
+def issue_device_ieees_from_state(devices: list[DeviceRow]) -> set[str]:
+    """Shared current-issue semantics for investigations and router-area facts."""
+    return _issue_device_ids(devices)
 
 
 def _topology_evidence_classes(area: ObservedRouterArea) -> set[str]:
@@ -1310,7 +1307,6 @@ def _apply_tailored_evidence(
 def build_investigations(
     *,
     devices: list[DeviceRow],
-    incident_device_ieees: set[str],
     latest_nodes: list[dict[str, Any]],
     latest_links: list[dict[str, Any]],
     latest_captured_at: str | None,
@@ -1332,7 +1328,7 @@ def build_investigations(
     """
     now = now or datetime.now(timezone.utc)
     devices_by_ieee = {_norm(device.ieee_address): device for device in devices}
-    issue_ids = _issue_device_ids(devices, incident_device_ieees)
+    issue_ids = _issue_device_ids(devices)
     latest_layout_available = bool(latest_nodes or latest_links)
     neighbourhoods = _router_neighbourhoods(latest_links, devices_by_ieee)
 
@@ -1469,7 +1465,6 @@ def aggregate_investigations(
 
     return build_investigations(
         devices=repo.list_devices(network_id),
-        incident_device_ieees=set(repo.incidents.list_active_incident_device_addresses(network_id)),
         latest_nodes=repo.list_topology_nodes(latest_snapshot_id) if latest_snapshot_id else [],
         latest_links=repo.list_topology_links(latest_snapshot_id) if latest_snapshot_id else [],
         latest_captured_at=latest["captured_at"] if latest else None,

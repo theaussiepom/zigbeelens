@@ -11,6 +11,10 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from zigbeelens.decisions.device_coverage import (
+    build_device_coverage,
+    build_device_coverage_evidence,
+)
 from zigbeelens.decisions.device_story import (
     DeviceStory,
     DeviceStoryEvidence,
@@ -21,7 +25,7 @@ from zigbeelens.decisions.lqi_trend import LqiTrend
 from zigbeelens.decisions.reporting_rhythm import ReportingRhythm
 from zigbeelens.decisions.topology_facts import TopologyFactCode
 from zigbeelens.decisions.types import EvidenceFact
-from zigbeelens.schemas import Availability, DeviceSummary, Incident
+from zigbeelens.schemas import Availability, DeviceSummary, Incident, IncidentStatus
 from zigbeelens.services.device_decision_badge import device_decision_badge_from_story
 from zigbeelens.topology.device_compare import COVERAGE_UNKNOWN
 
@@ -57,6 +61,14 @@ def _parse_device_ts(value: str | None) -> datetime | None:
     return parsed
 
 
+
+def _availability_value(value: Availability | str | None) -> str | None:
+    if isinstance(value, Availability):
+        return value.value
+    if isinstance(value, str):
+        return value
+    return None
+
 def device_story_evidence(
     device: DeviceSummary,
     *,
@@ -73,18 +85,41 @@ def device_story_evidence(
     reporting_rhythm: ReportingRhythm | None = None,
     lqi_trend: LqiTrend | None = None,
     model_pattern: DeviceStoryModelPatternContext | None = None,
+    related_unresolved_incident_ids: list[str] | None = None,
 ) -> DeviceStoryEvidence:
     """Build DeviceStoryEvidence from scenario device facts plus explicit overrides."""
+    availability = _availability_value(device.availability)
+    coverage = build_device_coverage(
+        build_device_coverage_evidence(
+            device_row=device,
+            tracking_enabled=availability_tracking_enabled,
+            device_snapshots=[
+                {
+                    "battery": device.battery,
+                    "linkquality": device.linkquality,
+                    "captured_at": device.last_payload_at or device.last_seen,
+                }
+            ],
+            availability_changes=[{"to_state": availability}]
+            if latest_availability_coverage is not None
+            else [],
+            topology_observed_snapshot_count=1 if latest_snapshot_id else 0,
+            topology_snapshot_window_count=1 if latest_snapshot_id else 0,
+            ha_enrichment={"area_name": device.ha_area} if device.ha_area else None,
+        )
+    )
+
     return DeviceStoryEvidence(
         network_id=device.network_id,
         device_ieee=device.ieee_address,
         friendly_name=device.friendly_name,
-        availability=str(device.availability) if device.availability is not None else None,
+        availability=availability,
         last_seen=_parse_device_ts(device.last_seen),
         last_payload_at=_parse_device_ts(device.last_payload_at),
         linkquality=device.linkquality,
         battery=device.battery,
         has_current_issue=has_current_issue,
+        related_unresolved_incident_ids=list(related_unresolved_incident_ids or []),
         availability_tracking_enabled=availability_tracking_enabled,
         latest_availability_coverage=latest_availability_coverage,
         topology_facts=list(topology_facts or []),
@@ -98,6 +133,7 @@ def device_story_evidence(
         reporting_rhythm=reporting_rhythm,
         lqi_trend=lqi_trend,
         model_pattern=model_pattern,
+        coverage=coverage,
     )
 
 
@@ -184,55 +220,83 @@ def apply_incident_device_story_badges(
     return updated
 
 
+
+def _related_incident_ids_by_device(
+    incidents: list[Incident],
+) -> dict[tuple[str, str], list[str]]:
+    related: dict[tuple[str, str], list[str]] = {}
+    unresolved = {IncidentStatus.open, IncidentStatus.watching}
+    for incident in incidents:
+        if incident.status not in unresolved:
+            continue
+        for ref in incident.affected_devices:
+            key = (ref.network_id, ref.ieee_address)
+            related.setdefault(key, []).append(incident.id)
+    return related
+
 def build_device_story_evidence_for_scenario(
     data: ScenarioData,
 ) -> dict[tuple[str, str], DeviceStoryEvidence]:
     """Map scenario devices to explicit DeviceStoryEvidence (facts only)."""
     evidence_by_device: dict[tuple[str, str], DeviceStoryEvidence] = {}
     sid = data.id
+    related_incident_ids_by_device = _related_incident_ids_by_device(data.incidents)
+
+    def with_related(
+        device: DeviceSummary, **kwargs: Any
+    ) -> DeviceStoryEvidence:
+        key = (device.network_id, device.ieee_address)
+        return device_story_evidence(
+            device,
+            related_unresolved_incident_ids=related_incident_ids_by_device.get(key, []),
+            **kwargs,
+        )
 
     for device in data.devices:
         key = (device.network_id, device.ieee_address)
 
         if sid in _CURRENT_ISSUE_SCENARIOS:
-            evidence_by_device[key] = device_story_evidence(
+            evidence_by_device[key] = with_related(
                 device,
                 has_current_issue=device.availability == Availability.offline,
             )
             continue
 
         if sid in _STALE_SCENARIOS:
-            evidence_by_device[key] = device_story_evidence(device)
+            evidence_by_device[key] = with_related(device)
             continue
 
         if sid == "low_battery_cluster":
-            evidence_by_device[key] = device_story_evidence(device)
+            evidence_by_device[key] = with_related(device)
             continue
 
         if sid == "weak_link_devices":
             # Preserve factual linkquality; do not invent LQI trend evidence.
-            evidence_by_device[key] = device_story_evidence(device)
+            evidence_by_device[key] = with_related(device)
             continue
 
         if sid == "interview_failures":
             # interview_state is Detail metadata, not Device Story evidence.
-            evidence_by_device[key] = device_story_evidence(device)
+            evidence_by_device[key] = with_related(device)
             continue
 
         if sid == "unknown_insufficient_data":
-            evidence_by_device[key] = tracking_off_evidence(device)
+            evidence_by_device[key] = tracking_off_evidence(
+                device,
+                related_unresolved_incident_ids=related_incident_ids_by_device.get(key, []),
+            )
             continue
 
         if sid == "bridge_offline":
             # Bridge outage leaves availability status unknown; tracking itself
             # is not configured off.
-            evidence_by_device[key] = device_story_evidence(
+            evidence_by_device[key] = with_related(
                 device,
                 latest_availability_coverage=COVERAGE_UNKNOWN,
             )
             continue
 
-        evidence_by_device[key] = device_story_evidence(device)
+        evidence_by_device[key] = with_related(device)
 
     return evidence_by_device
 

@@ -429,6 +429,7 @@ export interface ReportDeviceStory {
   limitations: Array<{ code: string; params?: Record<string, unknown> }>;
   suggested_checks: Array<{ code: string; params?: Record<string, unknown> }>;
   coverage: Array<Record<string, unknown>>;
+  related_unresolved_incident_ids: string[];
   timeline: Array<{
     code: string;
     params?: Record<string, unknown>;

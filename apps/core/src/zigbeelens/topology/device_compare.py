@@ -392,21 +392,23 @@ def build_device_snapshot_history(
     *,
     device_row: DeviceRow | None,
     has_current_issue: bool,
+    availability_changes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build snapshot history for one device from a preloaded network context."""
     device = _norm(device_ieee)
     usable = network_context.usable_snapshots
     tracking_enabled_now = network_context.tracking_enabled_now
     earliest_availability_at = network_context.earliest_availability_at
-    device_changes = list(
-        reversed(
-            repo.availability.list_availability_changes(
-                network_context.network_id,
-                device_ieee,
-                limit=_AVAILABILITY_LOOKUP_LIMIT,
-            )
+    raw_device_changes = (
+        availability_changes
+        if availability_changes is not None
+        else repo.availability.list_availability_changes(
+            network_context.network_id,
+            device_ieee,
+            limit=_AVAILABILITY_LOOKUP_LIMIT,
         )
-    )  # oldest first
+    )
+    device_changes = list(reversed(raw_device_changes))  # oldest first
 
     def _evidence_for(snapshot_id: str) -> _DeviceSnapshotEvidence:
         links = network_context.links_by_snapshot_id.get(snapshot_id, [])
@@ -495,8 +497,7 @@ def device_snapshot_history(
 
     device_row = repo.get_device(network_id, device_ieee)
     has_current_issue = bool(
-        (device_row is not None and device_row.availability == "offline")
-        or repo.incidents.list_incidents_for_device(network_id, device_ieee)
+        device_row is not None and device_row.availability == "offline"
     )
     return build_device_snapshot_history(
         repo,

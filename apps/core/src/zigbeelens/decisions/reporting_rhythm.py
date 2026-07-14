@@ -147,20 +147,27 @@ def reporting_rhythm_for_device(
     repo: Repository,
     network_id: str,
     device_ieee: str,
+    *,
+    device_row: DeviceRow | None = None,
+    snapshots: list[dict[str, Any]] | None = None,
 ) -> ReportingRhythm | None:
     """Load stored snapshots and compute reporting rhythm for one device."""
     device = normalize_device_ieee(device_ieee)
     if not device:
         return None
 
-    device_row = repo.devices.get_device(network_id, device)
-    if device_row is None:
+    resolved_device_row = device_row or repo.devices.get_device(network_id, device)
+    if resolved_device_row is None:
         return None
 
-    snapshots = repo.devices.list_device_snapshots(network_id, device, limit=MAX_SNAPSHOTS)
-    observation_times = _observation_times(list(reversed(snapshots)))
+    resolved_snapshots = (
+        snapshots
+        if snapshots is not None
+        else repo.devices.list_device_snapshots(network_id, device, limit=MAX_SNAPSHOTS)
+    )
+    observation_times = _observation_times(list(reversed(resolved_snapshots)))
     return build_reporting_rhythm(
         device_ieee=device,
         observation_times=observation_times,
-        applicable=is_sleepy_device_candidate(device_row),
+        applicable=is_sleepy_device_candidate(resolved_device_row),
     )

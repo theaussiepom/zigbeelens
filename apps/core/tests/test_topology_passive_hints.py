@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from zigbeelens.config.models import AppConfig, ModeConfig, NetworkConfig, StorageConfig
 from zigbeelens.db.connection import Database
 from zigbeelens.storage.repository import Repository
+from zigbeelens.services.evidence_graph import EvidenceGraphService
 from zigbeelens.topology.parser import parse_networkmap_payload
 from zigbeelens.topology.passive_hints import (
     MAX_PASSIVE_HINTS_PER_NODE,
@@ -57,13 +58,24 @@ def _repo(tmp_path: Path) -> Repository:
     return repo
 
 
-def _add_device(repo: Repository, ieee: str, *, device_type: str = "EndDevice") -> None:
+def _add_device(
+    repo: Repository,
+    ieee: str,
+    *,
+    device_type: str = "EndDevice",
+    availability: str = "online",
+) -> None:
     repo.upsert_device(
         network_id="home",
         ieee_address=ieee,
         friendly_name=f"Device {ieee}",
         device_type=device_type,
         power_source="Mains",
+    )
+    repo.update_device_current_state(
+        network_id="home",
+        ieee_address=ieee,
+        availability=availability,
     )
 
 
@@ -215,7 +227,7 @@ def test_topology_corroboration_raises_confidence_but_cannot_create_hint(tmp_pat
 
 def test_high_confidence_needs_repeats_issue_and_corroboration(tmp_path: Path):
     repo = _repo(tmp_path)
-    _add_device(repo, "0xa1")
+    _add_device(repo, "0xa1", availability="offline")
     _add_device(repo, "0xa2")
     _add_device(repo, "0xr1", device_type="Router")
     _store_snapshot(
@@ -232,7 +244,6 @@ def test_high_confidence_needs_repeats_issue_and_corroboration(tmp_path: Path):
             {"source": "0xa2", "target": "0xr1", "linkquality": 90},
         ],
     )
-    _open_incident_for(repo, "0xa1")
     # More than the minimum repeated windows.
     _co_instability(repo, "0xa1", "0xa2", windows=PASSIVE_HINT_MIN_REPEATED_WINDOWS + 2)
 
@@ -247,7 +258,7 @@ def test_high_confidence_needs_repeats_issue_and_corroboration(tmp_path: Path):
     }
 
 
-def test_issue_relevance_alone_does_not_reach_high(tmp_path: Path):
+def test_incident_membership_alone_does_not_create_issue_relevance(tmp_path: Path):
     repo = _repo(tmp_path)
     _add_device(repo, "0xa1")
     _add_device(repo, "0xa2")
@@ -255,8 +266,18 @@ def test_issue_relevance_alone_does_not_reach_high(tmp_path: Path):
     _co_instability(repo, "0xa1", "0xa2", windows=PASSIVE_HINT_MIN_REPEATED_WINDOWS)
     result = aggregate_passive_hints(repo, "home", now=NOW)
     hint = result["hints"][0]
-    # One passive rule at minimum threshold plus issue relevance, without
-    # repetition or corroboration, must not be high confidence.
+    assert hint["confidence"] == "low"
+    assert hint["issue_related"] is False
+    assert "current_issue_relevance" not in hint["rules_matched"]
+
+
+def test_offline_issue_relevance_alone_does_not_reach_high(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _add_device(repo, "0xa1", availability="offline")
+    _add_device(repo, "0xa2")
+    _co_instability(repo, "0xa1", "0xa2", windows=PASSIVE_HINT_MIN_REPEATED_WINDOWS)
+    result = aggregate_passive_hints(repo, "home", now=NOW)
+    hint = result["hints"][0]
     assert hint["confidence"] == "low"
     assert hint["issue_related"] is True
 
@@ -368,6 +389,25 @@ def test_deterministic_output(tmp_path: Path):
     second = aggregate_passive_hints(repo, "home", now=NOW)
     assert first == second
 
+
+
+def test_evidence_graph_issue_composition_does_not_query_active_incidents(
+    monkeypatch, tmp_path: Path
+):
+    repo = _repo(tmp_path)
+    _add_device(repo, "0xa1", availability="offline")
+
+    def fail_active_incidents(network_id: str) -> list[str]:
+        raise AssertionError("active incidents must not feed issue relevance")
+
+    monkeypatch.setattr(
+        repo.incidents,
+        "list_active_incident_device_addresses",
+        fail_active_incidents,
+    )
+
+    payload = EvidenceGraphService(repo).investigations_for_network("home")
+    assert isinstance(payload["investigations"], list)
 
 def test_evidence_graph_api_includes_passive_hints(topology_client: TestClient):
     from zigbeelens.app.context import get_context

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import replace
 
 from zigbeelens.decisions.device_story import (
     DEVICE_STORY_HEADLINE_CODES,
@@ -19,7 +20,7 @@ from zigbeelens.mock.device_stories import (
     current_issue_evidence,
 )
 from zigbeelens.mock.fixtures import BUILDERS, NOW, get_scenario
-from zigbeelens.schemas import Availability
+from zigbeelens.schemas import Availability, IncidentStatus
 from zigbeelens.services.device_decision_badge import device_decision_badge_from_story
 
 
@@ -124,6 +125,89 @@ def test_weak_link_absolute_lqi_does_not_invent_declining_trend():
         assert story.headline_code != HeadlineCode.reported_link_quality_changed
 
 
+
+
+def test_scenario_related_unresolved_incident_ids_follow_affected_devices_only():
+    data = get_scenario("single_device_unavailable")
+    affected = data.incidents[0].affected_devices[0]
+    affected_key = (affected.network_id, affected.ieee_address)
+
+    story = data.device_stories[affected_key]
+    assert data.incidents[0].id in story.related_unresolved_incident_ids
+
+    unaffected_stories = [
+        story
+        for key, story in data.device_stories.items()
+        if key != affected_key
+    ]
+    assert unaffected_stories
+    assert all(not story.related_unresolved_incident_ids for story in unaffected_stories)
+
+
+def test_scenario_watching_incidents_are_related_but_resolved_are_excluded():
+    raw = BUILDERS["single_device_unavailable"]()
+    incident = raw.incidents[0]
+    watching = incident.model_copy(
+        update={"id": "inc-watching", "status": IncidentStatus.watching}
+    )
+    resolved = incident.model_copy(
+        update={"id": "inc-resolved", "status": IncidentStatus.resolved}
+    )
+    data = replace(raw, incidents=[watching, resolved])
+    affected = incident.affected_devices[0]
+    key = (affected.network_id, affected.ieee_address)
+
+    evidence = build_device_story_evidence_for_scenario(data)[key]
+    assert evidence.related_unresolved_incident_ids == ["inc-watching"]
+
+
+def test_scenario_related_incident_ids_do_not_change_outcome():
+    raw = BUILDERS["single_device_unavailable"]()
+    device = raw.devices[0]
+    evidence = build_device_story_evidence_for_scenario(raw)[
+        (device.network_id, device.ieee_address)
+    ]
+    base_evidence = evidence.model_copy(update={"related_unresolved_incident_ids": []})
+    with_related = evidence.model_copy(
+        update={"related_unresolved_incident_ids": ["inc-context-only"]}
+    )
+
+    base_story = build_device_story(base_evidence, now=NOW)
+    related_story = build_device_story(with_related, now=NOW)
+    assert related_story.status == base_story.status
+    assert related_story.priority == base_story.priority
+    assert related_story.headline_code == base_story.headline_code
+    assert related_story.reasons == base_story.reasons
+
+def test_scenario_availability_coverage_uses_enum_values():
+    data = get_scenario("single_device_unavailable")
+    labels_by_availability = {}
+    for device in data.devices:
+        story = data.device_stories[(device.network_id, device.ieee_address)]
+        availability_label = next(
+            item.label_code for item in story.coverage if str(item.dimension) == "availability"
+        )
+        labels_by_availability[str(device.availability.value)] = availability_label
+    assert labels_by_availability["offline"] == CoverageLabelCode.availability_available
+
+    data = get_scenario("healthy")
+    device = data.devices[0]
+    story = data.device_stories[(device.network_id, device.ieee_address)]
+    availability_label = next(
+        item.label_code for item in story.coverage if str(item.dimension) == "availability"
+    )
+    assert availability_label == CoverageLabelCode.availability_available
+
+
+    bridge = get_scenario("bridge_offline")
+    device = bridge.devices[0]
+    story = bridge.device_stories[(device.network_id, device.ieee_address)]
+    availability_label = next(
+        item.label_code for item in story.coverage if str(item.dimension) == "availability"
+    )
+    assert availability_label == CoverageLabelCode.availability_status_unknown
+
+
 def test_interview_failures_do_not_fabricate_ha_coverage():
     data = get_scenario("interview_failures")
     assert len(data.devices) == 1
@@ -131,9 +215,9 @@ def test_interview_failures_do_not_fabricate_ha_coverage():
     story = data.device_stories[(device.network_id, device.ieee_address)]
     reason_codes = {r.code for r in story.reasons}
     coverage_codes = {item.label_code for item in story.coverage}
-    assert ReasonCode.ha_areas_not_linked not in reason_codes
-    assert CoverageLabelCode.ha_areas_not_linked not in coverage_codes
-    assert story.status == DecisionStatus.no_notable_change
+    assert ReasonCode.ha_areas_not_linked in reason_codes
+    assert CoverageLabelCode.ha_areas_not_linked in coverage_codes
+    assert story.status == DecisionStatus.informational
 
 
 def test_bridge_offline_does_not_claim_availability_tracking_is_off():
@@ -184,8 +268,8 @@ def test_coverage_honesty_across_builtin_scenarios():
                 assert ReasonCode.route_hints_unavailable not in reason_codes
 
             if evidence.network_has_usable_ha_areas and evidence.ha_area is None:
-                assert ReasonCode.ha_areas_not_linked not in reason_codes
-                assert CoverageLabelCode.ha_areas_not_linked not in coverage_codes
+                assert ReasonCode.ha_areas_not_linked in reason_codes
+                assert CoverageLabelCode.ha_areas_not_linked in coverage_codes
 
             for item in story.coverage:
                 assert item.label_code in {member.value for member in CoverageLabelCode}

@@ -29,6 +29,7 @@ STORY_TOP_LEVEL_KEYS = {
     "limitations",
     "suggested_checks",
     "coverage",
+    "related_unresolved_incident_ids",
     "timeline",
 }
 

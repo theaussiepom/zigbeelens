@@ -218,14 +218,11 @@ def _topology_neighbourhoods(
 
 
 def _issue_device_ids(repo: Repository, network_id: str) -> set[str]:
-    """Devices with existing issue signals: currently offline or linked to an
-    active incident. Reads existing fields only — no new issue inference."""
+    """Devices with independent current issue signals for passive relevance."""
     issues: set[str] = set()
     for device in repo.list_devices(network_id):
         if getattr(device, "availability", None) == "offline":
             issues.add(_norm(device.ieee_address))
-    for ieee in repo.incidents.list_active_incident_device_addresses(network_id):
-        issues.add(_norm(ieee))
     return issues
 
 
@@ -313,8 +310,7 @@ def aggregate_passive_hints(
         if issue_relevant:
             rules.append(RULE_ISSUE_RELEVANCE)
             observations.append(
-                "At least one of these devices is currently offline or linked to an "
-                "active incident."
+                "At least one of these devices is currently offline."
             )
 
         hints.append(

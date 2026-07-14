@@ -26,7 +26,12 @@ from zigbeelens.services.report_device_story import (
     coded_payload_excludes_identity,
     report_device_story_from_story,
 )
-from zigbeelens.services.reports import generate_report
+from zigbeelens.services.reports import (
+    generate_report,
+    render_markdown,
+    report_body_as_json,
+    report_body_as_yaml,
+)
 from zigbeelens.storage.repository import Repository
 
 NOW = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
@@ -245,6 +250,69 @@ def test_device_scoped_report_only_target_story(mock_client: TestClient):
     assert story["friendly_name"] == device["friendly_name"]
 
 
+
+def test_related_incidents_are_report_context_not_evidence(tmp_path):
+    db = Database(tmp_path / "related-report.sqlite")
+    db.migrate()
+    repo = Repository(db)
+    config = AppConfig()
+    config.mode.mock = True
+    data = DataService(config, repo)
+
+    from zigbeelens.services.mock_provider import MockProvider
+
+    mock = MockProvider("single_device_unavailable")
+    affected = mock.data.incidents[0].affected_devices[0]
+    key = (affected.network_id, affected.ieee_address)
+    scenario_story = mock.data.device_stories[key]
+    assert scenario_story.related_unresolved_incident_ids == ["inc-single-1"]
+    assert scenario_story.evidence == []
+
+    detail = generate_report(
+        data=data,
+        config=config,
+        reporting=config.reporting,
+        collector={},
+        request=ReportRequest(
+            scope=ReportScope.device,
+            network_id=key[0],
+            device=key[1],
+            redaction=RedactionOptions(
+                profile=RedactionProfile.standard,
+                preserve_friendly_names=True,
+                hash_ieee_addresses=False,
+                redact_network_names=False,
+            ),
+        ),
+        scenario="single_device_unavailable",
+        repo=repo,
+    )
+    assert len(detail.device_stories) == 1
+    report_story = detail.device_stories[0]
+    assert report_story.related_unresolved_incident_ids == ["inc-single-1"]
+
+    coded = report_story.model_dump(
+        mode="json", exclude={"network_id", "ieee_address", "friendly_name"}
+    )
+    assert coded == device_story_report_payload(scenario_story)
+
+    body = report_body_as_json(detail)
+    assert body["device_stories"][0]["related_unresolved_incident_ids"] == [
+        "inc-single-1"
+    ]
+    parsed_yaml = __import__("yaml").safe_load(report_body_as_yaml(detail))
+    assert parsed_yaml["device_stories"][0]["related_unresolved_incident_ids"] == [
+        "inc-single-1"
+    ]
+
+    markdown = render_markdown(detail)
+    assert "## Related incident records" in markdown
+    assert "Related unresolved incident record (inc-single-1)" in markdown
+    evidence_section = markdown.split("## Evidence", 1)
+    if len(evidence_section) == 2:
+        before_related = evidence_section[1].split("## Related incident records", 1)[0]
+        assert "inc-single-1" not in before_related
+
 def test_scenario_report_story_isolation(tmp_path):
     """Scenario report stories stay on fixture stories, not live repo.
 
@@ -260,20 +328,20 @@ def test_scenario_report_story_isolation(tmp_path):
     from zigbeelens.services.mock_provider import MockProvider
 
     mock = MockProvider(SCENARIO)
-    scenario_device = mock.devices()[0]
-    key = (scenario_device.network_id, scenario_device.ieee_address)
+    affected = mock.data.incidents[0].affected_devices[0]
+    key = (affected.network_id, affected.ieee_address)
     scenario_story = mock.data.device_stories[key]
 
     # Seed live row that would produce a different story if consulted.
     _add_device(
         repo,
-        scenario_device.ieee_address,
-        network_id=scenario_device.network_id,
+        affected.ieee_address,
+        network_id=affected.network_id,
         availability="online",
         friendly_name="Live override",
     )
     _enable_tracking(
-        repo, scenario_device.ieee_address, network_id=scenario_device.network_id
+        repo, affected.ieee_address, network_id=affected.network_id
     )
 
     detail = generate_report(

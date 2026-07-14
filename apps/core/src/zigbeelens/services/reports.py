@@ -901,6 +901,18 @@ def render_markdown_v2(detail: ReportDetail) -> str:
     if evidence_blocks:
         lines += ["## Evidence", ""] + evidence_blocks
 
+    related_incident_blocks: list[str] = []
+    for story in ordered_stories:
+        related_ids = list(getattr(story, "related_unresolved_incident_ids", []) or [])
+        if not related_ids:
+            continue
+        related_incident_blocks.append(f"### {story.friendly_name}")
+        for incident_id in related_ids:
+            related_incident_blocks.append(f"- Related unresolved incident record ({incident_id})")
+        related_incident_blocks.append("")
+    if related_incident_blocks:
+        lines += ["## Related incident records", ""] + related_incident_blocks
+
     if detail.incidents:
         lines += ["## Incident records", ""]
         for inc in detail.incidents:
