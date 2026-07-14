@@ -76,6 +76,16 @@ _STRUCTURED_STRING_KEYS = frozenset(
         "overall_severity",
         "health_state",
         "state",
+        "status",
+        "priority",
+        "headline_code",
+        "label_code",
+        "dimension",
+        "scope_type",
+        "card_type",
+        "action_group",
+        "subject_type",
+        "code",
     }
 )
 
@@ -201,6 +211,50 @@ def resolve_redaction(
     )
 
 
+def _report_network_records(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """Deterministic union of scoped report networks and configured networks.
+
+    Order: report.networks first, then previously unseen config_summary.networks.
+    Deduplicate by non-empty string network ID (first record wins; later records
+    may fill missing name / base_topic).
+    """
+    scoped = report.get("networks") or []
+    config = report.get("config_summary")
+    configured: list[Any] = []
+    if isinstance(config, dict):
+        configured = config.get("networks") or []
+
+    records: list[dict[str, Any]] = []
+    by_id: dict[str, dict[str, Any]] = {}
+
+    def _append(raw: Any) -> None:
+        if not isinstance(raw, dict):
+            return
+        nid = raw.get("id")
+        if isinstance(nid, str) and nid:
+            existing = by_id.get(nid)
+            if existing is not None:
+                if not existing.get("name") and isinstance(raw.get("name"), str):
+                    existing["name"] = raw["name"]
+                if not existing.get("base_topic") and isinstance(raw.get("base_topic"), str):
+                    existing["base_topic"] = raw["base_topic"]
+                return
+            # Copy so merge fills do not mutate the report dict in place.
+            record = dict(raw)
+            by_id[nid] = record
+            records.append(record)
+            return
+        records.append(dict(raw))
+
+    if isinstance(scoped, list):
+        for item in scoped:
+            _append(item)
+    if isinstance(configured, list):
+        for item in configured:
+            _append(item)
+    return records
+
+
 @dataclass
 class Redactor:
     resolved: ResolvedRedaction
@@ -213,6 +267,7 @@ class Redactor:
         self._net_id_map: dict[str, str] = {}
         self._net_name_map: dict[str, str] = {}
         self._net_topic_map: dict[str, str] = {}
+        self._net_label_counter = 0
         self._text_replacements: list[tuple[str, str]] = []
 
     # -- hashing ---------------------------------------------------------
@@ -239,21 +294,36 @@ class Redactor:
                 self._friendly_map[value] = f"device_{self._friendly_counter:03d}"
         return self._friendly_map[value]
 
+    def _network_id(self, value: str) -> str:
+        """Stable per-report network-ID mapping, including orphaned IDs."""
+        if not self.resolved.network_anon or not value:
+            return value
+        if value in self._net_id_map:
+            return self._net_id_map[value]
+        if self.resolved.network_mode == "hashed":
+            label = self._hash(value, "network")
+        else:
+            self._net_label_counter += 1
+            label = f"network_{self._net_label_counter:03d}"
+        self._net_id_map[value] = label
+        return label
+
     # -- network maps ----------------------------------------------------
     def _build_network_maps(self, networks: list[dict[str, Any]]) -> None:
         if not self.resolved.network_anon:
             return
         for i, net in enumerate(networks):
-            label = (
-                self._hash(str(net.get("id", i)), "network")
-                if self.resolved.network_mode == "hashed"
-                else f"network_{i + 1:03d}"
-            )
             nid = net.get("id")
             name = net.get("name")
             topic = net.get("base_topic")
             if isinstance(nid, str):
-                self._net_id_map[nid] = label
+                label = self._network_id(nid)
+            else:
+                label = (
+                    self._hash(str(i), "network")
+                    if self.resolved.network_mode == "hashed"
+                    else f"network_{i + 1:03d}"
+                )
             if isinstance(name, str):
                 self._net_name_map[name] = label
             if isinstance(topic, str):
@@ -270,6 +340,16 @@ class Redactor:
                 lk = k.lower()
                 if lk == "ieee_address" and isinstance(v, str):
                     self._ieee(v)
+                elif lk == "device_ieees" and isinstance(v, list):
+                    for item in v:
+                        if isinstance(item, str):
+                            self._ieee(item)
+                elif lk == "network_id" and isinstance(v, str):
+                    self._network_id(v)
+                elif lk == "network_ids" and isinstance(v, list):
+                    for item in v:
+                        if isinstance(item, str):
+                            self._network_id(item)
                 elif lk == "friendly_name" and isinstance(v, str):
                     self._friendly(v)
                 else:
@@ -331,12 +411,16 @@ class Redactor:
             return REDACTED if value else value
         if lk == "ieee_address" and isinstance(value, str):
             return self._ieee(value)
+        if lk == "device_ieees" and isinstance(value, list):
+            return [
+                self._ieee(item) if isinstance(item, str) else item for item in value
+            ]
         if lk == "network_id" and isinstance(value, str):
-            return self._net_id_map.get(value, value) if self.resolved.network_anon else value
+            return self._network_id(value)
         if lk == "network_ids" and isinstance(value, list):
-            if self.resolved.network_anon:
-                return [self._net_id_map.get(x, x) if isinstance(x, str) else x for x in value]
-            return value
+            return [
+                self._network_id(x) if isinstance(x, str) else x for x in value
+            ]
         if lk == "base_topic" and isinstance(value, str):
             return self._net_topic_map.get(value, value) if self.resolved.network_anon else value
         if lk == "id" and isinstance(value, str) and self.resolved.network_anon and value in self._net_id_map:
@@ -359,7 +443,7 @@ class Redactor:
 
     def redact(self, report: dict[str, Any]) -> dict[str, Any]:
         """Return a redacted copy of a report dict."""
-        self._build_network_maps(report.get("networks", []) or [])
+        self._build_network_maps(_report_network_records(report))
         self._collect(report)
         self._build_text_replacements()
         return self._walk(report)

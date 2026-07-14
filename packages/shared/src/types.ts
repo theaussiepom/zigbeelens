@@ -408,6 +408,34 @@ export interface ReportSummaryBlock {
 }
 
 /** Full report detail */
+export interface ReportDecisionSummary {
+  device_story_count: number;
+  status_counts: Record<string, number>;
+  priority_counts: Record<string, number>;
+}
+
+/** Canonical Device Story fields plus report identity (Phase 5D) */
+export interface ReportDeviceStory {
+  network_id: string;
+  ieee_address: string;
+  friendly_name: string;
+  subject_type: string;
+  subject_id: string;
+  status: string;
+  priority: string;
+  headline_code: string;
+  reasons: Array<{ code: string; params?: Record<string, unknown> }>;
+  evidence: Array<Record<string, unknown>>;
+  limitations: Array<{ code: string; params?: Record<string, unknown> }>;
+  suggested_checks: Array<{ code: string; params?: Record<string, unknown> }>;
+  coverage: Array<Record<string, unknown>>;
+  timeline: Array<{
+    code: string;
+    params?: Record<string, unknown>;
+    occurred_at?: string | null;
+  }>;
+}
+
 export interface ReportDetail {
   id: string;
   product: string;
@@ -418,6 +446,10 @@ export interface ReportDetail {
   format: ReportFormat;
   redaction: ReportRedactionStatus;
   summary?: ReportSummaryBlock | null;
+  decision_summary?: ReportDecisionSummary | null;
+  investigation_priorities?: InvestigationPrioritySummary[];
+  device_stories?: ReportDeviceStory[];
+  data_coverage_warnings?: DataCoverageWarningSummary[];
   config_summary: Record<string, unknown>;
   collector: Record<string, unknown>;
   networks: NetworkSummary[];

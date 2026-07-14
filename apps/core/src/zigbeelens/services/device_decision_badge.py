@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from zigbeelens.decisions.device_story import (
     DeviceStory,
-    build_device_story,
+    device_stories_for_devices,
     device_story_for_device,
-    load_device_story_evidence,
-    load_device_story_network_context,
 )
 from zigbeelens.decisions.types import CoverageState
 from zigbeelens.schemas import DeviceDecisionBadge
@@ -73,29 +70,9 @@ def device_decision_badges_for_devices(
     *,
     now: datetime | None = None,
 ) -> dict[tuple[str, str], DeviceDecisionBadge]:
-    """Compose decision badges for many devices with one network context each."""
-    reference_now = now or datetime.now(timezone.utc)
-    by_network: dict[str, list[DeviceRow]] = defaultdict(list)
-    for row in rows:
-        by_network[row.network_id].append(row)
-
-    badges: dict[tuple[str, str], DeviceDecisionBadge] = {}
-    for network_id, network_rows in by_network.items():
-        context = load_device_story_network_context(
-            repo, network_id, now=reference_now
-        )
-        for row in network_rows:
-            evidence = load_device_story_evidence(
-                repo,
-                network_id,
-                row.ieee_address,
-                now=reference_now,
-                network_context=context,
-            )
-            if evidence is None:
-                continue
-            story = build_device_story(evidence, now=reference_now)
-            badges[(network_id, row.ieee_address)] = device_decision_badge_from_story(
-                story
-            )
-    return badges
+    """Compose decision badges for many devices via shared full-story batching."""
+    stories = device_stories_for_devices(repo, rows, now=now)
+    return {
+        key: device_decision_badge_from_story(story)
+        for key, story in stories.items()
+    }

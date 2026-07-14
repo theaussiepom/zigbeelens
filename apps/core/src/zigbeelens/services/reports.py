@@ -17,12 +17,14 @@ from zigbeelens import __version__
 from zigbeelens.config.models import AppConfig, ReportingConfig
 from zigbeelens.config.redaction import redact_mqtt_server
 from zigbeelens.schemas import (
+    DataCoverageWarningSummary,
     DeviceDetail,
     DeviceHealthPrimary,
     DeviceSummary,
     Incident,
     IncidentDeviceRef,
     IncidentStatus,
+    InvestigationPrioritySummary,
     LensHealthSummary,
     LimitationItem,
     ReportDetail,
@@ -34,6 +36,10 @@ from zigbeelens.schemas import (
     Severity,
 )
 from zigbeelens.presentation.lens_buckets import BUCKET_LABELS, LensBucket
+from zigbeelens.services.report_device_story import (
+    report_decision_summary_from_stories,
+    report_device_story_from_story,
+)
 from zigbeelens.services.report_redaction import Redactor, resolve_redaction
 from zigbeelens.storage.repository import ReportRow, Repository, utc_now_iso
 
@@ -60,6 +66,15 @@ class ReportDataSource(Protocol):
     def dashboard(self, scenario: str | None = None): ...
     def networks(self, scenario: str | None = None): ...
     def devices(self, scenario: str | None = None, network_id: str | None = None): ...
+    def report_device_context(
+        self,
+        scenario: str | None = None,
+        *,
+        network_id: str | None = None,
+        device_keys: set[tuple[str, str]] | None = None,
+        include_device_details: bool = False,
+        now=None,
+    ): ...
     def device(self, network_id: str, ieee_address: str, scenario: str | None = None): ...
     def routers(self, scenario: str | None = None): ...
     def incidents(self, scenario: str | None = None): ...
@@ -203,25 +218,36 @@ def _enrich_incidents(incidents: list[Incident]) -> list[Incident]:
     return enriched
 
 
-def _apply_lens_report_sections(detail: ReportDetail) -> ReportDetail:
+def _apply_report_compatibility_sections(detail: ReportDetail) -> ReportDetail:
+    """Populate compatibility metadata without using Lens as report authority."""
     mode = detail.config_summary.get("mode")
     active = _enrich_incidents(
         [inc for inc in detail.incidents if inc.status != IncidentStatus.resolved]
     )
     incidents = _enrich_incidents(detail.incidents)
-    executive = None
-    if detail.summary and detail.summary.current_finding:
-        executive = detail.summary.current_finding
-    elif detail.diagnostic_conclusions:
-        executive = detail.diagnostic_conclusions[0].summary
-    overall = detail.summary.overall_state if detail.summary else detail.health_snapshot.overall_severity
+    # Version 2 Decision reports do not use Lens/executive prose as authority.
+    if detail.report_version >= 2:
+        executive = None
+        health_summary = None
+    else:
+        executive = None
+        if detail.summary and detail.summary.current_finding:
+            executive = detail.summary.current_finding
+        elif detail.diagnostic_conclusions:
+            executive = detail.diagnostic_conclusions[0].summary
+        overall = (
+            detail.summary.overall_state
+            if detail.summary
+            else detail.health_snapshot.overall_severity
+        )
+        health_summary = _lens_health_summary(detail.devices, overall_state=overall)
     return detail.model_copy(
         update={
             "site": None,
             "mode": mode,
             "redaction_profile": detail.redaction.profile,
             "executive_summary": executive,
-            "health_summary": _lens_health_summary(detail.devices, overall_state=overall),
+            "health_summary": health_summary,
             "incidents": incidents,
             "active_incidents": active,
             "collector_status": _collector_status_summary(detail.collector, mode),
@@ -229,6 +255,11 @@ def _apply_lens_report_sections(detail: ReportDetail) -> ReportDetail:
             "domain_details": _domain_details(detail),
         }
     )
+
+
+def _apply_lens_report_sections(detail: ReportDetail) -> ReportDetail:
+    """Backward-compatible alias for report compatibility metadata."""
+    return _apply_report_compatibility_sections(detail)
 
 
 def _summary_block(
@@ -259,6 +290,52 @@ def _as_summary(device: DeviceDetail | DeviceSummary) -> DeviceSummary:
     return DeviceSummary.model_validate(device.model_dump())
 
 
+def _filter_investigation_priorities(
+    priorities: list[InvestigationPrioritySummary],
+    *,
+    scope: ReportScope,
+    network_id: str | None,
+    device_ieee: str | None,
+    affected_keys: set[tuple[str, str]],
+) -> list[InvestigationPrioritySummary]:
+    if scope == ReportScope.full:
+        return list(priorities)
+    if scope == ReportScope.network and network_id:
+        return [p for p in priorities if p.network_id == network_id]
+    if scope == ReportScope.device and network_id and device_ieee:
+        target = device_ieee.strip().lower()
+        return [
+            p
+            for p in priorities
+            if p.network_id == network_id
+            and any(ieee.strip().lower() == target for ieee in p.device_ieees)
+        ]
+    if scope == ReportScope.incident and affected_keys:
+        filtered: list[InvestigationPrioritySummary] = []
+        for priority in priorities:
+            affected_on_network = {
+                ieee.strip().lower()
+                for nid, ieee in affected_keys
+                if nid == priority.network_id
+            }
+            device_norm = {ieee.strip().lower() for ieee in priority.device_ieees}
+            if affected_on_network & device_norm:
+                filtered.append(priority)
+        return filtered
+    return []
+
+
+def _filter_coverage_warnings(
+    warnings: list[DataCoverageWarningSummary],
+    *,
+    scope: ReportScope,
+    network_ids: set[str],
+) -> list[DataCoverageWarningSummary]:
+    if scope == ReportScope.full:
+        return list(warnings)
+    return [w for w in warnings if w.network_id in network_ids]
+
+
 def _assemble(
     *,
     data: ReportDataSource,
@@ -271,23 +348,24 @@ def _assemble(
 ) -> ReportDetail:
     dashboard = data.dashboard(scenario)
     all_networks = data.networks(scenario)
-    all_devices = data.devices(scenario)
     all_routers = data.routers(scenario)
     all_incidents = data.incidents(scenario)
     timeline = list(data.timeline(scenario))[: reporting.max_recent_events]
 
     networks = all_networks
-    devices = all_devices
     routers = all_routers
     incidents = all_incidents
     device_details: list[DeviceDetail] = []
-    finding = dashboard.current_finding.summary
+    device_keys: set[tuple[str, str]] | None = None
+    context_network_id: str | None = None
+    target_device_ieee: str | None = None
+    finding = "Evidence report for the selected ZigbeeLens scope."
     conclusions = [dashboard.current_finding]
 
     if request.scope == ReportScope.network and request.network_id:
         nid = request.network_id
+        context_network_id = nid
         networks = [n for n in all_networks if n.id == nid]
-        devices = [d for d in all_devices if d.network_id == nid]
         routers = [r for r in all_routers if r.network_id == nid]
         incidents = [i for i in all_incidents if nid in i.network_ids]
         timeline = [e for e in timeline if e.network_id == nid]
@@ -296,47 +374,128 @@ def _assemble(
         incidents = [inc] if inc else []
         net_ids = set(inc.network_ids) if inc else set()
         networks = [n for n in all_networks if n.id in net_ids]
-        affected = {
+        device_keys = {
             (ref.network_id, ref.ieee_address)
             for i in incidents
             for ref in i.affected_devices
         }
-        devices = [d for d in all_devices if (d.network_id, d.ieee_address) in affected]
         routers = [r for r in all_routers if r.network_id in net_ids]
         timeline = list(inc.timeline) if inc else []
-        for d in devices:
-            det = data.device(d.network_id, d.ieee_address, scenario)
-            if det:
-                device_details.append(det)
         if inc:
-            finding = inc.summary
             conclusions = [inc.conclusion]
     elif request.scope == ReportScope.device and request.device:
-        match = [
-            d
-            for d in all_devices
-            if d.ieee_address == request.device
-            and (request.network_id is None or d.network_id == request.network_id)
+        # Prefer explicit network + device identity; do not compose full inventory.
+        if request.network_id:
+            context_network_id = request.network_id
+            device_keys = {(request.network_id, request.device)}
+            target_device_ieee = request.device
+        else:
+            # Fallback: resolve from inventory once when network was omitted.
+            inventory = data.devices(scenario)
+            match = [d for d in inventory if d.ieee_address == request.device]
+            if match:
+                context_network_id = match[0].network_id
+                device_keys = {(match[0].network_id, match[0].ieee_address)}
+                target_device_ieee = match[0].ieee_address
+            else:
+                device_keys = set()
+
+    include_details = request.scope in {ReportScope.incident, ReportScope.device}
+    device_ctx = data.report_device_context(
+        scenario,
+        network_id=context_network_id,
+        device_keys=device_keys,
+        include_device_details=include_details,
+    )
+    devices = device_ctx.devices
+    stories = device_ctx.stories
+
+    if request.scope == ReportScope.incident and device_keys is not None:
+        devices = [
+            d for d in devices if (d.network_id, d.ieee_address) in device_keys
         ]
-        det = data.device(match[0].network_id, match[0].ieee_address, scenario) if match else None
-        if det:
-            device_details = [det]
-            devices = [_as_summary(det)]
-            networks = [n for n in all_networks if n.id == det.network_id]
-            routers = [r for r in all_routers if r.network_id == det.network_id]
-            incidents = [
-                i
-                for i in all_incidents
-                if any(
-                    ref.ieee_address == det.ieee_address and ref.network_id == det.network_id
-                    for ref in i.affected_devices
-                )
-            ]
-            timeline = list(det.recent_events)[: reporting.max_recent_events]
-            finding = det.diagnostic.summary
-            conclusions = [det.diagnostic]
+        device_details = [
+            device_ctx.device_details[key]
+            for d in devices
+            if (key := (d.network_id, d.ieee_address)) in device_ctx.device_details
+        ]
+    elif request.scope == ReportScope.device:
+        if devices:
+            first = devices[0]
+            key = (first.network_id, first.ieee_address)
+            det = device_ctx.device_details.get(key)
+            if det:
+                device_details = [det]
+                devices = [_as_summary(det)]
+                networks = [n for n in all_networks if n.id == det.network_id]
+                routers = [r for r in all_routers if r.network_id == det.network_id]
+                incidents = [
+                    i
+                    for i in all_incidents
+                    if any(
+                        ref.ieee_address == det.ieee_address
+                        and ref.network_id == det.network_id
+                        for ref in i.affected_devices
+                    )
+                ]
+                timeline = list(det.recent_events)[: reporting.max_recent_events]
+                conclusions = [det.diagnostic]
+                target_device_ieee = det.ieee_address
+                context_network_id = det.network_id
+            else:
+                networks, devices, routers, incidents, timeline = [], [], [], [], []
+                stories = {}
         else:
             networks, devices, routers, incidents, timeline = [], [], [], [], []
+            stories = {}
+
+    report_stories = []
+    for device in devices:
+        story = stories.get((device.network_id, device.ieee_address))
+        if story is None:
+            continue
+        report_stories.append(
+            report_device_story_from_story(device=device, story=story)
+        )
+
+    affected_keys: set[tuple[str, str]] = set()
+    if request.scope == ReportScope.incident:
+        affected_keys = {
+            (ref.network_id, ref.ieee_address)
+            for i in incidents
+            for ref in i.affected_devices
+        }
+
+    scoped_network_ids = {n.id for n in networks}
+    if request.scope == ReportScope.device and context_network_id:
+        scoped_network_ids = {context_network_id}
+    elif request.scope == ReportScope.incident:
+        scoped_network_ids = {nid for nid, _ in affected_keys} | {
+            n for i in incidents for n in i.network_ids
+        }
+
+    investigation_priorities = _filter_investigation_priorities(
+        list(dashboard.investigation_priorities or []),
+        scope=request.scope,
+        network_id=context_network_id,
+        device_ieee=target_device_ieee,
+        affected_keys=affected_keys,
+    )
+
+    data_coverage_warnings = _filter_coverage_warnings(
+        list(dashboard.data_coverage_warnings or []),
+        scope=request.scope,
+        network_ids=scoped_network_ids,
+    )
+
+    story_list = [
+        stories[key]
+        for rs in report_stories
+        if (key := (rs.network_id, rs.ieee_address)) in stories
+    ]
+    decision_summary = report_decision_summary_from_stories(
+        story_list if story_list else report_stories
+    )
 
     summary = _summary_block(
         overall_state=dashboard.overall_severity,
@@ -349,12 +508,17 @@ def _assemble(
 
     return ReportDetail(
         id="report-preview",
+        report_version=2,
         generated_at=utc_now_iso(),
         version=__version__,
         scope=request.scope.value,
         format=request.format.value,
         redaction=default_redaction_status(),
         summary=summary,
+        decision_summary=decision_summary,
+        investigation_priorities=investigation_priorities,
+        device_stories=report_stories,
+        data_coverage_warnings=data_coverage_warnings,
         config_summary=build_config_summary(config),
         collector=collector,
         networks=networks,
@@ -374,6 +538,43 @@ def _assemble(
         },
         markdown_summary="",
     )
+
+
+def _without_timelines(detail: ReportDetail) -> ReportDetail:
+    """Clear every timeline/event collection controlled by include_timeline."""
+    device_stories = [
+        story.model_copy(update={"timeline": []}) for story in detail.device_stories
+    ]
+    incidents = [
+        incident.model_copy(update={"timeline": []}) for incident in detail.incidents
+    ]
+    active_incidents = [
+        incident.model_copy(update={"timeline": []})
+        for incident in detail.active_incidents
+    ]
+    device_details = [
+        det.model_copy(update={"recent_events": []}) for det in detail.device_details
+    ]
+    return detail.model_copy(
+        update={
+            "timeline": [],
+            "events_or_timeline": [],
+            "device_stories": device_stories,
+            "incidents": incidents,
+            "active_incidents": active_incidents,
+            "device_details": device_details,
+        }
+    )
+
+
+def _recorded_incident_interpretation(incident: Incident) -> str | None:
+    """Historical Incident.interpretation when distinct from the event summary."""
+    text = (incident.interpretation or "").strip()
+    if not text:
+        return None
+    if text == (incident.summary or "").strip():
+        return None
+    return text
 
 
 def generate_report(
@@ -411,12 +612,13 @@ def generate_report(
     redacted = ReportDetail.model_validate(redacted_dict)
 
     if not resolved.include_timeline:
-        redacted.timeline = []
+        redacted = _without_timelines(redacted)
     redacted.redaction = resolved.to_status()
     redacted.scope = request.scope.value
     redacted.format = request.format.value
-    redacted.raw_counts["events_included"] = len(redacted.timeline)
+    # Compatibility aliases/active incidents must be built after timeline clearing.
     redacted = _apply_lens_report_sections(redacted)
+    redacted.raw_counts["events_included"] = len(redacted.timeline)
     redacted.markdown_summary = render_markdown(redacted)
     return redacted
 
@@ -424,11 +626,66 @@ def generate_report(
 # -- rendering -----------------------------------------------------------
 
 
+_DEVICE_STORY_STATUS_ORDER = (
+    "review_first",
+    "worth_reviewing",
+    "improve_data_coverage",
+    "watch",
+    "changed",
+    "informational",
+    "no_notable_change",
+    "data_unavailable",
+)
+
+
 def _title(value: str) -> str:
     return value.replace("_", " ").title()
 
 
-def render_markdown(detail: ReportDetail) -> str:
+def _evidence_line(ref: dict[str, Any]) -> str:
+    source = str(ref.get("source") or "")
+    ref_id = ref.get("id")
+    captured_at = ref.get("captured_at")
+    if source == "topology_snapshot":
+        parts = ["Latest stored topology snapshot"]
+        if captured_at:
+            parts.append(f"captured {captured_at}")
+        if ref_id:
+            parts.append(f"({ref_id})")
+        return " · ".join(parts)
+    if ref_id:
+        return f"Stored evidence ({ref_id})"
+    return "Stored evidence reference"
+
+
+def _ordered_device_stories(detail: ReportDetail):
+    order = {status: index for index, status in enumerate(_DEVICE_STORY_STATUS_ORDER)}
+
+    def sort_key(story):
+        return (
+            order.get(str(story.status), len(order)),
+            story.friendly_name.lower(),
+            story.ieee_address,
+        )
+
+    return sorted(detail.device_stories, key=sort_key)
+
+
+def _decision_list_summary(detail: ReportDetail) -> str:
+    """Persisted/list summary from shared Decision output only (Version 2)."""
+    from zigbeelens.presentation.report_decision_copy import headline_text
+
+    if detail.investigation_priorities:
+        return detail.investigation_priorities[0].title
+    ordered = _ordered_device_stories(detail)
+    if ordered:
+        story = ordered[0]
+        return f"{story.friendly_name} — {headline_text(story.headline_code)}"
+    return "No notable Device Story decisions in this report scope."
+
+
+def render_markdown_v1(detail: ReportDetail) -> str:
+    """Legacy Markdown for stored Version 1 report bodies (compatibility only)."""
     s = detail.summary
     lines = [
         "# ZigbeeLens diagnostic report",
@@ -532,6 +789,190 @@ def render_markdown(detail: ReportDetail) -> str:
     return "\n".join(lines)
 
 
+def render_markdown_v2(detail: ReportDetail) -> str:
+    """Decision-backed Markdown for Version 2 evidence reports."""
+    from zigbeelens.presentation.report_decision_copy import (
+        decision_status_label,
+        device_coverage_label,
+        headline_text,
+        limitation_text,
+        reason_text,
+        suggested_check_text,
+        coverage_label,
+    )
+
+    lines = [
+        "# ZigbeeLens evidence report",
+        "",
+        f"Product: {detail.product}",
+        f"Version: {detail.version}",
+        f"Generated: {detail.generated_at}",
+        f"Scope: {_title(detail.scope)}",
+        f"Mode: {detail.mode or 'unknown'}",
+        f"Redaction profile: {detail.redaction_profile or detail.redaction.profile}",
+        "",
+        "## Summary",
+        "",
+        f"Networks in scope: {len(detail.networks)}",
+        f"Devices in scope: {len(detail.devices)}",
+        f"Incident records in scope: {len(detail.incidents)}",
+    ]
+    if detail.decision_summary and detail.decision_summary.status_counts:
+        lines += ["", "Current Device Story decisions:"]
+        for status in _DEVICE_STORY_STATUS_ORDER:
+            count = detail.decision_summary.status_counts.get(status, 0)
+            if count:
+                lines.append(f"- {decision_status_label(status)}: {count}")
+        for status, count in sorted(detail.decision_summary.status_counts.items()):
+            if status not in _DEVICE_STORY_STATUS_ORDER and count:
+                lines.append(f"- {decision_status_label(status)}: {count}")
+
+    if detail.investigation_priorities:
+        lines += ["", "## What to check first", ""]
+        for priority in detail.investigation_priorities:
+            lines.append(f"### {priority.title}")
+            lines.append("")
+            lines.append(priority.summary)
+            lines.append(f"Network: {priority.network_id}")
+            if priority.device_ieees:
+                lines.append(f"Devices referenced: {len(priority.device_ieees)}")
+            lines.append("")
+
+    ordered_stories = _ordered_device_stories(detail)
+    if ordered_stories:
+        lines += ["## Device stories", ""]
+        for story in ordered_stories:
+            lines.append(f"### {story.friendly_name}")
+            lines.append("")
+            lines.append(f"Status: {decision_status_label(story.status)}")
+            lines.append(headline_text(story.headline_code))
+            if story.reasons:
+                lines += ["", "Why:"]
+                for reason in story.reasons:
+                    code = str(reason.get("code") if isinstance(reason, dict) else reason.code)
+                    params = (
+                        reason.get("params") if isinstance(reason, dict) else reason.params
+                    ) or {}
+                    lines.append(f"- {reason_text(code, params)}")
+            if story.limitations:
+                lines += ["", "Data limitations:"]
+                for item in story.limitations:
+                    code = str(item.get("code") if isinstance(item, dict) else item.code)
+                    params = (
+                        item.get("params") if isinstance(item, dict) else item.params
+                    ) or {}
+                    lines.append(f"- {limitation_text(code, params)}")
+            lines.append("")
+
+    coverage_lines: list[str] = []
+    if detail.data_coverage_warnings:
+        coverage_lines.append("### Network coverage")
+        coverage_lines.append("")
+        for warning in detail.data_coverage_warnings:
+            coverage_lines.append(
+                f"- {coverage_label(warning.label_code, warning.params)} ({warning.network_id})"
+            )
+        coverage_lines.append("")
+    device_cov_any = False
+    for story in ordered_stories:
+        if not story.coverage:
+            continue
+        if not device_cov_any:
+            coverage_lines.append("### Device coverage")
+            coverage_lines.append("")
+            device_cov_any = True
+        coverage_lines.append(f"### {story.friendly_name}")
+        for item in story.coverage:
+            code = str(item.get("label_code") if isinstance(item, dict) else item.label_code)
+            params = (item.get("params") if isinstance(item, dict) else item.params) or {}
+            coverage_lines.append(f"- {device_coverage_label(code, params)}")
+        coverage_lines.append("")
+    if coverage_lines:
+        lines += ["## Data coverage", ""] + coverage_lines
+
+    evidence_blocks: list[str] = []
+    for story in ordered_stories:
+        if not story.evidence:
+            continue
+        evidence_blocks.append(f"### {story.friendly_name}")
+        for ref in story.evidence:
+            evidence_blocks.append(f"- {_evidence_line(ref if isinstance(ref, dict) else ref.model_dump())}")
+        evidence_blocks.append("")
+    if evidence_blocks:
+        lines += ["## Evidence", ""] + evidence_blocks
+
+    if detail.incidents:
+        lines += ["## Incident records", ""]
+        for inc in detail.incidents:
+            lines.append(f"### {inc.title}")
+            lines.append("")
+            lines.append(f"Lifecycle: {_title(inc.status.value)}")
+            lines.append(f"Recorded summary: {inc.summary}")
+            lines.append(f"Networks: {', '.join(inc.network_ids)}")
+            lines.append(f"Opened: {inc.opened_at}")
+            lines.append(f"Updated: {inc.updated_at}")
+            if inc.resolved_at:
+                lines.append(f"Resolved: {inc.resolved_at}")
+            recorded = _recorded_incident_interpretation(inc)
+            if recorded:
+                lines += ["", "Recorded interpretation:", "", recorded]
+            if inc.evidence:
+                lines += ["", "Stored evidence:"]
+                lines += [f"- {e.summary}" for e in inc.evidence]
+            if inc.limitations:
+                lines += ["", "Recorded limitations:"]
+                lines += [f"- {limitation.summary}" for limitation in inc.limitations]
+            lines.append("")
+
+    limitation_texts: list[str] = [lim.summary for lim in detail.limitations]
+    for story in ordered_stories:
+        for item in story.limitations:
+            code = str(item.get("code") if isinstance(item, dict) else item.code)
+            params = (item.get("params") if isinstance(item, dict) else item.params) or {}
+            text = limitation_text(code, params)
+            if text not in limitation_texts:
+                limitation_texts.append(text)
+    if limitation_texts:
+        lines += ["## Limitations", ""]
+        lines += [f"- {text}" for text in limitation_texts]
+        lines.append("")
+
+    check_blocks: list[str] = []
+    for story in ordered_stories:
+        if not story.suggested_checks:
+            continue
+        seen: set[str] = set()
+        check_blocks.append(f"### {story.friendly_name}")
+        for item in story.suggested_checks:
+            code = str(item.get("code") if isinstance(item, dict) else item.code)
+            params = (item.get("params") if isinstance(item, dict) else item.params) or {}
+            text = suggested_check_text(code, params)
+            if text in seen:
+                continue
+            seen.add(text)
+            check_blocks.append(f"- {text}")
+        check_blocks.append("")
+    if check_blocks:
+        lines += ["## Suggested checks", ""] + check_blocks
+
+    if detail.collector_status:
+        lines += [
+            "## Collector status",
+            "",
+            f"MQTT collector: {detail.collector_status.get('mqtt_collector', 'unknown')}",
+            f"Zigbee2MQTT bridge: {detail.collector_status.get('zigbee2mqtt_bridge', 'unknown')}",
+            "",
+        ]
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def render_markdown(detail: ReportDetail) -> str:
+    if detail.report_version >= 2:
+        return render_markdown_v2(detail)
+    return render_markdown_v1(detail)
+
+
 # -- serialization -------------------------------------------------------
 
 
@@ -547,6 +988,8 @@ def report_body_as_yaml(detail: ReportDetail) -> str:
 
 
 def _finding_text(detail: ReportDetail) -> str:
+    if detail.report_version >= 2:
+        return _decision_list_summary(detail)
     if detail.summary and detail.summary.current_finding:
         return detail.summary.current_finding
     if detail.diagnostic_conclusions:
