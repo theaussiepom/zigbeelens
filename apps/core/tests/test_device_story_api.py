@@ -293,7 +293,9 @@ def test_device_story_api_scenario_returns_fixture_story(mock_client: TestClient
 
     scenario_id = "single_device_unavailable"
     provider = MockProvider(scenario_id)
-    device = next(d for d in provider.devices() if d.decision and d.decision.status == "review_first")
+    device = next(
+        d for d in provider.devices() if d.decision and d.decision.status == "worth_reviewing"
+    )
     expected = provider.device_story(device.network_id, device.ieee_address)
     assert expected is not None
 
@@ -350,10 +352,12 @@ def test_device_story_api_scenario_does_not_bleed_live_repository(
 
     scenario_id = "single_device_unavailable"
     provider = MockProvider(scenario_id)
-    device = next(d for d in provider.devices() if d.decision and d.decision.status == "review_first")
+    device = next(
+        d for d in provider.devices() if d.decision and d.decision.status == "worth_reviewing"
+    )
     scenario_story = provider.device_story(device.network_id, device.ieee_address)
     assert scenario_story is not None
-    assert scenario_story.status == "review_first"
+    assert scenario_story.status == "worth_reviewing"
 
     ctx = live_client.app.state.ctx
     _upsert_device(ctx.repo, device.ieee_address, availability="online")
@@ -416,6 +420,6 @@ def test_scenario_inventory_badges_match_device_stories(mock_client: TestClient)
         assert story is not None
         assert device.decision == device_decision_badge_from_story(story)
         statuses.add(story.status)
-    assert "review_first" in statuses
+    assert "worth_reviewing" in statuses
     assert "no_notable_change" in statuses
     assert MockProvider(scenario_id).device_story("home", "0xmissing") is None

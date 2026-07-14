@@ -781,9 +781,9 @@ def _build_router_risk() -> ScenarioData:
 
 
 def _build_stale_battery() -> ScenarioData:
-    stale = DeviceHealth(primary=DeviceHealthPrimary.stale_reporting, severity=Severity.watch, confidence=Confidence.medium, evidence=["No payload in 26 hours"])
+    stale = DeviceHealth(primary=DeviceHealthPrimary.stale_reporting, severity=Severity.watch, confidence=Confidence.medium, evidence=["No payload in 50 hours"])
     devices = [
-        device("home", "0x00158d0001a1b2c3", "garden_sensor", power=PowerSource.Battery, battery=45, last_seen=ago(hours=26), health=stale, sort_priority=6),
+        device("home", "0x00158d0001a1b2c3", "garden_sensor", power=PowerSource.Battery, battery=45, last_seen=ago(hours=50), health=stale, sort_priority=6),
     ]
     nets = [network("home", "Home", "zigbee2mqtt", devices=devices, incident_state=Severity.watch)]
     finding = conclusion("stale_reporting", Severity.watch, IncidentScope.device, Confidence.medium, "One battery device has stale reporting on Home.")
@@ -1032,9 +1032,9 @@ def _build_weak_link() -> ScenarioData:
 
 
 def _build_stale_cluster() -> ScenarioData:
-    stale = DeviceHealth(primary=DeviceHealthPrimary.stale_reporting, severity=Severity.watch, confidence=Confidence.medium, evidence=["No payload >24h"])
+    stale = DeviceHealth(primary=DeviceHealthPrimary.stale_reporting, severity=Severity.watch, confidence=Confidence.medium, evidence=["No payload >48h"])
     devices = [
-        device("home2", f"0x001788010{i}a1b2c3", f"stale_{i}", power=PowerSource.Battery, last_seen=ago(hours=30 + i), health=stale, sort_priority=6 + i)
+        device("home2", f"0x001788010{i}a1b2c3", f"stale_{i}", power=PowerSource.Battery, last_seen=ago(hours=50 + i), health=stale, sort_priority=6 + i)
         for i in range(1, 4)
     ]
     nets = [network("home2", "Home 2", "zigbee2mqtt-home2", devices=devices, incident_state=Severity.watch)]
@@ -1094,7 +1094,7 @@ def get_scenario(scenario_id: str | None = None) -> ScenarioData:
     sid = scenario_id or DEFAULT_SCENARIO
     if sid not in BUILDERS:
         sid = DEFAULT_SCENARIO
-    return finalize_scenario_device_stories(BUILDERS[sid]())
+    return finalize_scenario_device_stories(BUILDERS[sid](), now=NOW)
 
 
 def list_scenarios() -> list[dict[str, str]]:
