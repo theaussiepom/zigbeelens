@@ -107,16 +107,16 @@ def test_repository_transaction_defers_internal_commits_and_commits_once(tmp_pat
     assert repo.get_device("home", "0x1").linkquality == 80  # type: ignore[union-attr]
 
 
-class ForcedAbort(BaseException):
+class ForcedTransactionAbort(BaseException):
     pass
 
 
-def test_base_exception_rolls_back_transaction(tmp_path: Path):
+def test_base_exception_escaping_transaction_rolls_back(tmp_path: Path):
     repo, _config = _repo(tmp_path)
     counter = install_counter(repo)
     counter.reset()
 
-    with pytest.raises(ForcedAbort):
+    with pytest.raises(ForcedTransactionAbort):
         with repo.transaction():
             repo.upsert_device(
                 network_id="home",
@@ -128,11 +128,31 @@ def test_base_exception_rolls_back_transaction(tmp_path: Path):
                 model=None,
                 interview_state="successful",
             )
-            raise ForcedAbort()
+            repo.ensure_device_current_state("home", "0x1")
+            raise ForcedTransactionAbort()
 
     assert repo.get_device("home", "0x1") is None
     assert counter.stats.commit_count == 0
     assert counter.stats.rollback_count == 1
+    assert _locked(repo).transaction_depth == 0
+    assert _raw(repo).in_transaction is False
+
+    counter.reset()
+    with repo.transaction():
+        repo.upsert_device(
+            network_id="home",
+            ieee_address="0x2",
+            friendly_name="Recovered",
+            device_type="Router",
+            power_source="Mains",
+            manufacturer=None,
+            model=None,
+            interview_state="successful",
+        )
+
+    assert repo.get_device("home", "0x2") is not None
+    assert counter.stats.commit_count == 1
+    assert counter.stats.rollback_count == 0
     assert _locked(repo).transaction_depth == 0
     assert _raw(repo).in_transaction is False
 
