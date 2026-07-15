@@ -28,7 +28,13 @@ from zigbeelens.services.payload_builder import PayloadBuilder
 from zigbeelens.storage.repository import Repository
 from zigbeelens.topology.parser import ParsedTopology, ParsedTopologyLink, ParsedTopologyNode
 
-from .expected_baselines import EXPECTED_BASELINES, EXPECTED_PHASE_BASELINES, TRACK_3A_COMMIT_TOTALS
+from .expected_baselines import (
+    EXPECTED_BASELINES,
+    EXPECTED_PHASE_BASELINES,
+    TRACK_3A_COMMIT_TOTALS,
+    TRACK_3B_OPERATION_TOTALS,
+    TRACK_3B_PHASE_BASELINES,
+)
 from .query_instrumentation import OperationMeasurement, PhaseAccumulator, install_counter, measure_operation
 
 REFERENCE_TIME = datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)
@@ -476,11 +482,16 @@ def _seed_filter_after_limit_events(
 def _ingest(fx: PerfFixture, topic: str, payload: str) -> None:
     phases = getattr(fx, "phases", None)
 
-    def on_health(nid: str, _ieee: str | None) -> None:
+    def on_health(nid: str, ieee: str | None) -> None:
         if phases is not None:
             phases.on_callback_entry()
         try:
-            fx.coordinator.evaluate_network(nid, now=fx.clock.now())
+            if ieee:
+                fx.coordinator.evaluate_device(nid, ieee, now=fx.clock.now())
+            elif nid:
+                fx.coordinator.evaluate_network(nid, now=fx.clock.now())
+            else:
+                fx.coordinator.evaluate_all(now=fx.clock.now())
         finally:
             if phases is not None:
                 phases.on_callback_exit()
@@ -541,24 +552,31 @@ def _beast_inventory_refresh(fx: PerfFixture) -> None:
     assert fx.repo.count_devices() == 164
 
 
+def _payload_ingest(fx: PerfFixture) -> None:
+    # Target EndDevice at home index 5 — topic is deterministic; avoid an extra get_device
+    # lookup inside the measured window that would inflate Track 3B ingestion executes.
+    _ingest(
+        fx,
+        "z2m/home/home-Device-005",
+        json.dumps({"last_seen": REFERENCE_ISO, "linkquality": 99, "battery": 55}),
+    )
+
+
+def _availability_ingest(fx: PerfFixture) -> None:
+    # One availability transition on Home Device-002 (list_devices order index 2).
+    _ingest(
+        fx,
+        "z2m/home/home-Device-002/availability",
+        json.dumps({"state": "offline"}),
+    )
+
+
 def _operations() -> dict[str, tuple[str, Operation, bool]]:
     return {
-        "payload_ingestion": (
-            "compact",
-            lambda fx: _ingest(
-                fx,
-                "z2m/home/home-Device-001",
-                json.dumps({"last_seen": REFERENCE_ISO, "linkquality": 99, "battery": 55}),
-            ),
-            False,
-        ),
-        "availability_ingestion": (
-            "compact",
-            lambda fx: _ingest(
-                fx, "z2m/home/home-Device-002/availability", json.dumps({"state": "offline"})
-            ),
-            False,
-        ),
+        "payload_ingestion": ("compact", _payload_ingest, False),
+        "payload_ingestion_beast": ("beast", _payload_ingest, False),
+        "availability_ingestion": ("compact", _availability_ingest, False),
+        "availability_ingestion_beast": ("beast", _availability_ingest, False),
         "inventory_ingestion_compact": ("compact", _compact_inventory_refresh, False),
         "dashboard": ("compact", lambda fx: _builder(fx).dashboard(), True),
         "devices": ("compact", lambda fx: _builder(fx).devices(), True),
@@ -819,6 +837,7 @@ def test_markdown_baseline_table_matches_structured_snapshot():
     doc = Path("docs/performance-baseline.md").read_text(encoding="utf-8")
     labels = {
         "availability_ingestion": "Availability change ingestion",
+        "availability_ingestion_beast": "Availability change ingestion",
         "dashboard": "Dashboard composition",
         "dashboard_beast": "Dashboard composition",
         "device_detail": "Device detail",
@@ -830,6 +849,7 @@ def test_markdown_baseline_table_matches_structured_snapshot():
         "inventory_ingestion_beast": "Device inventory refresh",
         "inventory_ingestion_compact": "Device inventory refresh",
         "payload_ingestion": "Ordinary MQTT payload ingestion",
+        "payload_ingestion_beast": "Ordinary MQTT payload ingestion",
         "report_device": "Device report preview",
         "report_full": "Full report preview",
         "report_incident": "Incident report preview",
@@ -855,13 +875,21 @@ def test_markdown_baseline_table_matches_structured_snapshot():
     }
     for key, label in comparison_labels.items():
         track_3a = TRACK_3A_COMMIT_TOTALS[key]
-        track_3b_total = EXPECTED_PHASE_BASELINES[key]["total_commit_count"]
-        ingestion = EXPECTED_PHASE_BASELINES[key]["ingestion_commit_count"]
+        track_3b_total = TRACK_3B_PHASE_BASELINES[key]["total_commit_count"]
+        ingestion = TRACK_3B_PHASE_BASELINES[key]["ingestion_commit_count"]
         delta = track_3b_total - track_3a
-        row = (
-            f"| {label} | {track_3a} | {track_3b_total} | {ingestion} | {delta} |"
-        )
+        row = f"| {label} | {track_3a} | {track_3b_total} | {ingestion} | {delta} |"
         assert row in doc
+
+    track_3c_phase_labels = {
+        "payload_ingestion": "Compact payload",
+        "payload_ingestion_beast": "Beast payload",
+        "availability_ingestion": "Compact availability",
+        "availability_ingestion_beast": "Beast availability",
+        "inventory_ingestion_compact": "Compact inventory",
+        "inventory_ingestion_beast": "Beast inventory",
+    }
+    for key, label in track_3c_phase_labels.items():
         phase = EXPECTED_PHASE_BASELINES[key]
         phase_row = (
             f"| {label} | {phase['ingestion_execute_count']} | {phase['ingestion_commit_count']} | "
@@ -869,6 +897,21 @@ def test_markdown_baseline_table_matches_structured_snapshot():
             f"{phase['total_execute_count']} | {phase['total_commit_count']} |"
         )
         assert phase_row in doc
+
+    for key, label in (
+        ("payload_ingestion", "Compact payload"),
+        ("availability_ingestion", "Compact availability"),
+        ("inventory_ingestion_compact", "Compact inventory"),
+        ("inventory_ingestion_beast", "Beast inventory"),
+    ):
+        t3b = TRACK_3B_PHASE_BASELINES[key]
+        t3c = EXPECTED_PHASE_BASELINES[key]
+        delta = t3c["total_execute_count"] - t3b["total_execute_count"]
+        row = (
+            f"| {label} | {t3b['total_execute_count']} | {t3c['total_execute_count']} | "
+            f"{t3b['post_commit_execute_count']} | {t3c['post_commit_execute_count']} | {delta} |"
+        )
+        assert row in doc
 
 
 @pytest.mark.parametrize("operation_name", sorted(EXPECTED_PHASE_BASELINES))
@@ -889,16 +932,117 @@ def test_ingestion_phase_baselines(tmp_path: Path, operation_name: str):
         assert measured.total_execute_count == EXPECTED_BASELINES[operation_name]["execute_count"]
 
 
-def test_track_3a_commit_history_preserved():
+def test_track_3a_and_track_3b_history_preserved():
     assert TRACK_3A_COMMIT_TOTALS == {
         "payload_ingestion": 8,
         "availability_ingestion": 11,
         "inventory_ingestion_compact": 50,
         "inventory_ingestion_beast": 357,
     }
+    assert TRACK_3B_OPERATION_TOTALS == {
+        "payload_ingestion": {"execute_count": 90, "commit_count": 3},
+        "availability_ingestion": {"execute_count": 100, "commit_count": 8},
+        "inventory_ingestion_compact": {"execute_count": 136, "commit_count": 9},
+        "inventory_ingestion_beast": {"execute_count": 963, "commit_count": 27},
+    }
     for key, track_3a in TRACK_3A_COMMIT_TOTALS.items():
-        track_3b = EXPECTED_PHASE_BASELINES[key]["total_commit_count"]
-        ingestion = EXPECTED_PHASE_BASELINES[key]["ingestion_commit_count"]
+        track_3b = TRACK_3B_PHASE_BASELINES[key]["total_commit_count"]
+        ingestion = TRACK_3B_PHASE_BASELINES[key]["ingestion_commit_count"]
         assert track_3b < track_3a
         assert ingestion >= 1
+        assert TRACK_3B_OPERATION_TOTALS[key]["commit_count"] == track_3b
+        # Track 3C keeps Track 3B physical commit totals for these MQTT paths.
         assert EXPECTED_BASELINES[key]["commit_count"] == track_3b
+        assert EXPECTED_PHASE_BASELINES[key]["ingestion_commit_count"] == ingestion
+
+
+def test_incremental_target_event_query_shape_invariants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    list_devices_calls: list[str | None] = []
+    availability_keys: list[tuple[str, str]] = []
+    health_snapshot_keys: list[tuple[str, str | None]] = []
+    context_keys: list[tuple[str, str]] = []
+
+    original_list = Repository.list_devices
+    original_avail = Repository.count_availability_changes_in_window
+    original_latest = Repository.get_latest_health_snapshot
+    original_build = HealthDiagnosticService._build_context
+
+    def list_spy(repo, network_id=None):
+        list_devices_calls.append(network_id)
+        return original_list(repo, network_id)
+
+    def avail_spy(repo, network_id, ieee_address, window_hours):
+        availability_keys.append((network_id, ieee_address))
+        return original_avail(repo, network_id, ieee_address, window_hours)
+
+    def latest_spy(repo, scope, network_id, ieee_address=None):
+        health_snapshot_keys.append((network_id, ieee_address))
+        return original_latest(repo, scope, network_id, ieee_address)
+
+    def build_spy(service, row, bridge_state, network_updated_at=None):
+        context_keys.append((row.network_id, row.ieee_address))
+        return original_build(service, row, bridge_state, network_updated_at=network_updated_at)
+
+    monkeypatch.setattr(Repository, "list_devices", list_spy)
+    monkeypatch.setattr(Repository, "count_availability_changes_in_window", avail_spy)
+    monkeypatch.setattr(Repository, "get_latest_health_snapshot", latest_spy)
+    monkeypatch.setattr(HealthDiagnosticService, "_build_context", build_spy)
+
+    def run(name: str):
+        fixture_name, op, _readonly = _operations()[name]
+        with deterministic_fixture(tmp_path / name, fixture_name) as fx:
+            fx.assert_integrity()
+            list_devices_calls.clear()
+            availability_keys.clear()
+            health_snapshot_keys.clear()
+            context_keys.clear()
+            with _frozen_time():
+                measured = measure_operation(
+                    name, fixture_name, "warm", fx.counter.stats, lambda: op(fx)
+                )
+            return (
+                measured,
+                list(list_devices_calls),
+                list(availability_keys),
+                list(health_snapshot_keys),
+                list(context_keys),
+            )
+
+    compact, compact_lists, compact_avail, compact_health, compact_ctx = run("payload_ingestion")
+    beast, beast_lists, beast_avail, beast_health, beast_ctx = run("payload_ingestion_beast")
+
+    assert compact_lists == []
+    assert beast_lists == []
+    assert len(set(compact_avail)) == 1
+    assert len(set(beast_avail)) == 1
+    assert compact_avail[0][0] == "home"
+    assert beast_avail[0][0] == "home"
+    assert len(set(compact_ctx)) == 1
+    assert len(set(beast_ctx)) == 1
+    assert compact_ctx[0] == compact_avail[0]
+    assert beast_ctx[0] == beast_avail[0]
+    target_ieee = compact_avail[0][1]
+    assert set(ieee for _, ieee in compact_health) <= {target_ieee, None}
+    assert ("home", target_ieee) in compact_health
+    assert ("home", None) in compact_health
+    assert compact.category_counts["read.availability_changes"] == EXPECTED_BASELINES[
+        "payload_ingestion"
+    ]["category_counts"]["read.availability_changes"]
+    assert beast.category_counts["read.availability_changes"] == EXPECTED_BASELINES[
+        "payload_ingestion_beast"
+    ]["category_counts"]["read.availability_changes"]
+    assert compact.category_counts["read.health_snapshots"] == 3
+    assert beast.category_counts["read.health_snapshots"] == 3
+    # Beast must not pay ~144 extra per-device health classification reads.
+    assert beast.execute_count - compact.execute_count < 40
+    assert (
+        beast.category_counts["read.availability_changes"]
+        - compact.category_counts["read.availability_changes"]
+        < 5
+    )
+    assert (
+        beast.category_counts["read.health_snapshots"]
+        == compact.category_counts["read.health_snapshots"]
+    )

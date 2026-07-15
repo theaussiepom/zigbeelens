@@ -1,6 +1,6 @@
-# Track 3B atomic MQTT ingestion performance baseline
+# Track 3C incremental device evaluation performance baseline
 
-Base commit for Track 3A history: `09f10a8` (final merged Track 2 base). Track 3A instrumentation landed via `perf/query-baseline-instrumentation`. This document records **Track 3B current totals** after wrapping MQTT ingestion persistence in one `BEGIN IMMEDIATE` repository transaction, and preserves **Track 3A pre-transaction commit totals** for comparison.
+Base commit for Track 3A history: `09f10a8` (final merged Track 2 base). Track 3A instrumentation landed via `perf/query-baseline-instrumentation`. Track 3B atomic MQTT ingestion landed via `perf/atomic-mqtt-ingestion`. This document records **Track 3C current totals** after routing device-scoped MQTT events through incremental per-device health evaluation, and preserves **Track 3A / Track 3B history** for comparison.
 
 These are planning snapshots, not accepted performance budgets.
 
@@ -8,13 +8,19 @@ These are planning snapshots, not accepted performance budgets.
 
 Track 1 and Track 2 behaviour was confirmed before Track 3A changes: Device Story exposes `related_unresolved_incident_ids`, incident membership is separate from current-issue relevance, canonical coverage evidence is used, and EvaluationCoordinator owns coherent health → incident → dashboard sequencing.
 
-Track 3B preserves those semantics. Health and Dashboard callbacks still run only after the ingestion transaction physically commits. EvaluationCoordinator / incident persistence are not forced into the ingestion transaction.
+Track 3B preserved those semantics with one `BEGIN IMMEDIATE` ingestion transaction. Track 3C preserves them again: health and Dashboard callbacks still run only after the ingestion transaction physically commits; incident correlation still consumes a complete estate snapshot universe; Device Story and Mesh current-issue relevance remain independently current facts.
+
+## Consistency rule
+
+> Device events update their target immediately. Time-only changes for unrelated devices are reconciled by the bounded periodic full-estate evaluation.
+
+The existing 300-second periodic full-estate evaluation remains the correctness backstop. Track 3C does not add a debounce timer, background evaluation worker, queue, or asynchronous scheduler.
 
 ## Measurement method
 
 Measurements use pytest temporary SQLite databases only. The active ZigbeeLens database is not read, copied, migrated, reset, or deleted. Each operation is measured against a fresh deterministic fixture, warmed intentionally with `EvaluationCoordinator`, wrapped in a frozen request-time clock at `2026-07-15T12:00:00+00:00`, reset to zero query counters, and then executed exactly once. Classification records the primary statement/table category selected from the normalized SQL shape; it does not attempt to count every joined table as a separate category. Top repeated statements are normalized and contain no bound values.
 
-Physical transaction counting rules for Track 3B:
+Physical transaction counting rules:
 
 - `execute_count` excludes the raw `BEGIN IMMEDIATE` statement;
 - physical commits and rollbacks are counted separately via observers;
@@ -45,22 +51,40 @@ Historical Track 3A totals counted every repository `commit()` call, including d
 
 Beast inventory performs two MQTT ingestion transactions (Home then Office), so ingestion commits are 2.
 
-## Track 3B ingestion vs post-commit phases
+## Track 3B → Track 3C execute comparison
+
+Track 3C keeps Track 3B ingestion-transaction commit counts unchanged for payload and availability. Post-commit cost drops because device-scoped events reclassify only the target device and recompute network/bridge aggregates from the cached estate snapshot.
+
+| Operation | Track 3B total | Track 3C total | Track 3B post-commit | Track 3C post-commit | Delta |
+|---|---:|---:|---:|---:|---:|
+| Compact payload | 90 | 36 | 83 | 29 | -54 |
+| Compact availability | 100 | 46 | 94 | 40 | -54 |
+| Beast payload | — | 62 | — | 55 | — |
+| Beast availability | — | 75 | — | 69 | — |
+| Compact inventory | 136 | 136 | 93 | 93 | 0 |
+| Beast inventory | 963 | 963 | 629 | 629 | 0 |
+
+Beast payload/availability target-event baselines are new in Track 3C. Compact and Beast inventory paths still call full-network evaluation and therefore keep Track 3B totals.
+
+## Track 3C ingestion vs post-commit phases
 
 Counters are captured at health-callback entry. At that point the ingestion transaction has already physically committed. Post-commit work is EvaluationCoordinator / incident persistence and any trailing assertion reads included in the measured operation.
 
 | Operation | Ingestion executes | Ingestion commits | Post-commit executes | Post-commit commits | Total executes | Total commits |
 |---|---:|---:|---:|---:|---:|---:|
-| Payload | 7 | 1 | 83 | 2 | 90 | 3 |
-| Availability | 6 | 1 | 94 | 7 | 100 | 8 |
+| Compact payload | 7 | 1 | 29 | 2 | 36 | 3 |
+| Beast payload | 7 | 1 | 55 | 2 | 62 | 3 |
+| Compact availability | 6 | 1 | 40 | 7 | 46 | 8 |
+| Beast availability | 6 | 1 | 69 | 7 | 75 | 8 |
 | Compact inventory | 43 | 1 | 93 | 8 | 136 | 9 |
 | Beast inventory | 334 | 2 | 629 | 25 | 963 | 27 |
 
-## Track 3B total baseline table
+## Track 3C total baseline table
 
 | Operation | Fixture | State | Executes | Executemany | Commits | Rollbacks | Other | Top repeated category |
 |---|---|---|---:|---:|---:|---:|---:|---|
-| Availability change ingestion | compact | warm | 100 | 0 | 8 | 0 | 0 | read.health_snapshots (22) |
+| Availability change ingestion | compact | warm | 46 | 0 | 8 | 0 | 0 | transaction.commit (8) |
+| Availability change ingestion | beast | warm | 75 | 0 | 8 | 0 | 0 | read.incidents (10) |
 | Dashboard composition | compact | warm | 328 | 0 | 0 | 0 | 0 | read.incident_devices (88) |
 | Dashboard composition | beast | warm | 3467 | 0 | 0 | 0 | 0 | read.incident_devices (2184) |
 | Device detail | compact | warm | 57 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
@@ -69,9 +93,10 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 | EvidenceGraphService.build | compact | warm | 99 | 0 | 0 | 0 | 0 | read.schema (27) |
 | Incident detail | compact | warm | 62 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
 | Incident list | compact | warm | 97 | 0 | 0 | 0 | 0 | read.devices (23) |
-| Device inventory refresh | beast | warm | 963 | 0 | 27 | 0 | 0 | transaction.commit (27) |
-| Device inventory refresh | compact | warm | 136 | 0 | 9 | 0 | 0 | transaction.commit (9) |
-| Ordinary MQTT payload ingestion | compact | warm | 90 | 0 | 3 | 0 | 0 | read.health_snapshots (22) |
+| Device inventory refresh | beast | warm | 963 | 0 | 27 | 0 | 0 | read.availability_changes (168) |
+| Device inventory refresh | compact | warm | 136 | 0 | 9 | 0 | 0 | read.health_snapshots (22) |
+| Ordinary MQTT payload ingestion | compact | warm | 36 | 0 | 3 | 0 | 0 | read.schema (4) |
+| Ordinary MQTT payload ingestion | beast | warm | 62 | 0 | 3 | 0 | 0 | read.incidents (10) |
 | Device report preview | compact | warm | 510 | 0 | 0 | 0 | 0 | read.incident_devices (110) |
 | Full report preview | compact | warm | 798 | 0 | 0 | 0 | 0 | read.incident_devices (182) |
 | Incident report preview | compact | warm | 639 | 0 | 0 | 0 | 0 | read.incident_devices (128) |
@@ -81,11 +106,19 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 
 ### availability_ingestion
 
-- 20× `SELECT COUNT(*) FROM availability_changes WHERE network_id = ? AND ieee_address = ? AND changed_at >= ?`
-- 20× `SELECT primary_health, severity, confidence, summary, flags_json, evidence_json, counter_evidence_json, limitations_json, captured_at FROM health_snapshots WHERE scope = ? AND network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
-- 9× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 5× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
-- 4× `SELECT target_ieee FROM topology_links WHERE snapshot_id = ? AND source_ieee = ?`
+- 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 3× `INSERT INTO events ( id, network_id, ieee_address, event_type, severity, title, summary, incident_id, payload_json, occurred_at ) VALUES (?)`
+- 3× `SELECT source_ieee FROM topology_links WHERE snapshot_id = ? AND target_ieee = ? LIMIT ?`
+- 3× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
+- 3× `INSERT INTO incident_devices (incident_id, network_id, ieee_address, role) VALUES (?)`
+
+### availability_ingestion_beast
+
+- 9× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?`
+- 9× `SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ?`
+- 9× `INSERT INTO incident_devices (incident_id, network_id, ieee_address, role) VALUES (?)`
+- 7× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
 
 ### dashboard
 
@@ -169,11 +202,19 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 
 ### payload_ingestion
 
-- 20× `SELECT COUNT(*) FROM availability_changes WHERE network_id = ? AND ieee_address = ? AND changed_at >= ?`
-- 20× `SELECT primary_health, severity, confidence, summary, flags_json, evidence_json, counter_evidence_json, limitations_json, captured_at FROM health_snapshots WHERE scope = ? AND network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
-- 8× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 5× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
-- 5× `SELECT friendly_name FROM topology_nodes WHERE snapshot_id = ? AND ieee_address = ?`
+- 4× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 2× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?`
+- 2× `INSERT INTO metric_samples (network_id, ieee_address, metric_name, metric_value, sampled_at) VALUES (?)`
+- 2× `INSERT INTO events ( id, network_id, ieee_address, event_type, severity, title, summary, incident_id, payload_json, occurred_at ) VALUES (?)`
+- 2× `SELECT primary_health, severity, confidence, summary, flags_json, evidence_json, counter_evidence_json, limitations_json, captured_at FROM health_snapshots WHERE scope = ? AND network_id = ? AND ieee_address IS NULL ORDER BY captured_at DESC LIMIT ?`
+
+### payload_ingestion_beast
+
+- 9× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?`
+- 9× `SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ?`
+- 7× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
+- 3× `SELECT friendly_name FROM topology_nodes WHERE snapshot_id = ? AND ieee_address = ?`
 
 ### report_device
 
@@ -214,8 +255,8 @@ The Beast fixture seeds more than 20 newer unrelated Home network events plus `o
 - `list_events_for_device(network_id: str, ieee_address: str, *, limit: int) -> list[dict]`
 - `list_events_for_incident(incident_id: str, *, limit: int) -> list[dict]`
 
-Track 3A/3B do not fix those production queries.
+Track 3A/3B/3C do not fix those production queries.
 
 ## Limitations and next scope
 
-Exact values are snapshots for planning only, not budgets. Track 3C may use these measurements to scope query fixes and batching work without changing Decision or Incident semantics. Track 3B does not reduce full-network evaluation, coalesce evaluations, batch inventory SQL, or transaction-wrap health/incident writes with ingestion.
+Exact values are snapshots for planning only, not budgets. Track 3C reduces post-commit full-network reclassification for device-scoped MQTT events. It does not batch Dashboard reads, coalesce evaluations, transaction-wrap health/incident writes with ingestion, or start Track 3D query-shape work.

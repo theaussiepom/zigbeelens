@@ -73,6 +73,7 @@ class MqttIngestionService:
             "device_payload_seen",
             "device_availability_seen",
             "device_availability_changed",
+            "device_interview_started",
             "device_interview_success",
             "device_interview_failed",
         }:
@@ -233,16 +234,42 @@ class MqttIngestionService:
         event.ieee_address = device.ieee_address
 
     def _handle_bridge_device_event(self, event: NormalizedMqttEvent) -> None:
-        if event.ieee_address and event.friendly_name:
-            self.repo.upsert_device(
-                network_id=event.network_id,
-                ieee_address=event.ieee_address,
-                friendly_name=event.friendly_name,
-                device_type="Unknown",
-                power_source="Unknown",
-                interview_state="unknown",
-            )
-            self.repo.ensure_device_current_state(event.network_id, event.ieee_address)
+        if not event.ieee_address:
+            return
+        interview_by_event = {
+            "device_interview_started": "in_progress",
+            "device_interview_success": "successful",
+            "device_interview_failed": "failed",
+        }
+        existing = self.repo.get_device(event.network_id, event.ieee_address)
+        if existing is not None:
+            friendly_name = event.friendly_name or existing.friendly_name
+            device_type = existing.device_type
+            power_source = existing.power_source
+            manufacturer = existing.manufacturer
+            model = existing.model
+            if event.event_type in interview_by_event:
+                interview_state = interview_by_event[event.event_type]
+            else:
+                interview_state = existing.interview_state
+        else:
+            friendly_name = event.friendly_name or event.ieee_address
+            device_type = "Unknown"
+            power_source = "Unknown"
+            manufacturer = None
+            model = None
+            interview_state = interview_by_event.get(event.event_type, "unknown")
+        self.repo.upsert_device(
+            network_id=event.network_id,
+            ieee_address=event.ieee_address,
+            friendly_name=friendly_name,
+            device_type=device_type,
+            power_source=power_source,
+            manufacturer=manufacturer,
+            model=model,
+            interview_state=interview_state,
+        )
+        self.repo.ensure_device_current_state(event.network_id, event.ieee_address)
 
     def _handle_bridge_log(self, event: NormalizedMqttEvent) -> None:
         return

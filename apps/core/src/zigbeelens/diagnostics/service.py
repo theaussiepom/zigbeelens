@@ -98,6 +98,7 @@ class HealthDiagnosticService:
             for network in self.repo.list_networks()
             if (snapshot := self._build_network_snapshot(network.id, now=now)) is not None
         ]
+        snapshots.sort(key=lambda snapshot: snapshot.network_id)
         self._publish_estate_cache(snapshots)
         return snapshots
 
@@ -106,6 +107,98 @@ class HealthDiagnosticService:
         if snapshot is not None:
             self._publish_network_cache(snapshot)
         return snapshot
+
+    def evaluate_device_from_snapshot(
+        self,
+        snapshot: NetworkEvaluationSnapshot,
+        ieee_address: str,
+        *,
+        now: datetime,
+    ) -> NetworkEvaluationSnapshot | None:
+        """Reclassify one target device against a complete cached network snapshot.
+
+        Returns a new complete snapshot when incremental evaluation is valid.
+        Returns None when a full-network rebuild is required instead.
+        """
+        expected_keys = {
+            (snapshot.network_id, row.ieee_address) for row in snapshot.devices
+        }
+        if set(snapshot.device_results) != expected_keys:
+            return None
+
+        network = self.repo.get_network(snapshot.network_id)
+        if network is None:
+            return None
+        target = self.repo.get_device(snapshot.network_id, ieee_address)
+        if target is None:
+            return None
+        target_index = next(
+            (
+                index
+                for index, row in enumerate(snapshot.devices)
+                if row.ieee_address == ieee_address
+            ),
+            None,
+        )
+        if target_index is None:
+            return None
+
+        ts = utc_iso(now)
+        network_updated_at = self._network_updated_at(snapshot.network_id)
+        ctx = self._build_context(target, network.bridge_state)
+        ctx.network_updated_at = network_updated_at
+        result = classify_device(ctx, self.config.diagnostics, now=now)
+        result.updated_at = ts
+
+        devices = list(snapshot.devices)
+        devices[target_index] = target
+        device_results = dict(snapshot.device_results)
+        device_results[(snapshot.network_id, ieee_address)] = result
+
+        ordered_results = [
+            device_results[(snapshot.network_id, row.ieee_address)] for row in devices
+        ]
+        router_pairs = [
+            (row.ieee_address, device_results[(snapshot.network_id, row.ieee_address)])
+            for row in devices
+            if row.device_type == "Router"
+        ]
+        net_health, bridge_health = classify_network(
+            network_id=snapshot.network_id,
+            bridge_state=network.bridge_state,
+            network_updated_at=network_updated_at,
+            last_mqtt_activity_at=self._network_last_mqtt_activity_at(snapshot.network_id),
+            device_health=ordered_results,
+            router_devices=router_pairs,
+            config=self.config.diagnostics,
+            now=now,
+        )
+        net_health.updated_at = ts
+        bridge_health.updated_at = ts
+
+        changed = self._persist_device_health(
+            (snapshot.network_id, ieee_address), result, captured_at=ts
+        )
+        changed = (
+            self._persist_network_health(
+                snapshot.network_id, net_health, bridge_health, captured_at=ts
+            )
+            or changed
+        )
+
+        updated = NetworkEvaluationSnapshot(
+            network_id=snapshot.network_id,
+            network_name=network.name,
+            bridge_state=network.bridge_state,
+            evaluated_at=now,
+            devices=tuple(devices),
+            device_results=MappingProxyType(device_results),
+            network_result=net_health,
+            bridge_result=bridge_health,
+            health_changed=changed,
+        )
+        self._publish_network_cache(updated)
+        return updated
 
     def _build_network_snapshot(self, network_id: str, *, now: datetime) -> NetworkEvaluationSnapshot | None:
         network = self.repo.get_network(network_id)

@@ -124,10 +124,10 @@ def _normalize_bridge_devices(classification, parsed, redacted, message) -> list
 def _normalize_bridge_event(classification, parsed, redacted, message) -> list[NormalizedMqttEvent]:
     data = parsed if isinstance(parsed, dict) else {}
     event_type = str(data.get("type", "unknown_bridge_event"))
-    ieee = data.get("data", {}).get("ieee_address") if isinstance(data.get("data"), dict) else data.get("ieee_address")
-    friendly = None
-    if isinstance(data.get("data"), dict):
-        friendly = data["data"].get("friendly_name")
+    nested = data.get("data") if isinstance(data.get("data"), dict) else {}
+    ieee = nested.get("ieee_address") if nested else data.get("ieee_address")
+    friendly = nested.get("friendly_name") if nested else None
+    status = str(nested.get("status") or "").lower()
     mapping = {
         "device_joined": "device_joined",
         "device_announce": "device_announced",
@@ -140,6 +140,14 @@ def _normalize_bridge_event(classification, parsed, redacted, message) -> list[N
         normalized_type = "device_interview_failed"
     elif "interview" in event_type and "successful" in event_type:
         normalized_type = "device_interview_success"
+    elif event_type in {"device_interview", "pairing"} or "interview" in event_type:
+        if status == "failed":
+            normalized_type = "device_interview_failed"
+        elif status == "successful":
+            normalized_type = "device_interview_success"
+        else:
+            # in_progress, absent, or unknown status starts/continues interview.
+            normalized_type = "device_interview_started"
     return [
         NormalizedMqttEvent(
             event_type=normalized_type,

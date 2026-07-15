@@ -35,7 +35,9 @@ def start_collector(ctx: AppContext, broadcaster: EventBroadcaster) -> MqttColle
     def on_health_recalc(network_id: str, ieee_address: str | None = None) -> None:
         if ctx.evaluation is None:
             return
-        if network_id:
+        if ieee_address:
+            ctx.evaluation.evaluate_device(network_id, ieee_address)
+        elif network_id:
             ctx.evaluation.evaluate_network(network_id)
         else:
             ctx.evaluation.evaluate_all()
