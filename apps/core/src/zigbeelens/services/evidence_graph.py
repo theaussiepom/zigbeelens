@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from zigbeelens.decisions.topology_facts import (
@@ -24,8 +25,6 @@ from zigbeelens.topology.investigations import aggregate_investigations
 from zigbeelens.topology.passive_hints import aggregate_passive_hints
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from zigbeelens.storage.repository import Repository
 
 
@@ -98,7 +97,7 @@ class EvidenceGraphService:
             passive=passive,
         )
 
-    def build(self, network_id: str) -> dict:
+    def build(self, network_id: str, *, now: datetime | None = None) -> dict:
         """Graph-ready topology evidence: latest snapshot plus aggregated
         recent-missing (historical) neighbour/route evidence.
 
@@ -118,6 +117,10 @@ class EvidenceGraphService:
         problem-first cards built only from the evidence above — investigation
         priorities, never root-cause, routing or parentage claims.
 
+        ``now`` is optional and only affects the recent-history window used for
+        historical neighbour/route aggregation. When omitted, wall-clock UTC
+        is used.
+
         This service backs the public evidence-graph endpoint. Its returned
         dict is an API contract; keep response-shape changes intentional and
         covered by API parity tests.
@@ -130,7 +133,7 @@ class EvidenceGraphService:
         latest = topology.get_latest_topology_snapshot(network_id)
         nodes = topology.list_topology_nodes(latest["snapshot_id"]) if latest else []
         links = topology.list_topology_links(latest["snapshot_id"]) if latest else []
-        history = aggregate_historical_evidence(self._repo, network_id)
+        history = aggregate_historical_evidence(self._repo, network_id, now=now)
         last_known = aggregate_last_known_links(self._repo, network_id)
         passive = aggregate_passive_hints(self._repo, network_id)
         device_stats = aggregate_device_stats(self._repo, network_id)
@@ -205,7 +208,7 @@ class EvidenceGraphService:
         now: datetime | None = None,
     ) -> dict:
         """Evidence graph payload with network topology facts attached."""
-        body = self.build(network_id)
+        body = self.build(network_id, now=now)
         body["topology_facts"] = compose_network_topology_facts_payload(
             self,
             self._repo,
@@ -231,7 +234,7 @@ class EvidenceGraphService:
         ``latest_snapshot_stale`` facts are required. When omitted, snapshot
         age is not compared against any implicit product default.
         """
-        graph = evidence_graph if evidence_graph is not None else self.build(network_id)
+        graph = evidence_graph if evidence_graph is not None else self.build(network_id, now=now)
         return build_topology_facts_from_evidence_graph(
             network_id=network_id,
             evidence_graph=graph,

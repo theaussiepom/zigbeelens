@@ -172,7 +172,7 @@ def test_network_facts_no_route_hints(tmp_path: Path):
         captured_at=NOW,
         links=[{"source": "0x02", "target": "0x01", "linkquality": 90}],
     )
-    body = EvidenceGraphService(repo).build("home")
+    body = EvidenceGraphService(repo).build("home", now=NOW)
 
     facts = build_network_topology_facts(
         latest_snapshot=body["latest_snapshot"],
@@ -199,7 +199,7 @@ def test_network_facts_last_known_links_available(tmp_path: Path):
         captured_at=NOW - timedelta(hours=1),
         links=[{"source": "0x02", "target": "0x01", "linkquality": 120}],
     )
-    body = EvidenceGraphService(repo).build("home")
+    body = EvidenceGraphService(repo).build("home", now=NOW)
 
     facts = build_network_topology_facts(
         latest_snapshot=body["latest_snapshot"],
@@ -397,7 +397,7 @@ def test_build_topology_facts_from_evidence_graph(tmp_path: Path):
             }
         ],
     )
-    body = EvidenceGraphService(repo).build("home")
+    body = EvidenceGraphService(repo).build("home", now=NOW)
     history = device_snapshot_history(repo, "home", "0x02")
 
     grouped = build_topology_facts_from_evidence_graph(

@@ -74,7 +74,7 @@ def compose_device_topology_facts_payload(
     stale_after_hours: int | None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    evidence_graph = service.build(network_id)
+    evidence_graph = service.build(network_id, now=now)
     device_key = normalize_device_ieee(device_ieee)
     facts = build_topology_facts_from_evidence_graph(
         network_id=network_id,
