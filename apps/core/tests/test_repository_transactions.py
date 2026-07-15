@@ -107,6 +107,36 @@ def test_repository_transaction_defers_internal_commits_and_commits_once(tmp_pat
     assert repo.get_device("home", "0x1").linkquality == 80  # type: ignore[union-attr]
 
 
+class ForcedAbort(BaseException):
+    pass
+
+
+def test_base_exception_rolls_back_transaction(tmp_path: Path):
+    repo, _config = _repo(tmp_path)
+    counter = install_counter(repo)
+    counter.reset()
+
+    with pytest.raises(ForcedAbort):
+        with repo.transaction():
+            repo.upsert_device(
+                network_id="home",
+                ieee_address="0x1",
+                friendly_name="Plug",
+                device_type="Router",
+                power_source="Mains",
+                manufacturer=None,
+                model=None,
+                interview_state="successful",
+            )
+            raise ForcedAbort()
+
+    assert repo.get_device("home", "0x1") is None
+    assert counter.stats.commit_count == 0
+    assert counter.stats.rollback_count == 1
+    assert _locked(repo).transaction_depth == 0
+    assert _raw(repo).in_transaction is False
+
+
 def test_nested_exception_rolls_back_complete_outer_transaction(tmp_path: Path):
     repo, _config = _repo(tmp_path)
     counter = install_counter(repo)

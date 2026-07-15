@@ -184,7 +184,7 @@ class LockedSQLiteConnection:
         failed = False
         try:
             yield
-        except Exception:
+        except BaseException:
             failed = True
             self._state.rollback_only = True
             raise
