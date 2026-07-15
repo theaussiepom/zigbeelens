@@ -177,8 +177,9 @@ def test_bridge_stale_not_incident_when_devices_active(tmp_path: Path):
     repo.update_device_current_state(
         network_id="home", ieee_address="0x1", last_payload_at=utc_now_iso()
     )
-    health.recalculate_all()
-    incidents.correlate_and_sync(health)
+    now = datetime.now(timezone.utc)
+    snapshots = health.evaluate_all(now=now)
+    incidents.correlate_and_sync(snapshots, now=now)
     assert repo.list_active_incidents() == []
 
 
@@ -194,8 +195,9 @@ def test_bridge_stale_incident_when_no_mqtt_activity(tmp_path: Path):
     old = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
     repo.db.conn.execute("UPDATE networks SET updated_at = ? WHERE id = 'home'", (old,))
     repo.db.conn.commit()
-    health.recalculate_all()
-    incidents.correlate_and_sync(health)
+    now = datetime.now(timezone.utc)
+    snapshots = health.evaluate_all(now=now)
+    incidents.correlate_and_sync(snapshots, now=now)
     active = repo.list_active_incidents()
     assert len(active) == 1
     assert active[0]["incident_type"] == IncidentType.bridge_offline.value
@@ -294,8 +296,9 @@ def test_bridge_offline_suppresses_device_incidents(tmp_path: Path):
     repo.update_network_bridge_state("home", "offline")
     _seed_device(repo, "0x1", "plug", availability="offline")
     _offline_transition(repo, "0x1")
-    health.recalculate_all()
-    incidents.correlate_and_sync(health)
+    now = datetime.now(timezone.utc)
+    snapshots = health.evaluate_all(now=now)
+    incidents.correlate_and_sync(snapshots, now=now)
     types = {row["incident_type"] for row in repo.list_active_incidents()}
     assert IncidentType.bridge_offline.value in types
     assert IncidentType.single_device_unavailable.value not in types
@@ -313,10 +316,11 @@ def test_mqtt_single_device_incident(tmp_path: Path):
 
     def on_recalc(nid: str, ieee: str | None = None) -> None:
         if ieee:
-            health.recalculate_device(nid, ieee)
+            snapshots = [health.evaluate_network(nid, now=datetime.now(timezone.utc))]
         else:
-            health.recalculate_network(nid)
-        incidents.correlate_and_sync(health)
+            snapshots = [health.evaluate_network(nid, now=datetime.now(timezone.utc))]
+        snapshots = [snapshot for snapshot in snapshots if snapshot is not None]
+        incidents.correlate_and_sync(snapshots, now=datetime.now(timezone.utc))
 
     ingestion = MqttIngestionService(config, repo, on_health_recalc=on_recalc)
     collector = build_collector(config, repo, ingestion, client=None)
@@ -356,10 +360,11 @@ def test_correlated_incident_integration(tmp_path: Path):
     repo.sync_networks(config.networks)
     def on_recalc(nid: str, ieee: str | None = None) -> None:
         if ieee:
-            health.recalculate_device(nid, ieee)
+            snapshots = [health.evaluate_network(nid, now=datetime.now(timezone.utc))]
         else:
-            health.recalculate_network(nid)
-        incidents.correlate_and_sync(health)
+            snapshots = [health.evaluate_network(nid, now=datetime.now(timezone.utc))]
+        snapshots = [snapshot for snapshot in snapshots if snapshot is not None]
+        incidents.correlate_and_sync(snapshots, now=datetime.now(timezone.utc))
 
     ingestion = MqttIngestionService(config, repo, on_health_recalc=on_recalc)
     collector = build_collector(config, repo, ingestion, client=None)

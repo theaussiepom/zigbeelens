@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from zigbeelens.diagnostics.bridge_health import classify_bridge
+from zigbeelens.diagnostics.clock import utc_iso
 from zigbeelens.diagnostics.models import (
     BridgeHealthResult,
     HealthConfidence,
@@ -26,13 +27,15 @@ def classify_network(
     device_health: list[HealthResult],
     router_devices: list[tuple[str, HealthResult]],
     config: DiagnosticsConfig,
+    now: datetime | None = None,
 ) -> tuple[NetworkHealthResult, BridgeHealthResult]:
-    now = datetime.now(timezone.utc).isoformat()
+    reference_now = now or datetime.now(timezone.utc)
     bridge = classify_bridge(
         bridge_state=bridge_state,
         last_updated_at=network_updated_at,
         last_mqtt_activity_at=last_mqtt_activity_at,
         config=config,
+        now=reference_now,
     )
 
     unavailable = sum(1 for h in device_health if HealthFlag.unavailable in h.flags)
@@ -95,5 +98,5 @@ def classify_network(
         weak_link_count=weak,
         low_battery_count=low_bat,
         unknown_count=unknown,
-        updated_at=now,
+        updated_at=utc_iso(reference_now),
     ), bridge

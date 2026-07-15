@@ -134,6 +134,7 @@ def test_incidents_batch_compose_unique_device_rows_once(tmp_path: Path):
     _link_device(repo, "inc-3", "0xa4")
 
     health = HealthDiagnosticService(config, repo)
+    health.clock = MagicMock(now=lambda: REF_NOW)
     health.recalculate_all()
     spy = MagicMock(wraps=device_decision_badges_for_devices)
     with pytest.MonkeyPatch.context() as mp:
@@ -330,7 +331,12 @@ def test_single_incident_batches_affected_devices_once(tmp_path: Path):
 
 def test_resolved_incident_preserves_stored_fields_and_current_decision(tmp_path: Path):
     repo, config = _repo(tmp_path)
-    _add_device(repo, "0xa1", availability="online")
+    _add_device(
+        repo,
+        "0xa1",
+        availability="online",
+        last_seen=REF_NOW + timedelta(days=10),
+    )
     _insert_incident(
         repo,
         "inc-resolved",
@@ -348,6 +354,7 @@ def test_resolved_incident_preserves_stored_fields_and_current_decision(tmp_path
     _link_device(repo, "inc-resolved", "0xa1")
 
     health = HealthDiagnosticService(config, repo)
+    health.clock = MagicMock(now=lambda: REF_NOW)
     health.recalculate_all()
     incident = PayloadBuilder(config, repo, health).incident("inc-resolved")
     assert incident is not None

@@ -8,7 +8,7 @@ from zigbeelens.config.models import AppConfig
 from zigbeelens.diagnostics.incidents.correlator import IncidentCorrelationEngine
 from zigbeelens.diagnostics.incidents.lifecycle import IncidentLifecycleManager
 from zigbeelens.diagnostics.incidents.models import IncidentLifecycle
-from zigbeelens.diagnostics.service import HealthDiagnosticService
+from zigbeelens.diagnostics.service import HealthDiagnosticService, NetworkEvaluationSnapshot
 from zigbeelens.schemas import (
     Confidence,
     DiagnosticConclusion,
@@ -36,9 +36,9 @@ class IncidentDiagnosticService:
         self._engine = IncidentCorrelationEngine(config, repo)
         self._lifecycle = IncidentLifecycleManager(config, repo)
 
-    def correlate_and_sync(self, health: HealthDiagnosticService) -> list[str]:
-        candidates = self._engine.correlate(health)
-        events = self._lifecycle.sync(candidates)
+    def correlate_and_sync(self, snapshots: list[NetworkEvaluationSnapshot], *, now) -> list[str]:
+        candidates = self._engine.correlate(snapshots, now=now)
+        events = self._lifecycle.sync(candidates, now=now)
         if events and self._on_update:
             for event in events:
                 self._on_update(event)

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from zigbeelens.config import AppConfig, ConfigError, load_config
 from zigbeelens.db.connection import Database
+from zigbeelens.diagnostics.coordinator import EvaluationCoordinator, PeriodicEvaluationScheduler
 from zigbeelens.diagnostics.incidents.service import IncidentDiagnosticService
 from zigbeelens.diagnostics.service import HealthDiagnosticService
 from zigbeelens.mqtt.events import EventBroadcaster
@@ -36,6 +37,8 @@ class AppContext:
     health: HealthDiagnosticService
     incidents: IncidentDiagnosticService
     broadcaster: EventBroadcaster
+    evaluation: EvaluationCoordinator | None = None
+    evaluation_scheduler: PeriodicEvaluationScheduler | None = None
     collector: MqttCollector | None = None
     discovery: MqttDiscoveryService | None = None
     dashboard_scheduler: DashboardPublishScheduler | None = None
@@ -48,11 +51,13 @@ class AppContext:
         return int(time.time() - self.started_at)
 
     def close(self) -> None:
+        stop_topology()
+        stop_collector(self.collector, self.broadcaster)
+        if self.evaluation_scheduler is not None:
+            self.evaluation_scheduler.stop(wait=True)
         if self.dashboard_scheduler is not None:
             self.dashboard_scheduler.cancel()
-        stop_topology()
         stop_discovery(self.discovery)
-        stop_collector(self.collector, self.broadcaster)
         self.db.close()
 
 
@@ -61,6 +66,10 @@ _context: AppContext | None = None
 
 def _schedule_dashboard(ctx: AppContext, event_type: str) -> None:
     ctx.broadcaster.publish_sync(event_type, {"type": event_type})
+    _schedule_dashboard_only(ctx)
+
+
+def _schedule_dashboard_only(ctx: AppContext) -> None:
     if ctx.dashboard_scheduler is not None:
         ctx.dashboard_scheduler.schedule()
         return
@@ -106,26 +115,27 @@ def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -
         migration_version=migration_version,
     )
 
-    def incident_callback(event_type: str) -> None:
-        _on_incident_update(ctx, event_type)
+    incidents = IncidentDiagnosticService(cfg, repo, on_update=None)
 
-    incidents = IncidentDiagnosticService(cfg, repo, on_update=incident_callback)
-
-    def health_callback(event_type: str) -> None:
-        ctx.incidents.correlate_and_sync(ctx.health)
-        _on_health_update(ctx, event_type)
-
-    health = HealthDiagnosticService(cfg, repo, on_update=health_callback)
+    health = HealthDiagnosticService(cfg, repo, on_update=None)
     ctx.health = health
     ctx.incidents = incidents
-    ctx.data = DataService(cfg, repo, health, incidents)
+    ctx.evaluation = EvaluationCoordinator(
+        health,
+        incidents,
+        on_event=lambda event_type: ctx.broadcaster.publish_sync(event_type, {"type": event_type}),
+        on_dashboard_required=lambda: _schedule_dashboard_only(ctx),
+    )
+    ctx.data = DataService(cfg, repo, health, incidents, ctx.evaluation)
     if repo.has_collected_data():
-        health.recalculate_all()
-        incidents.correlate_and_sync(health)
+        ctx.evaluation.evaluate_all()
 
     ctx.collector = start_collector(ctx, broadcaster)
     ctx.discovery = start_discovery(ctx)
     start_topology(ctx)
+    ctx.evaluation_scheduler = PeriodicEvaluationScheduler(ctx.evaluation) if ctx.evaluation else None
+    if ctx.evaluation_scheduler is not None and not cfg.mode.mock:
+        ctx.evaluation_scheduler.start()
     _context = ctx
     logger.info(
         "ZigbeeLens ready (mock=%s, collector=%s, db=%s, migration=%d)",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Protocol
 
 from zigbeelens.config.models import AppConfig
 from zigbeelens.diagnostics.incidents.service import IncidentDiagnosticService
@@ -62,6 +63,17 @@ from zigbeelens.storage.repository import DeviceRow, Repository, utc_now_iso
 from zigbeelens.util.json_helpers import parse_json_list
 
 
+class EvaluationAccess(Protocol):
+    def evaluate_all(self, *, now: datetime | None = None) -> object: ...
+
+    def evaluate_network(
+        self,
+        network_id: str,
+        *,
+        now: datetime | None = None,
+    ) -> object: ...
+
+
 def _parse_json_list(raw: str | None) -> list:
     return parse_json_list(raw)
 
@@ -98,17 +110,21 @@ class PayloadBuilder:
         repo: Repository,
         health: HealthDiagnosticService | None = None,
         incidents: IncidentDiagnosticService | None = None,
+        evaluation: EvaluationAccess | None = None,
     ) -> None:
         self.config = config
         self.repo = repo
         self.health = health
         self._incident_service = incidents
+        self._evaluation = evaluation
 
     def _ensure_health(self) -> HealthDiagnosticService | None:
         if self.health is None:
             return None
-        if not self.health.all_device_health() and self.repo.has_collected_data():
-            self.health.recalculate_all()
+        if self._evaluation is not None and self.repo.has_collected_data():
+            network_ids = [network.id for network in self.repo.list_networks()]
+            if not self.health.has_complete_network_cache(network_ids):
+                self._evaluation.evaluate_all()
         return self.health
 
     def dashboard(self) -> DashboardPayload:
@@ -419,8 +435,9 @@ class PayloadBuilder:
             if health_svc
             else None
         )
-        if result is None and health_svc:
-            result = health_svc.recalculate_device(row.network_id, row.ieee_address)
+        if result is None and health_svc and self._evaluation is not None:
+            self._evaluation.evaluate_network(row.network_id)
+            result = health_svc.get_device_health(row.network_id, row.ieee_address)
         device_health = health_result_to_device_health(result) if result else None
 
         if device_health is None:

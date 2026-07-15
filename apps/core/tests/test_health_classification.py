@@ -351,3 +351,24 @@ def test_availability_offline_classifies_unavailable(tmp_path: Path):
     assert result is not None
     assert result.primary == HealthFlag.unavailable
     db.close()
+
+
+
+def test_classify_network_updated_at_uses_supplied_clock_string():
+    from datetime import datetime, timezone
+
+    from zigbeelens.config.models import DiagnosticsConfig
+    from zigbeelens.diagnostics.network_health import classify_network
+
+    now = datetime(2026, 1, 1, 12, 0, 0, 987654, tzinfo=timezone.utc)
+    result, _ = classify_network(
+        network_id="home",
+        bridge_state="online",
+        network_updated_at=now.isoformat(),
+        last_mqtt_activity_at=now.isoformat(),
+        device_health=[],
+        router_devices=[],
+        config=DiagnosticsConfig(),
+        now=now,
+    )
+    assert result.updated_at == now.isoformat()

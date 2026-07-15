@@ -13,7 +13,7 @@ from zigbeelens.diagnostics.incidents.service import IncidentDiagnosticService
 from zigbeelens.diagnostics.service import HealthDiagnosticService
 from zigbeelens.services.device_decision_badge import device_decision_badge_from_story
 from zigbeelens.services.mock_provider import MockProvider
-from zigbeelens.services.payload_builder import PayloadBuilder
+from zigbeelens.services.payload_builder import EvaluationAccess, PayloadBuilder
 from zigbeelens.services.reports import generate_report
 from zigbeelens.storage.repository import Repository
 
@@ -34,10 +34,11 @@ class DataService:
         repo: Repository,
         health: HealthDiagnosticService | None = None,
         incidents: IncidentDiagnosticService | None = None,
+        evaluation: EvaluationAccess | None = None,
     ) -> None:
         self.config = config
         self.repo = repo
-        self._builder = PayloadBuilder(config, repo, health, incidents)
+        self._builder = PayloadBuilder(config, repo, health, incidents, evaluation)
 
     @property
     def is_mock_mode(self) -> bool:

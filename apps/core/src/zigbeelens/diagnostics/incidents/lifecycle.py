@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from zigbeelens.config.models import AppConfig
+from zigbeelens.diagnostics.clock import utc_iso
 from zigbeelens.diagnostics.incidents.models import IncidentCandidate, IncidentLifecycle
 from zigbeelens.storage.repository import Repository
 
@@ -18,7 +19,7 @@ class IncidentLifecycleManager:
 
     @staticmethod
     def _iso(now: datetime) -> str:
-        return now.replace(microsecond=0).isoformat()
+        return utc_iso(now)
 
     def sync(self, candidates: list[IncidentCandidate], now: datetime | None = None) -> list[str]:
         now = now or datetime.now(timezone.utc)
@@ -31,11 +32,14 @@ class IncidentLifecycleManager:
                 continue
             existing = self.repo.incidents.get_incident_by_dedup_key(candidate.dedup_key)
             if existing:
-                if self._needs_update(existing, candidate):
+                if existing["lifecycle_state"] != IncidentLifecycle.open.value:
+                    self._reopen_incident(existing, candidate, ts, events)
+                elif self._needs_update(existing, candidate):
                     self.repo.incidents.update_incident(
                         incident_id=existing["id"],
                         lifecycle_state=IncidentLifecycle.open.value,
                         severity=candidate.severity.value,
+                        scope=candidate.scope.value,
                         confidence=candidate.confidence.value,
                         title=candidate.title,
                         summary=candidate.summary,
@@ -56,14 +60,7 @@ class IncidentLifecycleManager:
                         title=f"Incident updated: {candidate.title}",
                         summary=candidate.summary,
                         incident_id=existing["id"],
-                    )
-                    events.append("incident_updated")
-                elif existing["lifecycle_state"] != IncidentLifecycle.open.value:
-                    self.repo.incidents.update_incident(
-                        incident_id=existing["id"],
-                        lifecycle_state=IncidentLifecycle.open.value,
-                        resolved_at=None,
-                        updated_at=ts,
+                        occurred_at=ts,
                     )
                     events.append("incident_updated")
             else:
@@ -95,16 +92,22 @@ class IncidentLifecycleManager:
                     title=f"Incident opened: {candidate.title}",
                     summary=candidate.summary,
                     incident_id=incident_id,
+                    occurred_at=ts,
                 )
                 events.append("incident_opened")
 
-        self._resolve_stale(active_keys, now, events)
+        candidates_by_key = {c.dedup_key: c for c in candidates if c.active}
+        self._resolve_stale(active_keys, candidates_by_key, now, events)
         if events:
             events.append("incidents_updated")
         return events
 
     def _resolve_stale(
-        self, active_keys: set[str], now: datetime, events: list[str]
+        self,
+        active_keys: set[str],
+        candidates_by_key: dict[str, IncidentCandidate],
+        now: datetime,
+        events: list[str],
     ) -> None:
         cfg = self.config.diagnostics
         watch_delta = timedelta(minutes=cfg.incident_watch_window_minutes)
@@ -114,12 +117,8 @@ class IncidentLifecycleManager:
             dedup_key = row.get("dedup_key")
             if dedup_key and dedup_key in active_keys:
                 if row["lifecycle_state"] == IncidentLifecycle.watching.value:
-                    self.repo.incidents.update_incident(
-                        incident_id=row["id"],
-                        lifecycle_state=IncidentLifecycle.open.value,
-                        resolved_at=None,
-                        updated_at=self._iso(now),
-                    )
+                    candidate = candidates_by_key[dedup_key]
+                    self._reopen_incident(row, candidate, self._iso(now), events)
                 continue
 
             updated_at = self._parse_ts(row["updated_at"])
@@ -141,6 +140,7 @@ class IncidentLifecycleManager:
                     title=f"Incident watching: {row['title']}",
                     summary="Underlying signal cleared; incident is being watched.",
                     incident_id=row["id"],
+                    occurred_at=self._iso(now),
                 )
                 events.append("incident_updated")
                 continue
@@ -163,19 +163,71 @@ class IncidentLifecycleManager:
                         title=f"Incident resolved: {row['title']}",
                         summary="Underlying signals cleared and watch window expired.",
                         incident_id=row["id"],
+                        occurred_at=resolved_at,
                     )
                     events.append("incident_resolved")
 
+
+    def _reopen_incident(
+        self, existing: dict, candidate: IncidentCandidate, ts: str, events: list[str]
+    ) -> None:
+        self.repo.incidents.update_incident(
+            incident_id=existing["id"],
+            lifecycle_state=IncidentLifecycle.open.value,
+            severity=candidate.severity.value,
+            scope=candidate.scope.value,
+            confidence=candidate.confidence.value,
+            title=candidate.title,
+            summary=candidate.summary,
+            explanation=candidate.explanation,
+            evidence=candidate.evidence,
+            counter_evidence=candidate.counter_evidence,
+            limitations=candidate.limitations,
+            resolved_at=None,
+            updated_at=ts,
+        )
+        self.repo.incidents.replace_incident_devices(existing["id"], candidate.affected_devices)
+        self.repo.insert_event(
+            event_id=str(uuid.uuid4()),
+            network_id=candidate.network_ids[0] if candidate.network_ids else None,
+            ieee_address=None,
+            event_type="incident_updated",
+            severity=candidate.severity.value,
+            title=f"Incident reopened: {candidate.title}",
+            summary="Underlying signal returned during the watch period.",
+            incident_id=existing["id"],
+            occurred_at=ts,
+        )
+        events.append("incident_updated")
+
     def _needs_update(self, existing: dict, candidate: IncidentCandidate) -> bool:
+        existing_devices = {
+            (row["network_id"], row["ieee_address"], row.get("role") or "affected")
+            for row in self.repo.incidents.list_incident_devices(existing["id"])
+        }
         payload = {
+            "title": candidate.title,
             "summary": candidate.summary,
             "severity": candidate.severity.value,
+            "scope": candidate.scope.value,
+            "confidence": candidate.confidence.value,
+            "explanation": candidate.explanation,
             "evidence": candidate.evidence,
+            "counter_evidence": candidate.counter_evidence,
+            "limitations": candidate.limitations,
+            "affected_devices": sorted(candidate.device_role_keys()),
         }
         previous = {
+            "title": existing.get("title"),
             "summary": existing.get("summary"),
             "severity": existing.get("severity"),
+            "scope": existing.get("scope"),
+            "confidence": existing.get("confidence"),
+            "explanation": existing.get("explanation"),
             "evidence": json.loads(existing.get("evidence_json") or "[]"),
+            "counter_evidence": json.loads(existing.get("counter_evidence_json") or "[]"),
+            "limitations": json.loads(existing.get("limitations_json") or "[]"),
+            "affected_devices": sorted(existing_devices),
         }
         return json.dumps(payload, sort_keys=True) != json.dumps(previous, sort_keys=True)
 

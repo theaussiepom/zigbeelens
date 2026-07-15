@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -420,7 +421,8 @@ def test_correlator_topology_evidence_not_root_cause(tmp_path: Path):
 
     health = HealthDiagnosticService(cfg, repo)
     engine = IncidentCorrelationEngine(cfg, repo)
-    candidates = engine.correlate(health)
+    now = datetime.now(timezone.utc)
+    candidates = engine.correlate(health.evaluate_all(now=now), now=now)
     text = json.dumps([c.evidence for c in candidates])
     assert "caused" not in text.lower()
     assert "suggests" in text.lower() or "topology" in text.lower() or candidates == []

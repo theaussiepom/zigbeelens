@@ -33,12 +33,12 @@ def start_collector(ctx: AppContext, broadcaster: EventBroadcaster) -> MqttColle
         dashboard_scheduler.schedule()
 
     def on_health_recalc(network_id: str, ieee_address: str | None = None) -> None:
-        if ieee_address:
-            ctx.health.recalculate_device(network_id, ieee_address)
-        elif network_id:
-            ctx.health.recalculate_network(network_id)
+        if ctx.evaluation is None:
+            return
+        if network_id:
+            ctx.evaluation.evaluate_network(network_id)
         else:
-            ctx.health.recalculate_all()
+            ctx.evaluation.evaluate_all()
 
     ingestion = MqttIngestionService(
         ctx.config,

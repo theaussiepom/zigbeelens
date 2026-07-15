@@ -93,8 +93,10 @@ class TopologyScheduler:
         )
         self._thread.start()
 
-    def stop(self) -> None:
+    def stop(self, *, wait: bool = True, timeout: float | None = None) -> None:
         self._stop.set()
+        if wait and self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout)
 
     def tick_startup(self) -> bool:
         """Advance startup scan state once (for tests). Returns True when startup finished."""
@@ -107,14 +109,14 @@ class TopologyScheduler:
         try:
             if startup_scan_allowed(self._config):
                 while not self._stop.is_set() and not self._advance_startup():
-                    self._sleep(self._poll_interval_seconds)
+                    self._wait_interval(self._poll_interval_seconds)
 
             interval = periodic_capture_interval_seconds(self._config)
             if interval <= 0:
                 return
 
             while not self._stop.is_set():
-                self._sleep(interval)
+                self._wait_interval(interval)
                 if self._stop.is_set():
                     return
                 if not collector_ready(self._ctx) or not bridges_ready(self._ctx):
@@ -122,6 +124,12 @@ class TopologyScheduler:
                 self._capture_all_networks(requested_by="periodic_refresh")
         except Exception:
             logger.exception("Topology scheduler stopped due to error")
+
+    def _wait_interval(self, interval: float) -> None:
+        if self._sleep is time.sleep:
+            self._stop.wait(interval)
+        else:
+            self._sleep(interval)
 
     def _advance_startup(self) -> bool:
         if self._startup_completed:
@@ -169,7 +177,7 @@ class TopologyScheduler:
             if self._stop.is_set():
                 return
             while self._service.status.capture_in_progress and not self._stop.is_set():
-                self._sleep(self._poll_interval_seconds)
+                self._wait_interval(self._poll_interval_seconds)
             if self._stop.is_set():
                 return
             try:
@@ -191,3 +199,11 @@ def start_topology_scheduler(ctx: AppContext, service: TopologyService) -> Topol
 
 def get_topology_scheduler() -> TopologyScheduler | None:
     return _scheduler
+
+
+def stop_topology_scheduler(*, wait: bool = True, timeout: float | None = None) -> None:
+    global _scheduler
+    scheduler = _scheduler
+    _scheduler = None
+    if scheduler is not None:
+        scheduler.stop(wait=wait, timeout=timeout)
