@@ -37,10 +37,27 @@ def test_classification_representative_shapes():
         "UPDATE device_current_state SET battery=?": "write.device_current_state",
         "DELETE FROM incident_devices WHERE incident_id=?": "write.incident_devices",
         "SELECT * FROM topology_links": "read.topology_links",
+        "BEGIN IMMEDIATE": "transaction.control",
+        "COMMIT": "transaction.control",
+        "ROLLBACK": "transaction.control",
         "SELECT 1": "other",
     }
     for sql, category in cases.items():
         assert classify_sql(sql) == category
+
+
+def test_begin_immediate_excluded_from_execute_count():
+    raw = sqlite3.connect(":memory:")
+    conn = CountingConnection(raw)
+    conn.execute("CREATE TABLE devices (id TEXT)")
+    conn.reset()
+    conn.execute("BEGIN IMMEDIATE")
+    conn.execute("INSERT INTO devices VALUES (?)", ("1",))
+    snap = conn.snapshot()
+    assert snap.execute_count == 1
+    assert snap.category_counts.get("transaction.control", 0) == 0
+    assert snap.category_counts.get("other", 0) == 0
+    assert snap.category_counts["write.devices"] == 1
 
 
 def test_executemany_commit_rollback_reset_and_delta_scope():

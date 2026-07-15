@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from contextlib import contextmanager
+from typing import Iterator
 from importlib import resources
 from pathlib import Path
 
@@ -26,6 +28,12 @@ class Database:
     @property
     def conn(self) -> LockedSQLiteConnection:
         return self._locked
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Own one repository write transaction using BEGIN IMMEDIATE."""
+        with self._locked.transaction():
+            yield
 
     def close(self) -> None:
         with self._lock:

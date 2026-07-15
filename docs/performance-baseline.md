@@ -1,16 +1,25 @@
-# Track 3A pre-optimisation performance baseline
+# Track 3B atomic MQTT ingestion performance baseline
 
-Base commit: `09f10a8` (final merged Track 2 base). Branch: `perf/query-baseline-instrumentation`.
+Base commit for Track 3A history: `09f10a8` (final merged Track 2 base). Track 3A instrumentation landed via `perf/query-baseline-instrumentation`. This document records **Track 3B current totals** after wrapping MQTT ingestion persistence in one `BEGIN IMMEDIATE` repository transaction, and preserves **Track 3A pre-transaction commit totals** for comparison.
 
-These are pre-optimisation baseline measurements, not accepted performance budgets.
+These are planning snapshots, not accepted performance budgets.
 
 ## Base behaviour evidence
 
 Track 1 and Track 2 behaviour was confirmed before Track 3A changes: Device Story exposes `related_unresolved_incident_ids`, incident membership is separate from current-issue relevance, canonical coverage evidence is used, and EvaluationCoordinator owns coherent health → incident → dashboard sequencing.
 
+Track 3B preserves those semantics. Health and Dashboard callbacks still run only after the ingestion transaction physically commits. EvaluationCoordinator / incident persistence are not forced into the ingestion transaction.
+
 ## Measurement method
 
 Measurements use pytest temporary SQLite databases only. The active ZigbeeLens database is not read, copied, migrated, reset, or deleted. Each operation is measured against a fresh deterministic fixture, warmed intentionally with `EvaluationCoordinator`, wrapped in a frozen request-time clock at `2026-07-15T12:00:00+00:00`, reset to zero query counters, and then executed exactly once. Classification records the primary statement/table category selected from the normalized SQL shape; it does not attempt to count every joined table as a separate category. Top repeated statements are normalized and contain no bound values.
+
+Physical transaction counting rules for Track 3B:
+
+- `execute_count` excludes the raw `BEGIN IMMEDIATE` statement;
+- physical commits and rollbacks are counted separately via observers;
+- deferred repository `commit()` requests inside an open transaction are not physical commits;
+- transaction-control SQL is classified as `transaction.control` and must not appear under `other`.
 
 ## Deterministic fixtures
 
@@ -23,11 +32,35 @@ Measurements use pytest temporary SQLite databases only. The active ZigbeeLens d
 
 `read.*` and `write.*` categories cover networks, devices, device current state, device snapshots, availability changes, metric samples, health snapshots, incidents, incident devices, events, topology snapshots/nodes/links, HA enrichment, reports, schema checks, bridge snapshots, collector status, unresolved messages, commits, rollbacks, and `other` for unknown shapes.
 
-## Baseline table
+## Track 3A → Track 3B commit comparison
+
+Historical Track 3A totals counted every repository `commit()` call, including deferred writes that are no longer physical commits under Track 3B. Track 3B totals count physical commits only. Ingestion commits are the physical commits owned by the MQTT ingestion transaction(s); remaining commits are post-commit evaluation / incident persistence.
+
+| Operation | Track 3A commits | Track 3B total commits | Ingestion commits | Delta |
+|---|---:|---:|---:|---:|
+| Payload | 8 | 3 | 1 | -5 |
+| Availability | 11 | 8 | 1 | -3 |
+| Compact inventory | 50 | 9 | 1 | -41 |
+| Beast inventory | 357 | 27 | 2 | -330 |
+
+Beast inventory performs two MQTT ingestion transactions (Home then Office), so ingestion commits are 2.
+
+## Track 3B ingestion vs post-commit phases
+
+Counters are captured at health-callback entry. At that point the ingestion transaction has already physically committed. Post-commit work is EvaluationCoordinator / incident persistence and any trailing assertion reads included in the measured operation.
+
+| Operation | Ingestion executes | Ingestion commits | Post-commit executes | Post-commit commits | Total executes | Total commits |
+|---|---:|---:|---:|---:|---:|---:|
+| Payload | 7 | 1 | 83 | 2 | 90 | 3 |
+| Availability | 6 | 1 | 94 | 7 | 100 | 8 |
+| Compact inventory | 43 | 1 | 93 | 8 | 136 | 9 |
+| Beast inventory | 334 | 2 | 629 | 25 | 963 | 27 |
+
+## Track 3B total baseline table
 
 | Operation | Fixture | State | Executes | Executemany | Commits | Rollbacks | Other | Top repeated category |
 |---|---|---|---:|---:|---:|---:|---:|---|
-| Availability change ingestion | compact | warm | 100 | 0 | 11 | 0 | 0 | read.health_snapshots (22) |
+| Availability change ingestion | compact | warm | 100 | 0 | 8 | 0 | 0 | read.health_snapshots (22) |
 | Dashboard composition | compact | warm | 328 | 0 | 0 | 0 | 0 | read.incident_devices (88) |
 | Dashboard composition | beast | warm | 3467 | 0 | 0 | 0 | 0 | read.incident_devices (2184) |
 | Device detail | compact | warm | 57 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
@@ -36,9 +69,9 @@ Measurements use pytest temporary SQLite databases only. The active ZigbeeLens d
 | EvidenceGraphService.build | compact | warm | 99 | 0 | 0 | 0 | 0 | read.schema (27) |
 | Incident detail | compact | warm | 62 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
 | Incident list | compact | warm | 97 | 0 | 0 | 0 | 0 | read.devices (23) |
-| Device inventory refresh | beast | warm | 963 | 0 | 357 | 0 | 0 | transaction.commit (357) |
-| Device inventory refresh | compact | warm | 136 | 0 | 50 | 0 | 0 | transaction.commit (50) |
-| Ordinary MQTT payload ingestion | compact | warm | 90 | 0 | 8 | 0 | 0 | read.health_snapshots (22) |
+| Device inventory refresh | beast | warm | 963 | 0 | 27 | 0 | 0 | transaction.commit (27) |
+| Device inventory refresh | compact | warm | 136 | 0 | 9 | 0 | 0 | transaction.commit (9) |
+| Ordinary MQTT payload ingestion | compact | warm | 90 | 0 | 3 | 0 | 0 | read.health_snapshots (22) |
 | Device report preview | compact | warm | 510 | 0 | 0 | 0 | 0 | read.incident_devices (110) |
 | Full report preview | compact | warm | 798 | 0 | 0 | 0 | 0 | read.incident_devices (182) |
 | Incident report preview | compact | warm | 639 | 0 | 0 | 0 | 0 | read.incident_devices (128) |
@@ -181,8 +214,8 @@ The Beast fixture seeds more than 20 newer unrelated Home network events plus `o
 - `list_events_for_device(network_id: str, ieee_address: str, *, limit: int) -> list[dict]`
 - `list_events_for_incident(incident_id: str, *, limit: int) -> list[dict]`
 
-Track 3A does not fix those production queries.
+Track 3A/3B do not fix those production queries.
 
 ## Limitations and next scope
 
-Exact values are snapshots for planning only, not budgets. Track 3B should use these measurements to scope query fixes and batching work without changing Decision or Incident semantics.
+Exact values are snapshots for planning only, not budgets. Track 3C may use these measurements to scope query fixes and batching work without changing Decision or Incident semantics. Track 3B does not reduce full-network evaluation, coalesce evaluations, batch inventory SQL, or transaction-wrap health/incident writes with ingestion.

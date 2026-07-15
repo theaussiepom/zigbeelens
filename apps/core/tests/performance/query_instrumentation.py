@@ -80,6 +80,8 @@ _TABLE_CATEGORIES = {
 
 def classify_sql(sql: str) -> str:
     s = normalize_sql(sql).lower()
+    if re.match(r"^(begin|commit|rollback)\b", s):
+        return "transaction.control"
     write = bool(re.match(r"^(insert|update|delete|replace|create|drop|alter)\b", s))
     for table, (read_cat, write_cat) in _TABLE_CATEGORIES.items():
         if re.search(rf"\b{re.escape(table)}\b", s):
@@ -110,33 +112,45 @@ class CountingConnection:
             return self._stats.copy()
 
     def execute(self, sql: str, params: Any = ()) -> Any:
+        # Record under the stats lock, then release before waiting on the DB lock.
+        # Physical commit/rollback observers take only the stats lock and may run
+        # while the DB lock is held — never hold stats -> DB.
         norm = normalize_sql(sql)
+        category = classify_sql(norm)
+        is_begin = bool(re.match(r"^begin\b", norm, flags=re.I))
         with self._lock:
-            self._stats.execute_count += 1
-            self._stats.statements.append(norm)
-            self._stats.statement_counts[norm] += 1
-            self._stats.category_counts[classify_sql(norm)] += 1
-            return self._wrapped.execute(sql, params)
+            if not is_begin:
+                self._stats.execute_count += 1
+                self._stats.statements.append(norm)
+                self._stats.statement_counts[norm] += 1
+                self._stats.category_counts[category] += 1
+            elif category == "transaction.control":
+                # Keep BEGIN out of execute_count and out of `other`.
+                pass
+        return self._wrapped.execute(sql, params)
 
     def executemany(self, sql: str, seq_of_params: Any) -> Any:
         norm = normalize_sql(sql)
+        category = classify_sql(norm)
         with self._lock:
             self._stats.executemany_count += 1
             self._stats.statements.append(norm)
             self._stats.statement_counts[norm] += 1
-            self._stats.category_counts[classify_sql(norm)] += 1
-            return self._wrapped.executemany(sql, seq_of_params)
+            self._stats.category_counts[category] += 1
+        return self._wrapped.executemany(sql, seq_of_params)
 
     def commit(self) -> Any:
-        with self._lock:
-            self._stats.commit_count += 1
-            self._stats.category_counts["transaction.commit"] += 1
+        if not hasattr(self._wrapped, "set_transaction_observer"):
+            with self._lock:
+                self._stats.commit_count += 1
+                self._stats.category_counts["transaction.commit"] += 1
         return self._wrapped.commit()
 
     def rollback(self) -> Any:
-        with self._lock:
-            self._stats.rollback_count += 1
-            self._stats.category_counts["transaction.rollback"] += 1
+        if not hasattr(self._wrapped, "set_transaction_observer"):
+            with self._lock:
+                self._stats.rollback_count += 1
+                self._stats.category_counts["transaction.rollback"] += 1
         return self._wrapped.rollback()
 
     def __getattr__(self, name: str) -> Any:
@@ -175,9 +189,122 @@ def measure_queries(stats: QueryStats):
 
 
 def install_counter(repo: Any) -> CountingConnection:
-    counter = CountingConnection(repo.db.conn)
+    locked = repo.db.conn
+    counter = CountingConnection(locked)
+
+    def on_commit() -> None:
+        with counter._lock:
+            counter._stats.commit_count += 1
+            counter._stats.category_counts["transaction.commit"] += 1
+
+    def on_rollback() -> None:
+        with counter._lock:
+            counter._stats.rollback_count += 1
+            counter._stats.category_counts["transaction.rollback"] += 1
+
+    if hasattr(locked, "set_transaction_observer"):
+        locked.set_transaction_observer(on_commit=on_commit, on_rollback=on_rollback)
     repo.db._locked = counter  # test-only seam at Database connection boundary
     return counter
+
+
+@dataclass(frozen=True)
+class PhaseMeasurement:
+    name: str
+    ingestion_execute_count: int
+    ingestion_commit_count: int
+    ingestion_rollback_count: int
+    post_commit_execute_count: int
+    post_commit_commit_count: int
+    post_commit_rollback_count: int
+    total_execute_count: int
+    total_commit_count: int
+    total_rollback_count: int = 0
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "ingestion_execute_count": self.ingestion_execute_count,
+            "ingestion_commit_count": self.ingestion_commit_count,
+            "ingestion_rollback_count": self.ingestion_rollback_count,
+            "post_commit_execute_count": self.post_commit_execute_count,
+            "post_commit_commit_count": self.post_commit_commit_count,
+            "post_commit_rollback_count": self.post_commit_rollback_count,
+            "total_execute_count": self.total_execute_count,
+            "total_commit_count": self.total_commit_count,
+            "total_rollback_count": self.total_rollback_count,
+        }
+
+
+class PhaseAccumulator:
+    """Accumulate ingestion vs post-commit counters across health callbacks."""
+
+    def __init__(self, counter: CountingConnection) -> None:
+        self._counter = counter
+        self._mark = QueryStats()
+        self.ingestion = QueryStats()
+        self.post_commit = QueryStats()
+
+    def on_callback_entry(self) -> QueryStats:
+        """Capture ingestion delta. Call at health-callback entry (post physical commit)."""
+        now = self._counter.snapshot()
+        delta = now.delta(self._mark)
+        self.ingestion = QueryStats(
+            self.ingestion.execute_count + delta.execute_count,
+            self.ingestion.executemany_count + delta.executemany_count,
+            self.ingestion.commit_count + delta.commit_count,
+            self.ingestion.rollback_count + delta.rollback_count,
+            self.ingestion.statements + delta.statements,
+            self.ingestion.statement_counts + delta.statement_counts,
+            self.ingestion.category_counts + delta.category_counts,
+        )
+        self._mark = now
+        return delta
+
+    def on_callback_exit(self) -> QueryStats:
+        now = self._counter.snapshot()
+        delta = now.delta(self._mark)
+        self.post_commit = QueryStats(
+            self.post_commit.execute_count + delta.execute_count,
+            self.post_commit.executemany_count + delta.executemany_count,
+            self.post_commit.commit_count + delta.commit_count,
+            self.post_commit.rollback_count + delta.rollback_count,
+            self.post_commit.statements + delta.statements,
+            self.post_commit.statement_counts + delta.statement_counts,
+            self.post_commit.category_counts + delta.category_counts,
+        )
+        self._mark = now
+        return delta
+
+    def finish(self, name: str) -> PhaseMeasurement:
+        total = self._counter.snapshot()
+        trailing = total.delta(self._mark)
+        if (
+            trailing.execute_count
+            or trailing.commit_count
+            or trailing.rollback_count
+            or trailing.executemany_count
+        ):
+            self.post_commit = QueryStats(
+                self.post_commit.execute_count + trailing.execute_count,
+                self.post_commit.executemany_count + trailing.executemany_count,
+                self.post_commit.commit_count + trailing.commit_count,
+                self.post_commit.rollback_count + trailing.rollback_count,
+                self.post_commit.statements + trailing.statements,
+                self.post_commit.statement_counts + trailing.statement_counts,
+                self.post_commit.category_counts + trailing.category_counts,
+            )
+        return PhaseMeasurement(
+            name=name,
+            ingestion_execute_count=self.ingestion.execute_count,
+            ingestion_commit_count=self.ingestion.commit_count,
+            ingestion_rollback_count=self.ingestion.rollback_count,
+            post_commit_execute_count=self.post_commit.execute_count,
+            post_commit_commit_count=self.post_commit.commit_count,
+            post_commit_rollback_count=self.post_commit.rollback_count,
+            total_execute_count=total.execute_count,
+            total_commit_count=total.commit_count,
+            total_rollback_count=total.rollback_count,
+        )
 
 
 def measure_operation(
