@@ -77,17 +77,39 @@ def test_executemany_commit_rollback_reset_and_delta_scope():
 
 
 def test_thread_safety_counts_all_calls():
-    raw = sqlite3.connect(":memory:", check_same_thread=False)
-    conn = CountingConnection(raw)
-    conn.execute("CREATE TABLE events (id INTEGER)")
+    """CountingConnection must count concurrent executes without relying on
+    holding the stats lock across the wrapped DB call.
 
-    def worker(offset: int):
-        for idx in range(10):
-            conn.execute("INSERT INTO events VALUES (?)", (offset + idx,))
+    Raw sqlite3 connections are not safe for concurrent executes, so the
+    wrapped connection is serialized separately. That mirrors production,
+    where LockedSQLiteConnection owns the DB lock after stats recording.
+    """
+    raw = sqlite3.connect(":memory:", check_same_thread=False)
+    db_lock = threading.Lock()
+
+    class SerializingConnection:
+        def execute(self, sql: str, params=()):
+            with db_lock:
+                return raw.execute(sql, params)
+
+        def __getattr__(self, name: str):
+            return getattr(raw, name)
+
+    conn = CountingConnection(SerializingConnection())
+    conn.execute("CREATE TABLE events (id INTEGER)")
+    errors: list[BaseException] = []
+
+    def worker(offset: int) -> None:
+        try:
+            for idx in range(10):
+                conn.execute("INSERT INTO events VALUES (?)", (offset + idx,))
+        except BaseException as exc:  # noqa: BLE001 - collect for assertion
+            errors.append(exc)
 
     threads = [threading.Thread(target=worker, args=(i * 10,)) for i in range(4)]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join()
+    assert errors == []
     assert conn.snapshot().execute_count == 41
