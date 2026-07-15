@@ -86,6 +86,49 @@ class PerfFixture:
         active = self.repo.incidents.get_incident(self.active_incident_id)
         assert active is not None and active["lifecycle_state"] == "open"
         assert self.repo.incidents.list_incident_devices(self.active_incident_id)
+        _assert_target_exercises_historical_topology_fallback(self)
+
+
+def _assert_target_exercises_historical_topology_fallback(fx: PerfFixture) -> None:
+    network_id, target_ieee = fx.target_device
+    device = fx.repo.get_device(network_id, target_ieee)
+    assert device is not None and device.device_type == "EndDevice", (
+        "performance target must be the configured Home EndDevice"
+    )
+    latest = fx.repo.topology.get_latest_topology_snapshot(network_id)
+    assert latest is not None, "performance target requires a latest topology snapshot"
+    latest_snapshot_id = latest["snapshot_id"]
+    latest_nodes = fx.repo.topology.list_topology_nodes(latest_snapshot_id)
+    assert all(row["ieee_address"] != target_ieee for row in latest_nodes), (
+        "performance target must exercise the historical-topology fallback path: "
+        "target unexpectedly appears in latest topology nodes"
+    )
+    latest_links = fx.repo.topology.list_topology_links(latest_snapshot_id)
+    assert all(
+        target_ieee not in {row["source_ieee"], row["target_ieee"]} for row in latest_links
+    ), (
+        "performance target must exercise the historical-topology fallback path: "
+        "target unexpectedly appears in latest topology links"
+    )
+    earlier = [
+        row
+        for row in fx.repo.topology.list_topology_snapshots(network_id)
+        if row["snapshot_id"] != latest_snapshot_id and row["status"] == "complete"
+    ]
+    assert any(
+        any(
+            node["ieee_address"] == target_ieee
+            for node in fx.repo.topology.list_topology_nodes(row["snapshot_id"])
+        )
+        for row in earlier
+    ), "performance target must be present in earlier topology nodes"
+    assert any(
+        any(
+            target_ieee in {link["source_ieee"], link["target_ieee"]}
+            for link in fx.repo.topology.list_topology_links(row["snapshot_id"])
+        )
+        for row in earlier
+    ), "performance target must have an earlier topology link for historical fallback"
 
 
 @contextmanager
@@ -103,7 +146,13 @@ def deterministic_fixture(tmp_path: Path, name: str):
         with _fixed_repo_time():
             repo.sync_networks(cfg.networks)
             devices = _seed_estate(repo, name, counts)
-            _seed_topology(repo, counts, devices)
+            target_device = ("home", devices["home"][5])
+            _seed_topology(
+                repo,
+                counts,
+                devices,
+                missing_latest_by_network={"home": target_device[1]},
+            )
             _seed_ha(repo, devices)
             active_incident_id = _seed_incidents(repo, counts, devices)
             _seed_filter_after_limit_events(repo, devices, active_incident_id)
@@ -141,7 +190,7 @@ def deterministic_fixture(tmp_path: Path, name: str):
             coordinator=coord,
             counter=counter,
             device_counts=counts,
-            target_device=("home", devices["home"][5]),
+            target_device=target_device,
             active_incident_id=active_incident_id,
             clock=clock,
         )
@@ -238,7 +287,13 @@ def _seed_estate(repo: Repository, name: str, counts: dict[str, int]) -> dict[st
     return all_devices
 
 
-def _seed_topology(repo: Repository, counts: dict[str, int], devices: dict[str, list[str]]) -> None:
+def _seed_topology(
+    repo: Repository,
+    counts: dict[str, int],
+    devices: dict[str, list[str]],
+    *,
+    missing_latest_by_network: dict[str, str],
+) -> None:
     for net in counts:
         devs = devices[net]
         coordinator = devs[0]
@@ -253,9 +308,10 @@ def _seed_topology(repo: Repository, counts: dict[str, int], devices: dict[str, 
                 status="pending",
                 warning_acknowledged=True,
             )
+            missing_latest = missing_latest_by_network.get(net) if snap == 9 else None
             node_ieees = [coordinator, *routers, *end_devices]
-            if snap == 9 and end_devices:
-                node_ieees = node_ieees[:-1]  # target absent from latest but present historically
+            if missing_latest:
+                node_ieees = [ieee for ieee in node_ieees if ieee != missing_latest]
             nodes = [
                 ParsedTopologyNode(
                     ieee_address=ieee,
@@ -281,9 +337,9 @@ def _seed_topology(repo: Repository, counts: dict[str, int], devices: dict[str, 
                     )
                 )
             for idx, end in enumerate(end_devices):
-                if snap == 9 and idx == len(end_devices) - 1:
-                    continue
                 parent = routers[idx % len(routers)] if routers else coordinator
+                if missing_latest and (parent == missing_latest or end == missing_latest):
+                    continue
                 links.append(
                     ParsedTopologyLink(
                         source_ieee=parent,
@@ -304,6 +360,12 @@ def _seed_topology(repo: Repository, counts: dict[str, int], devices: dict[str, 
                 raw_redacted={"fixture": True, "snapshot": snap},
             )
             repo.store_topology_parsed(snapshot_id, net, parsed, status="complete")
+            captured_at = (REFERENCE_TIME - timedelta(minutes=9 - snap)).isoformat()
+            repo.db.conn.execute(
+                "UPDATE topology_snapshots SET captured_at = ? WHERE snapshot_id = ?",
+                (captured_at, snapshot_id),
+            )
+            repo.db.conn.commit()
 
 
 def _seed_ha(repo: Repository, devices: dict[str, list[str]]) -> None:
@@ -566,6 +628,33 @@ def test_operation_baseline_matches_snapshot(tmp_path: Path, operation_name: str
     assert measured.category_counts.get("other", 0) == expected["category_counts"].get("other", 0)
 
 
+def test_target_device_exercises_historical_topology_fallback(tmp_path: Path):
+    with deterministic_fixture(tmp_path, "compact") as fx:
+        _assert_target_exercises_historical_topology_fallback(fx)
+
+
+def test_device_detail_and_report_device_operations_use_target_device(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    with deterministic_fixture(tmp_path, "compact") as fx:
+        seen: dict[str, object] = {}
+
+        def fake_device_detail(builder, network_id, ieee_address):
+            seen["device_detail"] = (network_id, ieee_address)
+            return None
+
+        def fake_report_preview(service, scenario=None, request=None, collector=None):
+            seen["report_device"] = (request.network_id, request.device)
+            return None
+
+        monkeypatch.setattr(PayloadBuilder, "device_detail", fake_device_detail)
+        monkeypatch.setattr(DataService, "report_preview", fake_report_preview)
+        _operations()["device_detail"][1](fx)
+        _operations()["report_device"][1](fx)
+        assert seen["device_detail"] == fx.target_device
+        assert seen["report_device"] == fx.target_device
+
+
 def test_filter_after_limit_reproduction_shape(tmp_path: Path):
     with deterministic_fixture(tmp_path, "beast") as fx:
         latest_network = fx.repo.list_events("home", limit=20)
@@ -663,6 +752,10 @@ def test_high_level_architectural_spies(tmp_path: Path, monkeypatch: pytest.Monk
     monkeypatch.setattr(EvaluationCoordinator, "evaluate_network", eval_spy)
     monkeypatch.setattr(DataService, "report_device_context", report_context_spy)
     with deterministic_fixture(tmp_path, "compact") as fx:
+        story_context_networks.clear()
+        snapshot_load_keys.clear()
+        availability_load_keys.clear()
+        topology_link_snapshot_ids.clear()
         _builder(fx).devices()
         assert story_context_networks == ["home"]
         assert len(snapshot_load_keys) == len(set(snapshot_load_keys))
