@@ -63,8 +63,11 @@ class MqttDiscoveryService:
         self._published_topics: set[str] = set()
         self._discovery_topics: set[str] = set()
         self._lock = threading.Lock()
+        self._idle = threading.Condition(self._lock)
         self._debounce_timer: threading.Timer | None = None
         self._pending_update = False
+        self._publishing = False
+        self._stopped = False
 
     @property
     def status(self) -> MqttDiscoveryStatus:
@@ -83,10 +86,15 @@ class MqttDiscoveryService:
             self._status.last_error = "Discovery publisher failed to start"
             logger.exception("MQTT discovery failed to start: %s", err)
 
-    def stop(self) -> None:
-        if self._debounce_timer is not None:
-            self._debounce_timer.cancel()
-            self._debounce_timer = None
+    def stop(self, *, wait: bool = True, timeout: float | None = None) -> None:
+        with self._idle:
+            self._stopped = True
+            self._pending_update = False
+            if self._debounce_timer is not None:
+                self._debounce_timer.cancel()
+                self._debounce_timer = None
+            if wait:
+                self._idle.wait_for(lambda: not self._publishing, timeout=timeout)
         try:
             self._publish_availability("offline")
         except Exception:
@@ -97,25 +105,40 @@ class MqttDiscoveryService:
             logger.debug("Discovery publisher disconnect error", exc_info=True)
 
     def schedule_update(self) -> None:
-        with self._lock:
-            self._pending_update = True
-            if self._debounce_timer is not None:
+        with self._idle:
+            if self._stopped:
                 return
-            self._debounce_timer = threading.Timer(_DEBOUNCE_SECONDS, self._run_debounced_update)
-            self._debounce_timer.daemon = True
-            self._debounce_timer.start()
+            self._pending_update = True
+            if self._publishing or self._debounce_timer is not None:
+                return
+            self._schedule_locked()
 
     def _run_debounced_update(self) -> None:
-        with self._lock:
+        with self._idle:
             self._debounce_timer = None
-            if not self._pending_update:
+            if self._stopped or not self._pending_update:
+                return
+            if self._publishing:
+                self._pending_update = True
                 return
             self._pending_update = False
+            self._publishing = True
         try:
             self._publish_all(force_discovery=False)
         except Exception as err:
             self._status.last_error = "Discovery publish failed"
             logger.exception("MQTT discovery update failed: %s", err)
+        finally:
+            with self._idle:
+                self._publishing = False
+                if self._pending_update and not self._stopped:
+                    self._schedule_locked()
+                self._idle.notify_all()
+
+    def _schedule_locked(self) -> None:
+        self._debounce_timer = threading.Timer(_DEBOUNCE_SECONDS, self._run_debounced_update)
+        self._debounce_timer.daemon = True
+        self._debounce_timer.start()
 
     def cleanup_discovery_configs(self) -> None:
         for topic in list(self._discovery_topics):
@@ -210,10 +233,10 @@ def start_discovery(ctx: AppContext, *, publisher: PublisherProtocol | None = No
     return service
 
 
-def stop_discovery(service: MqttDiscoveryService | None) -> None:
+def stop_discovery(service: MqttDiscoveryService | None, *, wait: bool = True) -> None:
     global _discovery
     if service is not None:
-        service.stop()
+        service.stop(wait=wait)
     _discovery = None
 
 

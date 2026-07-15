@@ -14,7 +14,11 @@ from zigbeelens.mqtt.models import RawMqttMessage
 from zigbeelens.storage.repository import utc_now_iso
 from zigbeelens.topology.parser import parse_networkmap_payload
 from zigbeelens.topology.publisher import TopologyRequestPublisher
-from zigbeelens.topology.scheduler import periodic_capture_allowed, start_topology_scheduler
+from zigbeelens.topology.scheduler import (
+    periodic_capture_allowed,
+    start_topology_scheduler,
+    stop_topology_scheduler,
+)
 from zigbeelens.topology.topics import (
     CAPTURE_WARNING,
     is_networkmap_response_topic,
@@ -301,8 +305,10 @@ class TopologyService:
 
     def _refresh_diagnostics(self) -> None:
         ctx = self._ctx
-        ctx.health.recalculate_all()
-        ctx.incidents.correlate_and_sync(ctx.health)
+        if ctx.evaluation is not None:
+            ctx.evaluation.evaluate_all()
+        else:
+            ctx.health.recalculate_all()
         if ctx.discovery is not None:
             ctx.discovery.schedule_update()
 
@@ -337,6 +343,7 @@ def get_topology_service() -> TopologyService | None:
 
 def stop_topology() -> None:
     global _topology
+    stop_topology_scheduler(wait=True)
     _topology = None
 
 

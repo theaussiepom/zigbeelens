@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from zigbeelens.config.models import AppConfig
 from zigbeelens.diagnostics.incidents.explanations import explanation_for, standard_limitations
@@ -14,7 +14,7 @@ from zigbeelens.diagnostics.incidents.models import (
     IncidentType,
 )
 from zigbeelens.diagnostics.models import BridgeHealthState, HealthFlag, HealthResult
-from zigbeelens.diagnostics.service import HealthDiagnosticService
+from zigbeelens.diagnostics.service import NetworkEvaluationSnapshot
 from zigbeelens.schemas import Confidence, IncidentScope, Severity
 from zigbeelens.storage.repository import DeviceRow, Repository
 
@@ -36,10 +36,9 @@ class IncidentCorrelationEngine:
         self.repo = repo
 
     def correlate(
-        self, health: HealthDiagnosticService, now: datetime | None = None
+        self, snapshots: list[NetworkEvaluationSnapshot], *, now: datetime
     ) -> list[IncidentCandidate]:
-        now = now or datetime.now(timezone.utc)
-        contexts = self._build_contexts(health, now)
+        contexts = self._build_contexts(snapshots, now)
         raw: list[IncidentCandidate] = []
 
         raw.extend(self._bridge_offline_rules(contexts))
@@ -53,25 +52,20 @@ class IncidentCorrelationEngine:
         return self._apply_priority(raw)
 
     def _build_contexts(
-        self, health: HealthDiagnosticService, now: datetime
+        self, snapshots: list[NetworkEvaluationSnapshot], now: datetime
     ) -> list[NetworkContext]:
         contexts: list[NetworkContext] = []
         window = self.config.diagnostics.incident_window_seconds
-        for network in self.repo.list_networks():
-            devices = self.repo.list_devices(network.id)
-            health_map = {
-                (network.id, d.ieee_address): h
-                for d in devices
-                if (h := health.get_device_health(network.id, d.ieee_address)) is not None
-            }
-            offline_cluster = self._offline_cluster(network.id, window, devices, now)
-            bridge = health.get_bridge_health(network.id)
+        for snapshot in snapshots:
+            devices = list(snapshot.devices)
+            health_map = dict(snapshot.device_results)
+            offline_cluster = self._offline_cluster(snapshot.network_id, window, devices, now)
             contexts.append(
                 NetworkContext(
-                    network_id=network.id,
-                    network_name=network.name,
-                    bridge_state=network.bridge_state,
-                    bridge_health_state=bridge.state if bridge else None,
+                    network_id=snapshot.network_id,
+                    network_name=snapshot.network_name,
+                    bridge_state=snapshot.bridge_state,
+                    bridge_health_state=snapshot.bridge_result.state,
                     devices=devices,
                     device_health=health_map,
                     offline_cluster=offline_cluster,
@@ -157,7 +151,7 @@ class IncidentCorrelationEngine:
         names = [c.network_name for c in contexts if c.network_id in affected_networks]
         return [
             IncidentCandidate(
-                dedup_key="multi_network_instability:active",
+                dedup_key=f"multi_network_instability:{','.join(sorted(affected_networks))}",
                 incident_type=IncidentType.multi_network_instability,
                 scope=IncidentScope.multi_network,
                 severity=Severity.incident,
@@ -205,10 +199,9 @@ class IncidentCorrelationEngine:
                 for d in ctx.devices
                 if d.availability == "offline"
             ]
-            device_key = ",".join(sorted(a.ieee_address for a in affected))
             out.append(
                 IncidentCandidate(
-                    dedup_key=f"network_wide:{ctx.network_id}:{device_key}",
+                    dedup_key=f"network_wide:{ctx.network_id}",
                     incident_type=IncidentType.network_wide_instability,
                     scope=IncidentScope.network,
                     severity=Severity.incident,
@@ -236,7 +229,6 @@ class IncidentCorrelationEngine:
             times = sorted(cluster.values())
             span = self._span_seconds(times[0], times[-1]) if len(times) > 1 else 0
             affected = [AffectedDevice(ctx.network_id, ieee) for ieee in sorted(cluster.keys())]
-            device_key = ",".join(sorted(cluster.keys()))
             evidence = [
                 f"{len(cluster)} devices changed availability to offline within {span} seconds",
                 f"All affected devices are on network {ctx.network_name}",
@@ -282,7 +274,7 @@ class IncidentCorrelationEngine:
 
             out.append(
                 IncidentCandidate(
-                    dedup_key=f"correlated:{ctx.network_id}:{device_key}",
+                    dedup_key=f"correlated:{ctx.network_id}",
                     incident_type=IncidentType.correlated_device_unavailability,
                     scope=IncidentScope.mesh_segment,
                     severity=Severity.incident,
@@ -403,10 +395,9 @@ class IncidentCorrelationEngine:
             and HealthFlag.stale_reporting in h.flags
         ]
         if len(stale_devices) >= cfg.stale_cluster_min_devices:
-            key = ",".join(sorted(d.ieee_address for d in stale_devices))
             out.append(
                 IncidentCandidate(
-                    dedup_key=f"stale_cluster:{ctx.network_id}:{key}",
+                    dedup_key=f"stale_cluster:{ctx.network_id}",
                     incident_type=IncidentType.stale_reporting_cluster,
                     scope=IncidentScope.network if len(stale_devices) >= cfg.network_wide_min_devices else IncidentScope.mesh_segment,
                     severity=Severity.watch,
@@ -433,10 +424,9 @@ class IncidentCorrelationEngine:
             and HealthFlag.low_battery in h.flags
         ]
         if len(low_bat) >= cfg.low_battery_cluster_min_devices:
-            key = ",".join(sorted(d.ieee_address for d in low_bat))
             out.append(
                 IncidentCandidate(
-                    dedup_key=f"low_battery_cluster:{ctx.network_id}:{key}",
+                    dedup_key=f"low_battery_cluster:{ctx.network_id}",
                     incident_type=IncidentType.low_battery_cluster,
                     scope=IncidentScope.network,
                     severity=Severity.watch,
@@ -494,10 +484,9 @@ class IncidentCorrelationEngine:
         ]
         if len(ambiguous) < 2:
             return []
-        key = ",".join(sorted(d.ieee_address for d in ambiguous[:5]))
         return [
             IncidentCandidate(
-                dedup_key=f"unknown_pattern:{ctx.network_id}:{key}",
+                dedup_key=f"unknown_pattern:{ctx.network_id}",
                 incident_type=IncidentType.unknown_pattern,
                 scope=IncidentScope.unknown,
                 severity=Severity.watch,

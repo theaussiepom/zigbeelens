@@ -66,5 +66,62 @@ class IncidentCandidate:
     active: bool = True
     priority: int = 100
 
+    def __post_init__(self) -> None:
+        self.dedup_key = incident_identity_key(self)
+
     def device_keys(self) -> set[tuple[str, str]]:
         return {(d.network_id, d.ieee_address) for d in self.affected_devices}
+
+    def device_role_keys(self) -> set[tuple[str, str, str]]:
+        return {(d.network_id, d.ieee_address, d.role) for d in self.affected_devices}
+
+
+def incident_identity_key(candidate: IncidentCandidate) -> str:
+    """Return the stable lifecycle identity for an incident candidate.
+
+    Identity rules by IncidentType:
+    - bridge_offline: type + network_id
+    - multi_network_instability: type + sorted network IDs
+    - network_wide_instability: type + network_id
+    - correlated_device_unavailability: type + network_id
+    - single_device_unavailable: type + network_id + subject IEEE
+    - router_risk: type + network_id + router IEEE
+    - stale_reporting_cluster: type + network_id
+    - low_battery_cluster: type + network_id
+    - interview_failure: type + network_id
+    - unknown_pattern: type + network_id
+    """
+
+    incident_type = candidate.incident_type
+    network_ids = sorted(set(candidate.network_ids))
+    primary_network = network_ids[0] if network_ids else _network_from_devices(candidate)
+
+    if incident_type is IncidentType.multi_network_instability:
+        return f"{incident_type.value}:{','.join(network_ids)}"
+    if incident_type in {
+        IncidentType.bridge_offline,
+        IncidentType.network_wide_instability,
+        IncidentType.correlated_device_unavailability,
+        IncidentType.stale_reporting_cluster,
+        IncidentType.low_battery_cluster,
+        IncidentType.unknown_pattern,
+    }:
+        return f"{incident_type.value}:{primary_network}"
+    if incident_type is IncidentType.single_device_unavailable:
+        return f"{incident_type.value}:{primary_network}:{_single_subject(candidate)}"
+    if incident_type is IncidentType.router_risk:
+        return f"{incident_type.value}:{primary_network}:{_single_subject(candidate)}"
+    if incident_type is IncidentType.interview_failure:
+        return f"{incident_type.value}:{primary_network}"
+    return candidate.dedup_key
+
+
+def _network_from_devices(candidate: IncidentCandidate) -> str:
+    networks = sorted({device.network_id for device in candidate.affected_devices})
+    return networks[0] if networks else "unknown"
+
+
+def _single_subject(candidate: IncidentCandidate) -> str:
+    if candidate.affected_devices:
+        return sorted(device.ieee_address for device in candidate.affected_devices)[0]
+    return "unknown"

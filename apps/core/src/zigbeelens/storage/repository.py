@@ -414,6 +414,7 @@ class Repository:
         summary: str,
         payload_json: str | None = None,
         incident_id: str | None = None,
+        occurred_at: str | None = None,
     ) -> None:
         self.db.conn.execute(
             """
@@ -432,7 +433,7 @@ class Repository:
                 summary,
                 incident_id,
                 payload_json,
-                utc_now_iso(),
+                occurred_at or utc_now_iso(),
             ),
         )
         self.db.conn.commit()
@@ -745,6 +746,7 @@ class Repository:
         incident_id: str,
         lifecycle_state: str | None = None,
         severity: str | None = None,
+        scope: str | None = None,
         confidence: str | None = None,
         title: str | None = None,
         summary: str | None = None,
@@ -763,6 +765,9 @@ class Repository:
         if severity is not None:
             fields.append("severity = ?")
             values.append(severity)
+        if scope is not None:
+            fields.append("scope = ?")
+            values.append(scope)
         if confidence is not None:
             fields.append("confidence = ?")
             values.append(confidence)
@@ -1044,6 +1049,7 @@ class Repository:
         evidence: list[str],
         counter_evidence: list[str],
         limitations: list[str],
+        captured_at: str | None = None,
     ) -> None:
         self.db.conn.execute(
             """
@@ -1065,7 +1071,7 @@ class Repository:
                 json.dumps(evidence),
                 json.dumps(counter_evidence),
                 json.dumps(limitations),
-                utc_now_iso(),
+                captured_at or utc_now_iso(),
             ),
         )
         self.db.conn.commit()
@@ -1097,9 +1103,10 @@ class Repository:
         payload = {
             "primary": data["primary_health"],
             "severity": data["severity"],
-            "summary": data.get("summary") or "",
             "flags": json.loads(data.get("flags_json") or "[]"),
         }
+        if scope != "device":
+            payload["summary"] = data.get("summary") or ""
         data["fingerprint"] = json.dumps(payload, sort_keys=True)
         return data
 
