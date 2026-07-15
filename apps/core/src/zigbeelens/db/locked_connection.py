@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from typing import Any, Iterator
+from contextlib import contextmanager
+from typing import Any, Callable, Iterator
 
 
 class LockedCursor:
@@ -71,11 +72,36 @@ class LockedCursor:
 class LockedSQLiteConnection:
     """Serialize SQLite access — safe for concurrent API requests."""
 
-    __slots__ = ("_conn", "_lock")
+    __slots__ = ("_conn", "_lock", "_state", "_on_physical_commit", "_on_physical_rollback")
 
     def __init__(self, conn: sqlite3.Connection, lock: threading.RLock) -> None:
         self._conn = conn
         self._lock = lock
+        self._state = threading.local()
+        self._on_physical_commit: Callable[[], None] | None = None
+        self._on_physical_rollback: Callable[[], None] | None = None
+
+    def set_transaction_observer(
+        self,
+        *,
+        on_commit: Callable[[], None] | None = None,
+        on_rollback: Callable[[], None] | None = None,
+    ) -> None:
+        self._on_physical_commit = on_commit
+        self._on_physical_rollback = on_rollback
+
+    def _depth(self) -> int:
+        return int(getattr(self._state, "depth", 0))
+
+    def _set_depth(self, depth: int) -> None:
+        self._state.depth = depth
+
+    @property
+    def transaction_depth(self) -> int:
+        return self._depth()
+
+    def _rollback_only(self) -> bool:
+        return bool(getattr(self._state, "rollback_only", False))
 
     def execute(self, sql: str, params: Any = ()) -> LockedCursor:
         self._lock.acquire()
@@ -87,11 +113,97 @@ class LockedSQLiteConnection:
 
     def executescript(self, sql_script: str) -> None:
         with self._lock:
+            if self._depth() > 0:
+                raise RuntimeError("executescript is not allowed inside a repository transaction")
             self._conn.executescript(sql_script)
 
     def commit(self) -> None:
         with self._lock:
+            if self._depth() > 0:
+                return
             self._conn.commit()
+            if self._on_physical_commit:
+                self._on_physical_commit()
+
+    def rollback(self) -> None:
+        with self._lock:
+            if self._depth() > 0:
+                self._state.rollback_only = True
+                return
+            self._conn.rollback()
+            if self._on_physical_rollback:
+                self._on_physical_rollback()
+
+    def _notify_physical_rollback(self) -> None:
+        if self._on_physical_rollback:
+            self._on_physical_rollback()
+
+    def _notify_physical_commit(self) -> None:
+        if self._on_physical_commit:
+            self._on_physical_commit()
+
+    def _physical_rollback(self) -> None:
+        self._conn.rollback()
+        self._notify_physical_rollback()
+
+    def _physical_commit_or_recover(self) -> None:
+        """Attempt physical COMMIT; roll back and re-raise if COMMIT itself fails."""
+        try:
+            self._conn.commit()
+        except BaseException as commit_exc:
+            try:
+                self._conn.rollback()
+            except BaseException:
+                pass
+            try:
+                self._notify_physical_rollback()
+            except BaseException:
+                pass
+            raise commit_exc
+        self._notify_physical_commit()
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Join or own a BEGIN IMMEDIATE transaction.
+
+        Nested contexts join the outer transaction. Repository commit() calls are
+        deferred while a transaction is active. Calling rollback() in a context
+        marks the outer transaction rollback-only; the outermost exit performs
+        the physical rollback and raises RuntimeError.
+        """
+        outermost = self._depth() == 0
+        self._lock.acquire()
+        if outermost:
+            self._state.rollback_only = False
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+            except Exception:
+                self._lock.release()
+                raise
+        self._set_depth(self._depth() + 1)
+        failed = False
+        try:
+            yield
+        except Exception:
+            failed = True
+            self._state.rollback_only = True
+            raise
+        finally:
+            depth = self._depth() - 1
+            self._set_depth(depth)
+            try:
+                if outermost:
+                    if self._rollback_only():
+                        self._physical_rollback()
+                        if not failed:
+                            raise RuntimeError("Transaction rolled back")
+                    else:
+                        self._physical_commit_or_recover()
+            finally:
+                if outermost:
+                    self._state.rollback_only = False
+                    self._set_depth(0)
+                self._lock.release()
 
     def __getattr__(self, name: str) -> Any:
         attr = getattr(self._conn, name)

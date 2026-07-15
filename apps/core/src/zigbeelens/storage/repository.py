@@ -7,7 +7,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Iterator
 
 from zigbeelens.config.models import NetworkConfig
 from zigbeelens.db.connection import Database
@@ -91,6 +92,18 @@ class ReportRow:
 class Repository:
     def __init__(self, db: Database) -> None:
         self.db = db
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Run repository writes in one BEGIN IMMEDIATE transaction.
+
+        Nested repository transactions join the outer transaction. Internal
+        repository commit() calls are deferred until the outermost transaction
+        exits. Explicit rollback() inside a transaction marks the outer
+        transaction rollback-only.
+        """
+        with self.db.transaction():
+            yield
 
     @cached_property
     def topology(self) -> "TopologyRepository":

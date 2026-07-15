@@ -51,8 +51,9 @@ class MqttIngestionService:
             "unknown_bridge_topic": self._handle_generic_event,
         }
         handler = handlers.get(event.event_type, self._handle_generic_event)
-        handler(event)
-        self._store_event(event)
+        with self.repo.transaction():
+            handler(event)
+            self._store_event(event)
         self._recalc_health_for_event(event)
         if event.emit_dashboard and self._on_dashboard_update:
             self._on_dashboard_update("dashboard_updated", event.network_id)

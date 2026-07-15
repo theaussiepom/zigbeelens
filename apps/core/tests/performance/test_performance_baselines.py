@@ -28,8 +28,8 @@ from zigbeelens.services.payload_builder import PayloadBuilder
 from zigbeelens.storage.repository import Repository
 from zigbeelens.topology.parser import ParsedTopology, ParsedTopologyLink, ParsedTopologyNode
 
-from .expected_baselines import EXPECTED_BASELINES
-from .query_instrumentation import OperationMeasurement, install_counter, measure_operation
+from .expected_baselines import EXPECTED_BASELINES, EXPECTED_PHASE_BASELINES, TRACK_3A_COMMIT_TOTALS
+from .query_instrumentation import OperationMeasurement, PhaseAccumulator, install_counter, measure_operation
 
 REFERENCE_TIME = datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)
 REFERENCE_ISO = REFERENCE_TIME.isoformat()
@@ -474,12 +474,21 @@ def _seed_filter_after_limit_events(
 
 
 def _ingest(fx: PerfFixture, topic: str, payload: str) -> None:
+    phases = getattr(fx, "phases", None)
+
+    def on_health(nid: str, _ieee: str | None) -> None:
+        if phases is not None:
+            phases.on_callback_entry()
+        try:
+            fx.coordinator.evaluate_network(nid, now=fx.clock.now())
+        finally:
+            if phases is not None:
+                phases.on_callback_exit()
+
     service = MqttIngestionService(
         fx.config,
         fx.repo,
-        on_health_recalc=lambda nid, _ieee: fx.coordinator.evaluate_network(
-            nid, now=fx.clock.now()
-        ),
+        on_health_recalc=on_health,
     )
     with _fixed_repo_time():
         for event in normalize_message(
@@ -837,3 +846,59 @@ def test_markdown_baseline_table_matches_structured_snapshot():
         section = doc.split(f"### {key}", 1)[1].split("\n### ", 1)[0]
         for item in baseline["top_repeated_statements"]:
             assert f"- {item['count']}× `{item['statement']}`" in section
+
+    comparison_labels = {
+        "payload_ingestion": "Payload",
+        "availability_ingestion": "Availability",
+        "inventory_ingestion_compact": "Compact inventory",
+        "inventory_ingestion_beast": "Beast inventory",
+    }
+    for key, label in comparison_labels.items():
+        track_3a = TRACK_3A_COMMIT_TOTALS[key]
+        track_3b_total = EXPECTED_PHASE_BASELINES[key]["total_commit_count"]
+        ingestion = EXPECTED_PHASE_BASELINES[key]["ingestion_commit_count"]
+        delta = track_3b_total - track_3a
+        row = (
+            f"| {label} | {track_3a} | {track_3b_total} | {ingestion} | {delta} |"
+        )
+        assert row in doc
+        phase = EXPECTED_PHASE_BASELINES[key]
+        phase_row = (
+            f"| {label} | {phase['ingestion_execute_count']} | {phase['ingestion_commit_count']} | "
+            f"{phase['post_commit_execute_count']} | {phase['post_commit_commit_count']} | "
+            f"{phase['total_execute_count']} | {phase['total_commit_count']} |"
+        )
+        assert phase_row in doc
+
+
+@pytest.mark.parametrize("operation_name", sorted(EXPECTED_PHASE_BASELINES))
+def test_ingestion_phase_baselines(tmp_path: Path, operation_name: str):
+    fixture_name, op, _readonly = _operations()[operation_name]
+    with deterministic_fixture(tmp_path, fixture_name) as fx:
+        fx.assert_integrity()
+        fx.counter.reset()
+        fx.phases = PhaseAccumulator(fx.counter)
+        with _frozen_time():
+            op(fx)
+        measured = fx.phases.finish(operation_name)
+        assert measured.as_dict() == EXPECTED_PHASE_BASELINES[operation_name]
+        assert measured.ingestion_commit_count == EXPECTED_PHASE_BASELINES[operation_name][
+            "ingestion_commit_count"
+        ]
+        assert measured.total_commit_count == EXPECTED_BASELINES[operation_name]["commit_count"]
+        assert measured.total_execute_count == EXPECTED_BASELINES[operation_name]["execute_count"]
+
+
+def test_track_3a_commit_history_preserved():
+    assert TRACK_3A_COMMIT_TOTALS == {
+        "payload_ingestion": 8,
+        "availability_ingestion": 11,
+        "inventory_ingestion_compact": 50,
+        "inventory_ingestion_beast": 357,
+    }
+    for key, track_3a in TRACK_3A_COMMIT_TOTALS.items():
+        track_3b = EXPECTED_PHASE_BASELINES[key]["total_commit_count"]
+        ingestion = EXPECTED_PHASE_BASELINES[key]["ingestion_commit_count"]
+        assert track_3b < track_3a
+        assert ingestion >= 1
+        assert EXPECTED_BASELINES[key]["commit_count"] == track_3b
