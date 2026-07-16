@@ -143,16 +143,14 @@ export function buildIncidentRecordViewModel(incident: Incident): IncidentRecord
   };
 }
 
-/** Sort raw incidents by record timing (updated desc, opened desc, id). */
+/** Sort raw incidents by server collection order (lifecycle, updated desc, id desc). */
 export function compareIncidentsByRecordTiming(a: Incident, b: Incident): number {
   if (LIFECYCLE_ORDER[a.status] !== LIFECYCLE_ORDER[b.status]) {
     return LIFECYCLE_ORDER[a.status] - LIFECYCLE_ORDER[b.status];
   }
   const byUpdated = b.updated_at.localeCompare(a.updated_at);
   if (byUpdated !== 0) return byUpdated;
-  const byOpened = b.opened_at.localeCompare(a.opened_at);
-  if (byOpened !== 0) return byOpened;
-  return a.id.localeCompare(b.id);
+  return b.id.localeCompare(a.id);
 }
 
 export function incidentMatchesSearch(incident: Incident, query: string): boolean {

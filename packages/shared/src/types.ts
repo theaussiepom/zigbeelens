@@ -562,6 +562,19 @@ export interface HealthResponse {
 export interface PaginatedResponse<T> {
   items: T[];
   total: number;
+  limit?: number | null;
+  next_cursor?: string | null;
+}
+
+/** Incident collection query (Track 3E) */
+export interface IncidentCollectionQuery {
+  scenario?: string;
+  status?: IncidentStatus | IncidentStatus[];
+  updated_after?: string;
+  network_id?: string;
+  device_ieee?: string;
+  limit?: number;
+  cursor?: string;
 }
 
 export type MockScenarioId =

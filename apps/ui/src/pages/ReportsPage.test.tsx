@@ -21,6 +21,7 @@ vi.mock("@/lib/api", () => ({
   api: {
     networks: vi.fn(),
     incidents: vi.fn(),
+    incidentsAllPages: vi.fn(),
     devices: vi.fn(),
     previewReport: vi.fn(),
     createReport: vi.fn(),
@@ -198,7 +199,8 @@ beforeEach(() => {
     items: [{ id: "home", name: "Home", base_topic: "zigbee2mqtt/home" }],
     total: 1,
   });
-  (api.incidents as Mock).mockResolvedValue({ items: [], total: 0 });
+  (api.incidents as Mock).mockResolvedValue({ items: [], total: 0, limit: 50, next_cursor: null });
+  (api.incidentsAllPages as Mock).mockResolvedValue([]);
   (api.devices as Mock).mockResolvedValue({ items: [], total: 0 });
   previewReport.mockResolvedValue(makeDecisionReport());
   createReport.mockResolvedValue(makeStored());
@@ -399,7 +401,7 @@ describe("ReportsPage", () => {
 
   it("loads selector inventories lazily by selected scope", async () => {
     const networks = api.networks as Mock;
-    const incidents = api.incidents as Mock;
+    const incidents = api.incidentsAllPages as Mock;
     const devices = api.devices as Mock;
 
     renderReportsPage();

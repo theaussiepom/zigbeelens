@@ -307,7 +307,12 @@ describe("DeviceDetailPage decision authority", () => {
       expect(api.deviceStory).toHaveBeenCalled();
     });
     expect(api.device).toHaveBeenCalledWith("home", "0xa1", "offline_cluster");
-    expect(api.incidents).toHaveBeenCalledWith("offline_cluster");
+    expect(api.incidents).toHaveBeenCalledWith({
+      scenario: "offline_cluster",
+      network_id: "home",
+      device_ieee: "0xa1",
+      limit: 50,
+    });
     expect(api.deviceStory).toHaveBeenCalledWith("home", "0xa1", "offline_cluster");
   });
 

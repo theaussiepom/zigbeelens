@@ -3,12 +3,15 @@ import type {
   DeviceDetail,
   DeviceSummary,
   HealthResponse,
+  IncidentCollectionQuery,
   MockScenarioId,
   NetworkSummary,
   RouterRisk,
   TimelineEvent,
   ZigbeeLensConfigStatus,
 } from "@zigbeelens/shared";
+
+export type IncidentListQuery = IncidentCollectionQuery;
 import { resolveApiBase } from "@/lib/base";
 import type { Paginated } from "@/types/api";
 import type {
@@ -34,11 +37,21 @@ export class ApiError extends Error {
   }
 }
 
-function buildUrl(path: string, params: Record<string, string | undefined>): string {
+type QueryParamValue = string | number | undefined | null | ReadonlyArray<string | number>;
+
+function buildUrl(path: string, params: Record<string, QueryParamValue> = {}): string {
   const normalized = path.startsWith("/") ? path.slice(1) : path;
   const url = new URL(normalized, resolveApiBase());
   for (const [key, value] of Object.entries(params)) {
-    if (value) url.searchParams.set(key, value);
+    if (value === undefined || value === null || value === "") continue;
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        if (entry === undefined || entry === null || entry === "") continue;
+        url.searchParams.append(key, String(entry));
+      }
+      continue;
+    }
+    url.searchParams.set(key, String(value));
   }
   return url.toString();
 }
@@ -53,7 +66,7 @@ function sleep(ms: number): Promise<void> {
 
 async function fetchJsonOnce<T>(
   path: string,
-  params: Record<string, string | undefined> = {},
+  params: Record<string, QueryParamValue> = {},
   init?: RequestInit,
 ): Promise<T> {
   let res: Response;
@@ -79,7 +92,7 @@ function isIdempotentRequest(init?: RequestInit): boolean {
 
 async function fetchJson<T>(
   path: string,
-  params: Record<string, string | undefined> = {},
+  params: Record<string, QueryParamValue> = {},
   init?: RequestInit,
 ): Promise<T> {
   const retryable = isIdempotentRequest(init);
@@ -165,8 +178,37 @@ export const api = {
       `api/devices/${encodeURIComponent(networkId)}/${encodeURIComponent(ieee)}/coverage`,
     ),
   routers: (scenario?: string) => fetchJson<Paginated<RouterRisk>>("api/routers", { scenario }),
-  incidents: (scenario?: string) =>
-    fetchJson<Paginated<Incident>>("api/incidents", { scenario }),
+  incidents: (query: IncidentListQuery = {}) =>
+    fetchJson<Paginated<Incident>>("api/incidents", {
+      scenario: query.scenario,
+      status: query.status,
+      updated_after: query.updated_after,
+      network_id: query.network_id,
+      device_ieee: query.device_ieee,
+      limit: query.limit,
+      cursor: query.cursor,
+    }),
+  /** Accumulate collection pages for pickers that need a broader option list. */
+  incidentsAllPages: async (query: IncidentListQuery = {}): Promise<Incident[]> => {
+    const items: Incident[] = [];
+    let cursor: string | undefined;
+    const limit = query.limit ?? 100;
+    for (;;) {
+      const page = await fetchJson<Paginated<Incident>>("api/incidents", {
+        scenario: query.scenario,
+        status: query.status,
+        updated_after: query.updated_after,
+        network_id: query.network_id,
+        device_ieee: query.device_ieee,
+        limit,
+        cursor,
+      });
+      items.push(...page.items);
+      if (!page.next_cursor) break;
+      cursor = page.next_cursor;
+    }
+    return items;
+  },
   incident: (id: string, scenario?: string) =>
     fetchJson<Incident>(`api/incidents/${id}`, { scenario }),
   timeline: (scenario?: string, networkId?: string) =>

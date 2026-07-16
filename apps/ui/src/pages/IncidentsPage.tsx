@@ -1,6 +1,6 @@
 import { Link, useParams } from "react-router-dom";
-import { useMemo, useState } from "react";
-import type { IncidentStatus } from "@zigbeelens/shared";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { Incident, IncidentStatus } from "@zigbeelens/shared";
 import { api } from "@/lib/api";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
@@ -22,7 +22,6 @@ import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
 import { incidentTypeLabel, scopeLabel } from "@/lib/format";
 import {
   buildIncidentRecordViewModel,
-  compareIncidentsByRecordTiming,
   incidentMatchesSearch,
 } from "@/viewModels/incidents/incidentViewModel";
 import {
@@ -39,27 +38,72 @@ const INCIDENT_EVENTS = [
   "dashboard_updated",
 ];
 
+const PAGE_LIMIT = 50;
+
 export function IncidentsPage() {
   const { scenario } = useScenario();
-  const { data, error, loading, refetch } = useLiveResource(
-    () => api.incidents(scenario || undefined).then((r) => r.items),
-    [scenario],
-    { refetchOn: INCIDENT_EVENTS },
-  );
-
   const [network, setNetwork] = useState("");
   const [scope, setScope] = useState("");
   const [type, setType] = useState("");
   const [lifecycle, setLifecycle] = useState("");
   const [search, setSearch] = useState("");
+  const [items, setItems] = useState<Incident[]>([]);
+  const [total, setTotal] = useState(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
 
-  const incidents = data ?? [];
+  const page = useLiveResource(
+    () =>
+      api.incidents({
+        scenario: scenario || undefined,
+        status: lifecycle ? (lifecycle as IncidentStatus) : undefined,
+        network_id: network || undefined,
+        limit: PAGE_LIMIT,
+      }),
+    [scenario, lifecycle, network],
+    { refetchOn: INCIDENT_EVENTS },
+  );
+
+  useEffect(() => {
+    if (!page.data) return;
+    setItems(page.data.items);
+    setTotal(page.data.total);
+    setNextCursor(page.data.next_cursor ?? null);
+    setLoadMoreError(null);
+  }, [page.data]);
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const more = await api.incidents({
+        scenario: scenario || undefined,
+        status: lifecycle ? (lifecycle as IncidentStatus) : undefined,
+        network_id: network || undefined,
+        limit: PAGE_LIMIT,
+        cursor: nextCursor,
+      });
+      setItems((prev) => {
+        const seen = new Set(prev.map((inc) => inc.id));
+        const appended = more.items.filter((inc) => !seen.has(inc.id));
+        return [...prev, ...appended];
+      });
+      setTotal(more.total);
+      setNextCursor(more.next_cursor ?? null);
+    } catch (error) {
+      setLoadMoreError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [lifecycle, loadingMore, network, nextCursor, scenario]);
 
   const options = useMemo(() => {
     const networks = new Set<string>();
     const scopes = new Set<string>();
     const types = new Set<string>();
-    for (const inc of incidents) {
+    for (const inc of items) {
       inc.network_ids.forEach((n) => networks.add(n));
       scopes.add(inc.scope);
       types.add(inc.type);
@@ -69,24 +113,22 @@ export function IncidentsPage() {
       scopes: [...scopes].sort(),
       types: [...types].sort(),
     };
-  }, [incidents]);
+  }, [items]);
 
+  // Server owns ordering; only apply local scope/type/search on loaded pages.
   const filtered = useMemo(() => {
-    return incidents
+    return items
       .filter((inc) => {
-        if (network && !inc.network_ids.includes(network)) return false;
         if (scope && inc.scope !== scope) return false;
         if (type && inc.type !== type) return false;
-        if (lifecycle && inc.status !== lifecycle) return false;
         if (!incidentMatchesSearch(inc, search)) return false;
         return true;
       })
-      .sort(compareIncidentsByRecordTiming)
       .map(buildIncidentRecordViewModel);
-  }, [incidents, network, scope, type, lifecycle, search]);
+  }, [items, scope, type, search]);
 
-  if (error) return <ErrorState message={error} onRetry={refetch} />;
-  if (loading) return <LoadingState />;
+  if (page.error) return <ErrorState message={page.error} onRetry={page.refetch} />;
+  if (page.loading) return <LoadingState />;
 
   const groups: Array<{ key: IncidentStatus; label: string }> = [
     { key: "open", label: "Open" },
@@ -104,7 +146,7 @@ export function IncidentsPage() {
         </p>
       </div>
 
-      {incidents.length === 0 ? (
+      {total === 0 ? (
         <EmptyState
           title="No incident records"
           detail="No incident history is available for the current view."
@@ -145,26 +187,49 @@ export function IncidentsPage() {
                 />
               </label>
             </div>
+            <p className="mt-3 text-xs text-zl-muted">
+              Showing {items.length} of {total} matching records
+              {scope || type || search
+                ? " · scope/type/search apply to loaded pages"
+                : ""}
+              .
+            </p>
           </Card>
 
           {filtered.length === 0 ? (
             <EmptyState title="No incidents match" detail="Try clearing filters." />
           ) : (
             groups.map(({ key, label }) => {
-              const items = filtered.filter((i) => i.lifecycle === key);
-              if (items.length === 0) return null;
+              const groupItems = filtered.filter((i) => i.lifecycle === key);
+              if (groupItems.length === 0) return null;
               return (
                 <section key={key} className="space-y-3">
                   <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
-                    {label} · {items.length}
+                    {label} · {groupItems.length}
                   </h2>
-                  {items.map((record) => (
+                  {groupItems.map((record) => (
                     <IncidentRecordCard key={record.id} record={record} />
                   ))}
                 </section>
               );
             })
           )}
+
+          {nextCursor ? (
+            <div className="flex flex-col items-start gap-2">
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+                className="rounded-lg border border-zl-border bg-zl-panel px-4 py-2 text-sm text-zl-text hover:border-zl-accent disabled:opacity-60"
+              >
+                {loadingMore ? "Loading…" : "Load more"}
+              </button>
+              {loadMoreError ? (
+                <p className="text-sm text-zl-danger">{loadMoreError}</p>
+              ) : null}
+            </div>
+          ) : null}
         </>
       )}
     </div>

@@ -116,7 +116,7 @@ export function ReportsPage() {
     },
   );
   const incidentsResource = useLiveResource(
-    () => api.incidents(scen).then((res) => res.items),
+    () => api.incidentsAllPages({ scenario: scen, limit: 100 }),
     [scenario, scope],
     {
       enabled: scope === "incident",

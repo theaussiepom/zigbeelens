@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { Incident } from "@zigbeelens/shared";
@@ -20,7 +20,25 @@ const mockState = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({
   api: {
-    incidents: vi.fn(async () => ({ items: mockState.incidents })),
+    incidents: vi.fn((query: {
+      network_id?: string;
+      status?: string | string[];
+    } = {}) => {
+      let items = mockState.incidents;
+      if (query.network_id) {
+        items = items.filter((inc) => inc.network_ids.includes(query.network_id!));
+      }
+      if (query.status) {
+        const statuses = Array.isArray(query.status) ? query.status : [query.status];
+        items = items.filter((inc) => statuses.includes(inc.status));
+      }
+      return Promise.resolve({
+        items,
+        total: items.length,
+        limit: 50,
+        next_cursor: null,
+      });
+    }),
     incident: vi.fn(async () => mockState.detail),
   },
 }));
@@ -32,26 +50,51 @@ vi.mock("@/context/ScenarioContext", () => ({
   }),
 }));
 
-vi.mock("@/hooks/useLiveResource", () => ({
-  useLiveResource: (fetcher: () => unknown) => {
-    void fetcher();
-    const source = fetcher.toString();
-    if (/\bapi\.incident\s*\(/.test(source) && !/\bapi\.incidents\s*\(/.test(source)) {
+vi.mock("@/hooks/useLiveResource", async () => {
+  const React = await import("react");
+  return {
+    useLiveResource: (
+      fetcher: () => Promise<unknown> | unknown,
+      deps: unknown[] = [],
+    ) => {
+      const source = fetcher.toString();
+      const [data, setData] = React.useState<unknown>(() => {
+        if (/\bapi\.incident\s*\(/.test(source) && !/\bapi\.incidents\s*\(/.test(source)) {
+          return mockState.detail;
+        }
+        return null;
+      });
+      const [loading, setLoading] = React.useState(data == null);
+      React.useEffect(() => {
+        let active = true;
+        setLoading(true);
+        void Promise.resolve(fetcher()).then((result) => {
+          if (!active) return;
+          setData(result);
+          setLoading(false);
+        });
+        return () => {
+          active = false;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, deps);
+      if (/\bapi\.incident\s*\(/.test(source) && !/\bapi\.incidents\s*\(/.test(source)) {
+        return {
+          data: mockState.detail,
+          loading: false,
+          error: null,
+          refetch: vi.fn(),
+        };
+      }
       return {
-        data: mockState.detail,
-        loading: false,
+        data,
+        loading,
         error: null,
         refetch: vi.fn(),
       };
-    }
-    return {
-      data: mockState.incidents,
-      loading: false,
-      error: null,
-      refetch: vi.fn(),
-    };
-  },
-}));
+    },
+  };
+});
 
 function makeIncident(overrides: Partial<Incident> = {}): Incident {
   return {
@@ -140,17 +183,18 @@ describe("IncidentsPage list", () => {
     mockState.detail = null;
   });
 
-  it("renders lifecycle groups and current decision summary", () => {
+  it("renders lifecycle groups and current decision summary", async () => {
     renderList();
-    expect(screen.getByText("Open · 1")).toBeInTheDocument();
+    expect(await screen.findByText("Open · 1")).toBeInTheDocument();
     expect(screen.getByText("Kitchen Plug unavailable")).toBeInTheDocument();
     expect(
       screen.getByText(/Current device decisions:.*Worth reviewing/i),
     ).toBeInTheDocument();
   });
 
-  it("does not render lens/health interpretation or list evidence", () => {
+  it("does not render lens/health interpretation or list evidence", async () => {
     renderList();
+    expect(await screen.findByText("Kitchen Plug unavailable")).toBeInTheDocument();
     expect(screen.queryByText("Looks offline in lens")).not.toBeInTheDocument();
     expect(screen.queryByText("Needs attention")).not.toBeInTheDocument();
     expect(screen.queryByText(/Evidence: First stored evidence/i)).not.toBeInTheDocument();
@@ -158,10 +202,10 @@ describe("IncidentsPage list", () => {
     expect(screen.queryByText("worth_reviewing")).not.toBeInTheDocument();
   });
 
-  it("uses record-oriented empty copy", () => {
+  it("uses record-oriented empty copy", async () => {
     mockState.incidents = [];
     renderList();
-    expect(screen.getByText("No incident records")).toBeInTheDocument();
+    expect(await screen.findByText("No incident records")).toBeInTheDocument();
     expect(screen.queryByText(/look stable/i)).not.toBeInTheDocument();
   });
 
@@ -191,12 +235,17 @@ describe("IncidentsPage list", () => {
       }),
     ];
     renderList();
+    await waitFor(() => {
+      expect(screen.getByText("Kitchen Plug unavailable")).toBeInTheDocument();
+    });
     expect(screen.queryByLabelText("Severity")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Incident decision/i)).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText("Network"), "office");
-    expect(screen.queryByText("Kitchen Plug unavailable")).not.toBeInTheDocument();
-    expect(screen.getByText("Office motion unavailable")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("Kitchen Plug unavailable")).not.toBeInTheDocument();
+      expect(screen.getByText("Office motion unavailable")).toBeInTheDocument();
+    });
   });
 
   it("list source does not hard-code decision status switches", () => {
