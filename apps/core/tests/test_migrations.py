@@ -10,7 +10,7 @@ def test_migrations_idempotent(tmp_path: Path):
     db = Database(db_path)
     version1 = db.migrate()
     version2 = db.migrate()
-    assert version1 == version2 == 9
+    assert version1 == version2 == 10
 
     tables = {
         row[0]
@@ -82,7 +82,7 @@ def test_friendly_name_not_globally_unique(tmp_path: Path):
 
 def test_composition_read_indexes_exist(tmp_path: Path):
     db = Database(tmp_path / "indexes.sqlite")
-    assert db.migrate() == 9
+    assert db.migrate() == 10
     indexes = {
         row[0]
         for row in db.conn.execute(
@@ -92,4 +92,5 @@ def test_composition_read_indexes_exist(tmp_path: Path):
     assert "idx_events_device" in indexes
     assert "idx_events_incident" in indexes
     assert "idx_incident_devices_device" in indexes
+    assert "idx_incidents_lifecycle_updated_id" in indexes
     db.close()

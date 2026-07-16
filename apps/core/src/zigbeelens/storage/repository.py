@@ -894,12 +894,146 @@ class Repository:
             placeholders = ",".join("?" for _ in status_filter)
             query += f" WHERE lifecycle_state IN ({placeholders})"
             params.extend(status_filter)
-        query += " ORDER BY CASE lifecycle_state WHEN 'open' THEN 0 WHEN 'watching' THEN 1 ELSE 2 END, updated_at DESC"
+        query += (
+            " ORDER BY CASE lifecycle_state WHEN 'open' THEN 0 WHEN 'watching' THEN 1 ELSE 2 END, "
+            "updated_at DESC, id DESC"
+        )
         cur = self.db.conn.execute(query, params)
         return [dict(row) for row in cur.fetchall()]
 
     def list_active_incidents(self) -> list[dict[str, Any]]:
         return self.list_incidents(status_filter=("open", "watching"))
+
+    def _incident_collection_filters(
+        self,
+        query: "IncidentCollectionQuery",
+        *,
+        include_cursor: bool,
+    ) -> tuple[str, list[Any]]:
+        from zigbeelens.storage.incident_collection import (
+            LIFECYCLE_RANK_SQL,
+            decode_incident_collection_cursor,
+        )
+
+        clauses: list[str] = []
+        params: list[Any] = []
+
+        status_placeholders = ",".join("?" for _ in query.status_filter)
+        clauses.append(f"lifecycle_state IN ({status_placeholders})")
+        params.extend(query.status_filter)
+
+        if query.updated_after is not None:
+            clauses.append("updated_at > ?")
+            params.append(query.updated_after)
+
+        if query.network_id is not None and query.device_ieee is not None:
+            clauses.append(
+                """
+                EXISTS (
+                    SELECT 1 FROM incident_devices d
+                    WHERE d.incident_id = incidents.id
+                      AND d.network_id = ?
+                      AND d.ieee_address = ?
+                )
+                """
+            )
+            params.extend([query.network_id, query.device_ieee])
+        elif query.network_id is not None:
+            clauses.append(
+                """
+                EXISTS (
+                    SELECT 1 FROM incident_devices d
+                    WHERE d.incident_id = incidents.id
+                      AND d.network_id = ?
+                )
+                """
+            )
+            params.append(query.network_id)
+
+        if include_cursor and query.cursor is not None:
+            cursor = decode_incident_collection_cursor(
+                query.cursor,
+                expected_filter_signature=query.filter_signature,
+            )
+            clauses.append(
+                f"""
+                (
+                    {LIFECYCLE_RANK_SQL} > ?
+                    OR (
+                        {LIFECYCLE_RANK_SQL} = ?
+                        AND updated_at < ?
+                    )
+                    OR (
+                        {LIFECYCLE_RANK_SQL} = ?
+                        AND updated_at = ?
+                        AND id < ?
+                    )
+                )
+                """
+            )
+            params.extend(
+                [
+                    cursor.lifecycle_rank,
+                    cursor.lifecycle_rank,
+                    cursor.updated_at,
+                    cursor.lifecycle_rank,
+                    cursor.updated_at,
+                    cursor.incident_id,
+                ]
+            )
+
+        return " AND ".join(clauses), params
+
+    def count_incidents(self, query: "IncidentCollectionQuery") -> int:
+        where_sql, params = self._incident_collection_filters(query, include_cursor=False)
+        cur = self.db.conn.execute(
+            f"SELECT COUNT(*) AS n FROM incidents WHERE {where_sql}",
+            params,
+        )
+        row = cur.fetchone()
+        return int(row["n"] if row is not None else 0)
+
+    def list_incidents_page(
+        self, query: "IncidentCollectionQuery"
+    ) -> "IncidentCollectionPage":
+        from zigbeelens.storage.incident_collection import (
+            LIFECYCLE_RANK_SQL,
+            IncidentCollectionPage,
+            cursor_from_incident_row,
+            encode_incident_collection_cursor,
+        )
+
+        # Validate cursor against current filters before counting/listing.
+        where_sql, params = self._incident_collection_filters(query, include_cursor=True)
+        total = self.count_incidents(query)
+        fetch_limit = query.limit + 1
+        sql = f"""
+            SELECT id, incident_type, lifecycle_state, severity, scope, confidence,
+                   title, summary, explanation, evidence_json, counter_evidence_json,
+                   limitations_json, opened_at, updated_at, resolved_at, dedup_key
+            FROM incidents
+            WHERE {where_sql}
+            ORDER BY {LIFECYCLE_RANK_SQL} ASC, updated_at DESC, id DESC
+            LIMIT ?
+        """
+        cur = self.db.conn.execute(sql, [*params, fetch_limit])
+        fetched = [dict(row) for row in cur.fetchall()]
+        has_more = len(fetched) > query.limit
+        rows = fetched[: query.limit]
+        next_cursor = None
+        if has_more and rows:
+            next_cursor = encode_incident_collection_cursor(
+                cursor_from_incident_row(
+                    rows[-1],
+                    filter_signature=query.filter_signature,
+                )
+            )
+        return IncidentCollectionPage(
+            rows=tuple(rows),
+            total=total,
+            limit=query.limit,
+            next_cursor=next_cursor,
+        )
 
     def get_incident_by_dedup_key(self, dedup_key: str) -> dict[str, Any] | None:
         cur = self.db.conn.execute(
