@@ -913,18 +913,29 @@ class Repository:
         query: "IncidentCollectionQuery",
         *,
         include_cursor: bool,
+        status_mode: str = "rank",
     ) -> tuple[str, list[Any]]:
         from zigbeelens.storage.incident_collection import (
             LIFECYCLE_RANK_SQL,
             decode_incident_collection_cursor,
+            lifecycle_rank,
         )
 
         clauses: list[str] = []
         params: list[Any] = []
 
-        status_placeholders = ",".join("?" for _ in query.status_filter)
-        clauses.append(f"lifecycle_state IN ({status_placeholders})")
-        params.extend(query.status_filter)
+        if status_mode == "lifecycle":
+            # COUNT path: plain lifecycle column can use idx_incidents_lifecycle.
+            status_placeholders = ",".join("?" for _ in query.status_filter)
+            clauses.append(f"lifecycle_state IN ({status_placeholders})")
+            params.extend(query.status_filter)
+        else:
+            # PAGE path: filter on the same CASE expression as ORDER BY /
+            # migration 010 so SQLite uses idx_incidents_collection_order
+            # without a temporary ORDER BY B-tree on principal paths.
+            rank_placeholders = ",".join("?" for _ in query.status_filter)
+            clauses.append(f"{LIFECYCLE_RANK_SQL} IN ({rank_placeholders})")
+            params.extend(lifecycle_rank(state) for state in query.status_filter)
 
         if query.updated_after is not None:
             clauses.append("updated_at > ?")
@@ -989,7 +1000,11 @@ class Repository:
         return " AND ".join(clauses), params
 
     def count_incidents(self, query: "IncidentCollectionQuery") -> int:
-        where_sql, params = self._incident_collection_filters(query, include_cursor=False)
+        where_sql, params = self._incident_collection_filters(
+            query,
+            include_cursor=False,
+            status_mode="lifecycle",
+        )
         cur = self.db.conn.execute(
             f"SELECT COUNT(*) AS n FROM incidents WHERE {where_sql}",
             params,

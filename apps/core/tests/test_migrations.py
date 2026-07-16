@@ -92,5 +92,6 @@ def test_composition_read_indexes_exist(tmp_path: Path):
     assert "idx_events_device" in indexes
     assert "idx_events_incident" in indexes
     assert "idx_incident_devices_device" in indexes
-    assert "idx_incidents_lifecycle_updated_id" in indexes
+    assert "idx_incidents_collection_order" in indexes
+    assert "idx_incidents_lifecycle" in indexes
     db.close()

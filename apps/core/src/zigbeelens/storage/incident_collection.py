@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping
@@ -16,9 +18,12 @@ ALL_INCIDENT_STATUSES: tuple[str, ...] = ("open", "watching", "resolved")
 _LIFECYCLE_RANK: dict[str, int] = {"open": 0, "watching": 1, "resolved": 2}
 _RANK_TO_LIFECYCLE: dict[int, str] = {0: "open", 1: "watching", 2: "resolved"}
 
+# Must match the expression index in migration 010 exactly.
 LIFECYCLE_RANK_SQL = (
     "CASE lifecycle_state WHEN 'open' THEN 0 WHEN 'watching' THEN 1 ELSE 2 END"
 )
+
+_URLSAFE_B64_RE = re.compile(r"^[A-Za-z0-9_-]*={0,2}$")
 
 
 class IncidentCollectionQueryError(ValueError):
@@ -42,13 +47,15 @@ class IncidentCollectionQuery:
 
     @property
     def filter_signature(self) -> str:
-        canonical = "|".join(
-            [
-                f"status={','.join(self.status_filter)}",
-                f"updated_after={self.updated_after or ''}",
-                f"network_id={self.network_id or ''}",
-                f"device_ieee={self.device_ieee or ''}",
-            ]
+        canonical = json.dumps(
+            {
+                "device_ieee": self.device_ieee,
+                "network_id": self.network_id,
+                "status": list(self.status_filter),
+                "updated_after": self.updated_after,
+            },
+            separators=(",", ":"),
+            sort_keys=True,
         )
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -79,19 +86,44 @@ def lifecycle_rank(lifecycle_state: str) -> int:
         ) from exc
 
 
-def normalize_updated_after(value: str) -> str:
+def canonicalize_utc_iso(value: str) -> str:
+    """Parse ISO-8601 (Z or offset) to UTC ISO, preserving sub-second precision."""
     text = value.strip()
     if not text:
-        raise IncidentCollectionQueryError("updated_after must be a non-empty ISO-8601 datetime")
+        raise IncidentCollectionQueryError("timestamp must be a non-empty ISO-8601 datetime")
     try:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError as exc:
         raise IncidentCollectionQueryError(
-            "updated_after must be a valid ISO-8601 datetime"
+            "timestamp must be a valid ISO-8601 datetime"
         ) from exc
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).replace(microsecond=0).isoformat()
+        raise IncidentCollectionQueryError("timestamp must include a timezone offset or Z")
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+def normalize_updated_after(value: str) -> str:
+    """Canonical UTC ISO for query bounds; preserves microsecond precision."""
+    return canonicalize_utc_iso(value)
+
+
+def validate_cursor_timestamp(value: str) -> str:
+    """Require a canonical UTC +00:00 timestamp matching DB lexical form."""
+    if not isinstance(value, str) or not value:
+        raise IncidentCollectionCursorError("Invalid incident collection cursor timestamp")
+    if "Z" in value or value.endswith("z"):
+        raise IncidentCollectionCursorError("Invalid incident collection cursor timestamp")
+    if not value.endswith("+00:00"):
+        raise IncidentCollectionCursorError("Invalid incident collection cursor timestamp")
+    try:
+        canonical = canonicalize_utc_iso(value)
+    except IncidentCollectionQueryError as exc:
+        raise IncidentCollectionCursorError(
+            "Invalid incident collection cursor timestamp"
+        ) from exc
+    if canonical != value:
+        raise IncidentCollectionCursorError("Invalid incident collection cursor timestamp")
+    return value
 
 
 def build_incident_collection_query(
@@ -106,7 +138,6 @@ def build_incident_collection_query(
     if status is None or len(status) == 0:
         statuses = ALL_INCIDENT_STATUSES
     else:
-        normalized: list[str] = []
         seen: set[str] = set()
         for raw in status:
             value = str(raw).strip()
@@ -114,11 +145,8 @@ def build_incident_collection_query(
                 raise IncidentCollectionQueryError(f"Invalid incident status: {raw!r}")
             if value not in seen:
                 seen.add(value)
-                normalized.append(value)
         # Preserve lifecycle presentation order rather than request order.
-        statuses = tuple(
-            state for state in ALL_INCIDENT_STATUSES if state in seen
-        )
+        statuses = tuple(state for state in ALL_INCIDENT_STATUSES if state in seen)
 
     if device_ieee is not None and not str(device_ieee).strip():
         raise IncidentCollectionQueryError("device_ieee must be non-empty when provided")
@@ -165,14 +193,35 @@ def encode_incident_collection_cursor(cursor: IncidentCollectionCursor) -> str:
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
+def _decode_urlsafe_b64_strict(token: str) -> bytes:
+    """Decode URL-safe Base64; reject non-alphabet and ignored trailing characters."""
+    if not token or not _URLSAFE_B64_RE.fullmatch(token):
+        raise IncidentCollectionCursorError("Invalid incident collection cursor")
+    pad_len = (-len(token)) % 4
+    padded = token + ("=" * pad_len)
+    try:
+        raw = base64.urlsafe_b64decode(padded.encode("ascii"))
+    except binascii.Error as exc:
+        raise IncidentCollectionCursorError("Invalid incident collection cursor") from exc
+    # Round-trip: ignore only the padding we would ourselves add/strip.
+    reencoded = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    provided = token.rstrip("=")
+    if reencoded != provided:
+        raise IncidentCollectionCursorError("Invalid incident collection cursor")
+    if token.endswith("="):
+        expected_padded = reencoded + ("=" * ((4 - len(reencoded) % 4) % 4))
+        if token != expected_padded:
+            raise IncidentCollectionCursorError("Invalid incident collection cursor")
+    return raw
+
+
 def decode_incident_collection_cursor(
     token: str,
     *,
     expected_filter_signature: str,
 ) -> IncidentCollectionCursor:
     try:
-        padded = token + "=" * (-len(token) % 4)
-        raw = base64.urlsafe_b64decode(padded.encode("ascii"))
+        raw = _decode_urlsafe_b64_strict(token)
         payload = json.loads(raw.decode("utf-8"))
     except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise IncidentCollectionCursorError("Invalid incident collection cursor") from exc
@@ -181,9 +230,6 @@ def decode_incident_collection_cursor(
         raise IncidentCollectionCursorError("Invalid incident collection cursor")
 
     allowed = {"v", "lr", "u", "id", "fs"}
-    unknown = set(payload) - allowed
-    if unknown:
-        raise IncidentCollectionCursorError("Invalid incident collection cursor")
     if set(payload) != allowed:
         raise IncidentCollectionCursorError("Invalid incident collection cursor")
 
@@ -199,12 +245,7 @@ def decode_incident_collection_cursor(
         raise IncidentCollectionCursorError("Invalid incident collection cursor")
     if lifecycle_rank_value not in _RANK_TO_LIFECYCLE:
         raise IncidentCollectionCursorError("Invalid incident collection cursor lifecycle")
-    if not isinstance(updated_at, str) or not updated_at:
-        raise IncidentCollectionCursorError("Invalid incident collection cursor timestamp")
-    try:
-        normalize_updated_after(updated_at)
-    except IncidentCollectionQueryError as exc:
-        raise IncidentCollectionCursorError("Invalid incident collection cursor timestamp") from exc
+    updated_at = validate_cursor_timestamp(updated_at)
     if not isinstance(incident_id, str) or not incident_id:
         raise IncidentCollectionCursorError("Invalid incident collection cursor id")
     if not isinstance(filter_signature, str) or not filter_signature:
@@ -226,10 +267,12 @@ def cursor_from_incident_row(
     *,
     filter_signature: str,
 ) -> IncidentCollectionCursor:
+    # Keep the exact DB timestamp text so keyset equality remains lexical.
+    updated_at = validate_cursor_timestamp(str(row["updated_at"]))
     return IncidentCollectionCursor(
         version=INCIDENT_COLLECTION_CURSOR_VERSION,
         lifecycle_rank=lifecycle_rank(str(row["lifecycle_state"])),
-        updated_at=str(row["updated_at"]),
+        updated_at=updated_at,
         incident_id=str(row["id"]),
         filter_signature=filter_signature,
     )

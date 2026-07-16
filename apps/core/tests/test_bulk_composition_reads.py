@@ -588,8 +588,12 @@ def test_track_3c_ingestion_baselines_unchanged():
     assert EXPECTED_PHASE_BASELINES["payload_ingestion"]["total_execute_count"] == 36
 
 
-def test_track_3e_incident_list_scales_with_page_not_history():
+def test_track_3e_incident_list_scales_with_page_not_history(tmp_path: Path):
     from performance.expected_baselines import EXPECTED_BASELINES
+    from zigbeelens.storage.incident_collection import (
+        LIFECYCLE_RANK_SQL,
+        build_incident_collection_query,
+    )
 
     compact = EXPECTED_BASELINES["incident_list"]
     history = EXPECTED_BASELINES["incident_list_history"]
@@ -602,6 +606,55 @@ def test_track_3e_incident_list_scales_with_page_not_history():
     # History estate has ~1500 incidents; page composition must stay near compact.
     assert history["execute_count"] < compact["execute_count"] * 4
     assert history["execute_count"] < 200
+
+    # Principal default page plan must use the expression order index without
+    # sorting the matching history through a temporary B-tree.
+    db = Database(tmp_path / "history-plan.sqlite")
+    db.migrate()
+    repo = Repository(db)
+    now = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
+    for index in range(200):
+        state = "open" if index < 5 else ("watching" if index < 10 else "resolved")
+        ts = (now - timedelta(minutes=index)).isoformat()
+        repo.insert_incident(
+            incident_id=f"plan-{index:04d}",
+            dedup_key=f"plan:{index}",
+            incident_type="device_offline",
+            lifecycle_state=state,
+            severity="incident",
+            scope="device",
+            confidence="medium",
+            title=str(index),
+            summary=str(index),
+            explanation="e",
+            evidence=[],
+            counter_evidence=[],
+            limitations=[],
+            opened_at=ts,
+            updated_at=ts,
+        )
+    for query in (
+        build_incident_collection_query(limit=50),
+        build_incident_collection_query(status=["open", "watching"], limit=50),
+    ):
+        where_sql, params = repo._incident_collection_filters(
+            query, include_cursor=False
+        )
+        plan_text = " | ".join(
+            str(row[-1])
+            for row in repo.db.conn.execute(
+                f"""
+                EXPLAIN QUERY PLAN
+                SELECT id FROM incidents
+                WHERE {where_sql}
+                ORDER BY {LIFECYCLE_RANK_SQL} ASC, updated_at DESC, id DESC
+                LIMIT ?
+                """,
+                [*params, query.limit + 1],
+            ).fetchall()
+        )
+        assert "idx_incidents_collection_order" in plan_text
+        assert "USE TEMP B-TREE FOR ORDER BY" not in plan_text
 
 
 def test_beast_scaling_reductions():

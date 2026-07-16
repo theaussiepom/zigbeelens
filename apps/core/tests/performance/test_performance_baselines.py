@@ -938,7 +938,9 @@ def test_high_level_architectural_spies(tmp_path: Path, monkeypatch: pytest.Monk
 
 
 def test_markdown_baseline_table_matches_structured_snapshot():
-    doc = Path("docs/performance-baseline.md").read_text(encoding="utf-8")
+    doc = (
+        Path(__file__).resolve().parents[4] / "docs" / "performance-baseline.md"
+    ).read_text(encoding="utf-8")
     labels = {
         "availability_ingestion": "Availability change ingestion",
         "availability_ingestion_beast": "Availability change ingestion",

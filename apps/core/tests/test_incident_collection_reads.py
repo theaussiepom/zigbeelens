@@ -11,16 +11,47 @@ from zigbeelens.config.models import AppConfig, ModeConfig, NetworkConfig, Stora
 from zigbeelens.db.connection import Database
 from zigbeelens.diagnostics.incidents.models import AffectedDevice
 from zigbeelens.storage.incident_collection import (
+    LIFECYCLE_RANK_SQL,
     IncidentCollectionCursor,
     IncidentCollectionCursorError,
     IncidentCollectionQueryError,
     build_incident_collection_query,
+    canonicalize_utc_iso,
     decode_incident_collection_cursor,
     encode_incident_collection_cursor,
+    normalize_updated_after,
 )
 from zigbeelens.storage.repository import Repository
 
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
+
+
+def _explain_page_plan(repo: Repository, query) -> str:
+    where_sql, params = repo._incident_collection_filters(query, include_cursor=bool(query.cursor))
+    plan_rows = repo.db.conn.execute(
+        f"""
+        EXPLAIN QUERY PLAN
+        SELECT id FROM incidents
+        WHERE {where_sql}
+        ORDER BY {LIFECYCLE_RANK_SQL} ASC, updated_at DESC, id DESC
+        LIMIT ?
+        """,
+        [*params, query.limit + 1],
+    ).fetchall()
+    return " | ".join(str(row[-1]) for row in plan_rows)
+
+
+def _seed_history_scale(repo: Repository, *, n: int = 300) -> None:
+    _seed_device(repo, "home", "0xA1")
+    for index in range(n):
+        state = "open" if index < 5 else ("watching" if index < 10 else "resolved")
+        _seed_incident(
+            repo,
+            f"hist-{index:04d}",
+            lifecycle=state,
+            updated_at=NOW - timedelta(minutes=index),
+            refs=[("home", "0xA1")] if index % 3 == 0 else [],
+        )
 
 
 def _repo(tmp_path: Path) -> Repository:
@@ -283,47 +314,184 @@ def test_query_validation_rules():
         build_incident_collection_query(updated_after="yesterday")
 
 
-def test_explain_query_plan_uses_lifecycle_updated_id_index(tmp_path: Path):
+def test_explain_query_plan_uses_collection_order_index(tmp_path: Path):
     repo = _repo(tmp_path)
-    _seed_device(repo, "home", "0xA1")
-    for index in range(200):
-        _seed_incident(
-            repo,
-            f"res-{index:04d}",
-            lifecycle="resolved",
-            updated_at=NOW - timedelta(minutes=index),
-            refs=[("home", "0xA1")] if index % 3 == 0 else [],
-        )
-    query = build_incident_collection_query(status=["resolved"], limit=25)
-    where_sql, params = repo._incident_collection_filters(query, include_cursor=False)
-    plan_rows = repo.db.conn.execute(
-        f"""
-        EXPLAIN QUERY PLAN
-        SELECT id FROM incidents
-        WHERE {where_sql}
-        ORDER BY CASE lifecycle_state WHEN 'open' THEN 0 WHEN 'watching' THEN 1 ELSE 2 END ASC,
-                 updated_at DESC, id DESC
-        LIMIT ?
-        """,
-        [*params, query.limit + 1],
-    ).fetchall()
-    plan_text = " | ".join(str(row[-1]) for row in plan_rows)
-    assert "idx_incidents_lifecycle_updated_id" in plan_text
+    _seed_history_scale(repo, n=300)
 
-    page = repo.list_incidents_page(query)
-    assert len(page.rows) == 25
-    assert page.total == 200
-    assert page.next_cursor is not None
-    # Cursor continuation still uses bound parameters (smoke: no exception + progresses).
-    page2 = repo.list_incidents_page(
-        build_incident_collection_query(
-            status=["resolved"],
-            limit=25,
-            cursor=page.next_cursor,
+    default_q = build_incident_collection_query(limit=50)
+    active_q = build_incident_collection_query(status=["open", "watching"], limit=50)
+    resolved_q = build_incident_collection_query(status=["resolved"], limit=50)
+    updated_q = build_incident_collection_query(
+        updated_after=(NOW - timedelta(hours=2)).isoformat(),
+        limit=50,
+    )
+    first = repo.list_incidents_page(default_q)
+    assert first.next_cursor is not None
+    cursor_q = build_incident_collection_query(limit=50, cursor=first.next_cursor)
+    network_q = build_incident_collection_query(network_id="home", limit=50)
+    device_q = build_incident_collection_query(
+        network_id="home",
+        device_ieee="0xA1",
+        limit=50,
+    )
+
+    plans = {
+        "default": _explain_page_plan(repo, default_q),
+        "active": _explain_page_plan(repo, active_q),
+        "resolved": _explain_page_plan(repo, resolved_q),
+        "updated_after": _explain_page_plan(repo, updated_q),
+        "cursor": _explain_page_plan(repo, cursor_q),
+        "network": _explain_page_plan(repo, network_q),
+        "device": _explain_page_plan(repo, device_q),
+    }
+
+    for name, plan_text in plans.items():
+        assert "idx_incidents_collection_order" in plan_text, (name, plan_text)
+
+    # Principal default/active paths must not sort via a temporary B-tree.
+    for name in ("default", "active"):
+        assert "USE TEMP B-TREE FOR ORDER BY" not in plans[name], (name, plans[name])
+
+    # Cursor continuation progresses without overlap.
+    page2 = repo.list_incidents_page(cursor_q)
+    assert page2.rows[0]["id"] != first.rows[0]["id"]
+    assert {row["id"] for row in first.rows}.isdisjoint({row["id"] for row in page2.rows})
+
+
+def test_updated_after_preserves_microsecond_boundaries(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _seed_incident(
+        repo,
+        "at-200",
+        lifecycle="open",
+        updated_at=datetime(2026, 7, 16, 12, 0, 0, 200000, tzinfo=timezone.utc),
+    )
+    _seed_incident(
+        repo,
+        "at-500",
+        lifecycle="open",
+        updated_at=datetime(2026, 7, 16, 12, 0, 0, 500000, tzinfo=timezone.utc),
+    )
+    _seed_incident(
+        repo,
+        "at-600",
+        lifecycle="open",
+        updated_at=datetime(2026, 7, 16, 12, 0, 0, 600000, tzinfo=timezone.utc),
+    )
+
+    bound = normalize_updated_after("2026-07-16T12:00:00.500Z")
+    assert bound == "2026-07-16T12:00:00.500000+00:00"
+    assert canonicalize_utc_iso("2026-07-16T12:00:00.500+00:00") == bound
+
+    page = repo.list_incidents_page(
+        build_incident_collection_query(updated_after="2026-07-16T12:00:00.500Z", limit=20)
+    )
+    assert [row["id"] for row in page.rows] == ["at-600"]
+    assert page.total == 1
+
+
+def test_cursor_round_trips_microseconds_and_rejects_noncanonical(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _seed_incident(
+        repo,
+        "with-us",
+        lifecycle="open",
+        updated_at=datetime(2026, 7, 16, 12, 0, 0, 123456, tzinfo=timezone.utc),
+    )
+    _seed_incident(
+        repo,
+        "no-us",
+        lifecycle="open",
+        updated_at=datetime(2026, 7, 16, 11, 0, 0, tzinfo=timezone.utc),
+    )
+    first = repo.list_incidents_page(build_incident_collection_query(limit=1))
+    assert first.next_cursor is not None
+    decoded = decode_incident_collection_cursor(
+        first.next_cursor,
+        expected_filter_signature=build_incident_collection_query(limit=1).filter_signature,
+    )
+    assert decoded.updated_at == "2026-07-16T12:00:00.123456+00:00"
+    second = repo.list_incidents_page(
+        build_incident_collection_query(limit=1, cursor=first.next_cursor)
+    )
+    assert [row["id"] for row in second.rows] == ["no-us"]
+    assert second.next_cursor is None
+
+    # Generated cursor without microseconds still round-trips.
+    whole_dir = tmp_path / "whole"
+    whole_dir.mkdir()
+    repo2 = _repo(whole_dir)
+    _seed_incident(
+        repo2,
+        "a",
+        lifecycle="open",
+        updated_at=datetime(2026, 7, 16, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    _seed_incident(
+        repo2,
+        "b",
+        lifecycle="open",
+        updated_at=datetime(2026, 7, 16, 11, 0, 0, tzinfo=timezone.utc),
+    )
+    whole_first = repo2.list_incidents_page(build_incident_collection_query(limit=1))
+    assert whole_first.next_cursor is not None
+    whole_decoded = decode_incident_collection_cursor(
+        whole_first.next_cursor,
+        expected_filter_signature=build_incident_collection_query(limit=1).filter_signature,
+    )
+    assert whole_decoded.updated_at == "2026-07-16T12:00:00+00:00"
+
+    # Reject offset / Z forms that would break lexical equality.
+    good = build_incident_collection_query(limit=1)
+    bad_z = encode_incident_collection_cursor(
+        IncidentCollectionCursor(
+            version=decoded.version,
+            lifecycle_rank=decoded.lifecycle_rank,
+            updated_at="2026-07-16T12:00:00.123456Z",
+            incident_id=decoded.incident_id,
+            filter_signature=decoded.filter_signature,
         )
     )
-    assert page2.rows[0]["id"] != page.rows[0]["id"]
-    assert {row["id"] for row in page.rows}.isdisjoint({row["id"] for row in page2.rows})
+    with pytest.raises(IncidentCollectionCursorError):
+        decode_incident_collection_cursor(
+            bad_z, expected_filter_signature=good.filter_signature
+        )
+
+    bad_offset = encode_incident_collection_cursor(
+        IncidentCollectionCursor(
+            version=decoded.version,
+            lifecycle_rank=decoded.lifecycle_rank,
+            updated_at="2026-07-16T22:00:00.123456+10:00",
+            incident_id=decoded.incident_id,
+            filter_signature=decoded.filter_signature,
+        )
+    )
+    with pytest.raises(IncidentCollectionCursorError):
+        decode_incident_collection_cursor(
+            bad_offset, expected_filter_signature=good.filter_signature
+        )
+
+    # Trailing Base64 garbage must not be silently ignored.
+    with pytest.raises(IncidentCollectionCursorError):
+        decode_incident_collection_cursor(
+            first.next_cursor + "??",
+            expected_filter_signature=good.filter_signature,
+        )
+    with pytest.raises(IncidentCollectionCursorError):
+        decode_incident_collection_cursor(
+            first.next_cursor + "A",
+            expected_filter_signature=good.filter_signature,
+        )
+
+    # Cursor/filter mismatch remains rejected.
+    with pytest.raises(IncidentCollectionCursorError):
+        repo.list_incidents_page(
+            build_incident_collection_query(
+                status=["resolved"],
+                limit=1,
+                cursor=first.next_cursor,
+            )
+        )
 
 
 def test_access_layer_delegates_page_and_count(tmp_path: Path):
