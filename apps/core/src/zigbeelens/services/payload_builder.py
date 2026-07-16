@@ -179,6 +179,21 @@ class PayloadBuilder:
                 self._evaluation.evaluate_all()
         return self.health
 
+    def _ensure_device_health_for_rows(
+        self, rows: list[DeviceRow]
+    ) -> HealthDiagnosticService | None:
+        """Complete network+device health for the requested rows before freezing context."""
+        health = self._ensure_health()
+        if health is None or self._evaluation is None or not rows:
+            return health
+        missing_networks: set[str] = set()
+        for row in rows:
+            if health.get_device_health(row.network_id, row.ieee_address) is None:
+                missing_networks.add(row.network_id)
+        for network_id in sorted(missing_networks):
+            self._evaluation.evaluate_network(network_id)
+        return health
+
     def _device_composition_context(
         self,
         rows: list[DeviceRow],
@@ -205,10 +220,20 @@ class PayloadBuilder:
             incident_affected_keys=affected_keys,
         )
         if include_related_incidents:
-            related_map = self.repo.incidents.list_incident_ids_for_devices(keys)
-            related_incident_ids_by_key = MappingProxyType(
-                {key: tuple(related_map.get(key, [])) for key in keys}
-            )
+            if incident_context is not None:
+                related_incident_ids_by_key = MappingProxyType(
+                    {
+                        key: tuple(
+                            incident_context.incident_ids_by_device_key.get(key, ())
+                        )
+                        for key in keys
+                    }
+                )
+            else:
+                related_map = self.repo.incidents.list_incident_ids_for_devices(keys)
+                related_incident_ids_by_key = MappingProxyType(
+                    {key: tuple(related_map.get(key, [])) for key in keys}
+                )
         else:
             related_incident_ids_by_key = MappingProxyType({})
         return DeviceCompositionReadContext(
@@ -264,11 +289,11 @@ class PayloadBuilder:
         if not self.repo.has_collected_data():
             return build_empty_dashboard(self.config, self.repo.list_networks())
 
-        health = self._ensure_health()
+        rows = self.repo.list_devices()
+        health = self._ensure_device_health_for_rows(rows)
         if not health:
             health = self._fallback_health()
         network_rows = self.repo.list_networks()
-        rows = self.repo.list_devices()
         incident_context = (
             self._incident_service.active_incident_read_context()
             if self._incident_service
@@ -452,12 +477,18 @@ class PayloadBuilder:
         )
 
     def devices(self, network_id: str | None = None) -> list[DeviceSummary]:
-        # Evaluate/recover health before building any incident-sensitive read context.
-        self._ensure_health()
         rows = self.repo.list_devices(network_id)
+        # Complete health for every requested device before freezing incident context.
+        self._ensure_device_health_for_rows(rows)
+        incident_context = (
+            self._incident_service.active_incident_read_context()
+            if self._incident_service
+            else None
+        )
         composition = self._device_composition_context(
             rows,
             include_related_incidents=True,
+            incident_context=incident_context,
         )
         badges = device_decision_badges_for_devices(
             self.repo,
@@ -479,7 +510,7 @@ class PayloadBuilder:
         decision_badges: dict[tuple[str, str], DeviceDecisionBadge] | None = None,
     ) -> list[DeviceSummary]:
         if summary_context is None:
-            self._ensure_health()
+            self._ensure_device_health_for_rows(rows)
             summary_context = self._device_composition_context(
                 rows, include_related_incidents=False
             ).summary
@@ -670,7 +701,13 @@ class PayloadBuilder:
             if health_svc
             else None
         )
-        if result is None and health_svc and self._evaluation is not None:
+        # Late evaluation is only for standalone detail paths without a frozen context.
+        if (
+            result is None
+            and summary_context is None
+            and health_svc
+            and self._evaluation is not None
+        ):
             self._evaluation.evaluate_network(row.network_id)
             result = health_svc.get_device_health(row.network_id, row.ieee_address)
         device_health = health_result_to_device_health(result) if result else None

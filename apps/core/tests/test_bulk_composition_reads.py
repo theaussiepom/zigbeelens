@@ -722,3 +722,163 @@ def test_dashboard_reuses_one_active_incident_context(
         with _frozen_time():
             _builder(fx).dashboard()
     assert context_calls["count"] == 1
+
+
+def test_devices_one_coherent_incident_context_projection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    context_calls = {"count": 0}
+    list_ids_calls = {"count": 0}
+    captured_related: dict = {}
+    original_context = IncidentDiagnosticService.active_incident_read_context
+    original_list_ids = Repository.list_incident_ids_for_devices
+    original_badges = payload_builder_module.device_decision_badges_for_devices
+
+    def context_spy(self):
+        context_calls["count"] += 1
+        return original_context(self)
+
+    def list_ids_spy(*args, **kwargs):
+        list_ids_calls["count"] += 1
+        return original_list_ids(*args, **kwargs)
+
+    def badges_spy(*args, **kwargs):
+        captured_related["map"] = kwargs.get("related_incident_ids_by_key")
+        return original_badges(*args, **kwargs)
+
+    monkeypatch.setattr(IncidentDiagnosticService, "active_incident_read_context", context_spy)
+    monkeypatch.setattr(Repository, "list_incident_ids_for_devices", list_ids_spy)
+    monkeypatch.setattr(
+        payload_builder_module, "device_decision_badges_for_devices", badges_spy
+    )
+
+    with deterministic_fixture(tmp_path, "compact") as fx:
+        with _frozen_time():
+            builder = _builder(fx)
+            context = builder._incident_service.active_incident_read_context()
+            context_calls["count"] = 0
+            summaries = builder.devices()
+        assert context_calls["count"] == 1
+        assert list_ids_calls["count"] == 0
+        related = captured_related["map"]
+        assert related is not None
+        for summary in summaries:
+            key = (summary.network_id, summary.ieee_address)
+            assert key in related
+            assert related[key] == context.incident_ids_by_device_key.get(key, ())
+            expected_affected = key in context.affected_keys
+            assert summary.incident_affected is expected_affected
+
+
+def test_devices_evaluates_missing_device_before_incident_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from zigbeelens.config.models import DiagnosticsConfig
+    from zigbeelens.diagnostics.coordinator import EvaluationCoordinator
+    from zigbeelens.diagnostics.service import HealthDiagnosticService
+
+    db = Database(tmp_path / "missing.sqlite")
+    db.migrate()
+    repo = Repository(db)
+    config = AppConfig(
+        mode=ModeConfig(mock=False),
+        networks=[NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt")],
+        storage=StorageConfig(path=str(tmp_path / "missing.sqlite")),
+        diagnostics=DiagnosticsConfig(
+            incident_watch_window_minutes=5,
+            incident_resolution_grace_minutes=5,
+            correlated_min_devices=2,
+            network_wide_min_devices=3,
+            stale_cluster_min_devices=2,
+            low_battery_cluster_min_devices=3,
+            low_battery_percent=20,
+            battery_stale_after_hours=24,
+            mains_stale_after_hours=12,
+        ),
+    )
+    repo.sync_networks(config.networks)
+    _seed_device(repo, "home", "0xWARM")
+    health = HealthDiagnosticService(config, repo)
+    incidents = IncidentDiagnosticService(config, repo)
+    coordinator = EvaluationCoordinator(health, incidents)
+    coordinator.evaluate_all(now=NOW)
+    assert health.get_device_health("home", "0xWARM") is not None
+
+    _seed_device(repo, "home", "0xNEW")
+    repo.update_device_current_state(
+        network_id="home",
+        ieee_address="0xNEW",
+        availability="offline",
+        last_seen=(NOW - timedelta(hours=2)).isoformat(),
+        last_payload_at=(NOW - timedelta(hours=2)).isoformat(),
+    )
+    repo.availability.insert_availability_change("home", "0xNEW", "online", "offline")
+    repo.db.conn.execute(
+        "UPDATE availability_changes SET changed_at = ? WHERE rowid = last_insert_rowid()",
+        ((NOW - timedelta(hours=1)).isoformat(),),
+    )
+    repo.db.conn.commit()
+    assert health.get_device_health("home", "0xNEW") is None
+
+    order: list[str] = []
+    original_eval = coordinator.evaluate_network
+    original_context = incidents.active_incident_read_context
+    captured: dict = {}
+
+    def eval_spy(network_id: str, *, now=None):
+        order.append(f"eval:{network_id}")
+        return original_eval(network_id, now=now)
+
+    def context_spy():
+        order.append("context")
+        ctx = original_context()
+        captured["context"] = ctx
+        return ctx
+
+    monkeypatch.setattr(coordinator, "evaluate_network", eval_spy)
+    monkeypatch.setattr(incidents, "active_incident_read_context", context_spy)
+
+    original_badges = payload_builder_module.device_decision_badges_for_devices
+
+    def badges_spy(*args, **kwargs):
+        captured["related"] = kwargs.get("related_incident_ids_by_key")
+        return original_badges(*args, **kwargs)
+
+    monkeypatch.setattr(
+        payload_builder_module, "device_decision_badges_for_devices", badges_spy
+    )
+
+    builder = PayloadBuilder(config, repo, health, incidents, coordinator)
+    summaries = builder.devices()
+    assert order[0] == "eval:home"
+    assert "context" in order
+    assert order.index("eval:home") < order.index("context")
+    match = next(item for item in summaries if item.ieee_address == "0xNEW")
+    ctx = captured["context"]
+    key = ("home", "0xNEW")
+    assert match.incident_affected is (key in ctx.affected_keys)
+    assert captured["related"][key] == ctx.incident_ids_by_device_key.get(key, ())
+    assert match.incident_affected is True
+
+
+def test_context_backed_device_summary_performs_no_late_evaluation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    eval_calls: list[str] = []
+    with deterministic_fixture(tmp_path, "compact") as fx:
+        builder = _builder(fx)
+        original = builder._evaluation.evaluate_network
+
+        def eval_spy(network_id: str, *, now=None):
+            eval_calls.append(network_id)
+            return original(network_id, now=now)
+
+        monkeypatch.setattr(builder._evaluation, "evaluate_network", eval_spy)
+        rows = fx.repo.list_devices("home")[:3]
+        composition = builder._device_composition_context(
+            rows, include_related_incidents=False
+        )
+        eval_calls.clear()
+        for row in rows:
+            builder._device_summary(row, summary_context=composition.summary)
+        assert eval_calls == []

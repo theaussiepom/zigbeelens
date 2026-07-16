@@ -47,6 +47,7 @@ def build_active_incident_read_context(repo: Repository) -> ActiveIncidentReadCo
     affected: set[tuple[str, str]] = set()
     incident_ids_by_device: dict[tuple[str, str], list[str]] = {}
     active_count_by_network: dict[str, int] = {}
+    network_ids: list[str] | None = None
 
     for row in incidents:
         refs = refs_by_incident_id[row["id"]]
@@ -58,8 +59,9 @@ def build_active_incident_read_context(repo: Repository) -> ActiveIncidentReadCo
             networks_for_incident.add(ref["network_id"])
         if not networks_for_incident:
             dedup = row.get("dedup_key") or ""
-            for network in repo.list_networks():
-                network_id = network.id
+            if network_ids is None:
+                network_ids = [network.id for network in repo.list_networks()]
+            for network_id in network_ids:
                 if dedup.endswith(f":{network_id}") or f":{network_id}:" in dedup:
                     networks_for_incident.add(network_id)
         for network_id in networks_for_incident:

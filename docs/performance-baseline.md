@@ -1,6 +1,6 @@
 # Track 3D bulk composition reads performance baseline
 
-Base commit for Track 3A history: `09f10a8` (final merged Track 2 base). Track 3A instrumentation landed via `perf/query-baseline-instrumentation`. Track 3B atomic MQTT ingestion landed via `perf/atomic-mqtt-ingestion`. Track 3C incremental device evaluation landed via `perf/incremental-device-evaluation` (merge `98ab5c8`). This document records **Track 3D current totals** after batching incident/device/HA composition reads and scoping Device/Incident detail events in SQL, and preserves **Track 3A / Track 3B / Track 3C history** for comparison.
+Base commit for Track 3A history: `09f10a8` (final merged Track 2 base). Track 3A instrumentation landed via `perf/query-baseline-instrumentation`. Track 3B atomic MQTT ingestion landed via `perf/atomic-mqtt-ingestion`. Track 3C incremental device evaluation landed via `perf/incremental-device-evaluation` (merge `98ab5c8`). This document records **Track 3D current totals** after batching incident/device/HA composition reads and scoping Device/Incident detail events in SQL, plus a bounded Track 3E scoped-read foundation, and preserves **Track 3A / Track 3B / Track 3C history** for comparison.
 
 These are planning snapshots, not accepted performance budgets.
 
@@ -8,7 +8,7 @@ These are planning snapshots, not accepted performance budgets.
 
 Track 1 and Track 2 behaviour was confirmed before Track 3A changes: Device Story exposes `related_unresolved_incident_ids`, incident membership is separate from current-issue relevance, canonical coverage evidence is used, and EvaluationCoordinator owns coherent health → incident → dashboard sequencing.
 
-Track 3B preserved those semantics with one `BEGIN IMMEDIATE` ingestion transaction. Track 3C preserved them with incremental target-device evaluation after commit. Track 3D preserves them again: read composition uses request-local immutable contexts only; Device Story related incident IDs remain contextual; write-path authority and incremental evaluation are unchanged. Health evaluation runs before Devices builds incident-sensitive context, and Dashboard reuses one ActiveIncidentReadContext.
+Track 3B preserved those semantics with one `BEGIN IMMEDIATE` ingestion transaction. Track 3C preserved them with incremental target-device evaluation after commit. Track 3D preserves them again: read composition uses request-local immutable contexts only; Device Story related incident IDs remain contextual; write-path authority and incremental evaluation are unchanged. Health evaluation runs before Devices/Dashboard freeze incident-sensitive context, and one ActiveIncidentReadContext projects both affected keys and related IDs.
 
 ## Consistency rule
 
@@ -68,14 +68,14 @@ Beast payload/availability target-event baselines are new in Track 3C. Compact a
 
 ## Track 3C → Track 3D execute comparison
 
-Track 3D replaces per-device/per-incident N+1 composition reads with bounded bulk repository APIs and scoped event queries. Ingestion and incremental evaluation baselines are unchanged.
+Track 3D replaces per-device/per-incident N+1 composition reads with bounded bulk repository APIs and scoped event queries. Ingestion and incremental evaluation baselines are unchanged. Incident pagination and broader Track 3E closure remain out of scope.
 
 | Operation | Track 3C executes | Track 3D executes | Delta | Main removed category |
 |---|---:|---:|---:|---|
 | Dashboard Compact | 328 | 109 | -219 | read.incident_devices N+1 |
 | Dashboard Beast | 3467 | 282 | -3185 | read.incident_devices N+1 |
-| Devices Compact | 355 | 83 | -272 | read.incident_devices N+1 |
-| Devices Beast | 4169 | 406 | -3763 | read.incident_devices N+1 |
+| Devices Compact | 355 | 82 | -273 | read.incident_devices N+1 |
+| Devices Beast | 4169 | 405 | -3764 | read.incident_devices N+1 |
 | Incident list | 97 | 51 | -46 | per-incident device/event loads |
 | Incident detail | 62 | 47 | -15 | global list_events filter-after-limit |
 | Device detail | 57 | 54 | -3 | network list_events filter-after-limit |
@@ -107,8 +107,8 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 | Dashboard composition | compact | warm | 109 | 0 | 0 | 0 | 0 | read.schema (30) |
 | Dashboard composition | beast | warm | 282 | 0 | 0 | 0 | 0 | read.schema (87) |
 | Device detail | compact | warm | 54 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
-| Devices inventory composition | compact | warm | 83 | 0 | 0 | 0 | 0 | read.availability_changes (22) |
-| Devices inventory composition | beast | warm | 406 | 0 | 0 | 0 | 0 | read.availability_changes (168) |
+| Devices inventory composition | compact | warm | 82 | 0 | 0 | 0 | 0 | read.availability_changes (22) |
+| Devices inventory composition | beast | warm | 405 | 0 | 0 | 0 | 0 | read.availability_changes (168) |
 | EvidenceGraphService.build | compact | warm | 99 | 0 | 0 | 0 | 0 | read.schema (27) |
 | Incident detail | compact | warm | 47 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
 | Incident list | compact | warm | 51 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
@@ -273,4 +273,4 @@ The Beast fixture seeds more than 20 newer unrelated Home network events plus `o
 
 ## Limitations and next scope
 
-Exact values are snapshots for planning only, not budgets. Track 3D removes the principal Dashboard/Devices/Incident N+1 membership and per-device network/HA composition reads, and fixes scoped detail event correctness. Remaining Dashboard HA enrichment reads come from investigation/coverage composers (allowed to remain separate). Cross-surface Dashboard/report result sharing remains Track 3E.
+Exact values are snapshots for planning only, not budgets. Track 3D removes the principal Dashboard/Devices/Incident N+1 membership and per-device network/HA composition reads, and fixes scoped detail event correctness. Remaining Dashboard HA enrichment reads come from investigation/coverage composers (allowed to remain separate). Incident pagination and broader Track 3E closure remain; Track 3F report restructuring and Track 3G topology composition are not started.

@@ -1238,6 +1238,29 @@ def test_mqtt_lifecycle_routes_device_events_incrementally(tmp_path: Path, monke
     assert device_calls == [("home", "0x1")]
     assert network_calls == []
 
+    for event_type in (
+        "device_availability_seen",
+        "device_availability_changed",
+        "device_interview_started",
+        "device_interview_success",
+        "device_interview_failed",
+    ):
+        device_calls.clear()
+        network_calls.clear()
+        svc.ingest(
+            NormalizedMqttEvent(
+                event_type=event_type,
+                network_id="home",
+                title=event_type,
+                summary=event_type,
+                ieee_address="0x1",
+                friendly_name="0x1",
+                raw_payload_redacted="{}",
+            )
+        )
+        assert device_calls == [("home", "0x1")], event_type
+        assert network_calls == [], event_type
+
     device_calls.clear()
     svc.ingest(
         NormalizedMqttEvent(
@@ -1258,6 +1281,23 @@ def test_mqtt_lifecycle_routes_device_events_incrementally(tmp_path: Path, monke
     )
     assert device_calls == []
     assert network_calls == ["home"]
+
+    for event_type in ("device_joined", "device_announced", "device_left", "unknown_bridge_event"):
+        device_calls.clear()
+        network_calls.clear()
+        svc.ingest(
+            NormalizedMqttEvent(
+                event_type=event_type,
+                network_id="home",
+                title=event_type,
+                summary=event_type,
+                ieee_address="0x1",
+                friendly_name="0x1",
+                raw_payload_redacted="{}",
+            )
+        )
+        assert network_calls == ["home"], event_type
+        assert device_calls == [], event_type
 
 
 def test_bridge_device_join_refreshes_network_snapshot_membership(
@@ -1346,13 +1386,20 @@ def test_bridge_device_leave_and_announce_refresh_network(
     coord.evaluate_all(now=clock.now())
 
     network_calls: list[str] = []
+    device_calls: list[tuple[str, str]] = []
     original_network = coord.evaluate_network
+    original_device = coord.evaluate_device
 
     def network_spy(network_id: str, *, now=None):
         network_calls.append(network_id)
         return original_network(network_id, now=now or clock.now())
 
+    def device_spy(network_id: str, ieee_address: str, *, now=None):
+        device_calls.append((network_id, ieee_address))
+        return original_device(network_id, ieee_address, now=now or clock.now())
+
     monkeypatch.setattr(coord, "evaluate_network", network_spy)
+    monkeypatch.setattr(coord, "evaluate_device", device_spy)
 
     def on_health_recalc(network_id: str, ieee_address: str | None = None) -> None:
         if ieee_address:
@@ -1361,8 +1408,9 @@ def test_bridge_device_leave_and_announce_refresh_network(
             coord.evaluate_network(network_id)
 
     svc = MqttIngestionService(cfg, repo, on_health_recalc=on_health_recalc)
-    for event_type in ("device_announced", "device_left"):
+    for event_type in ("device_announced", "device_left", "unknown_bridge_event"):
         network_calls.clear()
+        device_calls.clear()
         svc.ingest(
             NormalizedMqttEvent(
                 event_type=event_type,
@@ -1375,7 +1423,10 @@ def test_bridge_device_leave_and_announce_refresh_network(
             )
         )
         assert network_calls == ["home"], event_type
+        assert device_calls == [], event_type
 
+
+def test_cluster_membership_updates_in_place_on_incremental_availability(tmp_path: Path):
     cfg, repo = _repo(tmp_path)
     clock = FakeClock(datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc))
     for ieee in ("0x1", "0x2", "0x3"):
