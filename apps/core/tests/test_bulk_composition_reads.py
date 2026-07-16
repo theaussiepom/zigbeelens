@@ -588,6 +588,22 @@ def test_track_3c_ingestion_baselines_unchanged():
     assert EXPECTED_PHASE_BASELINES["payload_ingestion"]["total_execute_count"] == 36
 
 
+def test_track_3e_incident_list_scales_with_page_not_history():
+    from performance.expected_baselines import EXPECTED_BASELINES
+
+    compact = EXPECTED_BASELINES["incident_list"]
+    history = EXPECTED_BASELINES["incident_list_history"]
+    assert compact["category_counts"].get("read.events", 0) == 0
+    assert history["category_counts"].get("read.events", 0) == 0
+    assert compact["category_counts"]["read.incident_devices"] == 1
+    assert history["category_counts"]["read.incident_devices"] == 1
+    assert compact["category_counts"]["read.incidents"] == 3
+    assert history["category_counts"]["read.incidents"] == 3
+    # History estate has ~1500 incidents; page composition must stay near compact.
+    assert history["execute_count"] < compact["execute_count"] * 4
+    assert history["execute_count"] < 200
+
+
 def test_beast_scaling_reductions():
     from performance.expected_baselines import EXPECTED_BASELINES, TRACK_3C_READ_EXECUTE_TOTALS
 

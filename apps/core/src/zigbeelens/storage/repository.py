@@ -21,6 +21,10 @@ if TYPE_CHECKING:
     from zigbeelens.storage.access.network import NetworkRepository
     from zigbeelens.storage.access.reports import ReportRepository
     from zigbeelens.storage.access.topology import TopologyRepository
+    from zigbeelens.storage.incident_collection import (
+        IncidentCollectionPage,
+        IncidentCollectionQuery,
+    )
 
 
 def utc_now_iso() -> str:

@@ -399,6 +399,93 @@ def _seed_ha(repo: Repository, devices: dict[str, list[str]]) -> None:
     )
 
 
+def _seed_incident_history_estate(repo: Repository) -> None:
+    """Deterministic 1500-incident history estate for Track 3E scaling gates."""
+    devices_home = [f"0xHIST{i:04d}" for i in range(40)]
+    for ieee in devices_home:
+        repo.upsert_device(
+            network_id="home",
+            ieee_address=ieee,
+            friendly_name=f"Hist {ieee}",
+            device_type="EndDevice",
+            power_source="Battery",
+            interview_state="successful",
+        )
+    equal_ts = (REFERENCE_TIME - timedelta(days=1)).isoformat()
+    for index in range(1500):
+        incident_id = f"hist-res-{index:04d}"
+        updated_at = (
+            equal_ts
+            if index < 20
+            else (REFERENCE_TIME - timedelta(minutes=index)).isoformat()
+        )
+        if index < 8:
+            state = "open"
+        elif index < 16:
+            state = "watching"
+        else:
+            state = "resolved"
+        repo.insert_incident(
+            incident_id=incident_id,
+            dedup_key=f"hist:{incident_id}",
+            incident_type="device_offline",
+            lifecycle_state=state,
+            severity="incident",
+            scope="device",
+            confidence="medium",
+            title=incident_id,
+            summary=incident_id,
+            explanation="history fixture",
+            evidence=["history evidence"],
+            counter_evidence=[],
+            limitations=[],
+            opened_at=updated_at,
+            updated_at=updated_at,
+        )
+        if state == "resolved":
+            repo.update_incident(
+                incident_id=incident_id,
+                lifecycle_state="resolved",
+                resolved_at=updated_at,
+                updated_at=updated_at,
+            )
+        if index % 17 == 0:
+            refs: list[AffectedDevice] = []
+        elif index % 19 == 0:
+            refs = [AffectedDevice("home", "0xMISSING", role="primary")]
+        elif index % 23 == 0:
+            repo.upsert_device(
+                network_id="office",
+                ieee_address="0xOFFICE01",
+                friendly_name="Office hist",
+                device_type="EndDevice",
+                power_source="Battery",
+                interview_state="successful",
+            )
+            refs = [
+                AffectedDevice("home", devices_home[index % 40], role="primary"),
+                AffectedDevice("office", "0xOFFICE01", role="secondary"),
+            ]
+        elif index % 11 == 0:
+            refs = [
+                AffectedDevice("home", devices_home[offset % 40], role="primary")
+                for offset in range(12)
+            ]
+        else:
+            refs = [AffectedDevice("home", devices_home[index % 40], role="primary")]
+        if refs:
+            repo.replace_incident_devices(incident_id, refs)
+
+
+@contextmanager
+def history_fixture(tmp_path: Path):
+    with deterministic_fixture(tmp_path, "compact") as fx:
+        with _fixed_repo_time():
+            _seed_incident_history_estate(fx.repo)
+        fx.counter.reset()
+        yield fx
+
+
 def _seed_incidents(repo: Repository, counts: dict[str, int], devices: dict[str, list[str]]) -> str:
     active_id = "inc-open-home"
     for net in counts:
@@ -588,6 +675,11 @@ def _operations() -> dict[str, tuple[str, Operation, bool]]:
             lambda fx: _builder(fx).incidents_page(build_incident_collection_query()),
             True,
         ),
+        "incident_list_history": (
+            "history",
+            lambda fx: _builder(fx).incidents_page(build_incident_collection_query(limit=50)),
+            True,
+        ),
         "incident_detail": (
             "compact",
             lambda fx: _builder(fx).incident(fx.active_incident_id),
@@ -634,6 +726,12 @@ def _operations() -> dict[str, tuple[str, Operation, bool]]:
 
 def _measure_isolated(tmp_path: Path, operation_name: str) -> OperationMeasurement:
     fixture_name, op, _readonly = _operations()[operation_name]
+    if fixture_name == "history":
+        with history_fixture(tmp_path) as fx:
+            with _frozen_time():
+                return measure_operation(
+                    operation_name, fixture_name, "warm", fx.counter.stats, lambda: op(fx)
+                )
     with deterministic_fixture(tmp_path, fixture_name) as fx:
         fx.assert_integrity()
         with _frozen_time():
@@ -852,6 +950,7 @@ def test_markdown_baseline_table_matches_structured_snapshot():
         "evidence_graph": "EvidenceGraphService.build",
         "incident_detail": "Incident detail",
         "incident_list": "Incident list",
+        "incident_list_history": "Incident list history",
         "inventory_ingestion_beast": "Device inventory refresh",
         "inventory_ingestion_compact": "Device inventory refresh",
         "payload_ingestion": "Ordinary MQTT payload ingestion",
