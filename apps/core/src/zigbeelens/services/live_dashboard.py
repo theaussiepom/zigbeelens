@@ -50,9 +50,10 @@ def live_finding(
     *,
     devices: list | None = None,
     networks: list | None = None,
+    incident_context=None,
 ) -> DiagnosticConclusion:
     if incidents:
-        incident_finding = incidents.current_finding(health)
+        incident_finding = incidents.current_finding(health, context=incident_context)
         if incident_finding:
             return incident_finding
 
@@ -275,7 +276,9 @@ def build_health_snapshot(
         if h.primary != HealthFlag.healthy and h.primary != HealthFlag.unknown:
             worst_primary = DeviceHealthPrimary(h.primary.value)
 
-    open_count, _watching = incidents.count_by_status() if incidents else (0, 0)
+    open_count, _watching = (
+        incidents.count_by_status(context=incident_context) if incidents else (0, 0)
+    )
 
     if network_summaries is not None:
         summary_by_id = {item.id: item for item in network_summaries}

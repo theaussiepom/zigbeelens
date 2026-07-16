@@ -8,7 +8,7 @@ These are planning snapshots, not accepted performance budgets.
 
 Track 1 and Track 2 behaviour was confirmed before Track 3A changes: Device Story exposes `related_unresolved_incident_ids`, incident membership is separate from current-issue relevance, canonical coverage evidence is used, and EvaluationCoordinator owns coherent health → incident → dashboard sequencing.
 
-Track 3B preserved those semantics with one `BEGIN IMMEDIATE` ingestion transaction. Track 3C preserved them with incremental target-device evaluation after commit. Track 3D preserves them again: read composition uses request-local immutable contexts only; Device Story related incident IDs remain contextual; write-path authority and incremental evaluation are unchanged.
+Track 3B preserved those semantics with one `BEGIN IMMEDIATE` ingestion transaction. Track 3C preserved them with incremental target-device evaluation after commit. Track 3D preserves them again: read composition uses request-local immutable contexts only; Device Story related incident IDs remain contextual; write-path authority and incremental evaluation are unchanged. Health evaluation runs before Devices builds incident-sensitive context, and Dashboard reuses one ActiveIncidentReadContext.
 
 ## Consistency rule
 
@@ -72,17 +72,17 @@ Track 3D replaces per-device/per-incident N+1 composition reads with bounded bul
 
 | Operation | Track 3C executes | Track 3D executes | Delta | Main removed category |
 |---|---:|---:|---:|---|
-| Dashboard Compact | 328 | 113 | -215 | read.incident_devices N+1 |
-| Dashboard Beast | 3467 | 286 | -3181 | read.incident_devices N+1 |
+| Dashboard Compact | 328 | 109 | -219 | read.incident_devices N+1 |
+| Dashboard Beast | 3467 | 282 | -3185 | read.incident_devices N+1 |
 | Devices Compact | 355 | 83 | -272 | read.incident_devices N+1 |
 | Devices Beast | 4169 | 406 | -3763 | read.incident_devices N+1 |
 | Incident list | 97 | 51 | -46 | per-incident device/event loads |
 | Incident detail | 62 | 47 | -15 | global list_events filter-after-limit |
 | Device detail | 57 | 54 | -3 | network list_events filter-after-limit |
-| Full report preview | 798 | 266 | -532 | read.incident_devices N+1 |
-| Network report preview | 798 | 266 | -532 | read.incident_devices N+1 |
-| Incident report preview | 639 | 321 | -318 | read.incident_devices N+1 |
-| Device report preview | 510 | 241 | -269 | read.incident_devices N+1 |
+| Full report preview | 798 | 262 | -536 | read.incident_devices N+1 |
+| Network report preview | 798 | 262 | -536 | read.incident_devices N+1 |
+| Incident report preview | 639 | 317 | -322 | read.incident_devices N+1 |
+| Device report preview | 510 | 237 | -273 | read.incident_devices N+1 |
 | EvidenceGraphService.build | 99 | 99 | 0 | unchanged (no topology rewrite) |
 
 ## Track 3C ingestion vs post-commit phases
@@ -104,8 +104,8 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 |---|---|---|---:|---:|---:|---:|---:|---|
 | Availability change ingestion | compact | warm | 46 | 0 | 8 | 0 | 0 | transaction.commit (8) |
 | Availability change ingestion | beast | warm | 75 | 0 | 8 | 0 | 0 | read.incidents (10) |
-| Dashboard composition | compact | warm | 113 | 0 | 0 | 0 | 0 | read.schema (30) |
-| Dashboard composition | beast | warm | 286 | 0 | 0 | 0 | 0 | read.schema (87) |
+| Dashboard composition | compact | warm | 109 | 0 | 0 | 0 | 0 | read.schema (30) |
+| Dashboard composition | beast | warm | 282 | 0 | 0 | 0 | 0 | read.schema (87) |
 | Device detail | compact | warm | 54 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
 | Devices inventory composition | compact | warm | 83 | 0 | 0 | 0 | 0 | read.availability_changes (22) |
 | Devices inventory composition | beast | warm | 406 | 0 | 0 | 0 | 0 | read.availability_changes (168) |
@@ -116,10 +116,10 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 | Device inventory refresh | compact | warm | 136 | 0 | 9 | 0 | 0 | read.health_snapshots (22) |
 | Ordinary MQTT payload ingestion | compact | warm | 36 | 0 | 3 | 0 | 0 | read.schema (4) |
 | Ordinary MQTT payload ingestion | beast | warm | 62 | 0 | 3 | 0 | 0 | read.incidents (10) |
-| Device report preview | compact | warm | 241 | 0 | 0 | 0 | 0 | read.schema (43) |
-| Full report preview | compact | warm | 266 | 0 | 0 | 0 | 0 | read.schema (42) |
-| Incident report preview | compact | warm | 321 | 0 | 0 | 0 | 0 | read.schema (50) |
-| Network report preview | compact | warm | 266 | 0 | 0 | 0 | 0 | read.schema (42) |
+| Device report preview | compact | warm | 237 | 0 | 0 | 0 | 0 | read.schema (43) |
+| Full report preview | compact | warm | 262 | 0 | 0 | 0 | 0 | read.schema (42) |
+| Incident report preview | compact | warm | 317 | 0 | 0 | 0 | 0 | read.schema (50) |
+| Network report preview | compact | warm | 262 | 0 | 0 | 0 | 0 | read.schema (42) |
 
 ## Top repeated normalized statement shapes
 
@@ -241,7 +241,7 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 - 37× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
 - 28× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
 - 24× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 11× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
+- 11× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
 
 ### report_full
 
@@ -257,7 +257,7 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 - 47× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
 - 40× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
 - 26× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 15× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
+- 14× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
 
 ### report_network
 

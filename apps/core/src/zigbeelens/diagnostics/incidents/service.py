@@ -104,8 +104,13 @@ class IncidentDiagnosticService:
     def active_incident_read_context(self) -> ActiveIncidentReadContext:
         return build_active_incident_read_context(self.repo)
 
-    def current_finding(self, health: HealthDiagnosticService) -> DiagnosticConclusion | None:
-        incidents = self.active_incidents()
+    def current_finding(
+        self,
+        health: HealthDiagnosticService,
+        *,
+        context: ActiveIncidentReadContext | None = None,
+    ) -> DiagnosticConclusion | None:
+        incidents = list(context.incidents) if context is not None else self.active_incidents()
         if not incidents:
             return None
         top = sorted(
@@ -152,7 +157,21 @@ class IncidentDiagnosticService:
         ctx = context or self.active_incident_read_context()
         return set(ctx.affected_keys)
 
-    def count_by_status(self) -> tuple[int, int]:
+    def count_by_status(
+        self,
+        *,
+        context: ActiveIncidentReadContext | None = None,
+    ) -> tuple[int, int]:
+        if context is not None:
+            open_count = sum(
+                1 for row in context.incidents if row["lifecycle_state"] == IncidentLifecycle.open.value
+            )
+            watching_count = sum(
+                1
+                for row in context.incidents
+                if row["lifecycle_state"] == IncidentLifecycle.watching.value
+            )
+            return open_count, watching_count
         open_count = 0
         watching_count = 0
         for row in self.repo.incidents.list_incidents():

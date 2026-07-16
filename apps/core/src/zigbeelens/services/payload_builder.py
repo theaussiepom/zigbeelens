@@ -148,20 +148,6 @@ def _timeline_from_event_rows(rows: list[dict[str, Any]]) -> list[TimelineEvent]
     ]
 
 
-def _incident_status_counts(
-    incident_context: ActiveIncidentReadContext | None,
-) -> tuple[int, int]:
-    if incident_context is None:
-        return 0, 0
-    open_count = sum(
-        1 for row in incident_context.incidents if row["lifecycle_state"] == "open"
-    )
-    watching_count = sum(
-        1 for row in incident_context.incidents if row["lifecycle_state"] == "watching"
-    )
-    return open_count, watching_count
-
-
 def _group_devices_by_network(rows: list[DeviceRow]) -> dict[str, list[DeviceRow]]:
     grouped: dict[str, list[DeviceRow]] = {}
     for row in rows:
@@ -301,9 +287,15 @@ class PayloadBuilder:
             self._incident_service,
             devices=rows,
             networks=network_rows,
+            incident_context=incident_context,
         )
 
-        open_count, watching_count = _incident_status_counts(incident_context)
+        if self._incident_service is not None:
+            open_count, watching_count = self._incident_service.count_by_status(
+                context=incident_context
+            )
+        else:
+            open_count, watching_count = 0, 0
 
         def _is_affected(d: DeviceSummary) -> bool:
             return d.health.primary not in {
@@ -460,6 +452,8 @@ class PayloadBuilder:
         )
 
     def devices(self, network_id: str | None = None) -> list[DeviceSummary]:
+        # Evaluate/recover health before building any incident-sensitive read context.
+        self._ensure_health()
         rows = self.repo.list_devices(network_id)
         composition = self._device_composition_context(
             rows,
@@ -484,8 +478,8 @@ class PayloadBuilder:
         summary_context: DeviceSummaryReadContext | None = None,
         decision_badges: dict[tuple[str, str], DeviceDecisionBadge] | None = None,
     ) -> list[DeviceSummary]:
-        self._ensure_health()
         if summary_context is None:
+            self._ensure_health()
             summary_context = self._device_composition_context(
                 rows, include_related_incidents=False
             ).summary

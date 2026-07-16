@@ -592,3 +592,133 @@ def test_beast_scaling_reductions():
     assert devices["category_counts"].get("read.incident_devices", 0) <= 2
     assert devices["category_counts"].get("read.ha_enrichment", 0) <= 5
     assert devices["category_counts"].get("read.networks", 0) <= 5
+
+
+def test_devices_cold_cache_evaluates_before_incident_context(tmp_path: Path):
+    """Cold health cache must evaluate before Devices builds incident membership."""
+    from zigbeelens.config.models import DiagnosticsConfig
+    from zigbeelens.diagnostics.coordinator import EvaluationCoordinator
+    from zigbeelens.diagnostics.models import HealthFlag
+    from zigbeelens.diagnostics.service import HealthDiagnosticService
+
+    db = Database(tmp_path / "cold.sqlite")
+    db.migrate()
+    repo = Repository(db)
+    config = AppConfig(
+        mode=ModeConfig(mock=False),
+        networks=[NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt")],
+        storage=StorageConfig(path=str(tmp_path / "cold.sqlite")),
+        diagnostics=DiagnosticsConfig(
+            incident_watch_window_minutes=5,
+            incident_resolution_grace_minutes=5,
+            correlated_min_devices=2,
+            network_wide_min_devices=3,
+            stale_cluster_min_devices=2,
+            low_battery_cluster_min_devices=3,
+            low_battery_percent=20,
+            battery_stale_after_hours=24,
+            mains_stale_after_hours=12,
+        ),
+    )
+    repo.sync_networks(config.networks)
+    _seed_device(repo, "home", "0xOFF")
+    repo.update_device_current_state(
+        network_id="home",
+        ieee_address="0xOFF",
+        availability="offline",
+        last_seen=(NOW - timedelta(hours=2)).isoformat(),
+        last_payload_at=(NOW - timedelta(hours=2)).isoformat(),
+    )
+    repo.availability.insert_availability_change("home", "0xOFF", "online", "offline")
+    repo.db.conn.execute(
+        "UPDATE availability_changes SET changed_at = ? WHERE rowid = last_insert_rowid()",
+        ((NOW - timedelta(hours=1)).isoformat(),),
+    )
+    repo.db.conn.commit()
+
+    health = HealthDiagnosticService(config, repo)
+    incidents = IncidentDiagnosticService(config, repo)
+    coordinator = EvaluationCoordinator(health, incidents)
+    assert not health.has_complete_network_cache(["home"])
+    assert incidents.active_incidents() == []
+
+    builder = PayloadBuilder(config, repo, health, incidents, coordinator)
+    summaries = builder.devices()
+    assert health.has_complete_network_cache(["home"])
+    active = incidents.active_incidents()
+    assert active
+    assert any(
+        (ref["network_id"], ref["ieee_address"]) == ("home", "0xOFF")
+        for incident in active
+        for ref in repo.list_incident_devices(incident["id"])
+    )
+    match = next(item for item in summaries if item.ieee_address == "0xOFF")
+    assert match.incident_affected is True
+    cached = health.get_device_health("home", "0xOFF")
+    assert cached is not None
+    assert HealthFlag.unavailable in cached.flags
+    assert match.health.primary.value == cached.primary.value
+
+
+def test_devices_recovers_when_cache_incomplete_after_failed_eval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from zigbeelens.config.models import DiagnosticsConfig
+    from zigbeelens.diagnostics.coordinator import EvaluationCoordinator
+    from zigbeelens.diagnostics.service import HealthDiagnosticService
+
+    db = Database(tmp_path / "recover.sqlite")
+    db.migrate()
+    repo = Repository(db)
+    config = AppConfig(
+        mode=ModeConfig(mock=False),
+        networks=[NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt")],
+        storage=StorageConfig(path=str(tmp_path / "recover.sqlite")),
+        diagnostics=DiagnosticsConfig(),
+    )
+    repo.sync_networks(config.networks)
+    _seed_device(repo, "home", "0x1")
+    repo.update_device_current_state(
+        network_id="home",
+        ieee_address="0x1",
+        availability="offline",
+        last_seen=(NOW - timedelta(hours=2)).isoformat(),
+    )
+    health = HealthDiagnosticService(config, repo)
+    incidents = IncidentDiagnosticService(config, repo)
+    coordinator = EvaluationCoordinator(health, incidents)
+
+    calls = {"evaluate_all": 0}
+    original = coordinator.evaluate_all
+
+    def flaky(*, now=None):
+        calls["evaluate_all"] += 1
+        if calls["evaluate_all"] == 1:
+            raise RuntimeError("simulated post-commit evaluation failure")
+        return original(now=now)
+
+    monkeypatch.setattr(coordinator, "evaluate_all", flaky)
+    builder = PayloadBuilder(config, repo, health, incidents, coordinator)
+    with pytest.raises(RuntimeError, match="simulated"):
+        builder.devices()
+    assert not health.has_complete_network_cache(["home"])
+    summaries = builder.devices()
+    assert health.has_complete_network_cache(["home"])
+    assert any(item.ieee_address == "0x1" for item in summaries)
+
+
+def test_dashboard_reuses_one_active_incident_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    context_calls = {"count": 0}
+    original = IncidentDiagnosticService.active_incident_read_context
+
+    def spy(self):
+        context_calls["count"] += 1
+        return original(self)
+
+    monkeypatch.setattr(IncidentDiagnosticService, "active_incident_read_context", spy)
+    with deterministic_fixture(tmp_path, "compact") as fx:
+        with _frozen_time():
+            _builder(fx).dashboard()
+    assert context_calls["count"] == 1
