@@ -16,14 +16,33 @@ const mockState = vi.hoisted(() => ({
   incidents: [] as Incident[],
   detail: null as Incident | null,
   scenario: "",
+  networks: [
+    { id: "home", name: "Home", base_topic: "zigbee2mqtt" },
+    { id: "office", name: "Office", base_topic: "z2m-office" },
+    { id: "garage", name: "Garage", base_topic: "z2m-garage" },
+  ],
+  nextCursor: null as string | null,
+  loadMoreImpl: null as null | ((query: Record<string, unknown>) => Promise<unknown>),
 }));
 
 vi.mock("@/lib/api", () => ({
   api: {
+    networks: vi.fn(() =>
+      Promise.resolve({
+        items: mockState.networks,
+        total: mockState.networks.length,
+      }),
+    ),
     incidents: vi.fn((query: {
       network_id?: string;
       status?: string | string[];
+      cursor?: string;
+      scenario?: string;
+      limit?: number;
     } = {}) => {
+      if (query.cursor && mockState.loadMoreImpl) {
+        return mockState.loadMoreImpl(query);
+      }
       let items = mockState.incidents;
       if (query.network_id) {
         items = items.filter((inc) => inc.network_ids.includes(query.network_id!));
@@ -35,8 +54,8 @@ vi.mock("@/lib/api", () => ({
       return Promise.resolve({
         items,
         total: items.length,
-        limit: 50,
-        next_cursor: null,
+        limit: query.limit ?? 50,
+        next_cursor: mockState.nextCursor,
       });
     }),
     incident: vi.fn(async () => mockState.detail),
@@ -181,6 +200,8 @@ describe("IncidentsPage list", () => {
     mockState.scenario = "";
     mockState.incidents = [makeIncident()];
     mockState.detail = null;
+    mockState.nextCursor = null;
+    mockState.loadMoreImpl = null;
   });
 
   it("renders lifecycle groups and current decision summary", async () => {
@@ -206,7 +227,65 @@ describe("IncidentsPage list", () => {
     mockState.incidents = [];
     renderList();
     expect(await screen.findByText("No incident records")).toBeInTheDocument();
+    expect(screen.getByLabelText("Network")).toBeInTheDocument();
+    expect(screen.getByLabelText("Lifecycle")).toBeInTheDocument();
     expect(screen.queryByText(/look stable/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps filters and clear action when lifecycle filter returns zero", async () => {
+    const user = userEvent.setup();
+    mockState.incidents = [makeIncident({ status: "open" })];
+    renderList();
+    await screen.findByText("Kitchen Plug unavailable");
+
+    await user.selectOptions(screen.getByLabelText("Lifecycle"), "resolved");
+    expect(await screen.findByText("No incidents match")).toBeInTheDocument();
+    expect(screen.getByLabelText("Lifecycle")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /clear filters/i }).length).toBeGreaterThan(0);
+
+    await user.click(screen.getAllByRole("button", { name: /clear filters/i })[0]!);
+    await waitFor(() => {
+      expect(screen.getByText("Kitchen Plug unavailable")).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText("Lifecycle")).toHaveValue("");
+  });
+
+  it("keeps filters and clear action when network filter returns zero", async () => {
+    const user = userEvent.setup();
+    mockState.incidents = [makeIncident({ network_ids: ["home"] })];
+    renderList();
+    await screen.findByText("Kitchen Plug unavailable");
+
+    await user.selectOptions(screen.getByLabelText("Network"), "garage");
+    expect(await screen.findByText("No incidents match")).toBeInTheDocument();
+    expect(screen.getByLabelText("Network")).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: /clear filters/i })[0]!);
+    await waitFor(() => {
+      expect(screen.getByText("Kitchen Plug unavailable")).toBeInTheDocument();
+    });
+  });
+
+  it("shows configured networks even when absent from the first page", async () => {
+    mockState.incidents = [makeIncident({ network_ids: ["home"] })];
+    renderList();
+    await screen.findByText("Kitchen Plug unavailable");
+    const networkSelect = screen.getByLabelText("Network");
+    expect(within(networkSelect).getByRole("option", { name: "garage" })).toBeInTheDocument();
+    expect(within(networkSelect).getByRole("option", { name: "office" })).toBeInTheDocument();
+  });
+
+  it("keeps Load more when local filters hide all loaded items", async () => {
+    const user = userEvent.setup();
+    mockState.incidents = [makeIncident()];
+    mockState.nextCursor = "cursor-next";
+    renderList();
+    await screen.findByText("Kitchen Plug unavailable");
+    expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText(/device, friendly name/i), "zzzz-no-match");
+    expect(await screen.findByText("No incidents match")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
   });
 
   it("filters by network/lifecycle/type/scope/search without severity filter", async () => {
