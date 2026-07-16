@@ -41,8 +41,6 @@ import {
   readOverviewLastViewedAt,
   writeOverviewLastViewedAt,
 } from "@/lib/overviewVisitStorage";
-import { compareIncidents } from "@/lib/format";
-
 const DASHBOARD_EVENTS = [
   "dashboard_update",
   "dashboard_updated",
@@ -115,7 +113,8 @@ export function OverviewPage() {
   const modelPatterns = data.model_patterns.map((pattern) =>
     buildModelPatternViewModel(pattern, networkNames[pattern.network_id]),
   );
-  const active = [...(activeIncidentsResource.data ?? [])].sort(compareIncidents);
+  // Server owns collection order (lifecycle rank, updated_at DESC, id DESC).
+  const active = activeIncidentsResource.data ?? [];
   const recentChanges = buildRecentChangesSectionViewModel({
     previousLastViewedAt,
     dashboard: data,
