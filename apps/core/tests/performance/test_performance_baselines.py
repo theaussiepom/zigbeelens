@@ -34,6 +34,7 @@ from .expected_baselines import (
     TRACK_3A_COMMIT_TOTALS,
     TRACK_3B_OPERATION_TOTALS,
     TRACK_3B_PHASE_BASELINES,
+    TRACK_3C_READ_EXECUTE_TOTALS,
 )
 from .query_instrumentation import OperationMeasurement, PhaseAccumulator, install_counter, measure_operation
 
@@ -912,6 +913,25 @@ def test_markdown_baseline_table_matches_structured_snapshot():
             f"{t3b['post_commit_execute_count']} | {t3c['post_commit_execute_count']} | {delta} |"
         )
         assert row in doc
+
+    track_3d_labels = {
+        "dashboard": "Dashboard Compact",
+        "dashboard_beast": "Dashboard Beast",
+        "devices": "Devices Compact",
+        "devices_beast": "Devices Beast",
+        "incident_list": "Incident list",
+        "incident_detail": "Incident detail",
+        "device_detail": "Device detail",
+        "report_full": "Full report preview",
+        "report_network": "Network report preview",
+        "report_incident": "Incident report preview",
+        "report_device": "Device report preview",
+        "evidence_graph": "EvidenceGraphService.build",
+    }
+    for key, label in track_3d_labels.items():
+        t3c = TRACK_3C_READ_EXECUTE_TOTALS[key]
+        t3d = EXPECTED_BASELINES[key]["execute_count"]
+        assert f"| {label} | {t3c} | {t3d} | {t3d - t3c} |" in doc
 
 
 @pytest.mark.parametrize("operation_name", sorted(EXPECTED_PHASE_BASELINES))

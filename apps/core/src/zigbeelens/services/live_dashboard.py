@@ -47,14 +47,17 @@ def live_finding(
     config: AppConfig,
     health: HealthDiagnosticService,
     incidents: IncidentDiagnosticService | None = None,
+    *,
+    devices: list | None = None,
+    networks: list | None = None,
 ) -> DiagnosticConclusion:
     if incidents:
         incident_finding = incidents.current_finding(health)
         if incident_finding:
             return incident_finding
 
-    devices = repo.list_devices()
-    networks = repo.list_networks()
+    device_rows = devices if devices is not None else repo.list_devices()
+    network_rows = networks if networks is not None else repo.list_networks()
     device_health = health.all_device_health()
 
     unavailable = sum(
@@ -69,7 +72,7 @@ def live_finding(
     router_risk = sum(1 for h in device_health.values() if HealthFlag.router_risk in h.flags)
     offline_bridges = sum(
         1
-        for n in networks
+        for n in network_rows
         if (health.get_bridge_health(n.id) or None)
         and health.get_bridge_health(n.id).state == BridgeHealthState.offline
     )
@@ -78,7 +81,7 @@ def live_finding(
 
     if signal_count == 0 and offline_bridges == 0:
         summary = (
-            f"ZigbeeLens is monitoring {len(networks)} network(s) with {len(devices)} known device(s). "
+            f"ZigbeeLens is monitoring {len(network_rows)} network(s) with {len(device_rows)} known device(s). "
             "No current health concerns were detected."
         )
         severity = Severity.healthy
@@ -120,7 +123,7 @@ def live_finding(
         EvidenceItem(
             id="ev-live-0",
             kind="health",
-            summary=f"{len(devices)} devices classified from MQTT telemetry",
+            summary=f"{len(device_rows)} devices classified from MQTT telemetry",
         )
     ]
     if signal_count:
@@ -142,8 +145,8 @@ def live_finding(
     return DiagnosticConclusion(
         classification=classification,
         severity=severity,
-        scope=IncidentScope.network if len(networks) == 1 else IncidentScope.multi_network,
-        confidence=Confidence.medium if devices else Confidence.low,
+        scope=IncidentScope.network if len(network_rows) == 1 else IncidentScope.multi_network,
+        confidence=Confidence.medium if device_rows else Confidence.low,
         summary=summary,
         evidence=evidence,
         limitations=limitations,
@@ -155,8 +158,12 @@ def build_network_summary(
     row: NetworkRow,
     health: HealthDiagnosticService,
     incidents: IncidentDiagnosticService | None = None,
+    *,
+    devices: list | None = None,
+    active_incident_count: int | None = None,
+    incident_context=None,
 ) -> NetworkSummary:
-    devices = repo.list_devices(row.id)
+    device_rows = devices if devices is not None else repo.list_devices(row.id)
     net_health = health.get_network_health(row.id)
     bridge_health = health.get_bridge_health(row.id)
 
@@ -172,13 +179,13 @@ def build_network_summary(
         )
 
     counts = net_health or None
-    unavailable = counts.unavailable_count if counts else sum(1 for d in devices if d.availability == "offline")
+    unavailable = counts.unavailable_count if counts else sum(1 for d in device_rows if d.availability == "offline")
     unstable = counts.recently_unstable_count if counts else 0
     weak = counts.weak_link_count if counts else 0
     low_bat = counts.low_battery_count if counts else 0
     stale = counts.stale_count if counts else 0
     interview_issues = sum(
-        1 for d in devices if d.interview_state in {"failed", "in_progress"}
+        1 for d in device_rows if d.interview_state in {"failed", "in_progress"}
     )
 
     bridge_offline = bridge_health is not None and bridge_health.state == BridgeHealthState.offline
@@ -192,14 +199,19 @@ def build_network_summary(
         primary=DeviceHealthPrimary.unknown,
         severity=incident_state,
         confidence=Confidence(net_health.confidence.value) if net_health else Confidence.low,
-        evidence=net_health.evidence[:3] if net_health else [f"{len(devices)} devices tracked from MQTT"],
+        evidence=net_health.evidence[:3] if net_health else [f"{len(device_rows)} devices tracked from MQTT"],
         limitations=net_health.limitations if net_health else [],
     )
 
-    routers = sum(1 for d in devices if d.device_type == "Router")
-    ends = sum(1 for d in devices if d.device_type == "EndDevice")
+    routers = sum(1 for d in device_rows if d.device_type == "Router")
+    ends = sum(1 for d in device_rows if d.device_type == "EndDevice")
 
-    active_incidents = incidents.network_active_count(row.id) if incidents else 0
+    if active_incident_count is not None:
+        active_incidents = active_incident_count
+    elif incidents:
+        active_incidents = incidents.network_active_count(row.id, context=incident_context)
+    else:
+        active_incidents = 0
 
     return NetworkSummary(
         id=row.id,
@@ -207,7 +219,7 @@ def build_network_summary(
         base_topic=row.base_topic,
         bridge_state=bridge,
         coordinator=coordinator,
-        device_count=len(devices),
+        device_count=len(device_rows),
         router_count=routers,
         end_device_count=ends,
         unavailable_count=unavailable,
@@ -226,9 +238,14 @@ def build_health_snapshot(
     repo: Repository,
     health: HealthDiagnosticService,
     incidents: IncidentDiagnosticService | None = None,
+    *,
+    networks: list | None = None,
+    devices: list | None = None,
+    network_summaries: list | None = None,
+    incident_context=None,
 ) -> HealthSnapshot:
-    networks = repo.list_networks()
-    devices = repo.list_devices()
+    network_rows = networks if networks is not None else repo.list_networks()
+    device_rows = devices if devices is not None else repo.list_devices()
     device_health = health.all_device_health()
 
     unavailable = sum(
@@ -236,7 +253,7 @@ def build_health_snapshot(
     )
 
     overall = Severity.healthy
-    for n in networks:
+    for n in network_rows:
         net = health.get_network_health(n.id)
         if net:
             sev = _map_severity(net.severity)
@@ -260,18 +277,38 @@ def build_health_snapshot(
 
     open_count, _watching = incidents.count_by_status() if incidents else (0, 0)
 
-    return HealthSnapshot(
-        timestamp=_now_iso(),
-        overall_severity=overall,
-        overall_health=worst_primary,
-        network_count=len(networks),
-        device_count=len(devices),
-        unavailable_count=unavailable,
-        incident_count=open_count,
-        networks=[
+    if network_summaries is not None:
+        summary_by_id = {item.id: item for item in network_summaries}
+        network_payload = [
             {
                 "network_id": n.id,
-                "severity": build_network_summary(repo, n, health, incidents).incident_state.value,
+                "severity": summary_by_id[n.id].incident_state.value
+                if n.id in summary_by_id
+                else Severity.healthy.value,
+                "unavailable_count": (
+                    health.get_network_health(n.id).unavailable_count
+                    if health.get_network_health(n.id)
+                    else (
+                        summary_by_id[n.id].unavailable_count
+                        if n.id in summary_by_id
+                        else repo.count_unavailable_for_network(n.id)
+                    )
+                ),
+                "unknown_count": (
+                    health.get_network_health(n.id).unknown_count
+                    if health.get_network_health(n.id)
+                    else 0
+                ),
+            }
+            for n in network_rows
+        ]
+    else:
+        network_payload = [
+            {
+                "network_id": n.id,
+                "severity": build_network_summary(
+                    repo, n, health, incidents, incident_context=incident_context
+                ).incident_state.value,
                 "unavailable_count": (
                     health.get_network_health(n.id).unavailable_count
                     if health.get_network_health(n.id)
@@ -283,8 +320,18 @@ def build_health_snapshot(
                     else 0
                 ),
             }
-            for n in networks
-        ],
+            for n in network_rows
+        ]
+
+    return HealthSnapshot(
+        timestamp=_now_iso(),
+        overall_severity=overall,
+        overall_health=worst_primary,
+        network_count=len(network_rows),
+        device_count=len(device_rows),
+        unavailable_count=unavailable,
+        incident_count=open_count,
+        networks=network_payload,
     )
 
 

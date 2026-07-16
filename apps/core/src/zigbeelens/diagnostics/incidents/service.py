@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Callable
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Any, Callable, Mapping
 
 from zigbeelens.config.models import AppConfig
 from zigbeelens.diagnostics.incidents.correlator import IncidentCorrelationEngine
@@ -21,6 +23,58 @@ from zigbeelens.storage.repository import Repository
 from zigbeelens.util.json_helpers import parse_json_list
 
 OnIncidentUpdate = Callable[[str], None]
+
+
+@dataclass(frozen=True)
+class ActiveIncidentReadContext:
+    incidents: tuple[dict[str, Any], ...]
+    incidents_by_id: Mapping[str, dict[str, Any]]
+    refs_by_incident_id: Mapping[str, tuple[dict[str, str], ...]]
+    affected_keys: frozenset[tuple[str, str]]
+    incident_ids_by_device_key: Mapping[tuple[str, str], tuple[str, ...]]
+    active_count_by_network_id: Mapping[str, int]
+
+
+def build_active_incident_read_context(repo: Repository) -> ActiveIncidentReadContext:
+    incidents = tuple(repo.incidents.list_incidents(status_filter=("open", "watching")))
+    incident_ids = [row["id"] for row in incidents]
+    refs_map = repo.incidents.list_incident_devices_for_incidents(incident_ids)
+    refs_by_incident_id = MappingProxyType(
+        {incident_id: tuple(refs_map.get(incident_id, [])) for incident_id in incident_ids}
+    )
+    incidents_by_id = MappingProxyType({row["id"]: row for row in incidents})
+
+    affected: set[tuple[str, str]] = set()
+    incident_ids_by_device: dict[tuple[str, str], list[str]] = {}
+    active_count_by_network: dict[str, int] = {}
+
+    for row in incidents:
+        refs = refs_by_incident_id[row["id"]]
+        networks_for_incident: set[str] = set()
+        for ref in refs:
+            key = (ref["network_id"], ref["ieee_address"])
+            affected.add(key)
+            incident_ids_by_device.setdefault(key, []).append(row["id"])
+            networks_for_incident.add(ref["network_id"])
+        if not networks_for_incident:
+            dedup = row.get("dedup_key") or ""
+            for network in repo.list_networks():
+                network_id = network.id
+                if dedup.endswith(f":{network_id}") or f":{network_id}:" in dedup:
+                    networks_for_incident.add(network_id)
+        for network_id in networks_for_incident:
+            active_count_by_network[network_id] = active_count_by_network.get(network_id, 0) + 1
+
+    return ActiveIncidentReadContext(
+        incidents=incidents,
+        incidents_by_id=incidents_by_id,
+        refs_by_incident_id=refs_by_incident_id,
+        affected_keys=frozenset(affected),
+        incident_ids_by_device_key=MappingProxyType(
+            {key: tuple(ids) for key, ids in incident_ids_by_device.items()}
+        ),
+        active_count_by_network_id=MappingProxyType(active_count_by_network),
+    )
 
 
 class IncidentDiagnosticService:
@@ -46,6 +100,9 @@ class IncidentDiagnosticService:
 
     def active_incidents(self) -> list[dict]:
         return self.repo.incidents.list_incidents(status_filter=("open", "watching"))
+
+    def active_incident_read_context(self) -> ActiveIncidentReadContext:
+        return build_active_incident_read_context(self.repo)
 
     def current_finding(self, health: HealthDiagnosticService) -> DiagnosticConclusion | None:
         incidents = self.active_incidents()
@@ -78,12 +135,22 @@ class IncidentDiagnosticService:
             ],
         )
 
-    def incident_affected_keys(self) -> set[tuple[str, str]]:
-        keys: set[tuple[str, str]] = set()
-        for row in self.active_incidents():
-            for ref in self.repo.incidents.list_incident_devices(row["id"]):
-                keys.add((ref["network_id"], ref["ieee_address"]))
-        return keys
+    def network_active_count(
+        self,
+        network_id: str,
+        *,
+        context: ActiveIncidentReadContext | None = None,
+    ) -> int:
+        ctx = context or self.active_incident_read_context()
+        return int(ctx.active_count_by_network_id.get(network_id, 0))
+
+    def incident_affected_keys(
+        self,
+        *,
+        context: ActiveIncidentReadContext | None = None,
+    ) -> set[tuple[str, str]]:
+        ctx = context or self.active_incident_read_context()
+        return set(ctx.affected_keys)
 
     def count_by_status(self) -> tuple[int, int]:
         open_count = 0
@@ -95,18 +162,6 @@ class IncidentDiagnosticService:
                 watching_count += 1
         return open_count, watching_count
 
-    def network_active_count(self, network_id: str) -> int:
-        count = 0
-        for row in self.active_incidents():
-            refs = self.repo.incidents.list_incident_devices(row["id"])
-            if any(ref["network_id"] == network_id for ref in refs):
-                count += 1
-                continue
-            dedup = row.get("dedup_key") or ""
-            if dedup.endswith(f":{network_id}") or f":{network_id}:" in dedup:
-                count += 1
-        return count
-
 
 def _summary_item(item) -> str:
     if isinstance(item, str):
@@ -116,4 +171,8 @@ def _summary_item(item) -> str:
     return str(item)
 
 
-__all__ = ["IncidentDiagnosticService"]
+__all__ = [
+    "ActiveIncidentReadContext",
+    "IncidentDiagnosticService",
+    "build_active_incident_read_context",
+]

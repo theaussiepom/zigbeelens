@@ -10,7 +10,9 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Mapping
+from dataclasses import dataclass
+from types import MappingProxyType
 
 from pydantic import BaseModel, Field
 
@@ -317,13 +319,24 @@ def load_device_story_evidence(
     *,
     now: datetime | None = None,
     network_context: DeviceStoryNetworkContext | None = None,
+    device_row: DeviceRow | None = None,
+    related_unresolved_incident_ids: list[str] | tuple[str, ...] | None = None,
+    ha_enrichment: Mapping[str, Any] | None = None,
+    ha_enrichment_loaded: bool = False,
 ) -> DeviceStoryEvidence | None:
     """Load bounded stored evidence for one device. Returns None when unknown."""
     device = normalize_device_ieee(device_ieee)
     if not device:
         return None
 
-    row = repo.get_device(network_id, device)
+    if device_row is not None:
+        if device_row.network_id != network_id or normalize_device_ieee(
+            device_row.ieee_address
+        ) != device:
+            raise ValueError("preloaded DeviceRow does not match requested device key")
+        row = device_row
+    else:
+        row = repo.get_device(network_id, device)
     if row is None:
         return None
 
@@ -337,7 +350,10 @@ def load_device_story_evidence(
             "DeviceStoryNetworkContext network_id does not match requested network_id"
         )
 
-    related_unresolved_incident_ids = repo.incidents.list_incidents_for_device(network_id, device)
+    if related_unresolved_incident_ids is None:
+        related_unresolved_incident_ids = repo.incidents.list_incidents_for_device(
+            network_id, device
+        )
     has_current_issue = row.availability == "offline"
 
     latest_snapshot = network_context.latest_snapshot
@@ -378,7 +394,10 @@ def load_device_story_evidence(
     historical = network_context.historical_evidence
     last_known = network_context.last_known_links
 
-    ha_enrichment = repo.get_ha_device_enrichment(network_id, device)
+    if ha_enrichment_loaded:
+        enrichment = ha_enrichment
+    else:
+        enrichment = repo.get_ha_device_enrichment(network_id, device)
 
     latest_row = history.get("latest_snapshot")
     latest_availability_coverage = None
@@ -404,7 +423,7 @@ def load_device_story_evidence(
         availability_changes=availability_changes,
         topology_observed_snapshot_count=topology_observed,
         topology_snapshot_window_count=len(topology_window),
-        ha_enrichment=ha_enrichment,
+        ha_enrichment=enrichment,
     )
     canonical_coverage = build_device_coverage(coverage_evidence)
 
@@ -434,7 +453,7 @@ def load_device_story_evidence(
         latest_snapshot_captured_at=_parse_ts(
             latest_snapshot.get("captured_at") if latest_snapshot else None
         ),
-        ha_area=ha_enrichment.get("area_name") if ha_enrichment else None,
+        ha_area=enrichment.get("area_name") if enrichment else None,
         network_has_usable_ha_areas=network_context.network_has_usable_ha_areas,
         reporting_rhythm=reporting_rhythm_for_device(
             repo, network_id, device, device_row=row, snapshots=device_snapshots
@@ -870,6 +889,8 @@ def device_stories_for_devices(
     rows: list[DeviceRow],
     *,
     now: datetime | None = None,
+    ha_enrichment_by_key: Mapping[tuple[str, str], Mapping[str, Any]] | None = None,
+    related_incident_ids_by_key: Mapping[tuple[str, str], tuple[str, ...]] | None = None,
 ) -> dict[tuple[str, str], DeviceStory]:
     """Compose full Device Stories for many devices with one network context each."""
     reference_now = now or datetime.now(timezone.utc)
@@ -877,25 +898,61 @@ def device_stories_for_devices(
     for row in rows:
         by_network[row.network_id].append(row)
 
+    keys = [(row.network_id, row.ieee_address) for row in rows]
+    if related_incident_ids_by_key is None:
+        related_map = repo.incidents.list_incident_ids_for_devices(keys)
+        related_incident_ids_by_key = {
+            key: tuple(related_map.get(key, [])) for key in keys
+        }
+    if ha_enrichment_by_key is None:
+        ha_enrichment_by_key = repo.list_ha_device_enrichment_for_devices(keys)
+
     stories: dict[tuple[str, str], DeviceStory] = {}
     for network_id, network_rows in by_network.items():
         context = load_device_story_network_context(
             repo, network_id, now=reference_now
         )
         for row in network_rows:
+            key = (network_id, row.ieee_address)
             evidence = load_device_story_evidence(
                 repo,
                 network_id,
                 row.ieee_address,
                 now=reference_now,
                 network_context=context,
+                device_row=row,
+                related_unresolved_incident_ids=related_incident_ids_by_key.get(key, ()),
+                ha_enrichment=ha_enrichment_by_key.get(key),
+                ha_enrichment_loaded=True,
             )
             if evidence is None:
                 continue
-            stories[(network_id, row.ieee_address)] = build_device_story(
-                evidence, now=reference_now
-            )
+            stories[key] = build_device_story(evidence, now=reference_now)
     return stories
+
+
+@dataclass(frozen=True)
+class DeviceStoryBatchContext:
+    rows_by_key: Mapping[tuple[str, str], Any]
+    related_incident_ids_by_key: Mapping[tuple[str, str], tuple[str, ...]]
+    ha_enrichment_by_key: Mapping[tuple[str, str], Mapping[str, Any]]
+
+
+def build_device_story_batch_context(
+    repo: Repository,
+    rows: list[DeviceRow],
+) -> DeviceStoryBatchContext:
+    keys = [(row.network_id, row.ieee_address) for row in rows]
+    related_map = repo.incidents.list_incident_ids_for_devices(keys)
+    return DeviceStoryBatchContext(
+        rows_by_key=MappingProxyType({(row.network_id, row.ieee_address): row for row in rows}),
+        related_incident_ids_by_key=MappingProxyType(
+            {key: tuple(related_map.get(key, [])) for key in keys}
+        ),
+        ha_enrichment_by_key=MappingProxyType(
+            repo.list_ha_device_enrichment_for_devices(keys)
+        ),
+    )
 
 
 def device_story_for_device(

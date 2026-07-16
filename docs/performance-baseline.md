@@ -1,6 +1,6 @@
-# Track 3C incremental device evaluation performance baseline
+# Track 3D bulk composition reads performance baseline
 
-Base commit for Track 3A history: `09f10a8` (final merged Track 2 base). Track 3A instrumentation landed via `perf/query-baseline-instrumentation`. Track 3B atomic MQTT ingestion landed via `perf/atomic-mqtt-ingestion`. This document records **Track 3C current totals** after routing device-scoped MQTT events through incremental per-device health evaluation, and preserves **Track 3A / Track 3B history** for comparison.
+Base commit for Track 3A history: `09f10a8` (final merged Track 2 base). Track 3A instrumentation landed via `perf/query-baseline-instrumentation`. Track 3B atomic MQTT ingestion landed via `perf/atomic-mqtt-ingestion`. Track 3C incremental device evaluation landed via `perf/incremental-device-evaluation` (merge `98ab5c8`). This document records **Track 3D current totals** after batching incident/device/HA composition reads and scoping Device/Incident detail events in SQL, and preserves **Track 3A / Track 3B / Track 3C history** for comparison.
 
 These are planning snapshots, not accepted performance budgets.
 
@@ -8,13 +8,13 @@ These are planning snapshots, not accepted performance budgets.
 
 Track 1 and Track 2 behaviour was confirmed before Track 3A changes: Device Story exposes `related_unresolved_incident_ids`, incident membership is separate from current-issue relevance, canonical coverage evidence is used, and EvaluationCoordinator owns coherent health → incident → dashboard sequencing.
 
-Track 3B preserved those semantics with one `BEGIN IMMEDIATE` ingestion transaction. Track 3C preserves them again: health and Dashboard callbacks still run only after the ingestion transaction physically commits; incident correlation still consumes a complete estate snapshot universe; Device Story and Mesh current-issue relevance remain independently current facts.
+Track 3B preserved those semantics with one `BEGIN IMMEDIATE` ingestion transaction. Track 3C preserved them with incremental target-device evaluation after commit. Track 3D preserves them again: read composition uses request-local immutable contexts only; Device Story related incident IDs remain contextual; write-path authority and incremental evaluation are unchanged.
 
 ## Consistency rule
 
 > Device events update their target immediately. Time-only changes for unrelated devices are reconciled by the bounded periodic full-estate evaluation.
 
-The existing 300-second periodic full-estate evaluation remains the correctness backstop. Track 3C does not add a debounce timer, background evaluation worker, queue, or asynchronous scheduler.
+The existing 300-second periodic full-estate evaluation remains the correctness backstop. Track 3D does not add caches, debounce timers, or shared mutable request state.
 
 ## Measurement method
 
@@ -66,9 +66,28 @@ Track 3C keeps Track 3B ingestion-transaction commit counts unchanged for payloa
 
 Beast payload/availability target-event baselines are new in Track 3C. Compact and Beast inventory paths still call full-network evaluation and therefore keep Track 3B totals.
 
+## Track 3C → Track 3D execute comparison
+
+Track 3D replaces per-device/per-incident N+1 composition reads with bounded bulk repository APIs and scoped event queries. Ingestion and incremental evaluation baselines are unchanged.
+
+| Operation | Track 3C executes | Track 3D executes | Delta | Main removed category |
+|---|---:|---:|---:|---|
+| Dashboard Compact | 328 | 113 | -215 | read.incident_devices N+1 |
+| Dashboard Beast | 3467 | 286 | -3181 | read.incident_devices N+1 |
+| Devices Compact | 355 | 83 | -272 | read.incident_devices N+1 |
+| Devices Beast | 4169 | 406 | -3763 | read.incident_devices N+1 |
+| Incident list | 97 | 51 | -46 | per-incident device/event loads |
+| Incident detail | 62 | 47 | -15 | global list_events filter-after-limit |
+| Device detail | 57 | 54 | -3 | network list_events filter-after-limit |
+| Full report preview | 798 | 266 | -532 | read.incident_devices N+1 |
+| Network report preview | 798 | 266 | -532 | read.incident_devices N+1 |
+| Incident report preview | 639 | 321 | -318 | read.incident_devices N+1 |
+| Device report preview | 510 | 241 | -269 | read.incident_devices N+1 |
+| EvidenceGraphService.build | 99 | 99 | 0 | unchanged (no topology rewrite) |
+
 ## Track 3C ingestion vs post-commit phases
 
-Counters are captured at health-callback entry. At that point the ingestion transaction has already physically committed. Post-commit work is EvaluationCoordinator / incident persistence and any trailing assertion reads included in the measured operation.
+Counters are captured at health-callback entry. At that point the ingestion transaction has already physically committed. Post-commit work is EvaluationCoordinator / incident persistence and any trailing assertion reads included in the measured operation. Track 3D does not change these measurements.
 
 | Operation | Ingestion executes | Ingestion commits | Post-commit executes | Post-commit commits | Total executes | Total commits |
 |---|---:|---:|---:|---:|---:|---:|
@@ -79,28 +98,28 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 | Compact inventory | 43 | 1 | 93 | 8 | 136 | 9 |
 | Beast inventory | 334 | 2 | 629 | 25 | 963 | 27 |
 
-## Track 3C total baseline table
+## Track 3D total baseline table
 
 | Operation | Fixture | State | Executes | Executemany | Commits | Rollbacks | Other | Top repeated category |
 |---|---|---|---:|---:|---:|---:|---:|---|
 | Availability change ingestion | compact | warm | 46 | 0 | 8 | 0 | 0 | transaction.commit (8) |
 | Availability change ingestion | beast | warm | 75 | 0 | 8 | 0 | 0 | read.incidents (10) |
-| Dashboard composition | compact | warm | 328 | 0 | 0 | 0 | 0 | read.incident_devices (88) |
-| Dashboard composition | beast | warm | 3467 | 0 | 0 | 0 | 0 | read.incident_devices (2184) |
-| Device detail | compact | warm | 57 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
-| Devices inventory composition | compact | warm | 355 | 0 | 0 | 0 | 0 | read.incident_devices (80) |
-| Devices inventory composition | beast | warm | 4169 | 0 | 0 | 0 | 0 | read.incident_devices (2132) |
+| Dashboard composition | compact | warm | 113 | 0 | 0 | 0 | 0 | read.schema (30) |
+| Dashboard composition | beast | warm | 286 | 0 | 0 | 0 | 0 | read.schema (87) |
+| Device detail | compact | warm | 54 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
+| Devices inventory composition | compact | warm | 83 | 0 | 0 | 0 | 0 | read.availability_changes (22) |
+| Devices inventory composition | beast | warm | 406 | 0 | 0 | 0 | 0 | read.availability_changes (168) |
 | EvidenceGraphService.build | compact | warm | 99 | 0 | 0 | 0 | 0 | read.schema (27) |
-| Incident detail | compact | warm | 62 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
-| Incident list | compact | warm | 97 | 0 | 0 | 0 | 0 | read.devices (23) |
+| Incident detail | compact | warm | 47 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
+| Incident list | compact | warm | 51 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
 | Device inventory refresh | beast | warm | 963 | 0 | 27 | 0 | 0 | read.availability_changes (168) |
 | Device inventory refresh | compact | warm | 136 | 0 | 9 | 0 | 0 | read.health_snapshots (22) |
 | Ordinary MQTT payload ingestion | compact | warm | 36 | 0 | 3 | 0 | 0 | read.schema (4) |
 | Ordinary MQTT payload ingestion | beast | warm | 62 | 0 | 3 | 0 | 0 | read.incidents (10) |
-| Device report preview | compact | warm | 510 | 0 | 0 | 0 | 0 | read.incident_devices (110) |
-| Full report preview | compact | warm | 798 | 0 | 0 | 0 | 0 | read.incident_devices (182) |
-| Incident report preview | compact | warm | 639 | 0 | 0 | 0 | 0 | read.incident_devices (128) |
-| Network report preview | compact | warm | 798 | 0 | 0 | 0 | 0 | read.incident_devices (182) |
+| Device report preview | compact | warm | 241 | 0 | 0 | 0 | 0 | read.schema (43) |
+| Full report preview | compact | warm | 266 | 0 | 0 | 0 | 0 | read.schema (42) |
+| Incident report preview | compact | warm | 321 | 0 | 0 | 0 | 0 | read.schema (50) |
+| Network report preview | compact | warm | 266 | 0 | 0 | 0 | 0 | read.schema (42) |
 
 ## Top repeated normalized statement shapes
 
@@ -114,7 +133,7 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 
 ### availability_ingestion_beast
 
-- 9× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?`
+- 9× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ? ORDER BY network_id, ieee_address, role`
 - 9× `SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ?`
 - 9× `INSERT INTO incident_devices (incident_id, network_id, ieee_address, role) VALUES (?)`
 - 7× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
@@ -122,43 +141,43 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 
 ### dashboard
 
-- 88× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?`
-- 49× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 43× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 26× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
-- 24× `SELECT COUNT(*) FROM devices`
+- 30× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 23× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
+- 17× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
+- 8× `SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM devices d LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address WHERE d.network_id = ? ORDER BY d.friendly_name`
+- 6× `SELECT ieee_address, from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND changed_at >= ? ORDER BY changed_at ASC`
 
 ### dashboard_beast
 
-- 2184× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?`
-- 250× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 236× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 170× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
-- 169× `SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE lifecycle_state IN (?) ORDER BY CASE lifecycle_state WHEN ? THEN ? WHEN ? THEN ? ELSE ? END, updated_at DESC`
+- 87× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 72× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
+- 34× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
+- 26× `SELECT ieee_address, from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND changed_at >= ? ORDER BY changed_at ASC`
+- 16× `SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM devices d LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address WHERE d.network_id = ? ORDER BY d.friendly_name`
 
 ### device_detail
 
 - 12× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
 - 10× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
 - 6× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 4× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?`
 - 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
+- 2× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
 
 ### devices
 
-- 80× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?`
-- 44× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 40× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 20× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
-- 20× `SELECT COUNT(*) FROM devices`
+- 20× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
+- 20× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
+- 12× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
+- 10× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
+- 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 
 ### devices_beast
 
-- 2132× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?`
-- 336× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 328× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 164× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
-- 164× `SELECT COUNT(*) FROM devices`
+- 164× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
+- 164× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
+- 24× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
+- 20× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
+- 9× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 
 ### evidence_graph
 
@@ -172,17 +191,17 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 
 - 12× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
 - 10× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 9× `SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM devices d LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address WHERE d.network_id = ? AND d.ieee_address = ?`
-- 7× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
+- 3× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
 
 ### incident_list
 
-- 22× `SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM devices d LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address WHERE d.network_id = ? AND d.ieee_address = ?`
 - 12× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
-- 10× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?`
 - 10× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 9× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 5× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
+- 5× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
 
 ### inventory_ingestion_beast
 
@@ -203,14 +222,14 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 ### payload_ingestion
 
 - 4× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 2× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?`
+- 2× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ? ORDER BY network_id, ieee_address, role`
 - 2× `INSERT INTO metric_samples (network_id, ieee_address, metric_name, metric_value, sampled_at) VALUES (?)`
 - 2× `INSERT INTO events ( id, network_id, ieee_address, event_type, severity, title, summary, incident_id, payload_json, occurred_at ) VALUES (?)`
 - 2× `SELECT primary_health, severity, confidence, summary, flags_json, evidence_json, counter_evidence_json, limitations_json, captured_at FROM health_snapshots WHERE scope = ? AND network_id = ? AND ieee_address IS NULL ORDER BY captured_at DESC LIMIT ?`
 
 ### payload_ingestion_beast
 
-- 9× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?`
+- 9× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ? ORDER BY network_id, ieee_address, role`
 - 9× `SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ?`
 - 7× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
@@ -218,45 +237,40 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 
 ### report_device
 
-- 110× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?`
-- 66× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 51× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
+- 43× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 37× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 32× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
+- 28× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
+- 24× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
+- 11× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
 
 ### report_full
 
-- 182× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?`
-- 103× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 88× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 49× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
-- 46× `SELECT COUNT(*) FROM devices`
+- 42× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 37× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
+- 28× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
+- 25× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
+- 25× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
 
 ### report_incident
 
-- 128× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?`
-- 79× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 60× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
+- 50× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 47× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
 - 40× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
+- 26× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
+- 15× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
 
 ### report_network
 
-- 182× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?`
-- 103× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 88× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 49× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
-- 46× `SELECT COUNT(*) FROM devices`
+- 42× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 37× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
+- 28× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
+- 25× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
+- 25× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
 
 ## Filter-after-limit reproduction
 
-The Beast fixture seeds more than 20 newer unrelated Home network events plus `older-target-device-event`, and more than 100 newer unrelated global events plus `older-target-incident-event`. Tests assert both target events are genuinely outside the current network/global limits. All fixture timestamps are at or before `2026-07-15T12:00:00+00:00`. Proposed later repository signatures are:
-
-- `list_events_for_device(network_id: str, ieee_address: str, *, limit: int) -> list[dict]`
-- `list_events_for_incident(incident_id: str, *, limit: int) -> list[dict]`
-
-Track 3A/3B/3C do not fix those production queries.
+The Beast fixture seeds more than 20 newer unrelated Home network events plus `older-target-device-event`, and more than 100 newer unrelated global events plus `older-target-incident-event`. Network/global `list_events` limits still exclude those older target rows. Track 3D Device Detail and Incident Detail use `list_events_for_device` / `list_events_for_incident` so the scoped target events are returned.
 
 ## Limitations and next scope
 
-Exact values are snapshots for planning only, not budgets. Track 3C reduces post-commit full-network reclassification for device-scoped MQTT events. It does not batch Dashboard reads, coalesce evaluations, transaction-wrap health/incident writes with ingestion, or start Track 3D query-shape work.
+Exact values are snapshots for planning only, not budgets. Track 3D removes the principal Dashboard/Devices/Incident N+1 membership and per-device network/HA composition reads, and fixes scoped detail event correctness. Remaining Dashboard HA enrichment reads come from investigation/coverage composers (allowed to remain separate). Cross-surface Dashboard/report result sharing remains Track 3E.
