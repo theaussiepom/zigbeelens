@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Incident,
   RedactionProfile,
@@ -102,19 +102,35 @@ export function ReportsPage() {
   const [incidentNextCursor, setIncidentNextCursor] = useState<string | null>(null);
   const [incidentLoadingMore, setIncidentLoadingMore] = useState(false);
   const [incidentLoadMoreError, setIncidentLoadMoreError] = useState<string | null>(null);
+  const incidentPickerGenerationRef = useRef(0);
+
+  const bumpIncidentPickerGeneration = useCallback(() => {
+    incidentPickerGenerationRef.current += 1;
+  }, []);
+
+  const resetIncidentPicker = useCallback(() => {
+    bumpIncidentPickerGeneration();
+    setIncidentId("");
+    setIncidentOptions([]);
+    setIncidentNextCursor(null);
+    setIncidentLoadMoreError(null);
+    setIncidentLoadingMore(false);
+  }, [bumpIncidentPickerGeneration]);
 
   useEffect(() => {
     setOptions(PROFILE_DEFAULTS[profile]);
   }, [profile]);
 
+  // Scenario changes must invalidate in-flight load-more responses.
+  useEffect(() => {
+    resetIncidentPicker();
+  }, [scenario, resetIncidentPicker]);
+
   function changeScope(next: ReportScope) {
     setScope(next);
     if (next !== "network") setNetworkId("");
     if (next !== "incident") {
-      setIncidentId("");
-      setIncidentOptions([]);
-      setIncidentNextCursor(null);
-      setIncidentLoadMoreError(null);
+      resetIncidentPicker();
     }
     if (next !== "device") setDeviceKey("");
   }
@@ -145,15 +161,20 @@ export function ReportsPage() {
 
   const loadMoreIncidents = useCallback(async () => {
     if (!incidentNextCursor || incidentLoadingMore) return;
+    const generation = incidentPickerGenerationRef.current;
+    const requestScenario = scen;
     const cursor = incidentNextCursor;
     setIncidentLoadingMore(true);
     setIncidentLoadMoreError(null);
     try {
       const more = await api.incidents({
-        scenario: scen,
+        scenario: requestScenario,
         limit: INCIDENT_PICKER_LIMIT,
         cursor,
       });
+      if (generation !== incidentPickerGenerationRef.current) {
+        return;
+      }
       setIncidentOptions((prev) => {
         const seen = new Set(prev.map((inc) => inc.id));
         const appended = more.items.filter((inc) => !seen.has(inc.id));
@@ -161,9 +182,14 @@ export function ReportsPage() {
       });
       setIncidentNextCursor(more.next_cursor ?? null);
     } catch (error) {
+      if (generation !== incidentPickerGenerationRef.current) {
+        return;
+      }
       setIncidentLoadMoreError(error instanceof Error ? error.message : String(error));
     } finally {
-      setIncidentLoadingMore(false);
+      if (generation === incidentPickerGenerationRef.current) {
+        setIncidentLoadingMore(false);
+      }
     }
   }, [incidentLoadingMore, incidentNextCursor, scen]);
 
