@@ -69,6 +69,16 @@ class MqttIngestionService:
             self._recalc_health(event.network_id, None)
         elif event.event_type == "device_inventory_seen":
             self._recalc_health(event.network_id, None)
+        elif event.event_type in {
+            "device_joined",
+            "device_announced",
+            "device_left",
+        }:
+            # Membership changes must refresh the full network snapshot so later
+            # incremental evaluate_device calls do not reuse a stale device universe.
+            self._recalc_health(event.network_id, None)
+        elif event.event_type == "unknown_bridge_event" and event.ieee_address:
+            self._recalc_health(event.network_id, None)
         elif event.ieee_address and event.event_type in {
             "device_payload_seen",
             "device_availability_seen",

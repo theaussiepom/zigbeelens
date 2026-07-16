@@ -69,9 +69,17 @@ def device_decision_badges_for_devices(
     rows: list[DeviceRow],
     *,
     now: datetime | None = None,
+    ha_enrichment_by_key=None,
+    related_incident_ids_by_key=None,
 ) -> dict[tuple[str, str], DeviceDecisionBadge]:
     """Compose decision badges for many devices via shared full-story batching."""
-    stories = device_stories_for_devices(repo, rows, now=now)
+    stories = device_stories_for_devices(
+        repo,
+        rows,
+        now=now,
+        ha_enrichment_by_key=ha_enrichment_by_key,
+        related_incident_ids_by_key=related_incident_ids_by_key,
+    )
     return {
         key: device_decision_badge_from_story(story)
         for key, story in stories.items()

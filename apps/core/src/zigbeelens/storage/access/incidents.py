@@ -102,11 +102,24 @@ class IncidentRepository:
     def list_incidents_for_device(self, network_id: str, ieee_address: str) -> list[str]:
         return self._repo.list_incidents_for_device(network_id, ieee_address)
 
+    def list_incident_ids_for_devices(
+        self,
+        device_keys,
+        *,
+        status_filter: tuple[str, ...] = ("open", "watching"),
+    ):
+        return self._repo.list_incident_ids_for_devices(
+            device_keys, status_filter=status_filter
+        )
+
     def get_incident(self, incident_id: str) -> dict[str, Any] | None:
         return self._repo.get_incident(incident_id)
 
     def list_incident_devices(self, incident_id: str) -> list[dict[str, str]]:
         return self._repo.list_incident_devices(incident_id)
+
+    def list_incident_devices_for_incidents(self, incident_ids):
+        return self._repo.list_incident_devices_for_incidents(incident_ids)
 
     def list_active_incident_device_addresses(self, network_id: str) -> list[str]:
         return self._repo.list_active_incident_device_addresses(network_id)

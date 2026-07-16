@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import cached_property
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any, Collection, Iterator
 
 from zigbeelens.config.models import NetworkConfig
 from zigbeelens.db.connection import Database
@@ -25,6 +25,16 @@ if TYPE_CHECKING:
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# Keep well under typical SQLite SQLITE_MAX_VARIABLE_NUMBER (often 999).
+_SAFE_ID_CHUNK = 400
+_SAFE_PAIR_CHUNK = 200
+
+
+def _chunked(items: list[Any], size: int) -> Iterator[list[Any]]:
+    for index in range(0, len(items), size):
+        yield items[index : index + size]
 
 
 def _dedupe_topology_links(links: list[Any]) -> list[Any]:
@@ -657,7 +667,7 @@ class Repository:
                 SELECT id, network_id, ieee_address, event_type, severity, title, summary,
                        incident_id, occurred_at
                 FROM events WHERE network_id = ?
-                ORDER BY occurred_at DESC LIMIT ?
+                ORDER BY occurred_at DESC, id DESC LIMIT ?
                 """,
                 (network_id, limit),
             )
@@ -666,11 +676,211 @@ class Repository:
                 """
                 SELECT id, network_id, ieee_address, event_type, severity, title, summary,
                        incident_id, occurred_at
-                FROM events ORDER BY occurred_at DESC LIMIT ?
+                FROM events ORDER BY occurred_at DESC, id DESC LIMIT ?
                 """,
                 (limit,),
             )
         return [dict(row) for row in cur.fetchall()]
+
+    def list_events_for_device(
+        self,
+        network_id: str,
+        ieee_address: str,
+        *,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        cur = self.db.conn.execute(
+            """
+            SELECT id, network_id, ieee_address, event_type, severity, title, summary,
+                   incident_id, occurred_at
+            FROM events
+            WHERE network_id = ? AND ieee_address = ?
+            ORDER BY occurred_at DESC, id DESC
+            LIMIT ?
+            """,
+            (network_id, ieee_address, limit),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+    def list_events_for_incident(
+        self,
+        incident_id: str,
+        *,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        cur = self.db.conn.execute(
+            """
+            SELECT id, network_id, ieee_address, event_type, severity, title, summary,
+                   incident_id, occurred_at
+            FROM events
+            WHERE incident_id = ?
+            ORDER BY occurred_at DESC, id DESC
+            LIMIT ?
+            """,
+            (incident_id, limit),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+    def list_events_for_incidents(
+        self,
+        incident_ids: Collection[str],
+        *,
+        limit_per_incident: int = 100,
+    ) -> dict[str, list[dict[str, Any]]]:
+        ordered_ids = list(dict.fromkeys(incident_ids))
+        result: dict[str, list[dict[str, Any]]] = {incident_id: [] for incident_id in ordered_ids}
+        if not ordered_ids:
+            return result
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            placeholders = ",".join("?" for _ in chunk)
+            cur = self.db.conn.execute(
+                f"""
+                SELECT id, network_id, ieee_address, event_type, severity, title, summary,
+                       incident_id, occurred_at
+                FROM (
+                    SELECT id, network_id, ieee_address, event_type, severity, title, summary,
+                           incident_id, occurred_at,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY incident_id
+                               ORDER BY occurred_at DESC, id DESC
+                           ) AS rn
+                    FROM events
+                    WHERE incident_id IN ({placeholders})
+                )
+                WHERE rn <= ?
+                ORDER BY incident_id, occurred_at DESC, id DESC
+                """,
+                (*chunk, limit_per_incident),
+            )
+            for row in cur.fetchall():
+                result[row["incident_id"]].append(dict(row))
+        return result
+
+    def get_devices_by_keys(
+        self,
+        device_keys: Collection[tuple[str, str]],
+    ) -> dict[tuple[str, str], DeviceRow]:
+        ordered_keys = list(dict.fromkeys(device_keys))
+        result: dict[tuple[str, str], DeviceRow] = {}
+        if not ordered_keys:
+            return result
+        for chunk in _chunked(ordered_keys, _SAFE_PAIR_CHUNK):
+            values_sql = ",".join("(?, ?)" for _ in chunk)
+            params: list[Any] = []
+            for network_id, ieee_address in chunk:
+                params.extend((network_id, ieee_address))
+            cur = self.db.conn.execute(
+                f"""
+                WITH requested(network_id, ieee_address) AS (VALUES {values_sql})
+                SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source,
+                       d.manufacturer, d.model, d.interview_state,
+                       COALESCE(s.availability, 'unknown') AS availability,
+                       s.last_seen, s.last_payload_at, s.linkquality, s.battery
+                FROM requested r
+                JOIN devices d
+                  ON d.network_id = r.network_id AND d.ieee_address = r.ieee_address
+                LEFT JOIN device_current_state s
+                  ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address
+                ORDER BY d.network_id, d.ieee_address
+                """,
+                params,
+            )
+            for row in cur.fetchall():
+                device = DeviceRow(**dict(row))
+                result[(device.network_id, device.ieee_address)] = device
+        return result
+
+    def list_ha_device_enrichment_for_devices(
+        self,
+        device_keys: Collection[tuple[str, str]],
+    ) -> dict[tuple[str, str], dict[str, Any]]:
+        ordered_keys = list(dict.fromkeys(device_keys))
+        result: dict[tuple[str, str], dict[str, Any]] = {}
+        if not ordered_keys:
+            return result
+        if not self._has_table("ha_device_enrichment"):
+            return result
+        for chunk in _chunked(ordered_keys, _SAFE_PAIR_CHUNK):
+            values_sql = ",".join("(?, ?)" for _ in chunk)
+            params: list[Any] = []
+            for network_id, ieee_address in chunk:
+                params.extend((network_id, ieee_address))
+            cur = self.db.conn.execute(
+                f"""
+                WITH requested(network_id, ieee_address) AS (VALUES {values_sql})
+                SELECT h.network_id, h.ieee_address, h.ha_device_id, h.ha_device_name,
+                       h.area_id, h.area_name, h.entity_id, h.match_confidence, h.updated_at
+                FROM requested r
+                JOIN ha_device_enrichment h
+                  ON h.network_id = r.network_id AND h.ieee_address = r.ieee_address
+                ORDER BY h.network_id, h.ieee_address
+                """,
+                params,
+            )
+            for row in cur.fetchall():
+                result[(row["network_id"], row["ieee_address"])] = dict(row)
+        return result
+
+    def list_incident_devices_for_incidents(
+        self,
+        incident_ids: Collection[str],
+    ) -> dict[str, list[dict[str, str]]]:
+        ordered_ids = list(dict.fromkeys(incident_ids))
+        result: dict[str, list[dict[str, str]]] = {incident_id: [] for incident_id in ordered_ids}
+        if not ordered_ids:
+            return result
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            placeholders = ",".join("?" for _ in chunk)
+            cur = self.db.conn.execute(
+                f"""
+                SELECT incident_id, network_id, ieee_address, role
+                FROM incident_devices
+                WHERE incident_id IN ({placeholders})
+                ORDER BY incident_id, network_id, ieee_address, role
+                """,
+                chunk,
+            )
+            for row in cur.fetchall():
+                result[row["incident_id"]].append(dict(row))
+        return result
+
+    def list_incident_ids_for_devices(
+        self,
+        device_keys: Collection[tuple[str, str]],
+        *,
+        status_filter: tuple[str, ...] = ("open", "watching"),
+    ) -> dict[tuple[str, str], list[str]]:
+        ordered_keys = list(dict.fromkeys(device_keys))
+        result: dict[tuple[str, str], list[str]] = {key: [] for key in ordered_keys}
+        if not ordered_keys:
+            return result
+        statuses = tuple(status_filter) or ("open", "watching")
+        for chunk in _chunked(ordered_keys, _SAFE_PAIR_CHUNK):
+            values_sql = ",".join("(?, ?)" for _ in chunk)
+            params: list[Any] = []
+            for network_id, ieee_address in chunk:
+                params.extend((network_id, ieee_address))
+            status_placeholders = ",".join("?" for _ in statuses)
+            params.extend(statuses)
+            cur = self.db.conn.execute(
+                f"""
+                WITH requested(network_id, ieee_address) AS (VALUES {values_sql})
+                SELECT d.network_id, d.ieee_address, i.id AS incident_id, i.updated_at
+                FROM requested r
+                JOIN incident_devices d
+                  ON d.network_id = r.network_id AND d.ieee_address = r.ieee_address
+                JOIN incidents i ON i.id = d.incident_id
+                WHERE i.lifecycle_state IN ({status_placeholders})
+                ORDER BY d.network_id, d.ieee_address, i.updated_at DESC, i.id DESC
+                """,
+                params,
+            )
+            for row in cur.fetchall():
+                key = (row["network_id"], row["ieee_address"])
+                incident_id = row["incident_id"]
+                if incident_id not in result[key]:
+                    result[key].append(incident_id)
+        return result
 
     def list_incidents(self, status_filter: tuple[str, ...] | None = None) -> list[dict[str, Any]]:
         query = """
@@ -853,7 +1063,7 @@ class Repository:
             JOIN incident_devices d ON d.incident_id = i.id
             WHERE d.network_id = ? AND d.ieee_address = ?
               AND i.lifecycle_state IN ('open', 'watching')
-            ORDER BY i.updated_at DESC
+            ORDER BY i.updated_at DESC, i.id DESC
             """,
             (network_id, ieee_address),
         )
@@ -877,6 +1087,7 @@ class Repository:
             """
             SELECT incident_id, network_id, ieee_address, role
             FROM incident_devices WHERE incident_id = ?
+            ORDER BY network_id, ieee_address, role
             """,
             (incident_id,),
         )
