@@ -590,10 +590,7 @@ def test_track_3c_ingestion_baselines_unchanged():
 
 def test_track_3e_incident_list_scales_with_page_not_history(tmp_path: Path):
     from performance.expected_baselines import EXPECTED_BASELINES
-    from zigbeelens.storage.incident_collection import (
-        LIFECYCLE_RANK_SQL,
-        build_incident_collection_query,
-    )
+    from zigbeelens.storage.incident_collection import build_incident_collection_query
 
     compact = EXPECTED_BASELINES["incident_list"]
     history = EXPECTED_BASELINES["incident_list_history"]
@@ -607,8 +604,8 @@ def test_track_3e_incident_list_scales_with_page_not_history(tmp_path: Path):
     assert history["execute_count"] < compact["execute_count"] * 4
     assert history["execute_count"] < 200
 
-    # Principal default page plan must use the expression order index without
-    # sorting the matching history through a temporary B-tree.
+    # Default, active, and single-lifecycle pages must use the expression order
+    # index without sorting the matching history through a temporary B-tree.
     db = Database(tmp_path / "history-plan.sqlite")
     db.migrate()
     repo = Repository(db)
@@ -636,21 +633,16 @@ def test_track_3e_incident_list_scales_with_page_not_history(tmp_path: Path):
     for query in (
         build_incident_collection_query(limit=50),
         build_incident_collection_query(status=["open", "watching"], limit=50),
+        build_incident_collection_query(status=["open"], limit=2),
+        build_incident_collection_query(status=["watching"], limit=2),
+        build_incident_collection_query(status=["resolved"], limit=50),
     ):
-        where_sql, params = repo._incident_collection_filters(
-            query, include_cursor=False
-        )
+        sql, params = repo._incident_collection_page_sql(query, include_cursor=False)
         plan_text = " | ".join(
             str(row[-1])
             for row in repo.db.conn.execute(
-                f"""
-                EXPLAIN QUERY PLAN
-                SELECT id FROM incidents
-                WHERE {where_sql}
-                ORDER BY {LIFECYCLE_RANK_SQL} ASC, updated_at DESC, id DESC
-                LIMIT ?
-                """,
-                [*params, query.limit + 1],
+                f"EXPLAIN QUERY PLAN {sql}",
+                params,
             ).fetchall()
         )
         assert "idx_incidents_collection_order" in plan_text

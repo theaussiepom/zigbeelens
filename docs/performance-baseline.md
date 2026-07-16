@@ -125,25 +125,32 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 
 ## Track 3E collection scaling
 
-Public incident list cost must scale with page size and unique devices on that page, not stored incident history. Against the History fixture (1505 incidents), a `limit=50` page measures 130 executes with one bulk incident-device read and zero incident timeline event reads. Compact list remains 51 executes.
+Public incident list cost must scale with page size and unique devices on that page, not stored incident history. Against the History fixture (1505 incidents), a `limit=50` page measures 130 executes with one bulk incident-device read and zero incident timeline event reads. Compact list remains 51 executes. Single-status history pages (including resolved-only) also avoid a full matching-set temporary ORDER BY sort via the dynamic production ORDER BY helper.
 
 ## Track 3E collection ORDER BY index evidence
 
-Migration `010` creates expression index `idx_incidents_collection_order` matching the page `ORDER BY` lifecycle-rank expression. Page filters use the same `CASE lifecycle_state … END` ranks so SQLite can consume that index. Count still filters on `lifecycle_state` and may use `idx_incidents_lifecycle`.
+Migration `010` creates expression index `idx_incidents_collection_order` on the lifecycle-rank expression plus `updated_at DESC, id DESC`. Page filters use the same `CASE lifecycle_state … END` ranks so SQLite can consume that index. Count still filters on `lifecycle_state` and may use `idx_incidents_lifecycle`.
 
-Measured `EXPLAIN QUERY PLAN` (300-row synthetic estate, `LIMIT 51`):
+Production ORDER BY is dynamic:
+
+- single lifecycle status → `ORDER BY updated_at DESC, id DESC` (rank is constant; omitting it avoids a temporary sort)
+- multiple statuses → `ORDER BY lifecycle-rank ASC, updated_at DESC, id DESC`
+
+Measured `EXPLAIN QUERY PLAN` against the production page SELECT (300-row synthetic estate):
 
 | Query class | Plan | Temp ORDER BY B-tree |
 |---|---|---|
-| default all-status first page | `SEARCH incidents USING COVERING INDEX idx_incidents_collection_order (<expr>=?)` | no |
-| open + watching | `SEARCH incidents USING COVERING INDEX idx_incidents_collection_order (<expr>=?)` | no |
-| resolved only | `SEARCH … idx_incidents_collection_order (<expr>=?)` then `USE TEMP B-TREE FOR ORDER BY` | yes (non-principal) |
-| cursor continuation | `SEARCH incidents USING COVERING INDEX idx_incidents_collection_order (<expr>=?)` | no |
+| open only first page | `SEARCH incidents USING INDEX idx_incidents_collection_order (<expr>=?)` | no |
+| watching only first page | `SEARCH incidents USING INDEX idx_incidents_collection_order (<expr>=?)` | no |
+| resolved only first page | `SEARCH incidents USING INDEX idx_incidents_collection_order (<expr>=?)` | no |
+| open / watching / resolved cursor continuation | `SEARCH incidents USING INDEX idx_incidents_collection_order (<expr>=?)` | no |
+| default all-status first page | `SEARCH incidents USING INDEX idx_incidents_collection_order (<expr>=?)` | no |
+| open + watching | `SEARCH incidents USING INDEX idx_incidents_collection_order (<expr>=?)` | no |
 | updated_after | `SEARCH … idx_incidents_collection_order (<expr>=? AND updated_at>?)` | no |
 | network-scoped | collection-order index + `incident_devices` EXISTS covering PK | no |
 | device-scoped | collection-order index + `incident_devices` EXISTS covering PK | no |
 
-Principal default and active collection paths must not contain `USE TEMP B-TREE FOR ORDER BY`.
+No page class above may contain `USE TEMP B-TREE FOR ORDER BY`.
 
 ## Top repeated normalized statement shapes
 

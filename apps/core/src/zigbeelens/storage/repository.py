@@ -1012,30 +1012,55 @@ class Repository:
         row = cur.fetchone()
         return int(row["n"] if row is not None else 0)
 
-    def list_incidents_page(
-        self, query: "IncidentCollectionQuery"
-    ) -> "IncidentCollectionPage":
-        from zigbeelens.storage.incident_collection import (
-            LIFECYCLE_RANK_SQL,
-            IncidentCollectionPage,
-            cursor_from_incident_row,
-            encode_incident_collection_cursor,
-        )
+    def _incident_collection_order_by(self, query: "IncidentCollectionQuery") -> str:
+        """Production ORDER BY for paginated incident collections.
 
-        # Validate cursor against current filters before counting/listing.
-        where_sql, params = self._incident_collection_filters(query, include_cursor=True)
-        total = self.count_incidents(query)
-        fetch_limit = query.limit + 1
+        Single-lifecycle pages omit the constant lifecycle-rank term so SQLite
+        can consume idx_incidents_collection_order without a temporary sort.
+        Multi-lifecycle pages keep explicit rank ordering.
+        """
+        from zigbeelens.storage.incident_collection import LIFECYCLE_RANK_SQL
+
+        if len(query.status_filter) == 1:
+            return "updated_at DESC, id DESC"
+        return f"{LIFECYCLE_RANK_SQL} ASC, updated_at DESC, id DESC"
+
+    def _incident_collection_page_sql(
+        self,
+        query: "IncidentCollectionQuery",
+        *,
+        include_cursor: bool,
+    ) -> tuple[str, list[Any]]:
+        """Shared production page SELECT used by list + EXPLAIN plan tests."""
+        where_sql, params = self._incident_collection_filters(
+            query,
+            include_cursor=include_cursor,
+        )
+        order_by = self._incident_collection_order_by(query)
         sql = f"""
             SELECT id, incident_type, lifecycle_state, severity, scope, confidence,
                    title, summary, explanation, evidence_json, counter_evidence_json,
                    limitations_json, opened_at, updated_at, resolved_at, dedup_key
             FROM incidents
             WHERE {where_sql}
-            ORDER BY {LIFECYCLE_RANK_SQL} ASC, updated_at DESC, id DESC
+            ORDER BY {order_by}
             LIMIT ?
         """
-        cur = self.db.conn.execute(sql, [*params, fetch_limit])
+        return sql, [*params, query.limit + 1]
+
+    def list_incidents_page(
+        self, query: "IncidentCollectionQuery"
+    ) -> "IncidentCollectionPage":
+        from zigbeelens.storage.incident_collection import (
+            IncidentCollectionPage,
+            cursor_from_incident_row,
+            encode_incident_collection_cursor,
+        )
+
+        # Validate cursor against current filters before counting/listing.
+        sql, params = self._incident_collection_page_sql(query, include_cursor=True)
+        total = self.count_incidents(query)
+        cur = self.db.conn.execute(sql, params)
         fetched = [dict(row) for row in cur.fetchall()]
         has_more = len(fetched) > query.limit
         rows = fetched[: query.limit]

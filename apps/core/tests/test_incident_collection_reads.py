@@ -11,7 +11,6 @@ from zigbeelens.config.models import AppConfig, ModeConfig, NetworkConfig, Stora
 from zigbeelens.db.connection import Database
 from zigbeelens.diagnostics.incidents.models import AffectedDevice
 from zigbeelens.storage.incident_collection import (
-    LIFECYCLE_RANK_SQL,
     IncidentCollectionCursor,
     IncidentCollectionCursorError,
     IncidentCollectionQueryError,
@@ -27,17 +26,12 @@ NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
 
 
 def _explain_page_plan(repo: Repository, query) -> str:
-    where_sql, params = repo._incident_collection_filters(query, include_cursor=bool(query.cursor))
-    plan_rows = repo.db.conn.execute(
-        f"""
-        EXPLAIN QUERY PLAN
-        SELECT id FROM incidents
-        WHERE {where_sql}
-        ORDER BY {LIFECYCLE_RANK_SQL} ASC, updated_at DESC, id DESC
-        LIMIT ?
-        """,
-        [*params, query.limit + 1],
-    ).fetchall()
+    """EXPLAIN the production page SELECT (not a narrower SELECT id surrogate)."""
+    sql, params = repo._incident_collection_page_sql(
+        query,
+        include_cursor=bool(query.cursor),
+    )
+    plan_rows = repo.db.conn.execute(f"EXPLAIN QUERY PLAN {sql}", params).fetchall()
     return " | ".join(str(row[-1]) for row in plan_rows)
 
 
@@ -318,16 +312,17 @@ def test_explain_query_plan_uses_collection_order_index(tmp_path: Path):
     repo = _repo(tmp_path)
     _seed_history_scale(repo, n=300)
 
+    # Seed has 5 open / 5 watching / many resolved; use small limits where needed
+    # so single-lifecycle cursor continuations are exercised.
+    open_q = build_incident_collection_query(status=["open"], limit=2)
+    watching_q = build_incident_collection_query(status=["watching"], limit=2)
+    resolved_q = build_incident_collection_query(status=["resolved"], limit=50)
     default_q = build_incident_collection_query(limit=50)
     active_q = build_incident_collection_query(status=["open", "watching"], limit=50)
-    resolved_q = build_incident_collection_query(status=["resolved"], limit=50)
     updated_q = build_incident_collection_query(
         updated_after=(NOW - timedelta(hours=2)).isoformat(),
         limit=50,
     )
-    first = repo.list_incidents_page(default_q)
-    assert first.next_cursor is not None
-    cursor_q = build_incident_collection_query(limit=50, cursor=first.next_cursor)
     network_q = build_incident_collection_query(network_id="home", limit=50)
     device_q = build_incident_collection_query(
         network_id="home",
@@ -335,27 +330,61 @@ def test_explain_query_plan_uses_collection_order_index(tmp_path: Path):
         limit=50,
     )
 
+    open_first = repo.list_incidents_page(open_q)
+    watching_first = repo.list_incidents_page(watching_q)
+    resolved_first = repo.list_incidents_page(resolved_q)
+    assert open_first.next_cursor is not None
+    assert watching_first.next_cursor is not None
+    assert resolved_first.next_cursor is not None
+
     plans = {
+        "open": _explain_page_plan(repo, open_q),
+        "watching": _explain_page_plan(repo, watching_q),
+        "resolved": _explain_page_plan(repo, resolved_q),
+        "open_cursor": _explain_page_plan(
+            repo,
+            build_incident_collection_query(
+                status=["open"], limit=2, cursor=open_first.next_cursor
+            ),
+        ),
+        "watching_cursor": _explain_page_plan(
+            repo,
+            build_incident_collection_query(
+                status=["watching"], limit=2, cursor=watching_first.next_cursor
+            ),
+        ),
+        "resolved_cursor": _explain_page_plan(
+            repo,
+            build_incident_collection_query(
+                status=["resolved"], limit=50, cursor=resolved_first.next_cursor
+            ),
+        ),
         "default": _explain_page_plan(repo, default_q),
         "active": _explain_page_plan(repo, active_q),
-        "resolved": _explain_page_plan(repo, resolved_q),
         "updated_after": _explain_page_plan(repo, updated_q),
-        "cursor": _explain_page_plan(repo, cursor_q),
         "network": _explain_page_plan(repo, network_q),
         "device": _explain_page_plan(repo, device_q),
     }
 
     for name, plan_text in plans.items():
         assert "idx_incidents_collection_order" in plan_text, (name, plan_text)
+        assert "USE TEMP B-TREE FOR ORDER BY" not in plan_text, (name, plan_text)
 
-    # Principal default/active paths must not sort via a temporary B-tree.
-    for name in ("default", "active"):
-        assert "USE TEMP B-TREE FOR ORDER BY" not in plans[name], (name, plans[name])
-
-    # Cursor continuation progresses without overlap.
-    page2 = repo.list_incidents_page(cursor_q)
-    assert page2.rows[0]["id"] != first.rows[0]["id"]
-    assert {row["id"] for row in first.rows}.isdisjoint({row["id"] for row in page2.rows})
+    # Single-lifecycle cursor continuations progress without overlap.
+    for status, first, limit in (
+        ("open", open_first, 2),
+        ("watching", watching_first, 2),
+        ("resolved", resolved_first, 50),
+    ):
+        page2 = repo.list_incidents_page(
+            build_incident_collection_query(
+                status=[status], limit=limit, cursor=first.next_cursor
+            )
+        )
+        assert page2.rows[0]["id"] != first.rows[0]["id"]
+        assert {row["id"] for row in first.rows}.isdisjoint(
+            {row["id"] for row in page2.rows}
+        )
 
 
 def test_updated_after_preserves_microsecond_boundaries(tmp_path: Path):
