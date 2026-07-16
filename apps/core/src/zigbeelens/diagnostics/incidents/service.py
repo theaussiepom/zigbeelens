@@ -176,7 +176,12 @@ class IncidentDiagnosticService:
             return open_count, watching_count
         open_count = 0
         watching_count = 0
-        for row in self.repo.incidents.list_incidents():
+        for row in self.repo.incidents.list_incidents(
+            status_filter=(
+                IncidentLifecycle.open.value,
+                IncidentLifecycle.watching.value,
+            )
+        ):
             if row["lifecycle_state"] == IncidentLifecycle.open.value:
                 open_count += 1
             elif row["lifecycle_state"] == IncidentLifecycle.watching.value:

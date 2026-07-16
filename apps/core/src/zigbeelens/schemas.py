@@ -558,6 +558,8 @@ class HealthResponse(BaseModel):
 class PaginatedResponse(BaseModel):
     items: list[Any]
     total: int
+    limit: int | None = None
+    next_cursor: str | None = None
 
 
 class TopologyCaptureRequest(BaseModel):

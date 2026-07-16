@@ -189,10 +189,24 @@ class DataService:
             return self._mock(scenario).routers()
         return self._builder.routers()
 
-    def incidents(self, scenario: str | None = None):
+    def incidents(self, scenario: str | None = None, *, query=None):
+        """Public paginated incident collection."""
+        from zigbeelens.storage.incident_collection import build_incident_collection_query
+
+        collection_query = query or build_incident_collection_query()
         if self.uses_mock(scenario):
-            return self._mock(scenario).incidents()
-        return self._builder.incidents()
+            return self._mock(scenario).incidents_page(collection_query)
+        return self._builder.incidents_page(collection_query)
+
+    def incidents_complete_history_for_reports(self, scenario: str | None = None):
+        """Internal complete history for report assembly (Track 3F debt).
+
+        Public /incidents is page-bounded. Reports still need the full composed
+        history until Track 3F introduces scope-first assembly.
+        """
+        if self.uses_mock(scenario):
+            return self._mock(scenario).incidents_complete_history()
+        return self._builder.incidents_complete_history()
 
     def incident(self, incident_id: str, scenario: str | None = None):
         if self.uses_mock(scenario):

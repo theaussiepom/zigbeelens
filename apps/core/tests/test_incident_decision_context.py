@@ -25,6 +25,7 @@ from zigbeelens.services.device_decision_badge import (
 )
 from zigbeelens.services.mock_provider import MockProvider
 from zigbeelens.services.payload_builder import PayloadBuilder
+from zigbeelens.storage.incident_collection import build_incident_collection_query
 from zigbeelens.storage.repository import Repository
 
 REF_NOW = datetime(2026, 7, 13, 2, 0, 0, tzinfo=timezone.utc)
@@ -142,7 +143,9 @@ def test_incidents_batch_compose_unique_device_rows_once(tmp_path: Path):
             "zigbeelens.services.payload_builder.device_decision_badges_for_devices",
             spy,
         )
-        incidents = PayloadBuilder(config, repo, health).incidents()
+        incidents = PayloadBuilder(config, repo, health).incidents_page(
+            build_incident_collection_query()
+        )["items"]
 
     assert spy.call_count == 1
     rows = spy.call_args.args[1]
@@ -199,7 +202,7 @@ def test_incidents_multi_network_batches_once_with_story_parity(tmp_path: Path):
             "zigbeelens.services.payload_builder.device_decision_badges_for_devices",
             spy,
         )
-        PayloadBuilder(config, repo, health).incidents()
+        PayloadBuilder(config, repo, health).incidents_page(build_incident_collection_query())["items"]
     assert spy.call_count == 1
 
     incidents = [
@@ -250,7 +253,7 @@ def test_incidents_list_batch_composer_called_once_across_networks(tmp_path: Pat
             "zigbeelens.services.payload_builder.device_decision_badges_for_devices",
             spy,
         )
-        PayloadBuilder(config, repo, health).incidents()
+        PayloadBuilder(config, repo, health).incidents_page(build_incident_collection_query())["items"]
     assert spy.call_count == 1
     assert len(spy.call_args.args[1]) == 2
 
@@ -403,7 +406,7 @@ def test_scenario_incidents_api_does_not_bleed_live_repository(
 ):
     scenario_id = "single_device_unavailable"
     provider = MockProvider(scenario_id)
-    scenario_incidents = provider.incidents()
+    scenario_incidents = provider.incidents_complete_history()
     assert scenario_incidents
     scenario_ref = next(
         ref

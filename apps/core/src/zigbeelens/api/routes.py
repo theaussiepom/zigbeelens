@@ -220,10 +220,40 @@ def routers(
 @router.get("/incidents", response_model=PaginatedResponse)
 def incidents(
     scenario: str | None = Query(default=None),
+    status: list[str] | None = Query(default=None),
+    updated_after: str | None = Query(default=None),
+    network_id: str | None = Query(default=None),
+    device_ieee: str | None = Query(default=None),
+    limit: int | None = Query(default=None),
+    cursor: str | None = Query(default=None),
     ctx: AppContext = Depends(ctx_dep),
 ) -> PaginatedResponse:
-    items = ctx.data.incidents(scenario)
-    return PaginatedResponse(items=items, total=len(items))
+    from zigbeelens.storage.incident_collection import (
+        IncidentCollectionCursorError,
+        IncidentCollectionQueryError,
+        build_incident_collection_query,
+    )
+
+    try:
+        query = build_incident_collection_query(
+            status=status,
+            updated_after=updated_after,
+            network_id=network_id,
+            device_ieee=device_ieee,
+            limit=limit,
+            cursor=cursor,
+        )
+        page = ctx.data.incidents(scenario, query=query)
+    except IncidentCollectionQueryError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IncidentCollectionCursorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return PaginatedResponse(
+        items=page["items"],
+        total=page["total"],
+        limit=page["limit"],
+        next_cursor=page["next_cursor"],
+    )
 
 
 @router.get("/incidents/{incident_id}")

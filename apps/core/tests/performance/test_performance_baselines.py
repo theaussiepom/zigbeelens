@@ -25,6 +25,7 @@ from zigbeelens.schemas import ReportRequest, ReportScope
 from zigbeelens.services.data_service import DataService
 from zigbeelens.services.evidence_graph import EvidenceGraphService
 from zigbeelens.services.payload_builder import PayloadBuilder
+from zigbeelens.storage.incident_collection import build_incident_collection_query
 from zigbeelens.storage.repository import Repository
 from zigbeelens.topology.parser import ParsedTopology, ParsedTopologyLink, ParsedTopologyNode
 
@@ -582,7 +583,11 @@ def _operations() -> dict[str, tuple[str, Operation, bool]]:
         "dashboard": ("compact", lambda fx: _builder(fx).dashboard(), True),
         "devices": ("compact", lambda fx: _builder(fx).devices(), True),
         "evidence_graph": ("compact", lambda fx: EvidenceGraphService(fx.repo).build("home"), True),
-        "incident_list": ("compact", lambda fx: _builder(fx).incidents(), True),
+        "incident_list": (
+            "compact",
+            lambda fx: _builder(fx).incidents_page(build_incident_collection_query()),
+            True,
+        ),
         "incident_detail": (
             "compact",
             lambda fx: _builder(fx).incident(fx.active_incident_id),

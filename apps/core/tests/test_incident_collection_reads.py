@@ -66,7 +66,7 @@ def _seed_incident(
         lifecycle_state=lifecycle,
         severity="incident",
         scope="device",
-        confidence="likely",
+        confidence="medium",
         title=f"Incident {incident_id}",
         summary=f"Summary {incident_id}",
         explanation="Explanation",
@@ -334,3 +334,156 @@ def test_access_layer_delegates_page_and_count(tmp_path: Path):
     via_access = repo.incidents.list_incidents_page(query)
     via_repo = repo.list_incidents_page(query)
     assert [row["id"] for row in via_access.rows] == [row["id"] for row in via_repo.rows]
+
+
+def test_list_composition_skips_events_and_off_page_work(tmp_path: Path):
+    from performance.query_instrumentation import install_counter
+    from zigbeelens.diagnostics.service import HealthDiagnosticService
+    from zigbeelens.services.payload_builder import PayloadBuilder
+
+    repo = _repo(tmp_path)
+    _seed_standard_set(repo)
+    # Extra off-page resolved history should not be composed on a tiny page.
+    for index in range(30):
+        _seed_incident(
+            repo,
+            f"hist-{index:03d}",
+            lifecycle="resolved",
+            updated_at=NOW - timedelta(days=2, minutes=index),
+            refs=[("home", "0xA1")],
+        )
+    # Attach an event to an off-page and on-page incident.
+    repo.insert_event(
+        event_id="evt-open-b",
+        network_id="home",
+        ieee_address="0xA1",
+        event_type="incident_updated",
+        severity="incident",
+        title="on page",
+        summary="on page",
+        occurred_at=NOW.isoformat(),
+        incident_id="open-b",
+    )
+    repo.insert_event(
+        event_id="evt-hist",
+        network_id="home",
+        ieee_address="0xA1",
+        event_type="incident_resolved",
+        severity="healthy",
+        title="off page",
+        summary="off page",
+        occurred_at=(NOW - timedelta(days=2)).isoformat(),
+        incident_id="hist-000",
+    )
+    health = HealthDiagnosticService(
+        AppConfig(
+            mode=ModeConfig(mock=True),
+            networks=[
+                NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt"),
+                NetworkConfig(id="office", name="Office", base_topic="z2m-office"),
+            ],
+            storage=StorageConfig(path=str(tmp_path / "collection.sqlite")),
+        ),
+        repo,
+    )
+    builder = PayloadBuilder(
+        AppConfig(
+            mode=ModeConfig(mock=True),
+            networks=[
+                NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt"),
+                NetworkConfig(id="office", name="Office", base_topic="z2m-office"),
+            ],
+            storage=StorageConfig(path=str(tmp_path / "collection.sqlite")),
+        ),
+        repo,
+        health,
+    )
+    counter = install_counter(repo)
+    counter.reset()
+    page = builder.incidents_page(build_incident_collection_query(limit=2))
+    assert [inc.id for inc in page["items"]] == ["open-b", "open-a"]
+    assert all(inc.timeline == [] for inc in page["items"])
+    assert counter.stats.category_counts.get("read.events", 0) == 0
+    # Only page incident ids should be requested for refs.
+    assert counter.stats.category_counts.get("read.incident_devices", 0) == 1
+
+    detail = builder.incident("open-b")
+    assert detail is not None
+    assert any(event.id == "evt-open-b" for event in detail.timeline)
+
+
+def test_api_incidents_collection_contract(live_client):
+    from fastapi.testclient import TestClient
+
+    client: TestClient = live_client
+    repo = client.app.state.ctx.repo
+    repo.sync_networks(
+        [
+            NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt"),
+            NetworkConfig(id="office", name="Office", base_topic="z2m-office"),
+        ]
+    )
+    _seed_standard_set(repo)
+
+    res = client.get("/api/incidents", params={"limit": 2})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["limit"] == 2
+    assert body["total"] == 6
+    assert body["next_cursor"]
+    assert [item["id"] for item in body["items"]] == ["open-b", "open-a"]
+    assert all(item["timeline"] == [] for item in body["items"])
+
+    res2 = client.get(
+        "/api/v1/incidents",
+        params={"limit": 2, "cursor": body["next_cursor"]},
+    )
+    assert res2.status_code == 200
+    body2 = res2.json()
+    assert [item["id"] for item in body2["items"]] == ["watch-1", "res-new"]
+
+    bad = client.get("/api/incidents", params={"limit": 2, "cursor": "nope"})
+    assert bad.status_code == 400
+    invalid = client.get("/api/incidents", params={"status": "nope"})
+    assert invalid.status_code == 422
+
+    mock_res = client.get(
+        "/api/incidents",
+        params={"scenario": "single_device_unavailable", "limit": 50},
+    )
+    assert mock_res.status_code == 200
+    mock_body = mock_res.json()
+    assert "limit" in mock_body
+    assert "next_cursor" in mock_body
+    assert mock_body["total"] == len(mock_body["items"]) or mock_body["next_cursor"] is not None
+
+
+def test_reports_still_use_complete_history(tmp_path: Path):
+    from zigbeelens.schemas import ReportRequest, ReportScope
+    from zigbeelens.services.data_service import DataService
+    from zigbeelens.diagnostics.service import HealthDiagnosticService
+
+    repo = _repo(tmp_path)
+    _seed_standard_set(repo)
+    config = AppConfig(
+        mode=ModeConfig(mock=False),
+        networks=[
+            NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt"),
+            NetworkConfig(id="office", name="Office", base_topic="z2m-office"),
+        ],
+        storage=StorageConfig(path=str(tmp_path / "collection.sqlite")),
+    )
+    data = DataService(config, repo, HealthDiagnosticService(config, repo))
+    history = data.incidents_complete_history_for_reports()
+    assert {inc.id for inc in history} == {
+        "open-b",
+        "open-a",
+        "watch-1",
+        "res-new",
+        "res-old",
+        "multi-net",
+    }
+    page = data.incidents(query=build_incident_collection_query(limit=2))
+    assert len(page["items"]) == 2
+    report = data.report_preview(request=ReportRequest(scope=ReportScope.full))
+    assert {inc.id for inc in report.incidents} == {inc.id for inc in history}

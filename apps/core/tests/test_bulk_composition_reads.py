@@ -420,12 +420,15 @@ def test_incident_list_one_bulk_context(tmp_path: Path, monkeypatch: pytest.Monk
         )
         for key in calls:
             calls[key] = 0
+        from zigbeelens.storage.incident_collection import build_incident_collection_query
+
         with _frozen_time():
-            incidents = _builder(fx).incidents()
-        assert incidents
+            page = _builder(fx).incidents_page(build_incident_collection_query())
+        assert page["items"]
+        assert all(inc.timeline == [] for inc in page["items"])
         assert calls["bulk_refs"] == 1
         assert calls["bulk_devices"] == 1
-        assert calls["bulk_events"] == 1
+        assert calls["bulk_events"] == 0
         assert calls["badge_batch"] == 1
         assert calls["list_incident_devices"] == 0
         assert calls["get_device"] == 0
@@ -547,21 +550,25 @@ def test_report_preview_parity_and_no_devices_endpoint(tmp_path: Path, monkeypat
             "devices",
             MagicMock(side_effect=AssertionError("reports must not call devices()")),
         )
+        from zigbeelens.storage.incident_collection import build_incident_collection_query
+
         with _frozen_time():
             _data(fx).report_preview(request=ReportRequest(scope=ReportScope.full))
-            incidents = _builder(fx).incidents()
+            incidents = _builder(fx).incidents_page(build_incident_collection_query())["items"]
             detail = _builder(fx).incident(fx.active_incident_id)
         assert incidents
         assert detail is not None
 
 
 def test_read_only_surfaces_commit_zero(tmp_path: Path):
+    from zigbeelens.storage.incident_collection import build_incident_collection_query
+
     with deterministic_fixture(tmp_path, "compact") as fx:
         fx.counter.reset()
         with _frozen_time():
             _builder(fx).dashboard()
             _builder(fx).devices()
-            _builder(fx).incidents()
+            _builder(fx).incidents_page(build_incident_collection_query())
             _builder(fx).incident(fx.active_incident_id)
             _builder(fx).device_detail(*fx.target_device)
         assert fx.counter.stats.commit_count == 0
