@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
+  Incident,
   RedactionProfile,
   ReportFormat,
   ReportRequest,
@@ -21,6 +22,8 @@ import { DataCoverageWarningCard } from "@/components/overview/DataCoverageWarni
 import { EvidenceCoverageStrip } from "@/components/meshGraph/EvidenceCoverageStrip";
 import { buildReportDecisionViewModel } from "@/viewModels/reports/reportDecisionViewModel";
 import type { DecisionPillTone } from "@/viewModels/types";
+
+const INCIDENT_PICKER_LIMIT = 100;
 
 interface OptionState {
   preserveFriendly: boolean;
@@ -95,6 +98,10 @@ export function ReportsPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [incidentOptions, setIncidentOptions] = useState<Incident[]>([]);
+  const [incidentNextCursor, setIncidentNextCursor] = useState<string | null>(null);
+  const [incidentLoadingMore, setIncidentLoadingMore] = useState(false);
+  const [incidentLoadMoreError, setIncidentLoadMoreError] = useState<string | null>(null);
 
   useEffect(() => {
     setOptions(PROFILE_DEFAULTS[profile]);
@@ -103,7 +110,12 @@ export function ReportsPage() {
   function changeScope(next: ReportScope) {
     setScope(next);
     if (next !== "network") setNetworkId("");
-    if (next !== "incident") setIncidentId("");
+    if (next !== "incident") {
+      setIncidentId("");
+      setIncidentOptions([]);
+      setIncidentNextCursor(null);
+      setIncidentLoadMoreError(null);
+    }
     if (next !== "device") setDeviceKey("");
   }
 
@@ -116,13 +128,45 @@ export function ReportsPage() {
     },
   );
   const incidentsResource = useLiveResource(
-    () => api.incidentsAllPages({ scenario: scen, limit: 100 }),
+    () => api.incidents({ scenario: scen, limit: INCIDENT_PICKER_LIMIT }),
     [scenario, scope],
     {
       enabled: scope === "incident",
       refetchOn: ["dashboard_updated", "incidents_updated"],
     },
   );
+  useEffect(() => {
+    if (scope !== "incident") return;
+    if (!incidentsResource.data) return;
+    setIncidentOptions(incidentsResource.data.items);
+    setIncidentNextCursor(incidentsResource.data.next_cursor ?? null);
+    setIncidentLoadMoreError(null);
+  }, [incidentsResource.data, scope, scenario]);
+
+  const loadMoreIncidents = useCallback(async () => {
+    if (!incidentNextCursor || incidentLoadingMore) return;
+    const cursor = incidentNextCursor;
+    setIncidentLoadingMore(true);
+    setIncidentLoadMoreError(null);
+    try {
+      const more = await api.incidents({
+        scenario: scen,
+        limit: INCIDENT_PICKER_LIMIT,
+        cursor,
+      });
+      setIncidentOptions((prev) => {
+        const seen = new Set(prev.map((inc) => inc.id));
+        const appended = more.items.filter((inc) => !seen.has(inc.id));
+        return [...prev, ...appended];
+      });
+      setIncidentNextCursor(more.next_cursor ?? null);
+    } catch (error) {
+      setIncidentLoadMoreError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIncidentLoadingMore(false);
+    }
+  }, [incidentLoadingMore, incidentNextCursor, scen]);
+
   const devicesResource = useLiveResource(
     () => api.devices(scen).then((res) => res.items),
     [scenario, scope],
@@ -276,15 +320,42 @@ export function ReportsPage() {
               )}
               {scope === "incident" && (
                 <Field label="Incident">
-                  <NativeSelect
-                    value={incidentId}
-                    onChange={setIncidentId}
-                    placeholder="Select an incident"
-                    options={(incidentsResource.data ?? []).map((i) => ({
-                      value: i.id,
-                      label: i.title,
-                    }))}
-                  />
+                  {incidentsResource.error ? (
+                    <ErrorState
+                      message={incidentsResource.error}
+                      onRetry={incidentsResource.refetch}
+                    />
+                  ) : incidentsResource.loading && incidentOptions.length === 0 ? (
+                    <LoadingState label="Loading incidents…" />
+                  ) : (
+                    <>
+                      <NativeSelect
+                        ariaLabel="Incident"
+                        value={incidentId}
+                        onChange={setIncidentId}
+                        placeholder="Select an incident"
+                        options={incidentOptions.map((i) => ({
+                          value: i.id,
+                          label: i.title,
+                        }))}
+                      />
+                      {incidentNextCursor ? (
+                        <div className="mt-2 flex flex-col items-start gap-1">
+                          <button
+                            type="button"
+                            onClick={() => void loadMoreIncidents()}
+                            disabled={incidentLoadingMore}
+                            className="rounded-lg border border-zl-border bg-zl-panel px-3 py-1.5 text-xs text-zl-text hover:border-zl-accent disabled:opacity-60"
+                          >
+                            {incidentLoadingMore ? "Loading…" : "Load more incidents"}
+                          </button>
+                          {incidentLoadMoreError ? (
+                            <p className="text-xs text-zl-danger">{incidentLoadMoreError}</p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </>
+                  )}
                 </Field>
               )}
               {scope === "device" && (
@@ -744,14 +815,17 @@ function NativeSelect({
   onChange,
   options,
   placeholder,
+  ariaLabel,
 }: {
   value: string;
   onChange: (v: string) => void;
   options: { value: string; label: string }[];
   placeholder: string;
+  ariaLabel?: string;
 }) {
   return (
     <select
+      aria-label={ariaLabel}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       className="w-full rounded-lg border border-zl-border bg-zl-bg px-3 py-2 text-sm text-zl-text"

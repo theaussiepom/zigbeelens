@@ -188,27 +188,6 @@ export const api = {
       limit: query.limit,
       cursor: query.cursor,
     }),
-  /** Accumulate collection pages for pickers that need a broader option list. */
-  incidentsAllPages: async (query: IncidentListQuery = {}): Promise<Incident[]> => {
-    const items: Incident[] = [];
-    let cursor: string | undefined;
-    const limit = query.limit ?? 100;
-    for (;;) {
-      const page = await fetchJson<Paginated<Incident>>("api/incidents", {
-        scenario: query.scenario,
-        status: query.status,
-        updated_after: query.updated_after,
-        network_id: query.network_id,
-        device_ieee: query.device_ieee,
-        limit,
-        cursor,
-      });
-      items.push(...page.items);
-      if (!page.next_cursor) break;
-      cursor = page.next_cursor;
-    }
-    return items;
-  },
   incident: (id: string, scenario?: string) =>
     fetchJson<Incident>(`api/incidents/${id}`, { scenario }),
   timeline: (scenario?: string, networkId?: string) =>

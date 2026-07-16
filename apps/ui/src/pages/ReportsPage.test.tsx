@@ -21,7 +21,6 @@ vi.mock("@/lib/api", () => ({
   api: {
     networks: vi.fn(),
     incidents: vi.fn(),
-    incidentsAllPages: vi.fn(),
     devices: vi.fn(),
     previewReport: vi.fn(),
     createReport: vi.fn(),
@@ -199,8 +198,7 @@ beforeEach(() => {
     items: [{ id: "home", name: "Home", base_topic: "zigbee2mqtt/home" }],
     total: 1,
   });
-  (api.incidents as Mock).mockResolvedValue({ items: [], total: 0, limit: 50, next_cursor: null });
-  (api.incidentsAllPages as Mock).mockResolvedValue([]);
+  (api.incidents as Mock).mockResolvedValue({ items: [], total: 0, limit: 100, next_cursor: null });
   (api.devices as Mock).mockResolvedValue({ items: [], total: 0 });
   previewReport.mockResolvedValue(makeDecisionReport());
   createReport.mockResolvedValue(makeStored());
@@ -401,7 +399,7 @@ describe("ReportsPage", () => {
 
   it("loads selector inventories lazily by selected scope", async () => {
     const networks = api.networks as Mock;
-    const incidents = api.incidentsAllPages as Mock;
+    const incidents = api.incidents as Mock;
     const devices = api.devices as Mock;
 
     renderReportsPage();
@@ -417,11 +415,156 @@ describe("ReportsPage", () => {
     expect(devices).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByText("Incident"));
-    await waitFor(() => expect(incidents).toHaveBeenCalled());
+    await waitFor(() => expect(incidents).toHaveBeenCalledTimes(1));
     expect(devices).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByText("Device"));
     await waitFor(() => expect(devices).toHaveBeenCalled());
+  });
+
+  it("loads one incident page and appends on Load more without auto-follow", async () => {
+    const incidents = api.incidents as Mock;
+    const page1 = [
+      {
+        id: "inc-1",
+        title: "First incident",
+        status: "open",
+        type: "single_device_unavailable",
+        severity: "incident",
+        scope: "device",
+        confidence: "medium",
+        summary: "s",
+        interpretation: "",
+        network_ids: ["home"],
+        affected_device_count: 0,
+        affected_devices: [],
+        opened_at: "2026-07-16T00:00:00Z",
+        updated_at: "2026-07-16T00:00:00Z",
+        evidence: [],
+        counter_evidence: [],
+        limitations: [],
+        timeline: [],
+        conclusion: {
+          classification: "single_device_unavailable",
+          severity: "incident",
+          scope: "device",
+          confidence: "medium",
+          summary: "s",
+          evidence: [],
+          counter_evidence: [],
+          limitations: [],
+        },
+      },
+    ];
+    const page2 = [
+      {
+        ...page1[0],
+        id: "inc-2",
+        title: "Second incident",
+      },
+      {
+        ...page1[0],
+        id: "inc-1",
+        title: "First incident duplicate",
+      },
+    ];
+    incidents
+      .mockResolvedValueOnce({
+        items: page1,
+        total: 3,
+        limit: 100,
+        next_cursor: "cursor-page-2",
+      })
+      .mockResolvedValueOnce({
+        items: page2,
+        total: 3,
+        limit: 100,
+        next_cursor: null,
+      });
+
+    renderReportsPage();
+    await screen.findByText("Topology evidence gap");
+    fireEvent.click(screen.getByText("Incident"));
+
+    await waitFor(() => expect(incidents).toHaveBeenCalledTimes(1));
+    expect(incidents.mock.calls[0]?.[0]).toMatchObject({ limit: 100 });
+    expect(incidents.mock.calls[0]?.[0]?.cursor).toBeUndefined();
+
+    // No automatic second page request.
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "First incident" })).toBeInTheDocument();
+    });
+    expect(incidents).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(screen.getByLabelText("Incident"), { target: { value: "inc-1" } });
+    expect(screen.getByLabelText("Incident")).toHaveValue("inc-1");
+
+    fireEvent.click(screen.getByRole("button", { name: /load more incidents/i }));
+    await waitFor(() => expect(incidents).toHaveBeenCalledTimes(2));
+    expect(incidents.mock.calls[1]?.[0]).toMatchObject({
+      limit: 100,
+      cursor: "cursor-page-2",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "Second incident" })).toBeInTheDocument();
+    });
+    // Duplicate ID from page 2 is not appended twice.
+    expect(screen.getAllByRole("option", { name: /First incident/i })).toHaveLength(1);
+    expect(screen.getByLabelText("Incident")).toHaveValue("inc-1");
+    expect(screen.queryByRole("button", { name: /load more incidents/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps existing incident options when a later page fails", async () => {
+    const incidents = api.incidents as Mock;
+    incidents
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "inc-1",
+            title: "Kept incident",
+            status: "open",
+            type: "single_device_unavailable",
+            severity: "incident",
+            scope: "device",
+            confidence: "medium",
+            summary: "s",
+            interpretation: "",
+            network_ids: ["home"],
+            affected_device_count: 0,
+            affected_devices: [],
+            opened_at: "2026-07-16T00:00:00Z",
+            updated_at: "2026-07-16T00:00:00Z",
+            evidence: [],
+            counter_evidence: [],
+            limitations: [],
+            timeline: [],
+            conclusion: {
+              classification: "single_device_unavailable",
+              severity: "incident",
+              scope: "device",
+              confidence: "medium",
+              summary: "s",
+              evidence: [],
+              counter_evidence: [],
+              limitations: [],
+            },
+          },
+        ],
+        total: 2,
+        limit: 100,
+        next_cursor: "cursor-fail",
+      })
+      .mockRejectedValueOnce(new Error("page failed"));
+
+    renderReportsPage();
+    await screen.findByText("Topology evidence gap");
+    fireEvent.click(screen.getByText("Incident"));
+    await screen.findByRole("option", { name: "Kept incident" });
+
+    fireEvent.click(screen.getByRole("button", { name: /load more incidents/i }));
+    await waitFor(() => expect(screen.getByText("page failed")).toBeInTheDocument());
+    expect(screen.getByRole("option", { name: "Kept incident" })).toBeInTheDocument();
   });
 
   it("hides Mesh links for anonymised public_safe reports", async () => {
