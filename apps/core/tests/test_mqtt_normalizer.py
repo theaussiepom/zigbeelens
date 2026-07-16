@@ -63,3 +63,75 @@ def test_device_payload_extracts_fields():
     )
     assert events[0].device_fields["linkquality"] == 76
     assert events[0].device_fields["battery"] == 55
+
+
+def _bridge_event(payload: dict):
+    import json
+
+    return normalize_message(
+        RawMqttMessage(
+            topic="zigbee2mqtt/bridge/event",
+            payload=json.dumps(payload).encode(),
+        ),
+        NETWORKS,
+    )
+
+
+def test_bridge_interview_failed_from_status():
+    events = _bridge_event(
+        {
+            "type": "device_interview",
+            "data": {"ieee_address": "0xabc", "friendly_name": "Plug", "status": "failed"},
+        }
+    )
+    assert events[0].event_type == "device_interview_failed"
+    assert events[0].ieee_address == "0xabc"
+    assert events[0].friendly_name == "Plug"
+
+
+def test_bridge_interview_successful_from_status():
+    events = _bridge_event(
+        {
+            "type": "device_interview",
+            "data": {"ieee_address": "0xabc", "status": "successful"},
+        }
+    )
+    assert events[0].event_type == "device_interview_success"
+
+
+def test_bridge_interview_in_progress_from_status():
+    events = _bridge_event(
+        {
+            "type": "device_interview",
+            "data": {"ieee_address": "0xabc", "status": "in_progress"},
+        }
+    )
+    assert events[0].event_type == "device_interview_started"
+
+
+def test_bridge_interview_started_literal_status():
+    events = _bridge_event(
+        {
+            "type": "device_interview",
+            "data": {"ieee_address": "0xabc", "status": "started"},
+        }
+    )
+    assert events[0].event_type == "device_interview_started"
+    assert events[0].ieee_address == "0xabc"
+
+
+def test_bridge_interview_without_status_starts():
+    events = _bridge_event(
+        {"type": "device_interview", "data": {"ieee_address": "0xabc"}}
+    )
+    assert events[0].event_type == "device_interview_started"
+
+
+def test_unrelated_bridge_event_unchanged():
+    events = _bridge_event(
+        {
+            "type": "device_announce",
+            "data": {"ieee_address": "0xabc", "friendly_name": "Plug", "status": "failed"},
+        }
+    )
+    assert events[0].event_type == "device_announced"

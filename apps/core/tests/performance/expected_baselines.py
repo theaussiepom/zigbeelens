@@ -10,8 +10,8 @@ TRACK_3A_COMMIT_TOTALS: dict[str, int] = {
     "inventory_ingestion_beast": 357,
 }
 
-# Track 3B ingestion vs post-commit phase snapshots for MQTT write paths.
-EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
+# Track 3B atomic-ingestion phase snapshots (historical). Do not overwrite.
+TRACK_3B_PHASE_BASELINES: dict[str, dict[str, int]] = {
     "payload_ingestion": {
         "ingestion_execute_count": 7,
         "ingestion_commit_count": 1,
@@ -21,7 +21,7 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "post_commit_rollback_count": 0,
         "total_execute_count": 90,
         "total_commit_count": 3,
-        "total_rollback_count": 0,
+        "total_rollback_count": 0
     },
     "availability_ingestion": {
         "ingestion_execute_count": 6,
@@ -32,7 +32,7 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "post_commit_rollback_count": 0,
         "total_execute_count": 100,
         "total_commit_count": 8,
-        "total_rollback_count": 0,
+        "total_rollback_count": 0
     },
     "inventory_ingestion_compact": {
         "ingestion_execute_count": 43,
@@ -43,7 +43,7 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "post_commit_rollback_count": 0,
         "total_execute_count": 136,
         "total_commit_count": 9,
-        "total_rollback_count": 0,
+        "total_rollback_count": 0
     },
     "inventory_ingestion_beast": {
         "ingestion_execute_count": 334,
@@ -54,60 +54,201 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "post_commit_rollback_count": 0,
         "total_execute_count": 963,
         "total_commit_count": 27,
-        "total_rollback_count": 0,
-    },
+        "total_rollback_count": 0
+    }
 }
 
-# Exact Track 3B total-operation snapshots. They are not product budgets.
+# Track 3B total execute/commit snapshots for MQTT write paths (historical).
+TRACK_3B_OPERATION_TOTALS: dict[str, dict[str, int]] = {
+    "payload_ingestion": {
+        "execute_count": 90,
+        "commit_count": 3
+    },
+    "availability_ingestion": {
+        "execute_count": 100,
+        "commit_count": 8
+    },
+    "inventory_ingestion_compact": {
+        "execute_count": 136,
+        "commit_count": 9
+    },
+    "inventory_ingestion_beast": {
+        "execute_count": 963,
+        "commit_count": 27
+    }
+}
+
+# Track 3C current ingestion vs post-commit phase snapshots for MQTT write paths.
+EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
+    "availability_ingestion": {
+        "ingestion_commit_count": 1,
+        "ingestion_execute_count": 6,
+        "ingestion_rollback_count": 0,
+        "post_commit_commit_count": 7,
+        "post_commit_execute_count": 40,
+        "post_commit_rollback_count": 0,
+        "total_commit_count": 8,
+        "total_execute_count": 46,
+        "total_rollback_count": 0
+    },
+    "availability_ingestion_beast": {
+        "ingestion_commit_count": 1,
+        "ingestion_execute_count": 6,
+        "ingestion_rollback_count": 0,
+        "post_commit_commit_count": 7,
+        "post_commit_execute_count": 69,
+        "post_commit_rollback_count": 0,
+        "total_commit_count": 8,
+        "total_execute_count": 75,
+        "total_rollback_count": 0
+    },
+    "inventory_ingestion_beast": {
+        "ingestion_execute_count": 334,
+        "ingestion_commit_count": 2,
+        "ingestion_rollback_count": 0,
+        "post_commit_execute_count": 629,
+        "post_commit_commit_count": 25,
+        "post_commit_rollback_count": 0,
+        "total_execute_count": 963,
+        "total_commit_count": 27,
+        "total_rollback_count": 0
+    },
+    "inventory_ingestion_compact": {
+        "ingestion_execute_count": 43,
+        "ingestion_commit_count": 1,
+        "ingestion_rollback_count": 0,
+        "post_commit_execute_count": 93,
+        "post_commit_commit_count": 8,
+        "post_commit_rollback_count": 0,
+        "total_execute_count": 136,
+        "total_commit_count": 9,
+        "total_rollback_count": 0
+    },
+    "payload_ingestion": {
+        "ingestion_commit_count": 1,
+        "ingestion_execute_count": 7,
+        "ingestion_rollback_count": 0,
+        "post_commit_commit_count": 2,
+        "post_commit_execute_count": 29,
+        "post_commit_rollback_count": 0,
+        "total_commit_count": 3,
+        "total_execute_count": 36,
+        "total_rollback_count": 0
+    },
+    "payload_ingestion_beast": {
+        "ingestion_commit_count": 1,
+        "ingestion_execute_count": 7,
+        "ingestion_rollback_count": 0,
+        "post_commit_commit_count": 2,
+        "post_commit_execute_count": 55,
+        "post_commit_rollback_count": 0,
+        "total_commit_count": 3,
+        "total_execute_count": 62,
+        "total_rollback_count": 0
+    }
+}
+
+# Exact Track 3C total-operation snapshots. They are not product budgets.
 EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
   "availability_ingestion": {
     "category_counts": {
-      "read.networks": 3,
-      "read.devices": 2,
-      "read.incidents": 3,
-      "read.incident_devices": 2,
-      "read.schema": 9,
-      "read.topology_snapshots": 5,
-      "read.topology_nodes": 6,
-      "read.topology_links": 7,
+      "read.availability_changes": 2,
       "read.device_current_state": 2,
-      "write.device_current_state": 2,
-      "write.availability_changes": 1,
-      "write.events": 3,
-      "transaction.commit": 8,
-      "read.availability_changes": 21,
-      "read.health_snapshots": 22,
-      "write.health_snapshots": 2,
+      "read.devices": 2,
       "read.ha_enrichment": 4,
-      "write.incidents": 2,
-      "write.incident_devices": 4
+      "read.health_snapshots": 3,
+      "read.incident_devices": 2,
+      "read.incidents": 3,
+      "read.networks": 3,
+      "read.schema": 5,
+      "read.topology_links": 3,
+      "read.topology_nodes": 2,
+      "read.topology_snapshots": 1,
+      "transaction.commit": 8,
+      "write.availability_changes": 1,
+      "write.device_current_state": 2,
+      "write.events": 3,
+      "write.health_snapshots": 2,
+      "write.incident_devices": 4,
+      "write.incidents": 2
     },
     "commit_count": 8,
-    "execute_count": 100,
+    "execute_count": 46,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
     "state": "warm",
     "top_repeated_statements": [
       {
-        "count": 20,
-        "statement": "SELECT COUNT(*) FROM availability_changes WHERE network_id = ? AND ieee_address = ? AND changed_at >= ?"
-      },
-      {
-        "count": 20,
-        "statement": "SELECT primary_health, severity, confidence, summary, flags_json, evidence_json, counter_evidence_json, limitations_json, captured_at FROM health_snapshots WHERE scope = ? AND network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?"
-      },
-      {
-        "count": 9,
+        "count": 5,
         "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?"
       },
       {
-        "count": 5,
-        "statement": "SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?"
+        "count": 3,
+        "statement": "INSERT INTO events ( id, network_id, ieee_address, event_type, severity, title, summary, incident_id, payload_json, occurred_at ) VALUES (?)"
       },
       {
-        "count": 4,
-        "statement": "SELECT target_ieee FROM topology_links WHERE snapshot_id = ? AND source_ieee = ?"
+        "count": 3,
+        "statement": "SELECT source_ieee FROM topology_links WHERE snapshot_id = ? AND target_ieee = ? LIMIT ?"
+      },
+      {
+        "count": 3,
+        "statement": "SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?"
+      },
+      {
+        "count": 3,
+        "statement": "INSERT INTO incident_devices (incident_id, network_id, ieee_address, role) VALUES (?)"
+      }
+    ]
+  },
+  "availability_ingestion_beast": {
+    "category_counts": {
+      "read.availability_changes": 3,
+      "read.device_current_state": 2,
+      "read.devices": 2,
+      "read.ha_enrichment": 4,
+      "read.health_snapshots": 3,
+      "read.incident_devices": 9,
+      "read.incidents": 10,
+      "read.networks": 3,
+      "read.schema": 7,
+      "read.topology_links": 5,
+      "read.topology_nodes": 4,
+      "read.topology_snapshots": 3,
+      "transaction.commit": 8,
+      "write.availability_changes": 1,
+      "write.device_current_state": 2,
+      "write.events": 3,
+      "write.health_snapshots": 2,
+      "write.incident_devices": 10,
+      "write.incidents": 2
+    },
+    "commit_count": 8,
+    "execute_count": 75,
+    "executemany_count": 0,
+    "fixture": "beast",
+    "rollback_count": 0,
+    "state": "warm",
+    "top_repeated_statements": [
+      {
+        "count": 9,
+        "statement": "SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?"
+      },
+      {
+        "count": 9,
+        "statement": "SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ?"
+      },
+      {
+        "count": 9,
+        "statement": "INSERT INTO incident_devices (incident_id, network_id, ieee_address, role) VALUES (?)"
+      },
+      {
+        "count": 7,
+        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?"
+      },
+      {
+        "count": 3,
+        "statement": "SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?"
       }
     ]
   },
@@ -562,50 +703,100 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
   },
   "payload_ingestion": {
     "category_counts": {
-      "read.networks": 3,
+      "read.availability_changes": 2,
+      "read.device_current_state": 1,
       "read.devices": 2,
-      "read.incidents": 3,
+      "read.ha_enrichment": 3,
+      "read.health_snapshots": 3,
       "read.incident_devices": 2,
-      "read.schema": 8,
-      "read.topology_snapshots": 5,
-      "read.topology_nodes": 6,
-      "read.topology_links": 6,
+      "read.incidents": 3,
+      "read.networks": 3,
+      "read.schema": 4,
+      "read.topology_links": 2,
+      "read.topology_nodes": 2,
+      "read.topology_snapshots": 1,
+      "transaction.commit": 3,
       "write.device_current_state": 2,
       "write.device_snapshots": 1,
-      "write.metric_samples": 2,
       "write.events": 2,
-      "transaction.commit": 3,
-      "read.availability_changes": 21,
-      "read.device_current_state": 1,
-      "read.health_snapshots": 22,
-      "read.ha_enrichment": 3,
-      "write.incidents": 1
+      "write.incidents": 1,
+      "write.metric_samples": 2
     },
     "commit_count": 3,
-    "execute_count": 90,
+    "execute_count": 36,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
     "state": "warm",
     "top_repeated_statements": [
       {
-        "count": 20,
-        "statement": "SELECT COUNT(*) FROM availability_changes WHERE network_id = ? AND ieee_address = ? AND changed_at >= ?"
-      },
-      {
-        "count": 20,
-        "statement": "SELECT primary_health, severity, confidence, summary, flags_json, evidence_json, counter_evidence_json, limitations_json, captured_at FROM health_snapshots WHERE scope = ? AND network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?"
-      },
-      {
-        "count": 8,
+        "count": 4,
         "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?"
       },
       {
-        "count": 5,
+        "count": 2,
+        "statement": "SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?"
+      },
+      {
+        "count": 2,
+        "statement": "INSERT INTO metric_samples (network_id, ieee_address, metric_name, metric_value, sampled_at) VALUES (?)"
+      },
+      {
+        "count": 2,
+        "statement": "INSERT INTO events ( id, network_id, ieee_address, event_type, severity, title, summary, incident_id, payload_json, occurred_at ) VALUES (?)"
+      },
+      {
+        "count": 2,
+        "statement": "SELECT primary_health, severity, confidence, summary, flags_json, evidence_json, counter_evidence_json, limitations_json, captured_at FROM health_snapshots WHERE scope = ? AND network_id = ? AND ieee_address IS NULL ORDER BY captured_at DESC LIMIT ?"
+      }
+    ]
+  },
+  "payload_ingestion_beast": {
+    "category_counts": {
+      "read.availability_changes": 3,
+      "read.device_current_state": 1,
+      "read.devices": 2,
+      "read.ha_enrichment": 4,
+      "read.health_snapshots": 3,
+      "read.incident_devices": 9,
+      "read.incidents": 10,
+      "read.networks": 3,
+      "read.schema": 7,
+      "read.topology_links": 5,
+      "read.topology_nodes": 4,
+      "read.topology_snapshots": 3,
+      "transaction.commit": 3,
+      "write.device_current_state": 2,
+      "write.device_snapshots": 1,
+      "write.events": 2,
+      "write.incidents": 1,
+      "write.metric_samples": 2
+    },
+    "commit_count": 3,
+    "execute_count": 62,
+    "executemany_count": 0,
+    "fixture": "beast",
+    "rollback_count": 0,
+    "state": "warm",
+    "top_repeated_statements": [
+      {
+        "count": 9,
+        "statement": "SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ?"
+      },
+      {
+        "count": 9,
+        "statement": "SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ?"
+      },
+      {
+        "count": 7,
+        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?"
+      },
+      {
+        "count": 3,
         "statement": "SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?"
       },
       {
-        "count": 5,
+        "count": 3,
         "statement": "SELECT friendly_name FROM topology_nodes WHERE snapshot_id = ? AND ieee_address = ?"
       }
     ]

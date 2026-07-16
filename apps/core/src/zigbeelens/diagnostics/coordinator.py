@@ -7,7 +7,7 @@ import time
 import threading
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable
+from typing import Callable, Iterable
 
 from zigbeelens.diagnostics.clock import Clock, SystemClock
 from zigbeelens.diagnostics.incidents.service import IncidentDiagnosticService
@@ -43,21 +43,20 @@ class EvaluationCoordinator:
         self._lock = threading.Lock()
         self._snapshots_by_network: dict[str, NetworkEvaluationSnapshot] = {}
 
+    @staticmethod
+    def _ordered_snapshots(
+        snapshots: Iterable[NetworkEvaluationSnapshot],
+    ) -> list[NetworkEvaluationSnapshot]:
+        return sorted(snapshots, key=lambda snapshot: snapshot.network_id)
+
     def evaluate_network(self, network_id: str, *, now: datetime | None = None) -> EvaluationResult:
-        reference_now = now or self.clock.now()
         with self._lock:
+            reference_now = now if now is not None else self.clock.now()
             configured_ids = self._configured_network_ids()
             if network_id not in configured_ids:
                 return EvaluationResult(reference_now, tuple(), False, tuple(), False)
-            if not set(configured_ids).issubset(self._snapshots_by_network.keys()):
-                snapshots = self.health.evaluate_all(now=reference_now)
-                self._snapshots_by_network = {snapshot.network_id: snapshot for snapshot in snapshots}
-                return self._finish(
-                    snapshots,
-                    reference_now=reference_now,
-                    evaluated_network_ids=tuple(snapshot.network_id for snapshot in snapshots),
-                    health_changed=any(snapshot.health_changed for snapshot in snapshots),
-                )
+            if not self._snapshot_universe_matches(configured_ids):
+                return self._evaluate_all_locked(reference_now)
 
             refreshed = self.health.evaluate_network(network_id, now=reference_now)
             if refreshed is None:
@@ -65,9 +64,45 @@ class EvaluationCoordinator:
             self._snapshots_by_network[network_id] = refreshed
             snapshots = self._complete_snapshots(configured_ids)
             if snapshots is None:
-                return EvaluationResult(
-                    reference_now, (network_id,), refreshed.health_changed, tuple(), refreshed.health_changed
+                return self._evaluate_all_locked(reference_now)
+            return self._finish(
+                snapshots,
+                reference_now=reference_now,
+                evaluated_network_ids=(network_id,),
+                health_changed=refreshed.health_changed,
+            )
+
+    def evaluate_device(
+        self,
+        network_id: str,
+        ieee_address: str,
+        *,
+        now: datetime | None = None,
+    ) -> EvaluationResult:
+        """Evaluate one device incrementally when a complete estate snapshot exists."""
+        with self._lock:
+            reference_now = now if now is not None else self.clock.now()
+            configured_ids = self._configured_network_ids()
+            if network_id not in configured_ids:
+                return EvaluationResult(reference_now, tuple(), False, tuple(), False)
+            if not self._snapshot_universe_matches(configured_ids):
+                return self._evaluate_all_locked(reference_now)
+
+            cached = self._snapshots_by_network.get(network_id)
+            refreshed: NetworkEvaluationSnapshot | None = None
+            if cached is not None:
+                refreshed = self.health.evaluate_device_from_snapshot(
+                    cached, ieee_address, now=reference_now
                 )
+            if refreshed is None:
+                refreshed = self.health.evaluate_network(network_id, now=reference_now)
+            if refreshed is None:
+                return EvaluationResult(reference_now, tuple(), False, tuple(), False)
+
+            self._snapshots_by_network[network_id] = refreshed
+            snapshots = self._complete_snapshots(configured_ids)
+            if snapshots is None:
+                return self._evaluate_all_locked(reference_now)
             return self._finish(
                 snapshots,
                 reference_now=reference_now,
@@ -76,24 +111,30 @@ class EvaluationCoordinator:
             )
 
     def evaluate_all(self, *, now: datetime | None = None) -> EvaluationResult:
-        reference_now = now or self.clock.now()
         with self._lock:
-            snapshots = self.health.evaluate_all(now=reference_now)
-            self._snapshots_by_network = {snapshot.network_id: snapshot for snapshot in snapshots}
-            return self._finish(
-                snapshots,
-                reference_now=reference_now,
-                evaluated_network_ids=tuple(snapshot.network_id for snapshot in snapshots),
-                health_changed=any(snapshot.health_changed for snapshot in snapshots),
-            )
+            reference_now = now if now is not None else self.clock.now()
+            return self._evaluate_all_locked(reference_now)
+
+    def _evaluate_all_locked(self, reference_now: datetime) -> EvaluationResult:
+        snapshots = self._ordered_snapshots(self.health.evaluate_all(now=reference_now))
+        self._snapshots_by_network = {snapshot.network_id: snapshot for snapshot in snapshots}
+        return self._finish(
+            snapshots,
+            reference_now=reference_now,
+            evaluated_network_ids=tuple(snapshot.network_id for snapshot in snapshots),
+            health_changed=any(snapshot.health_changed for snapshot in snapshots),
+        )
 
     def _configured_network_ids(self) -> tuple[str, ...]:
         return tuple(sorted(network.id for network in self.health.repo.list_networks()))
 
+    def _snapshot_universe_matches(self, configured_ids: tuple[str, ...]) -> bool:
+        return set(configured_ids) == set(self._snapshots_by_network)
+
     def _complete_snapshots(
         self, configured_ids: tuple[str, ...]
     ) -> list[NetworkEvaluationSnapshot] | None:
-        if not set(configured_ids).issubset(self._snapshots_by_network.keys()):
+        if not self._snapshot_universe_matches(configured_ids):
             return None
         return [self._snapshots_by_network[network_id] for network_id in configured_ids]
 
@@ -105,6 +146,7 @@ class EvaluationCoordinator:
         evaluated_network_ids: tuple[str, ...],
         health_changed: bool,
     ) -> EvaluationResult:
+        snapshots = self._ordered_snapshots(snapshots)
         events = self.incidents.correlate_and_sync(snapshots, now=reference_now)
         dashboard_required = health_changed or bool(events)
         if self._on_event:
