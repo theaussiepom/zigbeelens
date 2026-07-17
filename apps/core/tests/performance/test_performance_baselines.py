@@ -37,6 +37,8 @@ from .expected_baselines import (
     TRACK_3B_PHASE_BASELINES,
     TRACK_3C_READ_EXECUTE_TOTALS,
     TRACK_3E_REPORT_EXECUTE_TOTALS,
+    TRACK_3F_READ_EXECUTE_TOTALS,
+    TRACK_3G_READ_EXECUTE_TOTALS,
 )
 from .query_instrumentation import OperationMeasurement, PhaseAccumulator, install_counter, measure_operation
 
@@ -865,7 +867,7 @@ def test_frozen_time_makes_read_measurement_independent_of_host_clock(tmp_path: 
 
 def test_high_level_architectural_spies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     calls: dict[str, int] = {}
-    story_context_networks: list[str] = []
+    evidence_context_networks: list[str] = []
     snapshot_load_keys: list[tuple[str, str]] = []
     availability_load_keys: list[tuple[str, str]] = []
     topology_link_snapshot_ids: list[str] = []
@@ -874,21 +876,20 @@ def test_high_level_architectural_spies(tmp_path: Path, monkeypatch: pytest.Monk
     def count(name: str) -> None:
         calls[name] = calls.get(name, 0) + 1
 
-    import zigbeelens.decisions.device_story as ds
-    import zigbeelens.services.evidence_graph as eg
+    import zigbeelens.services.network_evidence_composition as nec
+    import zigbeelens.services.report_composition as report_composition
+    from zigbeelens.decisions.device_story import device_stories_for_devices as original_stories
 
-    original_network_context = ds.load_device_story_network_context
+    original_compose = nec.compose_network_evidence_contexts
     original_snapshots = Repository.list_device_snapshots
     original_availability = Repository.list_availability_changes
     original_topology_links = Repository.list_topology_links
     original_devices = PayloadBuilder.devices
     original_eval = EvaluationCoordinator.evaluate_network
-    from zigbeelens.decisions.device_story import device_stories_for_devices as original_stories
-    import zigbeelens.services.report_composition as report_composition
 
-    def network_context_spy(repo, network_id, *args, **kwargs):
-        story_context_networks.append(network_id)
-        return original_network_context(repo, network_id, *args, **kwargs)
+    def compose_spy(repo, network_ids, *args, **kwargs):
+        evidence_context_networks.extend(list(dict.fromkeys(network_ids)))
+        return original_compose(repo, network_ids, *args, **kwargs)
 
     def snapshots_spy(repo, network_id, ieee_address, *args, **kwargs):
         snapshot_load_keys.append((network_id, ieee_address))
@@ -921,28 +922,31 @@ def test_high_level_architectural_spies(tmp_path: Path, monkeypatch: pytest.Monk
     def dashboard_fail(*args, **kwargs):
         raise AssertionError("report must not call dashboard composition")
 
-    monkeypatch.setattr(ds, "load_device_story_network_context", network_context_spy)
+    monkeypatch.setattr(nec, "compose_network_evidence_contexts", compose_spy)
     monkeypatch.setattr(Repository, "list_device_snapshots", snapshots_spy)
     monkeypatch.setattr(Repository, "list_availability_changes", availability_spy)
     monkeypatch.setattr(Repository, "list_topology_links", topology_links_spy)
     monkeypatch.setattr(EvaluationCoordinator, "evaluate_network", eval_spy)
     monkeypatch.setattr(report_composition, "device_stories_for_devices", stories_spy)
     with deterministic_fixture(tmp_path, "compact") as fx:
-        story_context_networks.clear()
+        evidence_context_networks.clear()
         snapshot_load_keys.clear()
         availability_load_keys.clear()
         topology_link_snapshot_ids.clear()
         _builder(fx).devices()
-        assert story_context_networks == ["home"]
+        assert evidence_context_networks == ["home"]
         assert len(snapshot_load_keys) == len(set(snapshot_load_keys))
         assert len(snapshot_load_keys) <= fx.repo.count_devices()
         assert len(availability_load_keys) == len(set(availability_load_keys))
         assert len(availability_load_keys) <= fx.repo.count_devices()
-        assert len(topology_link_snapshot_ids) == len(set(topology_link_snapshot_ids))
+        # Shared context bulk-loads links; per-snapshot list_topology_links must not loop.
+        assert topology_link_snapshot_ids == []
 
         before = calls.get("evaluate_network", 0)
+        evidence_context_networks.clear()
         _builder(fx).dashboard()
         assert calls.get("evaluate_network", 0) == before
+        assert evidence_context_networks == ["home"]
 
         monkeypatch.setattr(PayloadBuilder, "devices", devices_fail)
         monkeypatch.setattr(DataService, "dashboard", dashboard_fail)
@@ -970,13 +974,13 @@ def test_high_level_architectural_spies(tmp_path: Path, monkeypatch: pytest.Monk
             "observed_model_patterns_for_network",
             "observed_router_areas_for_network",
         ):
-            original = getattr(eg, attr)
+            original = getattr(nec, attr)
 
             def wrapper(*args, _original=original, _attr=attr, **kwargs):
                 count(_attr)
                 return _original(*args, **kwargs)
 
-            monkeypatch.setattr(eg, attr, wrapper)
+            monkeypatch.setattr(nec, attr, wrapper)
         EvidenceGraphService(fx.repo).build("home")
         assert calls["aggregate_historical_evidence"] == 1
         assert calls["aggregate_last_known_links"] == 1
@@ -1014,9 +1018,11 @@ def test_markdown_baseline_table_matches_structured_snapshot():
         "report_network": "Network report preview",
         "report_network_beast": "Network report preview",
     }
-    assert "## Track 3F total baseline table" in doc
+    assert "## Track 3G total baseline table" in doc
+    assert "## Track 3F total baseline table (historical)" in doc
     assert "## Track 3E total baseline table (historical)" in doc
     assert "## Track 3E → Track 3F report execute comparison" in doc
+    assert "## Track 3F → Track 3G execute comparison" in doc
     for key, baseline in EXPECTED_BASELINES.items():
         other = baseline["category_counts"].get("other", 0)
         row_fragment = (
@@ -1125,7 +1131,7 @@ def test_markdown_baseline_table_matches_structured_snapshot():
             f"{phase['total_execute_count']} | {phase['total_commit_count']} |"
         )
         assert phase_row in doc
-        # Current tip phase table (Track 3F) must match measured EXPECTED_PHASE_BASELINES.
+        # Current tip phase table (Track 3G) must match measured EXPECTED_PHASE_BASELINES.
         tip = EXPECTED_PHASE_BASELINES[key]
         tip_row = (
             f"| {label} | {tip['ingestion_execute_count']} | {tip['ingestion_commit_count']} | "
@@ -1137,6 +1143,7 @@ def test_markdown_baseline_table_matches_structured_snapshot():
         assert tip["ingestion_execute_count"] == phase["ingestion_execute_count"]
         assert tip["ingestion_commit_count"] == phase["ingestion_commit_count"]
         assert tip["total_commit_count"] == phase["total_commit_count"]
+        assert "## Track 3G ingestion vs post-commit phases" in doc
 
     for key, label in (
         ("payload_ingestion", "Compact payload"),
@@ -1323,3 +1330,112 @@ def test_incremental_target_event_query_shape_invariants(
         beast.category_counts["read.health_snapshots"]
         == compact.category_counts["read.health_snapshots"]
     )
+
+
+def test_track_3g_context_construction_invariants(tmp_path: Path):
+    """Direct NetworkEvidenceContext measurements for Track 3G gates."""
+    from zigbeelens.services.network_evidence import (
+        DASHBOARD_EVIDENCE_REQUIREMENTS,
+        DEVICE_STORY_EVIDENCE_REQUIREMENTS,
+        EVIDENCE_GRAPH_REQUIREMENTS,
+        NetworkEvidenceCapability,
+    )
+    from zigbeelens.services.network_evidence_composition import (
+        compose_network_evidence_context,
+        compose_network_evidence_contexts,
+    )
+
+    with deterministic_fixture(tmp_path, "compact") as fx:
+        fx.assert_integrity()
+        rows = fx.repo.list_devices("home")
+        network = fx.repo.get_network("home")
+        assert network is not None
+
+        fx.counter.reset()
+        latest_only = compose_network_evidence_context(
+            fx.repo,
+            "home",
+            reference_now=REFERENCE_TIME,
+            requirements=frozenset({NetworkEvidenceCapability.latest_topology}),
+            network_row=network,
+        )
+        latest_stats = fx.counter.stats
+        assert latest_only.latest_usable_snapshot is not None
+        assert latest_stats.category_counts.get("read.topology_snapshots", 0) == 1
+        assert latest_stats.category_counts.get("read.topology_links", 0) == 1
+        assert latest_stats.category_counts.get("other", 0) == 0
+        assert latest_stats.commit_count == 0
+
+        fx.counter.reset()
+        story_ctx = compose_network_evidence_context(
+            fx.repo,
+            "home",
+            reference_now=REFERENCE_TIME,
+            requirements=DEVICE_STORY_EVIDENCE_REQUIREMENTS,
+            network_row=network,
+            device_rows=rows,
+        )
+        story_stats = fx.counter.stats
+        assert story_ctx.has_capability(NetworkEvidenceCapability.snapshot_history)
+        assert story_stats.category_counts.get("read.devices", 0) == 0
+        assert story_stats.category_counts.get("read.topology_snapshots", 0) == 1
+        assert story_stats.category_counts.get("read.topology_links", 0) == 1
+        assert story_stats.commit_count == 0
+
+        fx.counter.reset()
+        graph_ctx = compose_network_evidence_context(
+            fx.repo,
+            "home",
+            reference_now=REFERENCE_TIME,
+            requirements=EVIDENCE_GRAPH_REQUIREMENTS,
+            network_row=network,
+            device_rows=rows,
+        )
+        graph_stats = fx.counter.stats
+        assert graph_ctx.has_capability(NetworkEvidenceCapability.investigations)
+        assert graph_stats.category_counts.get("read.topology_snapshots", 0) == 1
+        assert graph_stats.category_counts.get("read.topology_nodes", 0) == 1
+        assert graph_stats.category_counts.get("read.topology_links", 0) == 1
+        # Lookback transitions + earliest-availability fact (same category).
+        assert graph_stats.category_counts.get("read.availability_changes", 0) == 2
+        assert graph_stats.category_counts.get("other", 0) == 0
+        assert graph_stats.commit_count == 0
+
+    with deterministic_fixture(tmp_path / "beast", "beast") as fx:
+        fx.assert_integrity()
+        networks = fx.repo.list_networks()
+        devices_by_network: dict[str, list] = {}
+        for row in fx.repo.list_devices():
+            devices_by_network.setdefault(row.network_id, []).append(row)
+        fx.counter.reset()
+        contexts = compose_network_evidence_contexts(
+            fx.repo,
+            [network.id for network in networks],
+            reference_now=REFERENCE_TIME,
+            requirements_by_network={
+                network.id: DASHBOARD_EVIDENCE_REQUIREMENTS for network in networks
+            },
+            network_rows_by_id={network.id: network for network in networks},
+            devices_by_network=devices_by_network,
+        )
+        stats = fx.counter.stats
+        assert set(contexts) == {network.id for network in networks}
+        assert stats.category_counts.get("read.topology_snapshots", 0) == 1
+        assert stats.category_counts.get("read.topology_links", 0) == 1
+        assert stats.category_counts.get("read.topology_nodes", 0) == 1
+        # One bounded lookback bulk + one earliest-availability bulk (same category).
+        assert stats.category_counts.get("read.availability_changes", 0) == 2
+        assert stats.category_counts.get("read.devices", 0) == 0
+        assert stats.category_counts.get("other", 0) == 0
+        assert stats.commit_count == 0
+
+
+def test_track_3f_to_3g_execute_reductions_preserved():
+    for key, old in TRACK_3F_READ_EXECUTE_TOTALS.items():
+        new = TRACK_3G_READ_EXECUTE_TOTALS[key]
+        assert new == EXPECTED_BASELINES[key]["execute_count"]
+        assert new <= old
+    assert TRACK_3G_READ_EXECUTE_TOTALS["evidence_graph"] <= int(99 * 0.70)
+    assert TRACK_3G_READ_EXECUTE_TOTALS["dashboard"] <= int(110 * 0.85)
+    assert TRACK_3G_READ_EXECUTE_TOTALS["dashboard_beast"] <= int(282 * 0.85)
+    assert TRACK_3G_READ_EXECUTE_TOTALS["report_full"] <= int(187 * 0.85)

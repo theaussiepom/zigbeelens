@@ -275,3 +275,146 @@ def test_explain_bulk_topology_plan(tmp_path: Path):
     ).fetchall()
     text = " ".join(" ".join(str(cell) for cell in row) for row in plan).lower()
     assert "topology_snapshots" in text
+
+
+def test_reference_time_and_network_compatibility(tmp_path: Path):
+    repo, _config = _repo(tmp_path)
+    ctx = compose_network_evidence_context(
+        repo,
+        "home",
+        reference_now=NOW,
+        requirements=frozenset({NetworkEvidenceCapability.devices}),
+    )
+    with pytest.raises(ValueError):
+        ctx.require_compatible(network_id="office", reference_now=NOW)
+    later = NOW.replace(hour=13)
+    with pytest.raises(ValueError):
+        ctx.require_compatible(network_id="home", reference_now=later)
+    ctx.require_compatible(network_id="home", reference_now=NOW)
+
+
+def test_frozen_context_survives_db_mutation(tmp_path: Path):
+    """Projections from a frozen context ignore later temporary-DB mutations."""
+    from zigbeelens.decisions.device_story import device_stories_for_devices
+    from zigbeelens.services.evidence_graph import EvidenceGraphService
+
+    repo, _config = _repo(tmp_path)
+    _add_device(repo, "home", "0xaa", "Sensor")
+    _add_snapshot(repo, snapshot_id="s-complete", network_id="home")
+    repo.db.conn.execute(
+        "INSERT INTO topology_nodes (snapshot_id, network_id, ieee_address, friendly_name, "
+        "node_type, depth, lqi) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("s-complete", "home", "0xaa", "Sensor", "EndDevice", 1, 90),
+    )
+    repo.db.conn.commit()
+
+    ctx = compose_network_evidence_context(
+        repo,
+        "home",
+        reference_now=NOW,
+        requirements=EVIDENCE_GRAPH_REQUIREMENTS,
+        device_rows=repo.list_devices("home"),
+    )
+    before_nodes = len(ctx.latest_nodes or ())
+    before_devices = len(ctx.device_rows or ())
+
+    # Mutate the temporary DB after freeze.
+    repo.db.conn.execute("DELETE FROM topology_nodes WHERE snapshot_id = ?", ("s-complete",))
+    repo.db.conn.execute("DELETE FROM devices WHERE network_id = ? AND ieee_address = ?", ("home", "0xaa"))
+    repo.db.conn.commit()
+
+    counter = install_counter(repo)
+    counter.reset()
+    graph = EvidenceGraphService(repo).build("home", now=NOW, context=ctx)
+    stories = device_stories_for_devices(
+        repo,
+        list(ctx.device_rows or ()),
+        now=NOW,
+        network_evidence_contexts={"home": ctx},
+    )
+    assert len(graph["nodes"]) == before_nodes
+    assert len(stories) == before_devices
+    assert ctx.investigations is not None
+    assert ctx.network_topology_coverage is not None
+    # No context-owned network evidence rereads while projecting.
+    # Per-device availability-history / device-snapshot reads remain outside Track 3G.
+    assert counter.stats.category_counts.get("read.topology_snapshots", 0) == 0
+    assert counter.stats.category_counts.get("read.topology_nodes", 0) == 0
+    assert counter.stats.category_counts.get("read.topology_links", 0) == 0
+    assert counter.stats.category_counts.get("read.devices", 0) == 0
+
+    # A freshly built context may observe the mutation.
+    later = compose_network_evidence_context(
+        repo,
+        "home",
+        reference_now=NOW,
+        requirements=frozenset({NetworkEvidenceCapability.devices, NetworkEvidenceCapability.latest_topology}),
+    )
+    assert later.device_rows == ()
+    assert later.latest_nodes == ()
+
+
+def test_failed_latest_snapshot_uses_earlier_complete(tmp_path: Path):
+    repo, _config = _repo(tmp_path)
+    _add_snapshot(
+        repo,
+        snapshot_id="old-complete",
+        network_id="home",
+        captured_at=NOW.replace(hour=10).isoformat(),
+    )
+    _add_snapshot(
+        repo,
+        snapshot_id="new-failed",
+        network_id="home",
+        status="failed",
+        captured_at=NOW.replace(hour=11).isoformat(),
+    )
+    ctx = compose_network_evidence_context(
+        repo,
+        "home",
+        reference_now=NOW,
+        requirements=frozenset({NetworkEvidenceCapability.latest_topology}),
+    )
+    assert ctx.latest_usable_snapshot is not None
+    assert ctx.latest_usable_snapshot["snapshot_id"] == "old-complete"
+
+
+def test_availability_collection_feeds_derived_outputs_once(tmp_path: Path):
+    repo, _config = _repo(tmp_path)
+    _add_device(repo, "home", "0xa", "A")
+    _add_device(repo, "home", "0xb", "B")
+    for minute, ieee in ((0, "0xa"), (1, "0xb"), (10, "0xa"), (11, "0xb")):
+        repo.db.conn.execute(
+            "INSERT INTO availability_changes "
+            "(network_id, ieee_address, from_state, to_state, changed_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                "home",
+                ieee,
+                "online",
+                "offline",
+                NOW.replace(day=14, minute=minute).isoformat(),
+            ),
+        )
+    repo.db.conn.commit()
+    counter = install_counter(repo)
+    counter.reset()
+    ctx = compose_network_evidence_context(
+        repo,
+        "home",
+        reference_now=NOW,
+        requirements=frozenset(
+            {
+                NetworkEvidenceCapability.devices,
+                NetworkEvidenceCapability.availability_observations,
+                NetworkEvidenceCapability.passive_hints,
+                NetworkEvidenceCapability.shared_availability,
+                NetworkEvidenceCapability.model_patterns,
+            }
+        ),
+        device_rows=repo.list_devices("home"),
+    )
+    assert counter.stats.category_counts.get("read.availability_changes", 0) == 1
+    assert ctx.passive_hints is not None
+    assert ctx.shared_availability is not None
+    assert ctx.model_patterns is not None

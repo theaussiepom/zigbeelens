@@ -1,6 +1,6 @@
-# Track 3F report scope-first composition performance baseline
+# Track 3G shared network evidence composition performance baseline
 
-Base commit for Track 3A history: `09f10a8` (final merged Track 2 base). Track 3A instrumentation landed via `perf/query-baseline-instrumentation`. Track 3B atomic MQTT ingestion landed via `perf/atomic-mqtt-ingestion`. Track 3C incremental device evaluation landed via `perf/incremental-device-evaluation` (merge `98ab5c8`). Track 3D bulk Dashboard/Devices composition landed via `perf/bulk-composition-reads` (merge `e8a6611`). This document records **Track 3F current totals** after scope-first report composition and report-local Device Story reuse, and preserves **Track 3A / Track 3B / Track 3C / Track 3D / Track 3E history** for comparison.
+Base commit for Track 3A history: `09f10a8` (final merged Track 2 base). Track 3A instrumentation landed via `perf/query-baseline-instrumentation`. Track 3B atomic MQTT ingestion landed via `perf/atomic-mqtt-ingestion`. Track 3C incremental device evaluation landed via `perf/incremental-device-evaluation` (merge `98ab5c8`). Track 3D bulk Dashboard/Devices composition landed via `perf/bulk-composition-reads` (merge `e8a6611`). Track 3E paginated incident collections and Track 3F scope-first report composition preceded this track (Track 3F tip `89c07a9`, merge `8bde6c1`). This document records **Track 3G current totals** after request-local `NetworkEvidenceContext` reuse, and preserves **Track 3A–3F history** for comparison.
 
 These are planning snapshots, not accepted performance budgets.
 
@@ -14,7 +14,7 @@ Track 3B preserved those semantics with one `BEGIN IMMEDIATE` ingestion transact
 
 > Device events update their target immediately. Time-only changes for unrelated devices are reconciled by the bounded periodic full-estate evaluation.
 
-The existing 300-second periodic full-estate evaluation remains the correctness backstop. Track 3E does not add caches, debounce timers, or shared mutable request state.
+The existing 300-second periodic full-estate evaluation remains the correctness backstop. Track 3E/3F/3G do not add caches, debounce timers, or shared mutable cross-request state. Track 3G introduces only request-local immutable `NetworkEvidenceContext` values constructed by the composition orchestrator.
 
 ## Measurement method
 
@@ -88,7 +88,7 @@ Track 3D replaces per-device/per-incident N+1 composition reads with bounded bul
 
 ## Track 3C ingestion vs post-commit phases (historical)
 
-Counters are captured at health-callback entry. At that point the ingestion transaction has already physically committed. Post-commit work is EvaluationCoordinator / incident persistence and any trailing assertion reads included in the measured operation. These rows are the Track 3C/3D/3E tip before Track 3F `incident_networks` maintenance. Track 3F keeps the same ingestion execute/commit counts; see current `EXPECTED_PHASE_BASELINES` / Track 3F total table for tip post-commit totals.
+Counters are captured at health-callback entry. At that point the ingestion transaction has already physically committed. Post-commit work is EvaluationCoordinator / incident persistence and any trailing assertion reads included in the measured operation. These rows are the Track 3C tip before later `incident_networks` maintenance and Track 3G HA bulk reuse on post-commit paths. Ingestion execute/commit counts remain the Track 3B/3C authority; see current `EXPECTED_PHASE_BASELINES` / Track 3G tip table for tip post-commit totals.
 
 | Operation | Ingestion executes | Ingestion commits | Post-commit executes | Post-commit commits | Total executes | Total commits |
 |---|---:|---:|---:|---:|---:|---:|
@@ -99,18 +99,18 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 | Compact inventory | 43 | 1 | 93 | 8 | 136 | 9 |
 | Beast inventory | 334 | 2 | 629 | 25 | 963 | 27 |
 
-## Track 3F ingestion vs post-commit phases
+## Track 3G ingestion vs post-commit phases
 
-Ingestion-phase execute and commit counts are unchanged from Track 3B/3C. After the Track 3F corrective pass, candidate-loop `read.incident_networks` is eliminated from lifecycle evaluation; remaining post-commit delta vs Track 3C is the minimum factual `write.incident_networks` (and any associated identity maintenance) needed for normalized associations. Do not treat ingestion-phase stability alone as proof that Track 3B/3C totals are unchanged.
+Ingestion-phase execute and commit counts are unchanged from Track 3B/3C. Post-commit totals can drop when request-local bulk HA enrichment reuse removes repeated `get_ha_device_enrichment` / schema checks during evaluation-adjacent reads; that does not change the ingestion transaction boundary. Do not treat ingestion-phase stability alone as proof that Track 3B/3C totals are unchanged.
 
 | Operation | Ingestion executes | Ingestion commits | Post-commit executes | Post-commit commits | Total executes | Total commits |
 |---|---:|---:|---:|---:|---:|---:|
-| Compact payload | 7 | 1 | 29 | 2 | 36 | 3 |
-| Beast payload | 7 | 1 | 55 | 2 | 62 | 3 |
-| Compact availability | 6 | 1 | 42 | 7 | 48 | 8 |
-| Beast availability | 6 | 1 | 71 | 7 | 77 | 8 |
-| Compact inventory | 43 | 1 | 95 | 8 | 138 | 9 |
-| Beast inventory | 334 | 2 | 633 | 25 | 967 | 27 |
+| Compact payload | 7 | 1 | 27 | 2 | 34 | 3 |
+| Beast payload | 7 | 1 | 51 | 2 | 58 | 3 |
+| Compact availability | 6 | 1 | 38 | 7 | 44 | 8 |
+| Beast availability | 6 | 1 | 67 | 7 | 73 | 8 |
+| Compact inventory | 43 | 1 | 93 | 8 | 136 | 9 |
+| Beast inventory | 334 | 2 | 625 | 25 | 959 | 27 |
 
 
 ## Track 3E total baseline table (historical)
@@ -124,7 +124,35 @@ Preserved Track 3E tip totals before scope-first report composition. Report comp
 | Incident report preview | compact | warm | 317 | complete-history debt seam |
 | Device report preview | compact | warm | 237 | inventory fallback possible |
 
-## Track 3F total baseline table
+## Track 3G total baseline table
+
+| Operation | Fixture | State | Executes | Executemany | Commits | Rollbacks | Other | Top repeated category |
+|---|---|---|---:|---:|---:|---:|---:|---|
+| Availability change ingestion | compact | warm | 44 | 0 | 8 | 0 | 0 | transaction.commit (8) |
+| Availability change ingestion | beast | warm | 73 | 0 | 8 | 0 | 0 | read.incidents (10) |
+| Dashboard composition | compact | warm | 22 | 0 | 0 | 0 | 0 | read.devices (3) |
+| Dashboard composition | beast | warm | 47 | 0 | 0 | 0 | 0 | read.availability_changes (16) |
+| Device detail | compact | warm | 51 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
+| Devices inventory composition | compact | warm | 57 | 0 | 0 | 0 | 0 | read.availability_changes (22) |
+| Devices inventory composition | beast | warm | 345 | 0 | 0 | 0 | 0 | read.availability_changes (166) |
+| EvidenceGraphService.build | compact | warm | 11 | 0 | 0 | 0 | 0 | read.availability_changes (2) |
+| Incident detail | compact | warm | 22 | 0 | 0 | 0 | 0 | read.availability_changes (5) |
+| Incident list | compact | warm | 26 | 0 | 0 | 0 | 0 | read.availability_changes (7) |
+| Incident list history | history | warm | 92 | 0 | 0 | 0 | 0 | read.availability_changes (40) |
+| Device inventory refresh | beast | warm | 959 | 0 | 27 | 0 | 0 | read.availability_changes (168) |
+| Device inventory refresh | compact | warm | 136 | 0 | 9 | 0 | 0 | read.health_snapshots (22) |
+| Ordinary MQTT payload ingestion | compact | warm | 34 | 0 | 3 | 0 | 0 | read.health_snapshots (3) |
+| Ordinary MQTT payload ingestion | beast | warm | 58 | 0 | 3 | 0 | 0 | read.incidents (10) |
+| Device report preview | compact | warm | 33 | 0 | 0 | 0 | 0 | read.ha_enrichment (5) |
+| Device report preview | history | warm | 33 | 0 | 0 | 0 | 0 | read.ha_enrichment (5) |
+| Full report preview | compact | warm | 69 | 0 | 0 | 0 | 0 | read.availability_changes (22) |
+| Full report preview | beast | warm | 368 | 0 | 0 | 0 | 0 | read.availability_changes (166) |
+| Incident report preview | compact | warm | 57 | 0 | 0 | 0 | 0 | read.incidents (9) |
+| Incident report preview | history | warm | 57 | 0 | 0 | 0 | 0 | read.incidents (9) |
+| Network report preview | compact | warm | 69 | 0 | 0 | 0 | 0 | read.availability_changes (22) |
+| Network report preview | beast | warm | 277 | 0 | 0 | 0 | 0 | read.availability_changes (122) |
+
+## Track 3F total baseline table (historical)
 
 | Operation | Fixture | State | Executes | Executemany | Commits | Rollbacks | Other | Top repeated category |
 |---|---|---|---:|---:|---:|---:|---:|---|
@@ -153,6 +181,7 @@ Preserved Track 3E tip totals before scope-first report composition. Report comp
 | Network report preview | beast | warm | 421 | 0 | 0 | 0 | 0 | read.availability_changes (127) |
 
 
+
 ## Track 3E → Track 3F report execute comparison
 
 Scope-first composition removes complete-history / full-dashboard assembly for narrow reports. Compact fixture is single-network, so Full and Network remain similar there; Beast proves Network << Full. Ingestion commit counts and ingestion-phase execute counts remain at Track 3B/3C values. The Track 3F corrective pass removes candidate-loop `incident_networks` reads; remaining write cost maintains normalized identity.
@@ -170,6 +199,35 @@ Scope-first composition removes complete-history / full-dashboard assembly for n
 
 Remaining repeated `read.topology_*` / Device Story network-context loads on in-scope networks are Track 3G debt (shared topology composition), not hidden filter-after-composition.
 
+
+## Track 3F → Track 3G execute comparison
+
+| Operation | Track 3F executes | Track 3G executes | Delta | Main removed work |
+|---|---:|---:|---:|---|
+| Dashboard composition (compact) | 110 | 22 | -88 | shared NetworkEvidenceContext |
+| Dashboard composition (beast) | 282 | 47 | -235 | shared NetworkEvidenceContext |
+| Devices inventory (compact) | 83 | 57 | -26 | shared NetworkEvidenceContext |
+| Devices inventory (beast) | 405 | 345 | -60 | shared NetworkEvidenceContext |
+| EvidenceGraphService.build | 99 | 11 | -88 | shared NetworkEvidenceContext |
+| Full report preview (compact) | 187 | 69 | -118 | shared NetworkEvidenceContext |
+| Full report preview (beast) | 663 | 368 | -295 | shared NetworkEvidenceContext |
+| Network report preview (compact) | 187 | 69 | -118 | shared NetworkEvidenceContext |
+| Network report preview (beast) | 421 | 277 | -144 | shared NetworkEvidenceContext |
+| Incident report preview | 175 | 57 | -118 | shared NetworkEvidenceContext |
+| Device report preview | 151 | 33 | -118 | shared NetworkEvidenceContext |
+| Incident list | 52 | 26 | -26 | shared NetworkEvidenceContext |
+| Device detail | 55 | 51 | -4 | shared NetworkEvidenceContext |
+
+Duplicate topology snapshot/node/link and availability scans across Device Story, Evidence Graph, Dashboard, and Reports are collapsed into one request-local context per network. Remaining Devices/Device Detail cost is dominated by per-device availability-history and device-snapshot reads outside Track 3G topology ownership.
+
+Track 3E → Track 3G report execute deltas (compact):
+
+| Track 3E executes | Track 3G executes | Delta |
+|---:|---:|---:|
+| 262 | 69 | -193 |
+| 262 | 69 | -193 |
+| 317 | 57 | -260 |
+| 237 | 33 | -204 |
 
 ## Track 3E collection scaling
 
@@ -203,188 +261,165 @@ No page class above may contain `USE TEMP B-TREE FOR ORDER BY`.
 ## Top repeated normalized statement shapes
 
 ### availability_ingestion
-
-- 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 3× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 3× `INSERT INTO events ( id, network_id, ieee_address, event_type, severity, title, summary, incident_id, payload_json, occurred_at ) VALUES (?)`
 - 3× `SELECT source_ieee FROM topology_links WHERE snapshot_id = ? AND target_ieee = ? LIMIT ?`
-- 3× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
 - 3× `INSERT INTO incident_devices (incident_id, network_id, ieee_address, role) VALUES (?)`
+- 2× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ? ORDER BY network_id, ieee_address, role`
 
 ### availability_ingestion_beast
-
 - 9× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ? ORDER BY network_id, ieee_address, role`
 - 9× `WITH selected AS ( SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ? ) SELECT s.id, s.incident_type, s.lifecycle_state, s.severity, s.scope, s.confidence, s.title, s.summary, s.explanation, s.evidence_json, s.counter_evidence_json, s.limitations_json, s.opened_at, s.updated_at, s.resolved_at, s.dedup_key, n.network_id FROM selected s LEFT JOIN incident_networks n ON n.incident_id = s.id ORDER BY n.network_id`
 - 9× `INSERT INTO incident_devices (incident_id, network_id, ieee_address, role) VALUES (?)`
-- 7× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
 
 ### dashboard
-
-- 30× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 23× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 17× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 8× `SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM devices d LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address WHERE d.network_id = ? ORDER BY d.friendly_name`
-- 6× `SELECT ieee_address, from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND changed_at >= ? ORDER BY changed_at ASC`
+- 3× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
+- 3× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 2× `SELECT COUNT(*) FROM devices`
+- 2× `WITH requested(network_id, ieee_address) AS (VALUES (?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?)) SELECT h.network_id, h.ieee_address, h.ha_device_id, h.ha_device_name, h.area_id, h.area_name, h.entity_id, h.match_confidence, h.updated_at FROM requested r JOIN ha_device_enrichment h ON h.network_id = r.network_id AND h.ieee_address = r.ieee_address ORDER BY h.network_id, h.ieee_address`
+- 1× `SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM devices d LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address ORDER BY d.network_id, d.friendly_name`
 
 ### dashboard_beast
-
-- 87× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 72× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 34× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 26× `SELECT ieee_address, from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND changed_at >= ? ORDER BY changed_at ASC`
-- 16× `SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM devices d LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address WHERE d.network_id = ? ORDER BY d.friendly_name`
+- 14× `SELECT ieee_address, from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND changed_at >= ? ORDER BY changed_at ASC`
+- 6× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 3× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
+- 2× `SELECT COUNT(*) FROM devices`
+- 2× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
 
 ### device_detail
-
 - 12× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
 - 10× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 6× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
+- 4× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 2× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
+- 2× `SELECT COUNT(*) FROM devices`
 
 ### devices
-
 - 20× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
 - 20× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
-- 12× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
-- 10× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 2× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
+- 2× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 1× `SELECT COUNT(*) FROM devices`
 
 ### devices_beast
-
 - 164× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
 - 164× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
-- 24× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
-- 20× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 9× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 2× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
+- 2× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 1× `SELECT COUNT(*) FROM devices`
 
 ### evidence_graph
-
-- 27× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 26× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 23× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 6× `SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM devices d LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address WHERE d.network_id = ? ORDER BY d.friendly_name`
-- 5× `SELECT ieee_address, from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND changed_at >= ? ORDER BY changed_at ASC`
+- 2× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 1× `SELECT id, name, base_topic, bridge_state FROM networks WHERE id = ?`
+- 1× `SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM devices d LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address WHERE d.network_id IN (?) ORDER BY d.network_id ASC, d.friendly_name ASC`
+- 1× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id IN (?) ORDER BY network_id ASC, captured_at DESC`
+- 1× `SELECT snapshot_id, source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id IN (?) ORDER BY snapshot_id ASC`
 
 ### incident_detail
-
-- 12× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
-- 10× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
 - 3× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
+- 3× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
+- 2× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 1× `SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE id = ?`
+- 1× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id IN (?) ORDER BY incident_id, network_id, ieee_address, role`
 
 ### incident_list
-
-- 12× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
-- 10× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 5× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
 - 5× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
+- 2× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 1× `SELECT COUNT(*) AS n FROM incidents WHERE lifecycle_state IN (?)`
+- 1× `SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE CASE lifecycle_state WHEN ? THEN ? WHEN ? THEN ? ELSE ? END IN (?) ORDER BY CASE lifecycle_state WHEN ? THEN ? WHEN ? THEN ? ELSE ? END ASC, updated_at DESC, id DESC LIMIT ?`
 
 ### incident_list_history
-
 - 38× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
 - 38× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
-- 12× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
-- 10× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 9× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 2× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 1× `SELECT COUNT(*) AS n FROM incidents WHERE lifecycle_state IN (?)`
+- 1× `SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE CASE lifecycle_state WHEN ? THEN ? WHEN ? THEN ? ELSE ? END IN (?) ORDER BY CASE lifecycle_state WHEN ? THEN ? WHEN ? THEN ? ELSE ? END ASC, updated_at DESC, id DESC LIMIT ?`
 
 ### inventory_ingestion_beast
-
 - 164× `INSERT INTO devices ( network_id, ieee_address, friendly_name, device_type, power_source, manufacturer, model, interview_state, created_at, updated_at ) VALUES (?) ON CONFLICT(network_id, ieee_address) DO UPDATE SET friendly_name = excluded.friendly_name, device_type = excluded.device_type, power_source = excluded.power_source, manufacturer = COALESCE(excluded.manufacturer, devices.manufacturer), model = COALESCE(excluded.model, devices.model), interview_state = excluded.interview_state, updated_at = excluded.updated_at`
 - 164× `INSERT OR IGNORE INTO device_current_state (network_id, ieee_address) VALUES (?)`
 - 164× `SELECT COUNT(*) FROM availability_changes WHERE network_id = ? AND ieee_address = ? AND changed_at >= ?`
 - 164× `SELECT primary_health, severity, confidence, summary, flags_json, evidence_json, counter_evidence_json, limitations_json, captured_at FROM health_snapshots WHERE scope = ? AND network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
-- 53× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 49× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 
 ### inventory_ingestion_compact
-
 - 20× `INSERT INTO devices ( network_id, ieee_address, friendly_name, device_type, power_source, manufacturer, model, interview_state, created_at, updated_at ) VALUES (?) ON CONFLICT(network_id, ieee_address) DO UPDATE SET friendly_name = excluded.friendly_name, device_type = excluded.device_type, power_source = excluded.power_source, manufacturer = COALESCE(excluded.manufacturer, devices.manufacturer), model = COALESCE(excluded.model, devices.model), interview_state = excluded.interview_state, updated_at = excluded.updated_at`
 - 20× `INSERT OR IGNORE INTO device_current_state (network_id, ieee_address) VALUES (?)`
 - 20× `SELECT COUNT(*) FROM availability_changes WHERE network_id = ? AND ieee_address = ? AND changed_at >= ?`
 - 20× `SELECT primary_health, severity, confidence, summary, flags_json, evidence_json, counter_evidence_json, limitations_json, captured_at FROM health_snapshots WHERE scope = ? AND network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
-- 8× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 7× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 
 ### payload_ingestion
-
-- 4× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 3× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 2× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ? ORDER BY network_id, ieee_address, role`
 - 2× `INSERT INTO metric_samples (network_id, ieee_address, metric_name, metric_value, sampled_at) VALUES (?)`
 - 2× `INSERT INTO events ( id, network_id, ieee_address, event_type, severity, title, summary, incident_id, payload_json, occurred_at ) VALUES (?)`
 - 2× `SELECT primary_health, severity, confidence, summary, flags_json, evidence_json, counter_evidence_json, limitations_json, captured_at FROM health_snapshots WHERE scope = ? AND network_id = ? AND ieee_address IS NULL ORDER BY captured_at DESC LIMIT ?`
 
 ### payload_ingestion_beast
-
 - 9× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ? ORDER BY network_id, ieee_address, role`
 - 9× `WITH selected AS ( SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ? ) SELECT s.id, s.incident_type, s.lifecycle_state, s.severity, s.scope, s.confidence, s.title, s.summary, s.explanation, s.evidence_json, s.counter_evidence_json, s.limitations_json, s.opened_at, s.updated_at, s.resolved_at, s.dedup_key, n.network_id FROM selected s LEFT JOIN incident_networks n ON n.incident_id = s.id ORDER BY n.network_id`
-- 7× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
 - 3× `SELECT friendly_name FROM topology_nodes WHERE snapshot_id = ? AND ieee_address = ?`
 
 ### report_device
-
-- 36× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 27× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 23× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 16× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
-- 8× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
+- 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 2× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
+- 2× `SELECT COUNT(*) FROM devices`
+- 2× `WITH requested(network_id, ieee_address) AS (VALUES (?)) SELECT h.network_id, h.ieee_address, h.ha_device_id, h.ha_device_name, h.area_id, h.area_name, h.entity_id, h.match_confidence, h.updated_at FROM requested r JOIN ha_device_enrichment h ON h.network_id = r.network_id AND h.ieee_address = r.ieee_address ORDER BY h.network_id, h.ieee_address`
+- 2× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
 
 ### report_device_history
-
-- 36× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 27× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 23× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 16× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
-- 8× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
+- 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 2× `SELECT COUNT(*) FROM devices`
+- 2× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
+- 2× `WITH requested(network_id, ieee_address) AS (VALUES (?)) SELECT h.network_id, h.ieee_address, h.ha_device_id, h.ha_device_name, h.area_id, h.area_name, h.entity_id, h.match_confidence, h.updated_at FROM requested r JOIN ha_device_enrichment h ON h.network_id = r.network_id AND h.ieee_address = r.ieee_address ORDER BY h.network_id, h.ieee_address`
+- 2× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
 
 ### report_full
-
-- 36× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 27× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 23× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
 - 20× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
 - 20× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
+- 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 3× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
+- 3× `WITH requested(network_id, ieee_address) AS (VALUES (?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?)) SELECT h.network_id, h.ieee_address, h.ha_device_id, h.ha_device_name, h.area_id, h.area_name, h.entity_id, h.match_confidence, h.updated_at FROM requested r JOIN ha_device_enrichment h ON h.network_id = r.network_id AND h.ieee_address = r.ieee_address ORDER BY h.network_id, h.ieee_address`
 
 ### report_full_beast
-
 - 164× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
 - 164× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
-- 97× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 72× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 54× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
+- 8× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 3× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
+- 2× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
 
 ### report_incident
-
-- 36× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 27× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 23× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 16× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
-- 8× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
+- 6× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
+- 5× `SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE id = ?`
+- 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 4× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
+- 4× `SELECT COUNT(*) FROM devices`
 
 ### report_incident_history
-
-- 36× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 27× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 23× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 16× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
-- 8× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
+- 6× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
+- 5× `SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE id = ?`
+- 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 4× `SELECT COUNT(*) FROM devices`
+- 4× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
 
 ### report_network
-
-- 36× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 27× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
-- 23× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
 - 20× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
 - 20× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
+- 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 3× `WITH requested(network_id, ieee_address) AS (VALUES (?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?)) SELECT h.network_id, h.ieee_address, h.ha_device_id, h.ha_device_name, h.area_id, h.area_name, h.entity_id, h.match_confidence, h.updated_at FROM requested r JOIN ha_device_enrichment h ON h.network_id = r.network_id AND h.ieee_address = r.ieee_address ORDER BY h.network_id, h.ieee_address`
+- 2× `SELECT COUNT(*) FROM topology_snapshots WHERE network_id IN (?)`
 
 ### report_network_beast
-
 - 120× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
 - 120× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
-- 51× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 36× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
-- 27× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
+- 7× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 2× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
+- 2× `WITH requested(network_id, ieee_address) AS (VALUES (?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?)) SELECT h.network_id, h.ieee_address, h.ha_device_id, h.ha_device_name, h.area_id, h.area_name, h.entity_id, h.match_confidence, h.updated_at FROM requested r JOIN ha_device_enrichment h ON h.network_id = r.network_id AND h.ieee_address = r.ieee_address ORDER BY h.network_id, h.ieee_address`
 
 ## Track 3F corrective hot-path incident_networks
 
