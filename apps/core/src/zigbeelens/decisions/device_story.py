@@ -41,7 +41,6 @@ from zigbeelens.decisions.types import (
 from zigbeelens.decisions.lqi_trend import LqiTrend, LqiTrendState, lqi_trend_for_device
 from zigbeelens.decisions.model_pattern import (
     ObservedModelPatterns,
-    observed_model_patterns_for_network,
     qualifying_pattern_for_device,
 )
 from zigbeelens.decisions.reporting_rhythm import (
@@ -58,9 +57,7 @@ from zigbeelens.topology.device_compare import (
     MAX_SNAPSHOT_HISTORY,
     DeviceSnapshotHistoryNetworkContext,
     build_device_snapshot_history,
-    load_device_snapshot_history_network_context,
 )
-from zigbeelens.topology.history import aggregate_historical_evidence, aggregate_last_known_links
 from zigbeelens.topology.investigations import LOW_BATTERY_PERCENT, STALE_LAST_SEEN_HOURS
 
 AVAILABILITY_LOOKUP_LIMIT = 500
@@ -243,73 +240,26 @@ def load_device_story_network_context(
     *,
     now: datetime | None = None,
 ) -> DeviceStoryNetworkContext:
-    """Load network-scoped Device Story evidence once for a network."""
-    reference_now = now or datetime.now(timezone.utc)
-    all_snapshots = repo.list_topology_snapshots(network_id)
-    link_snapshot_ids: list[str] = []
-    for snapshot in all_snapshots:
-        if snapshot.get("status") != "complete":
-            continue
-        snapshot_id = str(snapshot["snapshot_id"])
-        if snapshot_id not in link_snapshot_ids:
-            link_snapshot_ids.append(snapshot_id)
-    latest_snapshot = repo.get_latest_topology_snapshot(network_id)
-    latest_snapshot_id = (
-        str(latest_snapshot["snapshot_id"]) if latest_snapshot else None
+    """Load network-scoped Device Story evidence once for a network.
+
+    Compatibility wrapper: builds one DEVICE_STORY NetworkEvidenceContext with a
+    complete network inventory, then projects DeviceStoryNetworkContext.
+    """
+    from zigbeelens.services.network_evidence import DEVICE_STORY_EVIDENCE_REQUIREMENTS
+    from zigbeelens.services.network_evidence_composition import (
+        compose_network_evidence_context,
     )
-    if latest_snapshot_id and latest_snapshot_id not in link_snapshot_ids:
-        link_snapshot_ids.append(latest_snapshot_id)
-    links_by_snapshot_id = {
-        snapshot_id: list(repo.list_topology_links(snapshot_id))
-        for snapshot_id in link_snapshot_ids
-    }
-    snapshot_history_context = load_device_snapshot_history_network_context(
+
+    reference_now = now or datetime.now(timezone.utc)
+    if reference_now.tzinfo is None:
+        reference_now = reference_now.replace(tzinfo=timezone.utc)
+    evidence = compose_network_evidence_context(
         repo,
         network_id,
-        snapshots=all_snapshots,
-        links_by_snapshot_id=links_by_snapshot_id,
+        reference_now=reference_now,
+        requirements=DEVICE_STORY_EVIDENCE_REQUIREMENTS,
     )
-    coverage_snapshot_ids = link_snapshot_ids[:MAX_SNAPSHOT_HISTORY]
-    if latest_snapshot_id and latest_snapshot_id not in coverage_snapshot_ids:
-        coverage_snapshot_ids.append(latest_snapshot_id)
-    nodes_by_snapshot_id = {
-        snapshot_id: repo.list_topology_nodes(snapshot_id)
-        for snapshot_id in coverage_snapshot_ids
-    }
-    latest_nodes = nodes_by_snapshot_id.get(latest_snapshot_id, []) if latest_snapshot_id else []
-    latest_links = (
-        links_by_snapshot_id.get(latest_snapshot_id, [])
-        if latest_snapshot_id
-        else []
-    )
-    return DeviceStoryNetworkContext(
-        network_id=network_id,
-        latest_snapshot=latest_snapshot,
-        latest_nodes=latest_nodes,
-        latest_links=latest_links,
-        nodes_by_snapshot_id=nodes_by_snapshot_id,
-        historical_evidence=aggregate_historical_evidence(
-            repo,
-            network_id,
-            now=reference_now,
-            snapshots=all_snapshots,
-            links_by_snapshot_id=links_by_snapshot_id,
-        ),
-        last_known_links=aggregate_last_known_links(
-            repo,
-            network_id,
-            snapshots=all_snapshots,
-            links_by_snapshot_id=links_by_snapshot_id,
-        ),
-        availability_tracking_enabled=snapshot_history_context.tracking_enabled_now,
-        network_has_usable_ha_areas=repo.network_has_usable_ha_area_assignments(
-            network_id
-        ),
-        model_patterns=observed_model_patterns_for_network(
-            repo, network_id, now=reference_now
-        ),
-        snapshot_history_context=snapshot_history_context,
-    )
+    return device_story_network_context_from_evidence(evidence)
 
 
 def load_device_story_evidence(
@@ -890,10 +840,14 @@ def device_story_network_context_from_evidence(
     """Project a NetworkEvidenceContext into DeviceStoryNetworkContext."""
     from zigbeelens.services.network_evidence import NetworkEvidenceCapability
 
+    evidence_context.require(NetworkEvidenceCapability.devices)
     evidence_context.require(NetworkEvidenceCapability.latest_topology)
+    evidence_context.require(NetworkEvidenceCapability.snapshot_history)
     evidence_context.require(NetworkEvidenceCapability.historical_links)
     evidence_context.require(NetworkEvidenceCapability.last_known_links)
     evidence_context.require(NetworkEvidenceCapability.model_patterns)
+    evidence_context.require(NetworkEvidenceCapability.earliest_availability)
+    evidence_context.require(NetworkEvidenceCapability.ha_areas)
     if evidence_context.snapshot_history_context is None:
         raise ValueError("NetworkEvidenceContext is missing snapshot_history_context")
     return DeviceStoryNetworkContext(
@@ -930,7 +884,6 @@ def device_stories_for_devices(
     network_evidence_contexts: Mapping[str, Any] | None = None,
 ) -> dict[tuple[str, str], DeviceStory]:
     """Compose full Device Stories for many devices with one network context each."""
-    reference_now = now or datetime.now(timezone.utc)
     by_network: dict[str, list[DeviceRow]] = defaultdict(list)
     for row in rows:
         by_network[row.network_id].append(row)
@@ -952,11 +905,17 @@ def device_stories_for_devices(
             else None
         )
         if evidence_ctx is not None:
+            reference_now = now if now is not None else evidence_ctx.reference_now
+            if reference_now.tzinfo is None:
+                reference_now = reference_now.replace(tzinfo=timezone.utc)
             evidence_ctx.require_compatible(
                 network_id=network_id, reference_now=reference_now
             )
             context = device_story_network_context_from_evidence(evidence_ctx)
         else:
+            reference_now = now or datetime.now(timezone.utc)
+            if reference_now.tzinfo is None:
+                reference_now = reference_now.replace(tzinfo=timezone.utc)
             context = load_device_story_network_context(
                 repo, network_id, now=reference_now
             )
@@ -1009,12 +968,26 @@ def device_story_for_device(
     device_ieee: str,
     *,
     now: datetime | None = None,
+    network_evidence_context: Any | None = None,
 ) -> DeviceStory | None:
     """Build a device story from stored evidence. Returns None when unknown."""
-    reference_now = now or datetime.now(timezone.utc)
-    context = load_device_story_network_context(
-        repo, network_id, now=reference_now
-    )
+    if network_evidence_context is not None:
+        reference_now = (
+            now if now is not None else network_evidence_context.reference_now
+        )
+        if reference_now.tzinfo is None:
+            reference_now = reference_now.replace(tzinfo=timezone.utc)
+        network_evidence_context.require_compatible(
+            network_id=network_id, reference_now=reference_now
+        )
+        context = device_story_network_context_from_evidence(network_evidence_context)
+    else:
+        reference_now = now or datetime.now(timezone.utc)
+        if reference_now.tzinfo is None:
+            reference_now = reference_now.replace(tzinfo=timezone.utc)
+        context = load_device_story_network_context(
+            repo, network_id, now=reference_now
+        )
     evidence = load_device_story_evidence(
         repo,
         network_id,
