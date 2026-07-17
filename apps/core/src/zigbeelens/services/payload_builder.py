@@ -807,6 +807,7 @@ class PayloadBuilder:
                 context = require_mapped_network_evidence_context(
                     network_evidence_contexts, network_id
                 )
+                context.require_compatible(network_id=network_id)
                 context.require(NetworkEvidenceCapability.latest_topology)
                 evidence_map[network_id] = context
         items: list[RouterRisk] = []

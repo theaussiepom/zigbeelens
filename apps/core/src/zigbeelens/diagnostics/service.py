@@ -470,6 +470,7 @@ def health_result_to_router_risk(
         if network_evidence_context is not None:
             from zigbeelens.services.network_evidence import NetworkEvidenceCapability
 
+            network_evidence_context.require_compatible(network_id=row.network_id)
             network_evidence_context.require(NetworkEvidenceCapability.latest_topology)
             topo = enrich_router_risk(
                 repo,

@@ -571,6 +571,118 @@ def test_routers_projection_uses_one_context_zero_per_router_reads(tmp_path: Pat
     assert isinstance(risks, list)
 
 
+def test_routers_rejects_wrong_network_context_mapping(tmp_path: Path):
+    repo, config = _repo(tmp_path)
+    _add_device(repo, "home", "0xhome-r", device_type="Router", name="Home Router")
+    _add_device(repo, "office", "0xoffice-r", device_type="Router", name="Office Router")
+    _add_snapshot(
+        repo,
+        snapshot_id="office-snap",
+        network_id="office",
+        nodes=["0xoffice-r", "0xchild"],
+    )
+    office_ctx = compose_network_evidence_context(
+        repo,
+        "office",
+        reference_now=NOW,
+        requirements=LATEST_TOPOLOGY_REQUIREMENTS,
+    )
+    assert office_ctx.network_id == "office"
+
+    health = HealthDiagnosticService(config, repo)
+    health.recalculate_all()
+    builder = PayloadBuilder(config, repo, health)
+
+    original_latest = repo.get_latest_topology_snapshot
+    original_children = repo.list_topology_children
+    original_name = repo.get_topology_node_name
+    calls = {"latest": 0, "children": 0, "name": 0}
+
+    def latest_spy(network_id: str):
+        calls["latest"] += 1
+        return original_latest(network_id)
+
+    def children_spy(snapshot_id: str, ieee: str):
+        calls["children"] += 1
+        return original_children(snapshot_id, ieee)
+
+    def name_spy(snapshot_id: str, ieee: str):
+        calls["name"] += 1
+        return original_name(snapshot_id, ieee)
+
+    repo.get_latest_topology_snapshot = latest_spy  # type: ignore[method-assign]
+    repo.list_topology_children = children_spy  # type: ignore[method-assign]
+    repo.get_topology_node_name = name_spy  # type: ignore[method-assign]
+
+    home_router = next(
+        row for row in repo.list_devices("home") if row.ieee_address == "0xhome-r"
+    )
+    counter = install_counter(repo)
+    counter.reset()
+    with pytest.raises(ValueError, match="does not match"):
+        builder.routers(
+            devices=[home_router],
+            network_evidence_contexts={"home": office_ctx},
+        )
+    assert calls["latest"] == 0
+    assert calls["children"] == 0
+    assert calls["name"] == 0
+    assert counter.stats.category_counts.get("read.topology_snapshots", 0) == 0
+    assert counter.stats.category_counts.get("read.topology_nodes", 0) == 0
+    assert counter.stats.category_counts.get("read.topology_links", 0) == 0
+
+
+def test_health_result_to_router_risk_rejects_wrong_network_context(tmp_path: Path):
+    from zigbeelens.diagnostics.models import (
+        HealthConfidence,
+        HealthFlag,
+        HealthResult,
+        HealthSeverity,
+    )
+    from zigbeelens.diagnostics.service import health_result_to_router_risk
+
+    repo, _ = _repo(tmp_path)
+    _add_device(repo, "home", "0xhome-r", device_type="Router", name="Home Router")
+    _add_device(repo, "office", "0xoffice-r", device_type="Router", name="Office Router")
+    _add_snapshot(
+        repo,
+        snapshot_id="office-snap",
+        network_id="office",
+        nodes=["0xoffice-r"],
+    )
+    office_ctx = compose_network_evidence_context(
+        repo,
+        "office",
+        reference_now=NOW,
+        requirements=LATEST_TOPOLOGY_REQUIREMENTS,
+    )
+    home_row = next(
+        row for row in repo.list_devices("home") if row.ieee_address == "0xhome-r"
+    )
+    result = HealthResult(
+        primary=HealthFlag.router_risk,
+        severity=HealthSeverity.watch,
+        confidence=HealthConfidence.medium,
+        summary="router risk",
+        evidence=[],
+        counter_evidence=[],
+        limitations=[],
+        flags=[HealthFlag.router_risk],
+    )
+    counter = install_counter(repo)
+    counter.reset()
+    with pytest.raises(ValueError, match="does not match"):
+        health_result_to_router_risk(
+            home_row,
+            result,
+            repo,
+            network_evidence_context=office_ctx,
+        )
+    assert counter.stats.category_counts.get("read.topology_snapshots", 0) == 0
+    assert counter.stats.category_counts.get("read.topology_nodes", 0) == 0
+    assert counter.stats.category_counts.get("read.topology_links", 0) == 0
+
+
 def test_model_pattern_timestamp_reuses_context_availability(tmp_path: Path):
     repo, _ = _repo(tmp_path)
     ieees = [f"0xm{i:02d}" for i in range(MODEL_PATTERN_MIN_GROUP_SIZE)]
