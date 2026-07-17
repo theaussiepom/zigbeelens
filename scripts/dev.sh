@@ -21,8 +21,8 @@ source apps/core/.venv/bin/activate
 pip install -q -e "apps/core[dev]"
 
 echo "Config: $ZIGBEELENS_CONFIG"
-echo "Starting ZigbeeLens Core on :8377 and UI on :5173"
-PYTHONPATH=apps/core/src uvicorn zigbeelens.main:app --host 0.0.0.0 --port 8377 --reload &
+echo "Starting ZigbeeLens Core (bind from AppConfig; source default 127.0.0.1:8377) and UI on :5173"
+PYTHONPATH=apps/core/src python -m zigbeelens --reload &
 CORE_PID=$!
 pnpm --filter @zigbeelens/ui dev &
 UI_PID=$!

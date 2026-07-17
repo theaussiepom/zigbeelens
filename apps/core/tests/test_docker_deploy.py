@@ -32,6 +32,13 @@ def test_config_examples_validate():
         assert cfg.storage.path == "/data/zigbeelens.sqlite"
         assert len(cfg.networks) >= 1
         assert cfg.features.mqtt_discovery is False
+        assert cfg.server.host == "0.0.0.0"
+
+
+def test_compose_dev_config_is_explicitly_non_loopback():
+    cfg = load_config(ROOT / "deploy" / "compose" / "config.dev.yaml")
+    assert cfg.server.host == "0.0.0.0"
+    assert cfg.mode.mock is True
 
 
 def test_multi_network_config_has_stable_ids():

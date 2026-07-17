@@ -6,11 +6,12 @@ services:
     ports:
       - "8377:8377"
     environment:
-      ZIGBEELENS_CONFIG: /app/config/config.yaml
+      # Dedicated container config with server.host=0.0.0.0 (not the source loopback default).
+      ZIGBEELENS_CONFIG: /config/config.dev.yaml
       ZIGBEELENS_MOCK_SCENARIO: four_devices_same_room_unavailable
     volumes:
       - ../../apps/core/src:/app/apps/core/src:ro
-      - ../../config:/app/config:ro
+      - ./config.dev.yaml:/config/config.dev.yaml:ro
       - ../../data:/app/data
 
   ui:

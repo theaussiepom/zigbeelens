@@ -10,7 +10,7 @@ from typing import Any, Mapping
 import yaml
 from pydantic import ValidationError
 
-from zigbeelens.config.models import AppConfig
+from zigbeelens.config.models import AppConfig, ServerConfig
 from zigbeelens.config.secret_validation import contains_control_characters
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,7 @@ ENV_MQTT_USERNAME = "ZIGBEELENS_MQTT_USERNAME"
 ENV_MQTT_PASSWORD = "ZIGBEELENS_MQTT_PASSWORD"
 ENV_MQTT_PASSWORD_FILE = "ZIGBEELENS_MQTT_PASSWORD_FILE"
 ENV_MOCK_SCENARIO = "ZIGBEELENS_MOCK_SCENARIO"
+ENV_SERVER_PORT = "ZIGBEELENS_PORT"
 
 
 class ConfigError(Exception):
@@ -235,3 +236,33 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
         len(config.networks),
     )
     return config
+
+
+def apply_server_port_override(config: AppConfig) -> AppConfig:
+    """Apply allowlisted ZIGBEELENS_PORT into typed ServerConfig when set."""
+    if ENV_SERVER_PORT not in os.environ:
+        return config
+    raw = os.environ[ENV_SERVER_PORT]
+    try:
+        port = int(raw)
+    except ValueError:
+        raise ConfigError(
+            f"Invalid {ENV_SERVER_PORT}: must be an integer between 1 and 65535."
+        ) from None
+    validation_message: str | None = None
+    server: ServerConfig | None = None
+    try:
+        server = ServerConfig(host=config.server.host, port=port)
+    except ValidationError as exc:
+        validation_message = format_validation_error(exc)
+    if validation_message is not None:
+        raise ConfigError(
+            f"Invalid {ENV_SERVER_PORT}:\n{validation_message}"
+        )
+    assert server is not None
+    return config.model_copy(update={"server": server})
+
+
+def load_effective_config(config_path: str | Path | None = None) -> AppConfig:
+    """Load config and apply runtime bind overrides used by first-party launchers."""
+    return apply_server_port_override(load_config(config_path))
