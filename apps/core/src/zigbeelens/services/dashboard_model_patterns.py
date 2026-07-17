@@ -22,12 +22,21 @@ def compose_dashboard_model_patterns(
     networks: list[NetworkRow],
     *,
     now: datetime | None = None,
+    network_evidence_contexts: dict | None = None,
 ) -> list[ModelPatternSummary]:
     """Flatten qualifying Phase 4G patterns across networks for Overview."""
     now = now or datetime.now(timezone.utc)
     summaries: list[ModelPatternSummary] = []
     for network in networks:
-        patterns = observed_model_patterns_for_network(repo, network.id, now=now)
+        context = (
+            network_evidence_contexts.get(network.id)
+            if network_evidence_contexts is not None
+            else None
+        )
+        if context is not None and context.model_patterns is not None:
+            patterns = context.model_patterns
+        else:
+            patterns = observed_model_patterns_for_network(repo, network.id, now=now)
         for pattern in patterns.patterns:
             affected_ieees = set(pattern.affected_ieees)
             summaries.append(

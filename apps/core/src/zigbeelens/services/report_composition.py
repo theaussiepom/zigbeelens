@@ -417,7 +417,32 @@ def compose_live_report_scope(
     )
 
     # --- one Device Story batch ------------------------------------------
-    stories = device_stories_for_devices(repo, device_rows, now=reference_now)
+    from zigbeelens.services.network_evidence import REPORT_EVIDENCE_REQUIREMENTS
+    from zigbeelens.services.network_evidence_composition import (
+        compose_network_evidence_contexts,
+    )
+
+    devices_by_network_id: dict[str, list[DeviceRow]] = {}
+    for row in device_rows:
+        devices_by_network_id.setdefault(row.network_id, []).append(row)
+    evidence_contexts = compose_network_evidence_contexts(
+        repo,
+        list(plan.network_ids),
+        reference_now=reference_now,
+        requirements_by_network={
+            network_id: REPORT_EVIDENCE_REQUIREMENTS for network_id in plan.network_ids
+        },
+        network_rows_by_id=networks_by_id,
+        devices_by_network=devices_by_network_id,
+    )
+    evidence_map = dict(evidence_contexts)
+
+    stories = device_stories_for_devices(
+        repo,
+        device_rows,
+        now=reference_now,
+        network_evidence_contexts=evidence_map,
+    )
     badges = {
         key: device_decision_badge_from_story(story) for key, story in stories.items()
     }
@@ -601,7 +626,10 @@ def compose_live_report_scope(
     )
 
     investigation = compose_dashboard_investigation_priorities(
-        repo, network_rows, now=reference_now
+        repo,
+        network_rows,
+        now=reference_now,
+        network_evidence_contexts=evidence_map,
     )
     coverage = compose_dashboard_coverage_warnings(
         repo,
@@ -613,6 +641,7 @@ def compose_live_report_scope(
             if item.card_type == "router_neighbourhood_review"
         },
         now=reference_now,
+        network_evidence_contexts=evidence_map,
     )
 
     if plan.scope == ReportScope.incident and incidents:

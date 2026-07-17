@@ -397,12 +397,48 @@ class PayloadBuilder:
             for net_row in network_rows
         ]
 
-        shared_availability_events = compose_dashboard_shared_availability_events(
-            self.repo, network_rows
+        from zigbeelens.services.network_evidence import DASHBOARD_EVIDENCE_REQUIREMENTS
+        from zigbeelens.services.network_evidence_composition import (
+            compose_network_evidence_contexts,
         )
-        model_patterns = compose_dashboard_model_patterns(self.repo, network_rows)
+        from zigbeelens.services.topology_facts_composition import (
+            topology_stale_threshold_hours,
+        )
+
+        reference_now = datetime.now(timezone.utc)
+        devices_by_network_id = {
+            network.id: devices_by_network.get(network.id, []) for network in network_rows
+        }
+        evidence_contexts = compose_network_evidence_contexts(
+            self.repo,
+            [network.id for network in network_rows],
+            reference_now=reference_now,
+            requirements_by_network={
+                network.id: DASHBOARD_EVIDENCE_REQUIREMENTS for network in network_rows
+            },
+            network_rows_by_id={network.id: network for network in network_rows},
+            devices_by_network=devices_by_network_id,
+            stale_after_hours=topology_stale_threshold_hours(self.config),
+        )
+        evidence_map = dict(evidence_contexts)
+
+        shared_availability_events = compose_dashboard_shared_availability_events(
+            self.repo,
+            network_rows,
+            now=reference_now,
+            network_evidence_contexts=evidence_map,
+        )
+        model_patterns = compose_dashboard_model_patterns(
+            self.repo,
+            network_rows,
+            now=reference_now,
+            network_evidence_contexts=evidence_map,
+        )
         investigation_priorities = compose_dashboard_investigation_priorities(
-            self.repo, network_rows
+            self.repo,
+            network_rows,
+            now=reference_now,
+            network_evidence_contexts=evidence_map,
         )
         data_coverage_warnings = compose_dashboard_coverage_warnings(
             self.repo,
@@ -413,10 +449,12 @@ class PayloadBuilder:
                 for item in investigation_priorities
                 if item.card_type == "router_neighbourhood_review"
             },
+            now=reference_now,
+            network_evidence_contexts=evidence_map,
         )
 
         return DashboardPayload(
-            generated_at=utc_now_iso(),
+            generated_at=reference_now.isoformat(),
             scenario=None,
             overall_severity=finding.severity,
             current_finding=finding,

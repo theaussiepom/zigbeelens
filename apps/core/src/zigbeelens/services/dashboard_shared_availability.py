@@ -21,12 +21,23 @@ def compose_dashboard_shared_availability_events(
     networks: list[NetworkRow],
     *,
     now: datetime | None = None,
+    network_evidence_contexts: dict | None = None,
 ) -> list[SharedAvailabilityEventSummary]:
     """Flatten Phase 4E-1 groups across networks for Overview presentation."""
     now = now or datetime.now(timezone.utc)
     summaries: list[SharedAvailabilityEventSummary] = []
     for network in networks:
-        groups = shared_availability_event_groups_for_network(repo, network.id, now=now)
+        context = (
+            network_evidence_contexts.get(network.id)
+            if network_evidence_contexts is not None
+            else None
+        )
+        if context is not None and context.shared_availability is not None:
+            groups = context.shared_availability
+        else:
+            groups = shared_availability_event_groups_for_network(
+                repo, network.id, now=now
+            )
         for event in groups.groups:
             summaries.append(
                 SharedAvailabilityEventSummary(
