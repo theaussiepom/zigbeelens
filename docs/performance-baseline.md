@@ -101,16 +101,17 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 
 ## Track 3F ingestion vs post-commit phases
 
-Ingestion-phase execute and commit counts are unchanged from Track 3B/3C. Post-commit execute growth is the factual `incident_networks` write/read cost during incident lifecycle sync and active-incident context composition.
+Ingestion-phase execute and commit counts are unchanged from Track 3B/3C. After the Track 3F corrective pass, candidate-loop `read.incident_networks` is eliminated from lifecycle evaluation; remaining post-commit delta vs Track 3C is the minimum factual `write.incident_networks` (and any associated identity maintenance) needed for normalized associations. Do not treat ingestion-phase stability alone as proof that Track 3B/3C totals are unchanged.
 
 | Operation | Ingestion executes | Ingestion commits | Post-commit executes | Post-commit commits | Total executes | Total commits |
 |---|---:|---:|---:|---:|---:|---:|
-| Compact payload | 7 | 1 | 31 | 2 | 38 | 3 |
-| Beast payload | 7 | 1 | 64 | 2 | 71 | 3 |
-| Compact availability | 6 | 1 | 44 | 7 | 50 | 8 |
-| Beast availability | 6 | 1 | 80 | 7 | 86 | 8 |
-| Compact inventory | 43 | 1 | 97 | 8 | 140 | 9 |
-| Beast inventory | 334 | 2 | 651 | 25 | 985 | 27 |
+| Compact payload | 7 | 1 | 29 | 2 | 36 | 3 |
+| Beast payload | 7 | 1 | 55 | 2 | 62 | 3 |
+| Compact availability | 6 | 1 | 42 | 7 | 48 | 8 |
+| Beast availability | 6 | 1 | 71 | 7 | 77 | 8 |
+| Compact inventory | 43 | 1 | 95 | 8 | 138 | 9 |
+| Beast inventory | 334 | 2 | 633 | 25 | 967 | 27 |
+
 
 ## Track 3E total baseline table (historical)
 
@@ -127,8 +128,8 @@ Preserved Track 3E tip totals before scope-first report composition. Report comp
 
 | Operation | Fixture | State | Executes | Executemany | Commits | Rollbacks | Other | Top repeated category |
 |---|---|---|---:|---:|---:|---:|---:|---|
-| Availability change ingestion | compact | warm | 50 | 0 | 8 | 0 | 0 | transaction.commit (8) |
-| Availability change ingestion | beast | warm | 86 | 0 | 8 | 0 | 0 | read.incidents (10) |
+| Availability change ingestion | compact | warm | 48 | 0 | 8 | 0 | 0 | transaction.commit (8) |
+| Availability change ingestion | beast | warm | 77 | 0 | 8 | 0 | 0 | read.incidents (10) |
 | Dashboard composition | compact | warm | 110 | 0 | 0 | 0 | 0 | read.schema (30) |
 | Dashboard composition | beast | warm | 282 | 0 | 0 | 0 | 0 | read.schema (87) |
 | Device detail | compact | warm | 55 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
@@ -138,32 +139,33 @@ Preserved Track 3E tip totals before scope-first report composition. Report comp
 | Incident detail | compact | warm | 48 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
 | Incident list | compact | warm | 52 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
 | Incident list history | history | warm | 131 | 0 | 0 | 0 | 0 | read.availability_changes (42) |
-| Device inventory refresh | beast | warm | 985 | 0 | 27 | 0 | 0 | read.availability_changes (168) |
-| Device inventory refresh | compact | warm | 140 | 0 | 9 | 0 | 0 | read.health_snapshots (22) |
-| Ordinary MQTT payload ingestion | compact | warm | 38 | 0 | 3 | 0 | 0 | read.schema (4) |
-| Ordinary MQTT payload ingestion | beast | warm | 71 | 0 | 3 | 0 | 0 | read.incidents (10) |
+| Device inventory refresh | beast | warm | 967 | 0 | 27 | 0 | 0 | read.availability_changes (168) |
+| Device inventory refresh | compact | warm | 138 | 0 | 9 | 0 | 0 | read.health_snapshots (22) |
+| Ordinary MQTT payload ingestion | compact | warm | 36 | 0 | 3 | 0 | 0 | read.schema (4) |
+| Ordinary MQTT payload ingestion | beast | warm | 62 | 0 | 3 | 0 | 0 | read.incidents (10) |
 | Device report preview | compact | warm | 151 | 0 | 0 | 0 | 0 | read.schema (36) |
 | Device report preview | history | warm | 151 | 0 | 0 | 0 | 0 | read.schema (36) |
-| Full report preview | compact | warm | 191 | 0 | 0 | 0 | 0 | read.schema (36) |
-| Full report preview | beast | warm | 667 | 0 | 0 | 0 | 0 | read.availability_changes (178) |
-| Incident report preview | compact | warm | 176 | 0 | 0 | 0 | 0 | read.schema (36) |
-| Incident report preview | history | warm | 176 | 0 | 0 | 0 | 0 | read.schema (36) |
-| Network report preview | compact | warm | 191 | 0 | 0 | 0 | 0 | read.schema (36) |
-| Network report preview | beast | warm | 425 | 0 | 0 | 0 | 0 | read.availability_changes (127) |
+| Full report preview | compact | warm | 187 | 0 | 0 | 0 | 0 | read.schema (36) |
+| Full report preview | beast | warm | 663 | 0 | 0 | 0 | 0 | read.availability_changes (178) |
+| Incident report preview | compact | warm | 175 | 0 | 0 | 0 | 0 | read.schema (36) |
+| Incident report preview | history | warm | 175 | 0 | 0 | 0 | 0 | read.schema (36) |
+| Network report preview | compact | warm | 187 | 0 | 0 | 0 | 0 | read.schema (36) |
+| Network report preview | beast | warm | 421 | 0 | 0 | 0 | 0 | read.availability_changes (127) |
+
 
 ## Track 3E → Track 3F report execute comparison
 
-Scope-first composition removes complete-history / full-dashboard assembly for narrow reports. Compact fixture is single-network, so Full and Network remain similar there; Beast proves Network << Full. Ingestion commit counts and ingestion-phase execute counts remain at Track 3B/3C values; small post-commit execute growth comes from factual `incident_networks` maintenance/reads.
+Scope-first composition removes complete-history / full-dashboard assembly for narrow reports. Compact fixture is single-network, so Full and Network remain similar there; Beast proves Network << Full. Ingestion commit counts and ingestion-phase execute counts remain at Track 3B/3C values. The Track 3F corrective pass removes candidate-loop `incident_networks` reads; remaining write cost maintains normalized identity.
 
 | Operation | Track 3E executes | Track 3F executes | Delta | Main removed work |
 |---|---:|---:|---:|---|
-| Full report preview (compact) | 262 | 191 | -71 | scope-before-composition |
-| Network report preview (compact) | 262 | 191 | -71 | scope-before-composition |
-| Incident report preview (compact) | 317 | 176 | -141 | scope-before-composition |
+| Full report preview (compact) | 262 | 187 | -75 | scope-before-composition |
+| Network report preview (compact) | 262 | 187 | -75 | scope-before-composition |
+| Incident report preview (compact) | 317 | 175 | -142 | scope-before-composition |
 | Device report preview (compact) | 237 | 151 | -86 | scope-before-composition |
-| Network report preview (beast) | — | 425 | — | Home-only scope |
-| Full report preview (beast) | — | 667 | — | estate-wide Full scope |
-| Incident report (history) | — | 176 | — | unrelated history ignored |
+| Network report preview (beast) | — | 421 | — | Home-only scope |
+| Full report preview (beast) | — | 663 | — | estate-wide Full scope |
+| Incident report (history) | — | 175 | — | unrelated history ignored |
 | Device report (history) | — | 151 | — | unrelated history ignored |
 
 Remaining repeated `read.topology_*` / Device Story network-context loads on in-scope networks are Track 3G debt (shared topology composition), not hidden filter-after-composition.
@@ -211,10 +213,10 @@ No page class above may contain `USE TEMP B-TREE FOR ORDER BY`.
 ### availability_ingestion_beast
 
 - 9× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ? ORDER BY network_id, ieee_address, role`
-- 9× `SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ?`
-- 9× `SELECT network_id FROM incident_networks WHERE incident_id = ? ORDER BY network_id`
+- 9× `WITH selected AS ( SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ? ) SELECT s.id, s.incident_type, s.lifecycle_state, s.severity, s.scope, s.confidence, s.title, s.summary, s.explanation, s.evidence_json, s.counter_evidence_json, s.limitations_json, s.opened_at, s.updated_at, s.resolved_at, s.dedup_key, n.network_id FROM selected s LEFT JOIN incident_networks n ON n.incident_id = s.id ORDER BY n.network_id`
 - 9× `INSERT INTO incident_devices (incident_id, network_id, ieee_address, role) VALUES (?)`
 - 7× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
 
 ### dashboard
 
@@ -315,10 +317,10 @@ No page class above may contain `USE TEMP B-TREE FOR ORDER BY`.
 ### payload_ingestion_beast
 
 - 9× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ? ORDER BY network_id, ieee_address, role`
-- 9× `SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ?`
-- 9× `SELECT network_id FROM incident_networks WHERE incident_id = ? ORDER BY network_id`
+- 9× `WITH selected AS ( SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ? ) SELECT s.id, s.incident_type, s.lifecycle_state, s.severity, s.scope, s.confidence, s.title, s.summary, s.explanation, s.evidence_json, s.counter_evidence_json, s.limitations_json, s.opened_at, s.updated_at, s.resolved_at, s.dedup_key, n.network_id FROM selected s LEFT JOIN incident_networks n ON n.incident_id = s.id ORDER BY n.network_id`
 - 7× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
+- 3× `SELECT friendly_name FROM topology_nodes WHERE snapshot_id = ? AND ieee_address = ?`
 
 ### report_device
 
@@ -383,3 +385,35 @@ No page class above may contain `USE TEMP B-TREE FOR ORDER BY`.
 - 51× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 36× `SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?`
 - 27× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
+
+## Track 3F corrective hot-path incident_networks
+
+Measured `read.incident_networks` / `write.incident_networks` after the corrective pass:
+
+| Surface | read.incident_networks | write.incident_networks |
+|---|---:|---:|
+| availability_ingestion | 0 | 2 |
+| availability_ingestion_beast | 0 | 2 |
+| dashboard | 1 | 0 |
+| dashboard_beast | 1 | 0 |
+| device_detail | 1 | 0 |
+| devices | 1 | 0 |
+| devices_beast | 1 | 0 |
+| evidence_graph | 0 | 0 |
+| incident_detail | 1 | 0 |
+| incident_list | 1 | 0 |
+| incident_list_history | 1 | 0 |
+| inventory_ingestion_beast | 0 | 4 |
+| inventory_ingestion_compact | 0 | 2 |
+| payload_ingestion | 0 | 0 |
+| payload_ingestion_beast | 0 | 0 |
+| report_device | 0 | 0 |
+| report_device_history | 0 | 0 |
+| report_full | 1 | 0 |
+| report_full_beast | 1 | 0 |
+| report_incident | 2 | 0 |
+| report_incident_history | 2 | 0 |
+| report_network | 1 | 0 |
+| report_network_beast | 1 | 0 |
+
+Dashboard/Devices/Incident list retain a bounded one-query active-context identity read (`read.incident_networks = 1`). Lifecycle evaluation no longer issues per-candidate `list_incident_networks` reads (`read.incident_networks = 0` on payload/availability/inventory ingest). Necessary writes remain when candidate network identity changes (`write.incident_networks` 2–4 on availability/inventory paths).

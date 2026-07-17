@@ -102,10 +102,10 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "ingestion_execute_count": 6,
         "ingestion_rollback_count": 0,
         "post_commit_commit_count": 7,
-        "post_commit_execute_count": 44,
+        "post_commit_execute_count": 42,
         "post_commit_rollback_count": 0,
         "total_commit_count": 8,
-        "total_execute_count": 50,
+        "total_execute_count": 48,
         "total_rollback_count": 0
     },
     "availability_ingestion_beast": {
@@ -113,10 +113,10 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "ingestion_execute_count": 6,
         "ingestion_rollback_count": 0,
         "post_commit_commit_count": 7,
-        "post_commit_execute_count": 80,
+        "post_commit_execute_count": 71,
         "post_commit_rollback_count": 0,
         "total_commit_count": 8,
-        "total_execute_count": 86,
+        "total_execute_count": 77,
         "total_rollback_count": 0
     },
     "inventory_ingestion_beast": {
@@ -124,10 +124,10 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "ingestion_execute_count": 334,
         "ingestion_rollback_count": 0,
         "post_commit_commit_count": 25,
-        "post_commit_execute_count": 651,
+        "post_commit_execute_count": 633,
         "post_commit_rollback_count": 0,
         "total_commit_count": 27,
-        "total_execute_count": 985,
+        "total_execute_count": 967,
         "total_rollback_count": 0
     },
     "inventory_ingestion_compact": {
@@ -135,10 +135,10 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "ingestion_execute_count": 43,
         "ingestion_rollback_count": 0,
         "post_commit_commit_count": 8,
-        "post_commit_execute_count": 97,
+        "post_commit_execute_count": 95,
         "post_commit_rollback_count": 0,
         "total_commit_count": 9,
-        "total_execute_count": 140,
+        "total_execute_count": 138,
         "total_rollback_count": 0
     },
     "payload_ingestion": {
@@ -146,10 +146,10 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "ingestion_execute_count": 7,
         "ingestion_rollback_count": 0,
         "post_commit_commit_count": 2,
-        "post_commit_execute_count": 31,
+        "post_commit_execute_count": 29,
         "post_commit_rollback_count": 0,
         "total_commit_count": 3,
-        "total_execute_count": 38,
+        "total_execute_count": 36,
         "total_rollback_count": 0
     },
     "payload_ingestion_beast": {
@@ -157,10 +157,10 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "ingestion_execute_count": 7,
         "ingestion_rollback_count": 0,
         "post_commit_commit_count": 2,
-        "post_commit_execute_count": 64,
+        "post_commit_execute_count": 55,
         "post_commit_rollback_count": 0,
         "total_commit_count": 3,
-        "total_execute_count": 71,
+        "total_execute_count": 62,
         "total_rollback_count": 0
     }
 }
@@ -183,7 +183,6 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.ha_enrichment": 4,
       "read.health_snapshots": 3,
       "read.incident_devices": 2,
-      "read.incident_networks": 2,
       "read.incidents": 3,
       "read.networks": 3,
       "read.schema": 5,
@@ -200,7 +199,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "write.incidents": 2
     },
     "commit_count": 8,
-    "execute_count": 50,
+    "execute_count": 48,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
@@ -236,7 +235,6 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.ha_enrichment": 4,
       "read.health_snapshots": 3,
       "read.incident_devices": 9,
-      "read.incident_networks": 9,
       "read.incidents": 10,
       "read.networks": 3,
       "read.schema": 7,
@@ -253,7 +251,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "write.incidents": 2
     },
     "commit_count": 8,
-    "execute_count": 86,
+    "execute_count": 77,
     "executemany_count": 0,
     "fixture": "beast",
     "rollback_count": 0,
@@ -265,11 +263,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       },
       {
         "count": 9,
-        "statement": "SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ?"
-      },
-      {
-        "count": 9,
-        "statement": "SELECT network_id FROM incident_networks WHERE incident_id = ? ORDER BY network_id"
+        "statement": "WITH selected AS ( SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ? ) SELECT s.id, s.incident_type, s.lifecycle_state, s.severity, s.scope, s.confidence, s.title, s.summary, s.explanation, s.evidence_json, s.counter_evidence_json, s.limitations_json, s.opened_at, s.updated_at, s.resolved_at, s.dedup_key, n.network_id FROM selected s LEFT JOIN incident_networks n ON n.incident_id = s.id ORDER BY n.network_id"
       },
       {
         "count": 9,
@@ -278,6 +272,10 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       {
         "count": 7,
         "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?"
+      },
+      {
+        "count": 3,
+        "statement": "SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?"
       }
     ]
   },
@@ -683,7 +681,6 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.ha_enrichment": 8,
       "read.health_snapshots": 168,
       "read.incident_devices": 18,
-      "read.incident_networks": 18,
       "read.incidents": 20,
       "read.networks": 6,
       "read.schema": 53,
@@ -701,7 +698,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "write.incidents": 3
     },
     "commit_count": 27,
-    "execute_count": 985,
+    "execute_count": 967,
     "executemany_count": 0,
     "fixture": "beast",
     "rollback_count": 0,
@@ -737,7 +734,6 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.ha_enrichment": 3,
       "read.health_snapshots": 22,
       "read.incident_devices": 2,
-      "read.incident_networks": 2,
       "read.incidents": 3,
       "read.networks": 3,
       "read.schema": 8,
@@ -755,7 +751,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "write.incidents": 2
     },
     "commit_count": 9,
-    "execute_count": 140,
+    "execute_count": 138,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
@@ -791,7 +787,6 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.ha_enrichment": 3,
       "read.health_snapshots": 3,
       "read.incident_devices": 2,
-      "read.incident_networks": 2,
       "read.incidents": 3,
       "read.networks": 3,
       "read.schema": 4,
@@ -806,7 +801,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "write.metric_samples": 2
     },
     "commit_count": 3,
-    "execute_count": 38,
+    "execute_count": 36,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
@@ -842,7 +837,6 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.ha_enrichment": 4,
       "read.health_snapshots": 3,
       "read.incident_devices": 9,
-      "read.incident_networks": 9,
       "read.incidents": 10,
       "read.networks": 3,
       "read.schema": 7,
@@ -857,7 +851,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "write.metric_samples": 2
     },
     "commit_count": 3,
-    "execute_count": 71,
+    "execute_count": 62,
     "executemany_count": 0,
     "fixture": "beast",
     "rollback_count": 0,
@@ -869,11 +863,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       },
       {
         "count": 9,
-        "statement": "SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ?"
-      },
-      {
-        "count": 9,
-        "statement": "SELECT network_id FROM incident_networks WHERE incident_id = ? ORDER BY network_id"
+        "statement": "WITH selected AS ( SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ? ) SELECT s.id, s.incident_type, s.lifecycle_state, s.severity, s.scope, s.confidence, s.title, s.summary, s.explanation, s.evidence_json, s.counter_evidence_json, s.limitations_json, s.opened_at, s.updated_at, s.resolved_at, s.dedup_key, n.network_id FROM selected s LEFT JOIN incident_networks n ON n.incident_id = s.id ORDER BY n.network_id"
       },
       {
         "count": 7,
@@ -882,6 +872,10 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       {
         "count": 3,
         "statement": "SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?"
+      },
+      {
+        "count": 3,
+        "statement": "SELECT friendly_name FROM topology_nodes WHERE snapshot_id = ? AND ieee_address = ?"
       }
     ]
   },
@@ -980,12 +974,12 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.availability_changes": 27,
       "read.bridge_snapshots": 1,
       "read.device_snapshots": 20,
-      "read.devices": 10,
+      "read.devices": 9,
       "read.events": 2,
       "read.ha_enrichment": 28,
-      "read.incident_devices": 2,
-      "read.incident_networks": 2,
-      "read.incidents": 3,
+      "read.incident_devices": 1,
+      "read.incident_networks": 1,
+      "read.incidents": 2,
       "read.networks": 4,
       "read.schema": 36,
       "read.topology_links": 27,
@@ -993,7 +987,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_snapshots": 13
     },
     "commit_count": 0,
-    "execute_count": 191,
+    "execute_count": 187,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
@@ -1026,12 +1020,12 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.availability_changes": 178,
       "read.bridge_snapshots": 2,
       "read.device_snapshots": 164,
-      "read.devices": 17,
+      "read.devices": 16,
       "read.events": 2,
       "read.ha_enrichment": 79,
-      "read.incident_devices": 2,
-      "read.incident_networks": 2,
-      "read.incidents": 3,
+      "read.incident_devices": 1,
+      "read.incident_networks": 1,
+      "read.incidents": 2,
       "read.networks": 5,
       "read.schema": 97,
       "read.topology_links": 56,
@@ -1039,7 +1033,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_snapshots": 26
     },
     "commit_count": 0,
-    "execute_count": 667,
+    "execute_count": 663,
     "executemany_count": 0,
     "fixture": "beast",
     "rollback_count": 0,
@@ -1072,7 +1066,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.availability_changes": 13,
       "read.bridge_snapshots": 1,
       "read.device_snapshots": 3,
-      "read.devices": 13,
+      "read.devices": 12,
       "read.events": 4,
       "read.ha_enrichment": 28,
       "read.incident_devices": 2,
@@ -1086,7 +1080,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_snapshots": 13
     },
     "commit_count": 0,
-    "execute_count": 176,
+    "execute_count": 175,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
@@ -1119,7 +1113,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.availability_changes": 13,
       "read.bridge_snapshots": 1,
       "read.device_snapshots": 3,
-      "read.devices": 13,
+      "read.devices": 12,
       "read.events": 4,
       "read.ha_enrichment": 28,
       "read.incident_devices": 2,
@@ -1133,7 +1127,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_snapshots": 13
     },
     "commit_count": 0,
-    "execute_count": 176,
+    "execute_count": 175,
     "executemany_count": 0,
     "fixture": "history",
     "rollback_count": 0,
@@ -1166,12 +1160,12 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.availability_changes": 27,
       "read.bridge_snapshots": 1,
       "read.device_snapshots": 20,
-      "read.devices": 10,
+      "read.devices": 9,
       "read.events": 2,
       "read.ha_enrichment": 28,
-      "read.incident_devices": 2,
-      "read.incident_networks": 2,
-      "read.incidents": 3,
+      "read.incident_devices": 1,
+      "read.incident_networks": 1,
+      "read.incidents": 2,
       "read.networks": 4,
       "read.schema": 36,
       "read.topology_links": 27,
@@ -1179,7 +1173,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_snapshots": 13
     },
     "commit_count": 0,
-    "execute_count": 191,
+    "execute_count": 187,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
@@ -1212,12 +1206,12 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.availability_changes": 127,
       "read.bridge_snapshots": 1,
       "read.device_snapshots": 120,
-      "read.devices": 10,
+      "read.devices": 9,
       "read.events": 2,
       "read.ha_enrichment": 41,
-      "read.incident_devices": 2,
-      "read.incident_networks": 2,
-      "read.incidents": 3,
+      "read.incident_devices": 1,
+      "read.incident_networks": 1,
+      "read.incidents": 2,
       "read.networks": 4,
       "read.schema": 51,
       "read.topology_links": 29,
@@ -1225,7 +1219,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_snapshots": 15
     },
     "commit_count": 0,
-    "execute_count": 425,
+    "execute_count": 421,
     "executemany_count": 0,
     "fixture": "beast",
     "rollback_count": 0,
