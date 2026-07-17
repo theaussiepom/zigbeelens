@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
-from zigbeelens.config.security_types import SecurityMode, is_loopback_bind
+from zigbeelens.config.security_types import SecurityMode
 from zigbeelens.mock.fixtures import DEFAULT_SCENARIO
 
 MIN_SECURITY_SECRET_LENGTH = 32

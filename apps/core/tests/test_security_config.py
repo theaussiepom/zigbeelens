@@ -10,13 +10,8 @@ from pydantic import ValidationError
 
 from zigbeelens.config import ConfigError, load_config
 from zigbeelens.config.loader import format_validation_error
-from zigbeelens.config.models import (
-    AppConfig,
-    SecurityConfig,
-    SecurityMode,
-    ServerConfig,
-    is_loopback_bind,
-)
+from zigbeelens.config.models import AppConfig, SecurityConfig, SecurityMode, ServerConfig
+from zigbeelens.config.security_types import is_loopback_bind
 
 VALID_TOKEN = "a" * 32
 VALID_TOKEN_B = "b" * 32
