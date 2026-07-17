@@ -313,14 +313,13 @@ export function DeviceDetailPage() {
   const incidents = useLiveResource(
     () =>
       api
-        .incidents(s)
-        .then((r) =>
-          r.items.filter((i) =>
-            i.affected_devices.some(
-              (d) => d.network_id === networkId && d.ieee_address === ieee,
-            ),
-          ),
-        ),
+        .incidents({
+          scenario: s,
+          network_id: networkId!,
+          device_ieee: ieee,
+          limit: 50,
+        })
+        .then((r) => r.items),
     [networkId, ieeeAddress, scenario],
     { refetchOn: DEVICE_EVENTS, enabled: Boolean(networkId && ieeeAddress) },
   );

@@ -20,6 +20,12 @@ class IncidentRepository:
     def list_active_incidents(self) -> list[dict[str, Any]]:
         return self._repo.list_active_incidents()
 
+    def count_incidents(self, query):
+        return self._repo.count_incidents(query)
+
+    def list_incidents_page(self, query):
+        return self._repo.list_incidents_page(query)
+
     def get_incident_by_dedup_key(self, dedup_key: str) -> dict[str, Any] | None:
         return self._repo.get_incident_by_dedup_key(dedup_key)
 

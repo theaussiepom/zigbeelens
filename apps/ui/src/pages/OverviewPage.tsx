@@ -41,8 +41,6 @@ import {
   readOverviewLastViewedAt,
   writeOverviewLastViewedAt,
 } from "@/lib/overviewVisitStorage";
-import { compareIncidents } from "@/lib/format";
-
 const DASHBOARD_EVENTS = [
   "dashboard_update",
   "dashboard_updated",
@@ -61,14 +59,35 @@ export function OverviewPage() {
   const dashboard = useLiveResource(() => api.dashboard(scenario || undefined), [scenario], {
     refetchOn: DASHBOARD_EVENTS,
   });
-  const incidents = useLiveResource(
-    () => api.incidents(scenario || undefined).then((r) => r.items),
+  const previousLastViewedAt = useMemo(() => readOverviewLastViewedAt(), []);
+  const visitTimestamp = useMemo(() => new Date().toISOString(), []);
+
+  const activeIncidentsResource = useLiveResource(
+    () =>
+      api.incidents({
+        scenario: scenario || undefined,
+        status: ["open", "watching"],
+        limit: 20,
+      }).then((r) => r.items),
     [scenario],
     { refetchOn: DASHBOARD_EVENTS },
   );
-
-  const previousLastViewedAt = useMemo(() => readOverviewLastViewedAt(), []);
-  const visitTimestamp = useMemo(() => new Date().toISOString(), []);
+  const recentIncidentsResource = useLiveResource(
+    () => {
+      if (!previousLastViewedAt) {
+        return Promise.resolve([]);
+      }
+      return api
+        .incidents({
+          scenario: scenario || undefined,
+          updated_after: previousLastViewedAt,
+          limit: 50,
+        })
+        .then((r) => r.items);
+    },
+    [scenario, previousLastViewedAt],
+    { refetchOn: DASHBOARD_EVENTS },
+  );
 
   useEffect(() => {
     if (dashboard.data && !dashboard.loading) {
@@ -78,7 +97,8 @@ export function OverviewPage() {
 
   if (dashboard.error) return <ErrorState message={dashboard.error} onRetry={() => {
     dashboard.refetch();
-    incidents.refetch();
+    activeIncidentsResource.refetch();
+    recentIncidentsResource.refetch();
   }} />;
   if (dashboard.loading || !dashboard.data) return <LoadingState />;
 
@@ -93,18 +113,16 @@ export function OverviewPage() {
   const modelPatterns = data.model_patterns.map((pattern) =>
     buildModelPatternViewModel(pattern, networkNames[pattern.network_id]),
   );
-  const allIncidents = incidents.data ?? [];
+  // Server owns collection order (lifecycle rank, updated_at DESC, id DESC).
+  const active = activeIncidentsResource.data ?? [];
   const recentChanges = buildRecentChangesSectionViewModel({
     previousLastViewedAt,
     dashboard: data,
-    incidents: allIncidents,
+    incidents: recentIncidentsResource.data ?? [],
   });
   const dataCoverageWarnings = (data.data_coverage_warnings ?? []).map((warning) =>
     buildDataCoverageWarningViewModel(warning, networkNames[warning.network_id]),
   );
-  const active = allIncidents
-    .filter((i) => i.status === "open" || i.status === "watching")
-    .sort(compareIncidents);
   const topOpenIncidentId = active.find((i) => i.status === "open")?.id ?? active[0]?.id;
 
   return (
@@ -218,7 +236,7 @@ export function OverviewPage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
             Active incidents
           </h2>
-          {allIncidents.length > 0 && (
+          {active.length > 0 && (
             <Link to="/incidents" className="text-sm text-zl-accent hover:underline">
               All incidents →
             </Link>

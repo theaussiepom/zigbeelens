@@ -576,10 +576,9 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.availability_changes": 7,
       "read.device_snapshots": 5,
       "read.devices": 2,
-      "read.events": 1,
       "read.ha_enrichment": 2,
       "read.incident_devices": 1,
-      "read.incidents": 2,
+      "read.incidents": 3,
       "read.schema": 5,
       "read.topology_links": 10,
       "read.topology_nodes": 12,
@@ -611,6 +610,48 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       {
         "count": 5,
         "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?"
+      }
+    ]
+  },
+  "incident_list_history": {
+    "category_counts": {
+      "read.availability_changes": 42,
+      "read.device_snapshots": 38,
+      "read.devices": 4,
+      "read.ha_enrichment": 3,
+      "read.incident_devices": 1,
+      "read.incidents": 3,
+      "read.schema": 9,
+      "read.topology_links": 10,
+      "read.topology_nodes": 12,
+      "read.topology_snapshots": 8
+    },
+    "commit_count": 0,
+    "execute_count": 130,
+    "executemany_count": 0,
+    "fixture": "history",
+    "rollback_count": 0,
+    "state": "warm",
+    "top_repeated_statements": [
+      {
+        "count": 38,
+        "statement": "SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?"
+      },
+      {
+        "count": 38,
+        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?"
+      },
+      {
+        "count": 12,
+        "statement": "SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address"
+      },
+      {
+        "count": 10,
+        "statement": "SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?"
+      },
+      {
+        "count": 9,
+        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?"
       }
     ]
   },

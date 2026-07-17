@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { Incident } from "@zigbeelens/shared";
@@ -16,11 +16,48 @@ const mockState = vi.hoisted(() => ({
   incidents: [] as Incident[],
   detail: null as Incident | null,
   scenario: "",
+  networks: [
+    { id: "home", name: "Home", base_topic: "zigbee2mqtt" },
+    { id: "office", name: "Office", base_topic: "z2m-office" },
+    { id: "garage", name: "Garage", base_topic: "z2m-garage" },
+  ],
+  nextCursor: null as string | null,
+  loadMoreImpl: null as null | ((query: Record<string, unknown>) => Promise<unknown>),
 }));
 
 vi.mock("@/lib/api", () => ({
   api: {
-    incidents: vi.fn(async () => ({ items: mockState.incidents })),
+    networks: vi.fn(() =>
+      Promise.resolve({
+        items: mockState.networks,
+        total: mockState.networks.length,
+      }),
+    ),
+    incidents: vi.fn((query: {
+      network_id?: string;
+      status?: string | string[];
+      cursor?: string;
+      scenario?: string;
+      limit?: number;
+    } = {}) => {
+      if (query.cursor && mockState.loadMoreImpl) {
+        return mockState.loadMoreImpl(query);
+      }
+      let items = mockState.incidents;
+      if (query.network_id) {
+        items = items.filter((inc) => inc.network_ids.includes(query.network_id!));
+      }
+      if (query.status) {
+        const statuses = Array.isArray(query.status) ? query.status : [query.status];
+        items = items.filter((inc) => statuses.includes(inc.status));
+      }
+      return Promise.resolve({
+        items,
+        total: items.length,
+        limit: query.limit ?? 50,
+        next_cursor: mockState.nextCursor,
+      });
+    }),
     incident: vi.fn(async () => mockState.detail),
   },
 }));
@@ -32,26 +69,51 @@ vi.mock("@/context/ScenarioContext", () => ({
   }),
 }));
 
-vi.mock("@/hooks/useLiveResource", () => ({
-  useLiveResource: (fetcher: () => unknown) => {
-    void fetcher();
-    const source = fetcher.toString();
-    if (/\bapi\.incident\s*\(/.test(source) && !/\bapi\.incidents\s*\(/.test(source)) {
+vi.mock("@/hooks/useLiveResource", async () => {
+  const React = await import("react");
+  return {
+    useLiveResource: (
+      fetcher: () => Promise<unknown> | unknown,
+      deps: unknown[] = [],
+    ) => {
+      const source = fetcher.toString();
+      const [data, setData] = React.useState<unknown>(() => {
+        if (/\bapi\.incident\s*\(/.test(source) && !/\bapi\.incidents\s*\(/.test(source)) {
+          return mockState.detail;
+        }
+        return null;
+      });
+      const [loading, setLoading] = React.useState(data == null);
+      React.useEffect(() => {
+        let active = true;
+        setLoading(true);
+        void Promise.resolve(fetcher()).then((result) => {
+          if (!active) return;
+          setData(result);
+          setLoading(false);
+        });
+        return () => {
+          active = false;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, deps);
+      if (/\bapi\.incident\s*\(/.test(source) && !/\bapi\.incidents\s*\(/.test(source)) {
+        return {
+          data: mockState.detail,
+          loading: false,
+          error: null,
+          refetch: vi.fn(),
+        };
+      }
       return {
-        data: mockState.detail,
-        loading: false,
+        data,
+        loading,
         error: null,
         refetch: vi.fn(),
       };
-    }
-    return {
-      data: mockState.incidents,
-      loading: false,
-      error: null,
-      refetch: vi.fn(),
-    };
-  },
-}));
+    },
+  };
+});
 
 function makeIncident(overrides: Partial<Incident> = {}): Incident {
   return {
@@ -138,19 +200,22 @@ describe("IncidentsPage list", () => {
     mockState.scenario = "";
     mockState.incidents = [makeIncident()];
     mockState.detail = null;
+    mockState.nextCursor = null;
+    mockState.loadMoreImpl = null;
   });
 
-  it("renders lifecycle groups and current decision summary", () => {
+  it("renders lifecycle groups and current decision summary", async () => {
     renderList();
-    expect(screen.getByText("Open · 1")).toBeInTheDocument();
+    expect(await screen.findByText("Open · 1")).toBeInTheDocument();
     expect(screen.getByText("Kitchen Plug unavailable")).toBeInTheDocument();
     expect(
       screen.getByText(/Current device decisions:.*Worth reviewing/i),
     ).toBeInTheDocument();
   });
 
-  it("does not render lens/health interpretation or list evidence", () => {
+  it("does not render lens/health interpretation or list evidence", async () => {
     renderList();
+    expect(await screen.findByText("Kitchen Plug unavailable")).toBeInTheDocument();
     expect(screen.queryByText("Looks offline in lens")).not.toBeInTheDocument();
     expect(screen.queryByText("Needs attention")).not.toBeInTheDocument();
     expect(screen.queryByText(/Evidence: First stored evidence/i)).not.toBeInTheDocument();
@@ -158,11 +223,69 @@ describe("IncidentsPage list", () => {
     expect(screen.queryByText("worth_reviewing")).not.toBeInTheDocument();
   });
 
-  it("uses record-oriented empty copy", () => {
+  it("uses record-oriented empty copy", async () => {
     mockState.incidents = [];
     renderList();
-    expect(screen.getByText("No incident records")).toBeInTheDocument();
+    expect(await screen.findByText("No incident records")).toBeInTheDocument();
+    expect(screen.getByLabelText("Network")).toBeInTheDocument();
+    expect(screen.getByLabelText("Lifecycle")).toBeInTheDocument();
     expect(screen.queryByText(/look stable/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps filters and clear action when lifecycle filter returns zero", async () => {
+    const user = userEvent.setup();
+    mockState.incidents = [makeIncident({ status: "open" })];
+    renderList();
+    await screen.findByText("Kitchen Plug unavailable");
+
+    await user.selectOptions(screen.getByLabelText("Lifecycle"), "resolved");
+    expect(await screen.findByText("No incidents match")).toBeInTheDocument();
+    expect(screen.getByLabelText("Lifecycle")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /clear filters/i }).length).toBeGreaterThan(0);
+
+    await user.click(screen.getAllByRole("button", { name: /clear filters/i })[0]!);
+    await waitFor(() => {
+      expect(screen.getByText("Kitchen Plug unavailable")).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText("Lifecycle")).toHaveValue("");
+  });
+
+  it("keeps filters and clear action when network filter returns zero", async () => {
+    const user = userEvent.setup();
+    mockState.incidents = [makeIncident({ network_ids: ["home"] })];
+    renderList();
+    await screen.findByText("Kitchen Plug unavailable");
+
+    await user.selectOptions(screen.getByLabelText("Network"), "garage");
+    expect(await screen.findByText("No incidents match")).toBeInTheDocument();
+    expect(screen.getByLabelText("Network")).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: /clear filters/i })[0]!);
+    await waitFor(() => {
+      expect(screen.getByText("Kitchen Plug unavailable")).toBeInTheDocument();
+    });
+  });
+
+  it("shows configured networks even when absent from the first page", async () => {
+    mockState.incidents = [makeIncident({ network_ids: ["home"] })];
+    renderList();
+    await screen.findByText("Kitchen Plug unavailable");
+    const networkSelect = screen.getByLabelText("Network");
+    expect(within(networkSelect).getByRole("option", { name: "garage" })).toBeInTheDocument();
+    expect(within(networkSelect).getByRole("option", { name: "office" })).toBeInTheDocument();
+  });
+
+  it("keeps Load more when local filters hide all loaded items", async () => {
+    const user = userEvent.setup();
+    mockState.incidents = [makeIncident()];
+    mockState.nextCursor = "cursor-next";
+    renderList();
+    await screen.findByText("Kitchen Plug unavailable");
+    expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText(/device, friendly name/i), "zzzz-no-match");
+    expect(await screen.findByText("No incidents match")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
   });
 
   it("filters by network/lifecycle/type/scope/search without severity filter", async () => {
@@ -191,12 +314,17 @@ describe("IncidentsPage list", () => {
       }),
     ];
     renderList();
+    await waitFor(() => {
+      expect(screen.getByText("Kitchen Plug unavailable")).toBeInTheDocument();
+    });
     expect(screen.queryByLabelText("Severity")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Incident decision/i)).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText("Network"), "office");
-    expect(screen.queryByText("Kitchen Plug unavailable")).not.toBeInTheDocument();
-    expect(screen.getByText("Office motion unavailable")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("Kitchen Plug unavailable")).not.toBeInTheDocument();
+      expect(screen.getByText("Office motion unavailable")).toBeInTheDocument();
+    });
   });
 
   it("list source does not hard-code decision status switches", () => {

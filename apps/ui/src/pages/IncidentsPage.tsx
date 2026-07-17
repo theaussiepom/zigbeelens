@@ -1,6 +1,6 @@
 import { Link, useParams } from "react-router-dom";
-import { useMemo, useState } from "react";
-import type { IncidentStatus } from "@zigbeelens/shared";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Incident, IncidentStatus } from "@zigbeelens/shared";
 import { api } from "@/lib/api";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
@@ -22,7 +22,6 @@ import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
 import { incidentTypeLabel, scopeLabel } from "@/lib/format";
 import {
   buildIncidentRecordViewModel,
-  compareIncidentsByRecordTiming,
   incidentMatchesSearch,
 } from "@/viewModels/incidents/incidentViewModel";
 import {
@@ -39,60 +38,144 @@ const INCIDENT_EVENTS = [
   "dashboard_updated",
 ];
 
+const PAGE_LIMIT = 50;
+
 export function IncidentsPage() {
   const { scenario } = useScenario();
-  const { data, error, loading, refetch } = useLiveResource(
-    () => api.incidents(scenario || undefined).then((r) => r.items),
-    [scenario],
-    { refetchOn: INCIDENT_EVENTS },
-  );
-
   const [network, setNetwork] = useState("");
   const [scope, setScope] = useState("");
   const [type, setType] = useState("");
   const [lifecycle, setLifecycle] = useState("");
   const [search, setSearch] = useState("");
+  const [items, setItems] = useState<Incident[]>([]);
+  const [total, setTotal] = useState(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const filterEpochRef = useRef(0);
 
-  const incidents = data ?? [];
+  const networksResource = useLiveResource(
+    () => api.networks(scenario || undefined).then((res) => res.items),
+    [scenario],
+    { refetchOn: INCIDENT_EVENTS },
+  );
+
+  const page = useLiveResource(
+    () =>
+      api.incidents({
+        scenario: scenario || undefined,
+        status: lifecycle ? (lifecycle as IncidentStatus) : undefined,
+        network_id: network || undefined,
+        limit: PAGE_LIMIT,
+      }),
+    [scenario, lifecycle, network],
+    { refetchOn: INCIDENT_EVENTS },
+  );
+
+  useEffect(() => {
+    filterEpochRef.current += 1;
+  }, [scenario, lifecycle, network]);
+
+  useEffect(() => {
+    if (!page.data) return;
+    setItems(page.data.items);
+    setTotal(page.data.total);
+    setNextCursor(page.data.next_cursor ?? null);
+    setLoadMoreError(null);
+  }, [page.data]);
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore) return;
+    const epoch = filterEpochRef.current;
+    const cursor = nextCursor;
+    const requestScenario = scenario || undefined;
+    const requestLifecycle = lifecycle;
+    const requestNetwork = network;
+    setLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const more = await api.incidents({
+        scenario: requestScenario,
+        status: requestLifecycle ? (requestLifecycle as IncidentStatus) : undefined,
+        network_id: requestNetwork || undefined,
+        limit: PAGE_LIMIT,
+        cursor,
+      });
+      if (epoch !== filterEpochRef.current) {
+        return;
+      }
+      setItems((prev) => {
+        const seen = new Set(prev.map((inc) => inc.id));
+        const appended = more.items.filter((inc) => !seen.has(inc.id));
+        return [...prev, ...appended];
+      });
+      setTotal(more.total);
+      setNextCursor(more.next_cursor ?? null);
+    } catch (error) {
+      if (epoch !== filterEpochRef.current) {
+        return;
+      }
+      setLoadMoreError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (epoch === filterEpochRef.current) {
+        setLoadingMore(false);
+      }
+    }
+  }, [lifecycle, loadingMore, network, nextCursor, scenario]);
+
+  const clearFilters = useCallback(() => {
+    setNetwork("");
+    setLifecycle("");
+    setScope("");
+    setType("");
+    setSearch("");
+  }, []);
+
+  const hasServerFilters = Boolean(lifecycle || network);
+  const hasLocalFilters = Boolean(scope || type || search);
+  const hasAnyFilters = hasServerFilters || hasLocalFilters;
 
   const options = useMemo(() => {
-    const networks = new Set<string>();
     const scopes = new Set<string>();
     const types = new Set<string>();
-    for (const inc of incidents) {
-      inc.network_ids.forEach((n) => networks.add(n));
+    for (const inc of items) {
       scopes.add(inc.scope);
       types.add(inc.type);
     }
     return {
-      networks: [...networks].sort(),
+      networks: (networksResource.data ?? []).map((n) => n.id).sort(),
       scopes: [...scopes].sort(),
       types: [...types].sort(),
     };
-  }, [incidents]);
+  }, [items, networksResource.data]);
 
+  // Server owns ordering; only apply local scope/type/search on loaded pages.
   const filtered = useMemo(() => {
-    return incidents
+    return items
       .filter((inc) => {
-        if (network && !inc.network_ids.includes(network)) return false;
         if (scope && inc.scope !== scope) return false;
         if (type && inc.type !== type) return false;
-        if (lifecycle && inc.status !== lifecycle) return false;
         if (!incidentMatchesSearch(inc, search)) return false;
         return true;
       })
-      .sort(compareIncidentsByRecordTiming)
       .map(buildIncidentRecordViewModel);
-  }, [incidents, network, scope, type, lifecycle, search]);
+  }, [items, scope, type, search]);
 
-  if (error) return <ErrorState message={error} onRetry={refetch} />;
-  if (loading) return <LoadingState />;
+  if (page.error) return <ErrorState message={page.error} onRetry={page.refetch} />;
+  if (page.loading && !page.data) return <LoadingState />;
 
   const groups: Array<{ key: IncidentStatus; label: string }> = [
     { key: "open", label: "Open" },
     { key: "watching", label: "Watching" },
     { key: "resolved", label: "Recently resolved" },
   ];
+
+  const emptyTitle =
+    total === 0 && !hasServerFilters ? "No incident records" : "No incidents match";
+  const emptyDetail =
+    total === 0 && !hasServerFilters
+      ? "No incident history is available for the current view."
+      : "Try clearing filters.";
 
   return (
     <div className="max-w-5xl space-y-6">
@@ -104,69 +187,102 @@ export function IncidentsPage() {
         </p>
       </div>
 
-      {incidents.length === 0 ? (
-        <EmptyState
-          title="No incident records"
-          detail="No incident history is available for the current view."
-        />
-      ) : (
-        <>
-          <Card>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <Select label="Network" value={network} onChange={setNetwork} options={options.networks} />
-              <Select
-                label="Lifecycle"
-                value={lifecycle}
-                onChange={setLifecycle}
-                options={["open", "watching", "resolved"]}
-              />
-              <Select
-                label="Scope"
-                value={scope}
-                onChange={setScope}
-                options={options.scopes}
-                labeller={scopeLabel as (v: string) => string}
-              />
-              <Select
-                label="Type"
-                value={type}
-                onChange={setType}
-                options={options.types}
-                labeller={incidentTypeLabel}
-              />
-              <label className="flex flex-col gap-1 text-xs text-zl-muted sm:col-span-2">
-                Search
-                <input
-                  type="search"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Device, friendly name, IEEE…"
-                  className="rounded-lg border border-zl-border bg-zl-bg px-3 py-2 text-sm text-zl-text"
-                />
-              </label>
-            </div>
-          </Card>
+      <Card>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <Select label="Network" value={network} onChange={setNetwork} options={options.networks} />
+          <Select
+            label="Lifecycle"
+            value={lifecycle}
+            onChange={setLifecycle}
+            options={["open", "watching", "resolved"]}
+          />
+          <Select
+            label="Scope"
+            value={scope}
+            onChange={setScope}
+            options={options.scopes}
+            labeller={scopeLabel as (v: string) => string}
+          />
+          <Select
+            label="Type"
+            value={type}
+            onChange={setType}
+            options={options.types}
+            labeller={incidentTypeLabel}
+          />
+          <label className="flex flex-col gap-1 text-xs text-zl-muted sm:col-span-2">
+            Search
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Device, friendly name, IEEE…"
+              className="rounded-lg border border-zl-border bg-zl-bg px-3 py-2 text-sm text-zl-text"
+            />
+          </label>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-zl-muted">
+            Showing {items.length} of {total} matching records
+            {hasLocalFilters ? " · scope/type/search apply to loaded pages" : ""}.
+          </p>
+          {hasAnyFilters ? (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="text-xs text-zl-accent hover:underline"
+            >
+              Clear filters
+            </button>
+          ) : null}
+        </div>
+      </Card>
 
-          {filtered.length === 0 ? (
-            <EmptyState title="No incidents match" detail="Try clearing filters." />
-          ) : (
-            groups.map(({ key, label }) => {
-              const items = filtered.filter((i) => i.lifecycle === key);
-              if (items.length === 0) return null;
-              return (
-                <section key={key} className="space-y-3">
-                  <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
-                    {label} · {items.length}
-                  </h2>
-                  {items.map((record) => (
-                    <IncidentRecordCard key={record.id} record={record} />
-                  ))}
-                </section>
-              );
-            })
-          )}
-        </>
+      {filtered.length === 0 ? (
+        <div className="space-y-3">
+          <EmptyState title={emptyTitle} detail={emptyDetail} />
+          {hasAnyFilters ? (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="text-sm text-zl-accent hover:underline"
+            >
+              Clear filters
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        groups.map(({ key, label }) => {
+          const groupItems = filtered.filter((i) => i.lifecycle === key);
+          if (groupItems.length === 0) return null;
+          return (
+            <section key={key} className="space-y-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
+                {label} · {groupItems.length}
+              </h2>
+              {groupItems.map((record) => (
+                <IncidentRecordCard key={record.id} record={record} />
+              ))}
+            </section>
+          );
+        })
       )}
+
+      {nextCursor ? (
+        <div className="flex flex-col items-start gap-2">
+          <button
+            type="button"
+            onClick={() => void loadMore()}
+            disabled={loadingMore}
+            className="rounded-lg border border-zl-border bg-zl-panel px-4 py-2 text-sm text-zl-text hover:border-zl-accent disabled:opacity-60"
+          >
+            {loadingMore ? "Loading…" : "Load more"}
+          </button>
+          {loadMoreError ? (
+            <p className="text-sm text-zl-danger">{loadMoreError}</p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

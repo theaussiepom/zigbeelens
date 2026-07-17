@@ -93,11 +93,29 @@ export function NetworkDetailPage() {
     [networkId, scenario],
     { refetchOn: NETWORK_EVENTS, enabled: Boolean(networkId) },
   );
-  const incidents = useLiveResource(
+  const activeIncidentsResource = useLiveResource(
     () =>
       api
-        .incidents(s)
-        .then((r) => r.items.filter((i) => i.network_ids.includes(networkId!))),
+        .incidents({
+          scenario: s,
+          network_id: networkId!,
+          status: ["open", "watching"],
+          limit: 50,
+        })
+        .then((r) => r.items),
+    [networkId, scenario],
+    { refetchOn: NETWORK_EVENTS, enabled: Boolean(networkId) },
+  );
+  const resolvedIncidentsResource = useLiveResource(
+    () =>
+      api
+        .incidents({
+          scenario: s,
+          network_id: networkId!,
+          status: "resolved",
+          limit: 20,
+        })
+        .then((r) => r.items),
     [networkId, scenario],
     { refetchOn: NETWORK_EVENTS, enabled: Boolean(networkId) },
   );
@@ -120,10 +138,8 @@ export function NetworkDetailPage() {
     .filter((d) => d.health.primary !== "healthy")
     .sort(compareDevices)
     .slice(0, 6);
-  const activeIncidents = (incidents.data ?? []).filter(
-    (i) => i.status === "open" || i.status === "watching",
-  );
-  const resolvedIncidents = (incidents.data ?? []).filter((i) => i.status === "resolved");
+  const activeIncidents = activeIncidentsResource.data ?? [];
+  const resolvedIncidents = resolvedIncidentsResource.data ?? [];
 
   return (
     <div className="max-w-5xl space-y-6">

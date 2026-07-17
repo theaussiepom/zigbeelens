@@ -420,12 +420,15 @@ def test_incident_list_one_bulk_context(tmp_path: Path, monkeypatch: pytest.Monk
         )
         for key in calls:
             calls[key] = 0
+        from zigbeelens.storage.incident_collection import build_incident_collection_query
+
         with _frozen_time():
-            incidents = _builder(fx).incidents()
-        assert incidents
+            page = _builder(fx).incidents_page(build_incident_collection_query())
+        assert page["items"]
+        assert all(inc.timeline == [] for inc in page["items"])
         assert calls["bulk_refs"] == 1
         assert calls["bulk_devices"] == 1
-        assert calls["bulk_events"] == 1
+        assert calls["bulk_events"] == 0
         assert calls["badge_batch"] == 1
         assert calls["list_incident_devices"] == 0
         assert calls["get_device"] == 0
@@ -547,21 +550,25 @@ def test_report_preview_parity_and_no_devices_endpoint(tmp_path: Path, monkeypat
             "devices",
             MagicMock(side_effect=AssertionError("reports must not call devices()")),
         )
+        from zigbeelens.storage.incident_collection import build_incident_collection_query
+
         with _frozen_time():
             _data(fx).report_preview(request=ReportRequest(scope=ReportScope.full))
-            incidents = _builder(fx).incidents()
+            incidents = _builder(fx).incidents_page(build_incident_collection_query())["items"]
             detail = _builder(fx).incident(fx.active_incident_id)
         assert incidents
         assert detail is not None
 
 
 def test_read_only_surfaces_commit_zero(tmp_path: Path):
+    from zigbeelens.storage.incident_collection import build_incident_collection_query
+
     with deterministic_fixture(tmp_path, "compact") as fx:
         fx.counter.reset()
         with _frozen_time():
             _builder(fx).dashboard()
             _builder(fx).devices()
-            _builder(fx).incidents()
+            _builder(fx).incidents_page(build_incident_collection_query())
             _builder(fx).incident(fx.active_incident_id)
             _builder(fx).device_detail(*fx.target_device)
         assert fx.counter.stats.commit_count == 0
@@ -579,6 +586,67 @@ def test_track_3c_ingestion_baselines_unchanged():
     assert EXPECTED_BASELINES["inventory_ingestion_compact"]["execute_count"] == 136
     assert EXPECTED_BASELINES["inventory_ingestion_beast"]["execute_count"] == 963
     assert EXPECTED_PHASE_BASELINES["payload_ingestion"]["total_execute_count"] == 36
+
+
+def test_track_3e_incident_list_scales_with_page_not_history(tmp_path: Path):
+    from performance.expected_baselines import EXPECTED_BASELINES
+    from zigbeelens.storage.incident_collection import build_incident_collection_query
+
+    compact = EXPECTED_BASELINES["incident_list"]
+    history = EXPECTED_BASELINES["incident_list_history"]
+    assert compact["category_counts"].get("read.events", 0) == 0
+    assert history["category_counts"].get("read.events", 0) == 0
+    assert compact["category_counts"]["read.incident_devices"] == 1
+    assert history["category_counts"]["read.incident_devices"] == 1
+    assert compact["category_counts"]["read.incidents"] == 3
+    assert history["category_counts"]["read.incidents"] == 3
+    # History estate has ~1500 incidents; page composition must stay near compact.
+    assert history["execute_count"] < compact["execute_count"] * 4
+    assert history["execute_count"] < 200
+
+    # Default, active, and single-lifecycle pages must use the expression order
+    # index without sorting the matching history through a temporary B-tree.
+    db = Database(tmp_path / "history-plan.sqlite")
+    db.migrate()
+    repo = Repository(db)
+    now = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
+    for index in range(200):
+        state = "open" if index < 5 else ("watching" if index < 10 else "resolved")
+        ts = (now - timedelta(minutes=index)).isoformat()
+        repo.insert_incident(
+            incident_id=f"plan-{index:04d}",
+            dedup_key=f"plan:{index}",
+            incident_type="device_offline",
+            lifecycle_state=state,
+            severity="incident",
+            scope="device",
+            confidence="medium",
+            title=str(index),
+            summary=str(index),
+            explanation="e",
+            evidence=[],
+            counter_evidence=[],
+            limitations=[],
+            opened_at=ts,
+            updated_at=ts,
+        )
+    for query in (
+        build_incident_collection_query(limit=50),
+        build_incident_collection_query(status=["open", "watching"], limit=50),
+        build_incident_collection_query(status=["open"], limit=2),
+        build_incident_collection_query(status=["watching"], limit=2),
+        build_incident_collection_query(status=["resolved"], limit=50),
+    ):
+        sql, params = repo._incident_collection_page_sql(query, include_cursor=False)
+        plan_text = " | ".join(
+            str(row[-1])
+            for row in repo.db.conn.execute(
+                f"EXPLAIN QUERY PLAN {sql}",
+                params,
+            ).fetchall()
+        )
+        assert "idx_incidents_collection_order" in plan_text
+        assert "USE TEMP B-TREE FOR ORDER BY" not in plan_text
 
 
 def test_beast_scaling_reductions():

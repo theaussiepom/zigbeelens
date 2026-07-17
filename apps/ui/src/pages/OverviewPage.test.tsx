@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import type { DashboardPayload, DiagnosticConclusion } from "@zigbeelens/shared";
+import type { DashboardPayload, DiagnosticConclusion, Incident } from "@zigbeelens/shared";
 import { OVERVIEW_LAST_VIEWED_STORAGE_KEY } from "@/lib/overviewVisitStorage";
 import { OverviewPage } from "./OverviewPage";
 
@@ -93,6 +93,8 @@ const mockState = vi.hoisted(() => ({
     investigation_priorities: [],
     data_coverage_warnings: [],
   } as DashboardPayload,
+  activeIncidents: [] as Incident[],
+  recentIncidents: [] as Incident[],
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -108,8 +110,22 @@ vi.mock("@/context/ScenarioContext", () => ({
 
 vi.mock("@/hooks/useLiveResource", () => ({
   useLiveResource: (fetcher: () => unknown) => {
-    if (fetcher.toString().includes("incidents")) {
-      return { data: [], loading: false, error: null, refetch: vi.fn() };
+    const source = fetcher.toString();
+    if (source.includes("incidents")) {
+      if (source.includes("updated_after") || source.includes("previousLastViewedAt")) {
+        return {
+          data: mockState.recentIncidents,
+          loading: false,
+          error: null,
+          refetch: vi.fn(),
+        };
+      }
+      return {
+        data: mockState.activeIncidents,
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
     }
     return {
       data: mockState.dashboard,
@@ -119,6 +135,40 @@ vi.mock("@/hooks/useLiveResource", () => ({
     };
   },
 }));
+
+function makeOverviewIncident(overrides: Partial<Incident> = {}): Incident {
+  return {
+    id: "inc-1",
+    title: "Incident one",
+    status: "open",
+    type: "single_device_unavailable",
+    severity: "watch",
+    scope: "device",
+    confidence: "medium",
+    summary: "summary",
+    interpretation: "",
+    network_ids: ["home"],
+    affected_device_count: 0,
+    affected_devices: [],
+    opened_at: "2026-07-16T10:00:00Z",
+    updated_at: "2026-07-16T12:00:00Z",
+    evidence: [],
+    counter_evidence: [],
+    limitations: [],
+    timeline: [],
+    conclusion: {
+      classification: "single_device_unavailable",
+      severity: "watch",
+      scope: "device",
+      confidence: "medium",
+      summary: "summary",
+      evidence: [],
+      counter_evidence: [],
+      limitations: [],
+    },
+    ...overrides,
+  };
+}
 
 function renderOverview() {
   return render(
@@ -139,6 +189,8 @@ describe("OverviewPage shared availability events", () => {
   beforeEach(() => {
     localStorage.clear();
     mockState.dashboard = makeDashboard();
+    mockState.activeIncidents = [];
+    mockState.recentIncidents = [];
   });
 
   it("omits the shared-event section when the dashboard list is empty", () => {
@@ -179,6 +231,8 @@ describe("OverviewPage model patterns", () => {
   beforeEach(() => {
     localStorage.clear();
     mockState.dashboard = makeDashboard();
+    mockState.activeIncidents = [];
+    mockState.recentIncidents = [];
   });
 
   it("omits the model-pattern section when the dashboard list is empty", () => {
@@ -212,6 +266,8 @@ describe("OverviewPage investigation priorities", () => {
   beforeEach(() => {
     localStorage.clear();
     mockState.dashboard = makeDashboard();
+    mockState.activeIncidents = [];
+    mockState.recentIncidents = [];
   });
 
   it("shows cautious empty copy when there are no priorities", () => {
@@ -382,6 +438,8 @@ describe("OverviewPage recent changes and data coverage", () => {
   beforeEach(() => {
     localStorage.clear();
     mockState.dashboard = makeDashboard();
+    mockState.activeIncidents = [];
+    mockState.recentIncidents = [];
   });
 
   it("shows first-visit copy when no previous Overview visit is stored", async () => {
@@ -498,5 +556,58 @@ describe("Overview presentation source boundaries", () => {
     ]) {
       expect(source).not.toContain(code);
     }
+  });
+});
+
+describe("OverviewPage server incident order", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockState.dashboard = makeDashboard({
+      current_finding: {
+        classification: "single_device_unavailable",
+        severity: "incident",
+        scope: "device",
+        confidence: "medium",
+        summary: "Something needs attention.",
+        evidence: [],
+        counter_evidence: [],
+        limitations: [],
+      },
+      active_incident_count: 2,
+    });
+    mockState.recentIncidents = [];
+  });
+
+  it("keeps server order when an older open incident has higher severity", () => {
+    // Server order: newer open first. Client must not promote older higher severity.
+    mockState.activeIncidents = [
+      makeOverviewIncident({
+        id: "newer-open",
+        title: "Newer open incident",
+        status: "open",
+        severity: "watch",
+        updated_at: "2026-07-16T12:00:00Z",
+      }),
+      makeOverviewIncident({
+        id: "older-severe",
+        title: "Older severe open incident",
+        status: "open",
+        severity: "incident",
+        updated_at: "2026-07-16T10:00:00Z",
+      }),
+    ];
+
+    renderOverview();
+
+    expect(screen.getByRole("link", { name: /view incident detail/i })).toHaveAttribute(
+      "href",
+      "/incidents/newer-open",
+    );
+
+    const titles = screen.getAllByRole("heading", { level: 3 }).map((node) => node.textContent);
+    expect(titles.indexOf("Newer open incident")).toBeGreaterThanOrEqual(0);
+    expect(titles.indexOf("Newer open incident")).toBeLessThan(
+      titles.indexOf("Older severe open incident"),
+    );
   });
 });

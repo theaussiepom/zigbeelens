@@ -246,8 +246,16 @@ class PayloadBuilder:
         rows: list[dict],
         *,
         now: datetime | None = None,
+        include_events: bool = True,
     ) -> IncidentCompositionContext:
         incident_ids = [row["id"] for row in rows]
+        if not incident_ids:
+            return IncidentCompositionContext(
+                refs_by_incident_id=MappingProxyType({}),
+                devices_by_key=MappingProxyType({}),
+                events_by_incident_id=MappingProxyType({}),
+                decision_badges_by_key=MappingProxyType({}),
+            )
         refs_map = self.repo.incidents.list_incident_devices_for_incidents(incident_ids)
         refs_by_incident_id = MappingProxyType(
             {
@@ -265,7 +273,10 @@ class PayloadBuilder:
                 seen_keys.add(key)
                 keys.append(key)
         devices_by_key = MappingProxyType(self.repo.get_devices_by_keys(keys))
-        events_map = self.repo.list_events_for_incidents(incident_ids)
+        if include_events:
+            events_map = self.repo.list_events_for_incidents(incident_ids)
+        else:
+            events_map = {incident_id: [] for incident_id in incident_ids}
         events_by_incident_id = MappingProxyType(
             {
                 incident_id: tuple(events_map.get(incident_id, []))
@@ -647,11 +658,37 @@ class PayloadBuilder:
             items.append(risk)
         return sorted(items, key=lambda r: r.risk.severity.value)
 
-    def incidents(self) -> list[Incident]:
+    def incidents_page(self, query) -> dict[str, Any]:
+        """Bounded incident collection for the public list API (Track 3E)."""
+        page = self.repo.incidents.list_incidents_page(query)
+        composition = self._incident_composition_context(
+            list(page.rows),
+            now=datetime.now(timezone.utc),
+            include_events=False,
+        )
+        items = [
+            inc
+            for row in page.rows
+            if (inc := self._incident_from_row(row, composition=composition)) is not None
+        ]
+        return {
+            "items": items,
+            "total": page.total,
+            "limit": page.limit,
+            "next_cursor": page.next_cursor,
+        }
+
+    def incidents_complete_history(self) -> list[Incident]:
+        """Internal complete-history composition for reports (Track 3F debt).
+
+        Not exposed on the public /incidents collection route. Track 3F will
+        replace this with scope-first report assembly.
+        """
         rows = self.repo.incidents.list_incidents()
         composition = self._incident_composition_context(
             rows,
             now=datetime.now(timezone.utc),
+            include_events=True,
         )
         return [
             inc
@@ -666,6 +703,7 @@ class PayloadBuilder:
         composition = self._incident_composition_context(
             [row],
             now=datetime.now(timezone.utc),
+            include_events=True,
         )
         return self._incident_from_row(row, composition=composition)
 

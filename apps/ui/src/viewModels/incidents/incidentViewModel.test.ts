@@ -153,7 +153,7 @@ describe("incidentViewModel", () => {
     expect(vm.updatedLabel).toBeTruthy();
   });
 
-  it("sorts by lifecycle then updated/opened/id without severity", () => {
+  it("sorts by lifecycle then updated/id desc without severity", () => {
     const older = makeIncident({
       id: "a",
       status: "open",

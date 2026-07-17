@@ -1,6 +1,6 @@
-# Track 3D bulk composition reads performance baseline
+# Track 3E incident collection performance baseline
 
-Base commit for Track 3A history: `09f10a8` (final merged Track 2 base). Track 3A instrumentation landed via `perf/query-baseline-instrumentation`. Track 3B atomic MQTT ingestion landed via `perf/atomic-mqtt-ingestion`. Track 3C incremental device evaluation landed via `perf/incremental-device-evaluation` (merge `98ab5c8`). This document records **Track 3D current totals** after batching incident/device/HA composition reads and scoping Device/Incident detail events in SQL, plus a bounded Track 3E scoped-read foundation, and preserves **Track 3A / Track 3B / Track 3C history** for comparison.
+Base commit for Track 3A history: `09f10a8` (final merged Track 2 base). Track 3A instrumentation landed via `perf/query-baseline-instrumentation`. Track 3B atomic MQTT ingestion landed via `perf/atomic-mqtt-ingestion`. Track 3C incremental device evaluation landed via `perf/incremental-device-evaluation` (merge `98ab5c8`). Track 3D bulk Dashboard/Devices composition landed via `perf/bulk-composition-reads` (merge `e8a6611`). This document records **Track 3E current totals** after paginated incident collections with page-scoped composition, and preserves **Track 3A / Track 3B / Track 3C / Track 3D history** for comparison.
 
 These are planning snapshots, not accepted performance budgets.
 
@@ -8,13 +8,13 @@ These are planning snapshots, not accepted performance budgets.
 
 Track 1 and Track 2 behaviour was confirmed before Track 3A changes: Device Story exposes `related_unresolved_incident_ids`, incident membership is separate from current-issue relevance, canonical coverage evidence is used, and EvaluationCoordinator owns coherent health → incident → dashboard sequencing.
 
-Track 3B preserved those semantics with one `BEGIN IMMEDIATE` ingestion transaction. Track 3C preserved them with incremental target-device evaluation after commit. Track 3D preserves them again: read composition uses request-local immutable contexts only; Device Story related incident IDs remain contextual; write-path authority and incremental evaluation are unchanged. Health evaluation runs before Devices/Dashboard freeze incident-sensitive context, and one ActiveIncidentReadContext projects both affected keys and related IDs.
+Track 3B preserved those semantics with one `BEGIN IMMEDIATE` ingestion transaction. Track 3C preserved them with incremental target-device evaluation after commit. Track 3D preserves them again: read composition uses request-local immutable contexts only; Device Story related incident IDs remain contextual; write-path authority and incremental evaluation are unchanged. Health evaluation runs before Devices/Dashboard freeze incident-sensitive context, and one ActiveIncidentReadContext projects both affected keys and related IDs. Track 3E keeps those rules while making public incident collections page-bounded: Device Story badges are composed only for devices on the returned page, and list rows do not load incident timelines.
 
 ## Consistency rule
 
 > Device events update their target immediately. Time-only changes for unrelated devices are reconciled by the bounded periodic full-estate evaluation.
 
-The existing 300-second periodic full-estate evaluation remains the correctness backstop. Track 3D does not add caches, debounce timers, or shared mutable request state.
+The existing 300-second periodic full-estate evaluation remains the correctness backstop. Track 3E does not add caches, debounce timers, or shared mutable request state.
 
 ## Measurement method
 
@@ -33,6 +33,7 @@ Physical transaction counting rules:
 |---|---:|---|
 | Compact | 1 network / 20 devices | One Home inventory refresh containing the existing 20 Home IEEE addresses; target device is `devices["home"][5]`, an EndDevice intentionally absent from latest Home topology nodes/links but present historically; mixed coordinator/router/end-device roles, mains/battery devices, online/offline/stale/low-battery facts, sparse and dense snapshot histories for rhythm/LQI/battery, 10 parsed topology snapshots with nodes and links, historical missing link evidence, route hints, HA enrichment subset, open/watching/resolved incidents, incident-device references, lifecycle events, and filter-after-limit reproduction events. |
 | Beast | 2 networks / 164 devices | One Home inventory refresh with the existing 120 Home IEEE addresses plus one Office inventory refresh with the existing 44 Office IEEE addresses; the same deterministic fixture features as Compact, plus more than 150 global events and multi-network incident history. |
+| History | Compact estate + 1500 incidents | Compact fixture plus 1500 additional incidents (mostly resolved, mixed open/watching), equal `updated_at` ties, zero-device incidents, missing-device refs, multi-network refs, and large affected-device sets. Used only for Track 3E collection scaling gates. |
 
 ## Statement categories
 
@@ -68,7 +69,7 @@ Beast payload/availability target-event baselines are new in Track 3C. Compact a
 
 ## Track 3C → Track 3D execute comparison
 
-Track 3D replaces per-device/per-incident N+1 composition reads with bounded bulk repository APIs and scoped event queries. Ingestion and incremental evaluation baselines are unchanged. Incident pagination and broader Track 3E closure remain out of scope.
+Track 3D replaces per-device/per-incident N+1 composition reads with bounded bulk repository APIs and scoped event queries. Ingestion and incremental evaluation baselines are unchanged.
 
 | Operation | Track 3C executes | Track 3D executes | Delta | Main removed category |
 |---|---:|---:|---:|---|
@@ -98,7 +99,7 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 | Compact inventory | 43 | 1 | 93 | 8 | 136 | 9 |
 | Beast inventory | 334 | 2 | 629 | 25 | 963 | 27 |
 
-## Track 3D total baseline table
+## Track 3E total baseline table
 
 | Operation | Fixture | State | Executes | Executemany | Commits | Rollbacks | Other | Top repeated category |
 |---|---|---|---:|---:|---:|---:|---:|---|
@@ -112,6 +113,7 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 | EvidenceGraphService.build | compact | warm | 99 | 0 | 0 | 0 | 0 | read.schema (27) |
 | Incident detail | compact | warm | 47 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
 | Incident list | compact | warm | 51 | 0 | 0 | 0 | 0 | read.topology_nodes (12) |
+| Incident list history | history | warm | 130 | 0 | 0 | 0 | 0 | read.device_snapshots (38) |
 | Device inventory refresh | beast | warm | 963 | 0 | 27 | 0 | 0 | read.availability_changes (168) |
 | Device inventory refresh | compact | warm | 136 | 0 | 9 | 0 | 0 | read.health_snapshots (22) |
 | Ordinary MQTT payload ingestion | compact | warm | 36 | 0 | 3 | 0 | 0 | read.schema (4) |
@@ -120,6 +122,35 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 | Full report preview | compact | warm | 262 | 0 | 0 | 0 | 0 | read.schema (42) |
 | Incident report preview | compact | warm | 317 | 0 | 0 | 0 | 0 | read.schema (50) |
 | Network report preview | compact | warm | 262 | 0 | 0 | 0 | 0 | read.schema (42) |
+
+## Track 3E collection scaling
+
+Public incident list cost must scale with page size and unique devices on that page, not stored incident history. Against the History fixture (1505 incidents), a `limit=50` page measures 130 executes with one bulk incident-device read and zero incident timeline event reads. Compact list remains 51 executes. Single-status history pages (including resolved-only) also avoid a full matching-set temporary ORDER BY sort via the dynamic production ORDER BY helper.
+
+## Track 3E collection ORDER BY index evidence
+
+Migration `010` creates expression index `idx_incidents_collection_order` on the lifecycle-rank expression plus `updated_at DESC, id DESC`. Page filters use the same `CASE lifecycle_state … END` ranks so SQLite can consume that index. Count still filters on `lifecycle_state` and may use `idx_incidents_lifecycle`.
+
+Production ORDER BY is dynamic:
+
+- single lifecycle status → `ORDER BY updated_at DESC, id DESC` (rank is constant; omitting it avoids a temporary sort)
+- multiple statuses → `ORDER BY lifecycle-rank ASC, updated_at DESC, id DESC`
+
+Measured `EXPLAIN QUERY PLAN` against the production page SELECT (300-row synthetic estate):
+
+| Query class | Plan | Temp ORDER BY B-tree |
+|---|---|---|
+| open only first page | `SEARCH incidents USING INDEX idx_incidents_collection_order (<expr>=?)` | no |
+| watching only first page | `SEARCH incidents USING INDEX idx_incidents_collection_order (<expr>=?)` | no |
+| resolved only first page | `SEARCH incidents USING INDEX idx_incidents_collection_order (<expr>=?)` | no |
+| open / watching / resolved cursor continuation | `SEARCH incidents USING INDEX idx_incidents_collection_order (<expr>=?)` | no |
+| default all-status first page | `SEARCH incidents USING INDEX idx_incidents_collection_order (<expr>=?)` | no |
+| open + watching | `SEARCH incidents USING INDEX idx_incidents_collection_order (<expr>=?)` | no |
+| updated_after | `SEARCH … idx_incidents_collection_order (<expr>=? AND updated_at>?)` | no |
+| network-scoped | collection-order index + `incident_devices` EXISTS covering PK | no |
+| device-scoped | collection-order index + `incident_devices` EXISTS covering PK | no |
+
+No page class above may contain `USE TEMP B-TREE FOR ORDER BY`.
 
 ## Top repeated normalized statement shapes
 
@@ -203,6 +234,14 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 - 5× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
 - 5× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
 
+### incident_list_history
+
+- 38× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
+- 38× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
+- 12× `SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address`
+- 10× `SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?`
+- 9× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+
 ### inventory_ingestion_beast
 
 - 164× `INSERT INTO devices ( network_id, ieee_address, friendly_name, device_type, power_source, manufacturer, model, interview_state, created_at, updated_at ) VALUES (?) ON CONFLICT(network_id, ieee_address) DO UPDATE SET friendly_name = excluded.friendly_name, device_type = excluded.device_type, power_source = excluded.power_source, manufacturer = COALESCE(excluded.manufacturer, devices.manufacturer), model = COALESCE(excluded.model, devices.model), interview_state = excluded.interview_state, updated_at = excluded.updated_at`
@@ -273,4 +312,4 @@ The Beast fixture seeds more than 20 newer unrelated Home network events plus `o
 
 ## Limitations and next scope
 
-Exact values are snapshots for planning only, not budgets. Track 3D removes the principal Dashboard/Devices/Incident N+1 membership and per-device network/HA composition reads, and fixes scoped detail event correctness. Remaining Dashboard HA enrichment reads come from investigation/coverage composers (allowed to remain separate). Incident pagination and broader Track 3E closure remain; Track 3F report restructuring and Track 3G topology composition are not started.
+Exact values are snapshots for planning only, not budgets. Track 3E closes paginated incident collections and page-scoped list composition. Reports still use an internal complete-history path until Track 3F. Track 3F report restructuring and Track 3G topology composition are not started.

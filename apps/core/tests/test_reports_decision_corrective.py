@@ -190,7 +190,7 @@ def test_incident_scoped_report_stories_once_for_multiple_devices(monkeypatch, t
     repo = Repository(db)
     data = DataService(config, repo)
     mock = MockProvider(SCENARIO)
-    incident = mock.incidents()[0]
+    incident = mock.incidents_complete_history()[0]
     assert len(incident.affected_devices) >= 2
 
     calls = {"n": 0}
@@ -383,7 +383,7 @@ def test_include_timeline_false_absent_from_generated_markdown(tmp_path):
     from zigbeelens.services.mock_provider import MockProvider
 
     mock = MockProvider(SCENARIO)
-    if mock.timeline() or any(i.timeline for i in mock.incidents()):
+    if mock.timeline() or any(i.timeline for i in mock.incidents_complete_history()):
         assert has_any
 
 
