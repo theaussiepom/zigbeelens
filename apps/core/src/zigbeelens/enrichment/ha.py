@@ -64,12 +64,28 @@ def clear_ha_enrichment(repo: Repository) -> None:
 
 
 def area_cluster_for_devices(
-    repo: Repository, network_id: str, ieee_addresses: list[str]
+    repo: Repository,
+    network_id: str,
+    ieee_addresses: list[str],
+    *,
+    enrichment_by_ieee: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     areas: dict[str, list[str]] = {}
     matched = 0
+    if enrichment_by_ieee is None and ieee_addresses:
+        bulk = repo.list_ha_device_enrichment_for_devices(
+            [(network_id, ieee) for ieee in ieee_addresses]
+        )
+        enrichment_by_ieee = {
+            ieee.lower(): row for (_network_id, ieee), row in bulk.items()
+        }
     for ieee in ieee_addresses:
-        row = repo.get_ha_device_enrichment(network_id, ieee)
+        key = str(ieee or "").strip().lower()
+        row = (
+            enrichment_by_ieee.get(key)
+            if enrichment_by_ieee is not None
+            else repo.get_ha_device_enrichment(network_id, ieee)
+        )
         if not row:
             continue
         if row.get("match_confidence") == "low":

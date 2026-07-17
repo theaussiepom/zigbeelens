@@ -250,6 +250,7 @@ class EvidenceGraphService:
             body,
             stale_after_hours=stale_after_hours,
             now=evidence.reference_now,
+            network_evidence_context=evidence,
         )
         return body
 

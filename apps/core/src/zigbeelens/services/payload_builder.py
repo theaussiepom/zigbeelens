@@ -314,11 +314,13 @@ class PayloadBuilder:
             networks_by_incident_id = MappingProxyType(dict(networks_by_incident_id))
         if decision_badges_by_key is None:
             device_rows = list(devices_by_key.values())
+            evidence_map = self._device_story_evidence_contexts(device_rows, now=now)
             decision_badges_by_key = MappingProxyType(
                 device_decision_badges_for_devices(
                     self.repo,
                     device_rows,
                     now=now,
+                    network_evidence_contexts=evidence_map,
                 )
             )
         else:
@@ -560,6 +562,38 @@ class PayloadBuilder:
             incident_context=incident_context,
         )
 
+    def _device_story_evidence_contexts(
+        self,
+        rows: list[DeviceRow],
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """One Device Story evidence context per represented network."""
+        from zigbeelens.services.network_evidence import DEVICE_STORY_EVIDENCE_REQUIREMENTS
+        from zigbeelens.services.network_evidence_composition import (
+            compose_network_evidence_contexts,
+        )
+
+        if not rows:
+            return {}
+        reference_now = now or datetime.now(timezone.utc)
+        if reference_now.tzinfo is None:
+            reference_now = reference_now.replace(tzinfo=timezone.utc)
+        devices_by_network = _group_devices_by_network(rows)
+        network_ids = list(devices_by_network)
+        return dict(
+            compose_network_evidence_contexts(
+                self.repo,
+                network_ids,
+                reference_now=reference_now,
+                requirements_by_network={
+                    network_id: DEVICE_STORY_EVIDENCE_REQUIREMENTS
+                    for network_id in network_ids
+                },
+                devices_by_network=devices_by_network,
+            )
+        )
+
     def devices(self, network_id: str | None = None) -> list[DeviceSummary]:
         rows = self.repo.list_devices(network_id)
         # Complete health for every requested device before freezing incident context.
@@ -574,11 +608,15 @@ class PayloadBuilder:
             include_related_incidents=True,
             incident_context=incident_context,
         )
+        reference_now = datetime.now(timezone.utc)
+        evidence_map = self._device_story_evidence_contexts(rows, now=reference_now)
         badges = device_decision_badges_for_devices(
             self.repo,
             rows,
+            now=reference_now,
             ha_enrichment_by_key=composition.summary.ha_enrichment_by_key,
             related_incident_ids_by_key=composition.related_incident_ids_by_key,
+            network_evidence_contexts=evidence_map,
         )
         return self._devices_from_rows(
             rows,

@@ -1442,31 +1442,69 @@ def aggregate_investigations(
     observed_model_patterns: list[Any] | None = None,
     last_known_links: list[dict[str, Any]] | None = None,
     now: datetime | None = None,
+    devices: list | None = None,
+    latest_snapshot: dict[str, Any] | None = None,
+    latest_nodes: list[dict[str, Any]] | None = None,
+    latest_links: list[dict[str, Any]] | None = None,
+    availability_rows: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> dict[str, Any]:
     """Gather repository inputs and build investigation cards for a network.
 
     The history, passive and shared-availability aggregates are passed in (the
     evidence-graph endpoint already computes them) so nothing is aggregated twice.
+    When latest topology / devices / availability rows are also supplied from a
+    request-local evidence context, no repository reread is performed.
     """
     now = now or datetime.now(timezone.utc)
-    latest = repo.get_latest_topology_snapshot(network_id)
+    if latest_snapshot is not None or (
+        latest_nodes is not None and latest_links is not None
+    ):
+        latest = latest_snapshot
+    else:
+        latest = repo.get_latest_topology_snapshot(network_id)
     latest_snapshot_id = latest["snapshot_id"] if latest else None
 
     # Recorded offline transitions inside the lookback window, per device —
     # read-only passive data, used only to make card evidence concrete.
     cutoff = now - timedelta(days=DEVICE_EVIDENCE_LOOKBACK_DAYS)
     offline_events: dict[str, list[str]] = {}
-    for row in repo.availability.list_availability_changes_since(network_id, cutoff.isoformat()):
+    change_rows = (
+        list(availability_rows)
+        if availability_rows is not None
+        else repo.availability.list_availability_changes_since(
+            network_id, cutoff.isoformat()
+        )
+    )
+    for row in change_rows:
         if row.get("to_state") != "offline":
+            continue
+        changed = str(row.get("changed_at") or "")
+        if availability_rows is not None and changed < cutoff.isoformat():
             continue
         ieee = _norm(row.get("ieee_address"))
         if ieee:
-            offline_events.setdefault(ieee, []).append(str(row.get("changed_at")))
+            offline_events.setdefault(ieee, []).append(changed)
+
+    resolved_devices = (
+        list(devices) if devices is not None else repo.list_devices(network_id)
+    )
+    if latest_nodes is not None:
+        resolved_nodes = latest_nodes
+    elif latest_snapshot_id:
+        resolved_nodes = repo.list_topology_nodes(latest_snapshot_id)
+    else:
+        resolved_nodes = []
+    if latest_links is not None:
+        resolved_links = latest_links
+    elif latest_snapshot_id:
+        resolved_links = repo.list_topology_links(latest_snapshot_id)
+    else:
+        resolved_links = []
 
     return build_investigations(
-        devices=repo.list_devices(network_id),
-        latest_nodes=repo.list_topology_nodes(latest_snapshot_id) if latest_snapshot_id else [],
-        latest_links=repo.list_topology_links(latest_snapshot_id) if latest_snapshot_id else [],
+        devices=resolved_devices,
+        latest_nodes=resolved_nodes,
+        latest_links=resolved_links,
         latest_captured_at=latest["captured_at"] if latest else None,
         history=history,
         passive_hints=passive_hints,

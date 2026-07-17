@@ -382,6 +382,12 @@ def compose_network_evidence_contexts(
                         now=reference_now,
                         devices=device_list,
                         availability_rows=avail_rows,
+                        snapshots=list(snapshots or []),
+                        links_by_snapshot_id={
+                            sid: list(rows)
+                            for sid, rows in (network_links or {}).items()
+                        },
+                        latest_snapshot=latest,
                     )
                 )
             )
@@ -455,30 +461,76 @@ def compose_network_evidence_contexts(
 
         stats: Mapping[str, Any] | None = None
         if NetworkEvidenceCapability.device_stats in requirements:
-            stats = MappingProxyType(dict(aggregate_device_stats(repo, network_id)))
+            stats = MappingProxyType(
+                dict(
+                    aggregate_device_stats(
+                        repo,
+                        network_id,
+                        now=reference_now,
+                        snapshots=list(snapshots or []),
+                        links_by_snapshot_id={
+                            sid: list(rows)
+                            for sid, rows in (network_links or {}).items()
+                        },
+                        availability_rows=avail_rows,
+                    )
+                )
+            )
             loaded.add(NetworkEvidenceCapability.device_stats)
 
         investigations: Mapping[str, Any] | None = None
         if NetworkEvidenceCapability.investigations in requirements:
             hist = dict(historical) if historical is not None else aggregate_historical_evidence(
-                repo, network_id, now=reference_now
+                repo,
+                network_id,
+                now=reference_now,
+                snapshots=list(snapshots or []),
+                links_by_snapshot_id={
+                    sid: list(rows) for sid, rows in (network_links or {}).items()
+                },
+                latest_snapshot=latest,
+                latest_nodes=[dict(row) for row in (latest_nodes or ())],
             )
             lk = dict(last_known) if last_known is not None else aggregate_last_known_links(
-                repo, network_id
+                repo,
+                network_id,
+                snapshots=list(snapshots or []),
+                links_by_snapshot_id={
+                    sid: list(rows) for sid, rows in (network_links or {}).items()
+                },
+                latest_snapshot=latest,
+                latest_nodes=[dict(row) for row in (latest_nodes or ())],
             )
             ph = dict(passive) if passive is not None else aggregate_passive_hints(
-                repo, network_id, now=reference_now
+                repo,
+                network_id,
+                now=reference_now,
+                devices=device_list,
+                availability_rows=avail_rows,
+                snapshots=list(snapshots or []),
+                links_by_snapshot_id={
+                    sid: list(rows) for sid, rows in (network_links or {}).items()
+                },
+                latest_snapshot=latest,
             )
             sh = shared or shared_availability_event_groups_for_network(
-                repo, network_id, now=reference_now
+                repo,
+                network_id,
+                now=reference_now,
+                devices=device_list,
+                availability_rows=avail_rows,
             )
             mp = models or observed_model_patterns_for_network(
-                repo, network_id, now=reference_now
+                repo,
+                network_id,
+                now=reference_now,
+                devices=device_list,
+                availability_rows=avail_rows,
             )
             ra = routers
             if ra is None and NetworkEvidenceCapability.router_areas not in requirements:
                 # Build router areas opportunistically for investigations.
-                devices = list(device_rows_tuple or repo.list_devices(network_id))
+                devices = list(device_rows_tuple or ())
                 ra = observed_router_areas_for_network(
                     repo,
                     network_id,
@@ -500,6 +552,12 @@ def compose_network_evidence_contexts(
                         observed_router_areas=list(ra.areas) if ra is not None else [],
                         observed_model_patterns=list(mp.patterns),
                         last_known_links=list(lk.get("last_known_links") or []),
+                        now=reference_now,
+                        devices=device_list,
+                        latest_snapshot=latest,
+                        latest_nodes=[dict(row) for row in (latest_nodes or ())],
+                        latest_links=[dict(row) for row in (latest_links or ())],
+                        availability_rows=avail_rows,
                     )
                 )
             )

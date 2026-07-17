@@ -46,6 +46,9 @@ def aggregate_device_stats(
     network_id: str,
     *,
     now: datetime | None = None,
+    snapshots: list[dict[str, Any]] | None = None,
+    links_by_snapshot_id: dict[str, list[dict[str, Any]]] | None = None,
+    availability_rows: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> dict[str, Any]:
     """Diagnostic stats per device from recent snapshots and availability data.
 
@@ -58,22 +61,33 @@ def aggregate_device_stats(
       was a Router or Coordinator, and that partner's IEEE.
     - ``offline_events_24h`` / ``offline_events_7d`` / ``last_offline_at`` —
       recorded transitions to offline within the window.
+
+    When ``snapshots``, ``links_by_snapshot_id``, and ``availability_rows`` are
+    supplied (request-local evidence context), no repository reread is performed.
     """
     now = now or datetime.now(timezone.utc)
     cutoff = now - timedelta(days=DEVICE_STATS_WINDOW_DAYS)
 
-    snapshots = []
-    for snapshot in repo.list_topology_snapshots(network_id):  # newest first
+    snapshot_rows = (
+        snapshots if snapshots is not None else repo.list_topology_snapshots(network_id)
+    )
+    window_snapshots: list[dict[str, Any]] = []
+    for snapshot in snapshot_rows:  # newest first
         if snapshot.get("status") != "complete":
             continue
         captured = _parse_ts(snapshot.get("captured_at"))
         if captured is None or captured < cutoff:
             continue
-        snapshots.append(snapshot)
-        if len(snapshots) >= DEVICE_STATS_MAX_SNAPSHOTS:
+        window_snapshots.append(snapshot)
+        if len(window_snapshots) >= DEVICE_STATS_MAX_SNAPSHOTS:
             break
     # Oldest first so "last router link" fields track the newest observation.
-    snapshots.reverse()
+    window_snapshots.reverse()
+
+    def _links_for(snapshot_id: str) -> list[dict[str, Any]]:
+        if links_by_snapshot_id is not None and snapshot_id in links_by_snapshot_id:
+            return links_by_snapshot_id[snapshot_id]
+        return repo.list_topology_links(snapshot_id)
 
     stats: dict[str, dict[str, Any]] = {}
 
@@ -90,11 +104,11 @@ def aggregate_device_stats(
             },
         )
 
-    for snapshot in snapshots:
+    for snapshot in window_snapshots:
         captured_at = snapshot.get("captured_at")
         linked: set[str] = set()
         router_partner: dict[str, str] = {}
-        for link in repo.list_topology_links(snapshot["snapshot_id"]):
+        for link in _links_for(str(snapshot["snapshot_id"])):
             source = _norm(link.get("source_ieee"))
             target = _norm(link.get("target_ieee"))
             if not source or not target or source == target:
@@ -113,8 +127,18 @@ def aggregate_device_stats(
             record["last_router_link_partner"] = partner
 
     day_ago = now - timedelta(hours=24)
-    for row in repo.availability.list_availability_changes_since(network_id, cutoff.isoformat()):
+    change_rows = (
+        list(availability_rows)
+        if availability_rows is not None
+        else repo.availability.list_availability_changes_since(
+            network_id, cutoff.isoformat()
+        )
+    )
+    for row in change_rows:
         if row.get("to_state") != "offline":
+            continue
+        changed = _parse_ts(str(row.get("changed_at")))
+        if changed is not None and changed < cutoff:
             continue
         ieee = _norm(row.get("ieee_address"))
         if not ieee:
@@ -122,7 +146,6 @@ def aggregate_device_stats(
         changed_at = str(row.get("changed_at"))
         record = entry(ieee)
         record["offline_events_7d"] += 1
-        changed = _parse_ts(changed_at)
         if changed is not None and changed >= day_ago:
             record["offline_events_24h"] += 1
         # Transitions arrive oldest first, so each one is the newest so far.
@@ -132,7 +155,7 @@ def aggregate_device_stats(
         "device_stats_window": {
             "days": DEVICE_STATS_WINDOW_DAYS,
             "max_snapshots": DEVICE_STATS_MAX_SNAPSHOTS,
-            "snapshots_considered": len(snapshots),
+            "snapshots_considered": len(window_snapshots),
         },
         "device_stats": stats,
     }
