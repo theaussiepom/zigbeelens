@@ -102,6 +102,21 @@ class IncidentRepository:
     def replace_incident_devices(self, incident_id: str, devices: Any) -> None:
         self._repo.replace_incident_devices(incident_id, devices)
 
+    def replace_incident_networks(self, incident_id: str, network_ids: list[str]) -> None:
+        self._repo.replace_incident_networks(incident_id, network_ids)
+
+    def list_incident_networks(self, incident_id: str) -> list[str]:
+        return self._repo.list_incident_networks(incident_id)
+
+    def list_incident_networks_for_incidents(self, incident_ids):
+        return self._repo.list_incident_networks_for_incidents(incident_ids)
+
+    def list_incident_rows_for_network_history(self, network_id: str):
+        return self._repo.list_incident_rows_for_network_history(network_id)
+
+    def list_incident_rows_for_device_history(self, network_id: str, ieee_address: str):
+        return self._repo.list_incident_rows_for_device_history(network_id, ieee_address)
+
     def list_offline_transitions_since(self, network_id: str, since_iso: str) -> dict[str, str]:
         return self._repo.list_offline_transitions_since(network_id, since_iso)
 

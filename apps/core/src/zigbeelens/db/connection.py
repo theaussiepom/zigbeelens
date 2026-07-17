@@ -52,6 +52,7 @@ class Database:
             )
             applied = self._applied_versions_unlocked()
             migrations = self._load_migrations()
+            newly_applied: set[int] = set()
             for version, sql in migrations:
                 if version in applied:
                     continue
@@ -62,8 +63,37 @@ class Database:
                 )
                 self._conn.commit()
                 applied.add(version)
+                newly_applied.add(version)
+            if 11 in newly_applied or (
+                11 in applied
+                and self._needs_incident_networks_multi_backfill_unlocked()
+            ):
+                from zigbeelens.diagnostics.incidents.network_identity import (
+                    backfill_incident_networks_from_dedup_keys,
+                )
+
+                backfill_incident_networks_from_dedup_keys(self._conn)
+                self._conn.commit()
             self.migration_version = max(applied, default=0)
             return self.migration_version
+
+    def _needs_incident_networks_multi_backfill_unlocked(self) -> bool:
+        """True when multi-network incidents may still lack incident_networks rows."""
+        try:
+            cur = self._conn.execute(
+                """
+                SELECT 1
+                FROM incidents i
+                WHERE i.incident_type = 'multi_network_instability'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM incident_networks n WHERE n.incident_id = i.id
+                  )
+                LIMIT 1
+                """
+            )
+        except sqlite3.OperationalError:
+            return False
+        return cur.fetchone() is not None
 
     def _applied_versions_unlocked(self) -> set[int]:
         cur = self._conn.execute("SELECT version FROM schema_migrations")
