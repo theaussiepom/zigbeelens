@@ -1216,7 +1216,9 @@ class Repository:
             )
         self.db.conn.commit()
 
-    def replace_incident_networks(self, incident_id: str, network_ids: list[str]) -> None:
+    def replace_incident_networks(
+        self, incident_id: str, network_ids: list[str], *, commit: bool = True
+    ) -> None:
         """Replace factual network associations for one incident (Track 3F)."""
         ordered = list(dict.fromkeys(nid for nid in network_ids if nid))
         self.db.conn.execute(
@@ -1230,6 +1232,27 @@ class Repository:
                 """,
                 (incident_id, network_id),
             )
+        if commit:
+            self.db.conn.commit()
+
+    def replace_incident_devices_and_networks(
+        self, incident_id: str, devices, network_ids: list[str]
+    ) -> None:
+        """Replace incident membership and network associations in one commit."""
+        from zigbeelens.diagnostics.incidents.models import AffectedDevice
+
+        self.db.conn.execute("DELETE FROM incident_devices WHERE incident_id = ?", (incident_id,))
+        for device in devices:
+            if not isinstance(device, AffectedDevice):
+                continue
+            self.db.conn.execute(
+                """
+                INSERT INTO incident_devices (incident_id, network_id, ieee_address, role)
+                VALUES (?, ?, ?, ?)
+                """,
+                (incident_id, device.network_id, device.ieee_address, device.role),
+            )
+        self.replace_incident_networks(incident_id, network_ids, commit=False)
         self.db.conn.commit()
 
     def list_incident_networks(self, incident_id: str) -> list[str]:

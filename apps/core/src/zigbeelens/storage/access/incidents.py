@@ -105,6 +105,13 @@ class IncidentRepository:
     def replace_incident_networks(self, incident_id: str, network_ids: list[str]) -> None:
         self._repo.replace_incident_networks(incident_id, network_ids)
 
+    def replace_incident_devices_and_networks(
+        self, incident_id: str, devices: Any, network_ids: list[str]
+    ) -> None:
+        self._repo.replace_incident_devices_and_networks(
+            incident_id, devices, network_ids
+        )
+
     def list_incident_networks(self, incident_id: str) -> list[str]:
         return self._repo.list_incident_networks(incident_id)
 

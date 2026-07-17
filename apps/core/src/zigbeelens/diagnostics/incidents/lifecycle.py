@@ -50,9 +50,10 @@ class IncidentLifecycleManager:
                         resolved_at=None,
                         updated_at=ts,
                     )
-                    self.repo.incidents.replace_incident_devices(existing["id"], candidate.affected_devices)
-                    self.repo.incidents.replace_incident_networks(
-                        existing["id"], list(candidate.network_ids)
+                    self.repo.incidents.replace_incident_devices_and_networks(
+                        existing["id"],
+                        candidate.affected_devices,
+                        list(candidate.network_ids),
                     )
                     self.repo.insert_event(
                         event_id=str(uuid.uuid4()),
@@ -85,9 +86,10 @@ class IncidentLifecycleManager:
                     opened_at=ts,
                     updated_at=ts,
                 )
-                self.repo.incidents.replace_incident_devices(incident_id, candidate.affected_devices)
-                self.repo.incidents.replace_incident_networks(
-                    incident_id, list(candidate.network_ids)
+                self.repo.incidents.replace_incident_devices_and_networks(
+                    incident_id,
+                    candidate.affected_devices,
+                    list(candidate.network_ids),
                 )
                 self.repo.insert_event(
                     event_id=str(uuid.uuid4()),
@@ -192,9 +194,10 @@ class IncidentLifecycleManager:
             resolved_at=None,
             updated_at=ts,
         )
-        self.repo.incidents.replace_incident_devices(existing["id"], candidate.affected_devices)
-        self.repo.incidents.replace_incident_networks(
-            existing["id"], list(candidate.network_ids)
+        self.repo.incidents.replace_incident_devices_and_networks(
+            existing["id"],
+            candidate.affected_devices,
+            list(candidate.network_ids),
         )
         self.repo.insert_event(
             event_id=str(uuid.uuid4()),

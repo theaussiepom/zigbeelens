@@ -36,6 +36,7 @@ from .expected_baselines import (
     TRACK_3B_OPERATION_TOTALS,
     TRACK_3B_PHASE_BASELINES,
     TRACK_3C_READ_EXECUTE_TOTALS,
+    TRACK_3E_REPORT_EXECUTE_TOTALS,
 )
 from .query_instrumentation import OperationMeasurement, PhaseAccumulator, install_counter, measure_operation
 
@@ -212,12 +213,15 @@ def deterministic_fixture(tmp_path: Path, name: str):
 def _frozen_time():
     patches = [
         patch("zigbeelens.storage.repository.utc_now_iso", return_value=REFERENCE_ISO),
-        patch("zigbeelens.services.reports.utc_now_iso", return_value=REFERENCE_ISO),
     ]
     for module in (
         "zigbeelens.storage.repository",
         "zigbeelens.services.payload_builder",
         "zigbeelens.services.data_service",
+        "zigbeelens.services.reports",
+        "zigbeelens.services.report_composition",
+        "zigbeelens.services.report_scope",
+        "zigbeelens.services.live_dashboard",
         "zigbeelens.decisions.device_story",
         "zigbeelens.decisions.availability_event_groups",
         "zigbeelens.decisions.topology_facts",
@@ -475,6 +479,8 @@ def _seed_incident_history_estate(repo: Repository) -> None:
             refs = [AffectedDevice("home", devices_home[index % 40], role="primary")]
         if refs:
             repo.replace_incident_devices(incident_id, refs)
+            network_ids = sorted({ref.network_id for ref in refs})
+            repo.replace_incident_networks(incident_id, network_ids)
 
 
 @contextmanager
@@ -510,6 +516,7 @@ def _seed_incidents(repo: Repository, counts: dict[str, int], devices: dict[str,
             )
             affected = [AffectedDevice(net, ieee) for ieee in devices[net][1:4]]
             repo.replace_incident_devices(incident_id, affected)
+            repo.replace_incident_networks(incident_id, [net])
             repo.insert_event(
                 event_id=f"event-{incident_id}",
                 network_id=net,
@@ -718,6 +725,38 @@ def _operations() -> dict[str, tuple[str, Operation, bool]]:
             ),
             True,
         ),
+        "report_network_beast": (
+            "beast",
+            lambda fx: _data(fx).report_preview(
+                request=ReportRequest(scope=ReportScope.network, network_id="home")
+            ),
+            True,
+        ),
+        "report_full_beast": (
+            "beast",
+            lambda fx: _data(fx).report_preview(request=ReportRequest(scope=ReportScope.full)),
+            True,
+        ),
+        "report_incident_history": (
+            "history",
+            lambda fx: _data(fx).report_preview(
+                request=ReportRequest(
+                    scope=ReportScope.incident, incident_id=fx.active_incident_id
+                )
+            ),
+            True,
+        ),
+        "report_device_history": (
+            "history",
+            lambda fx: _data(fx).report_preview(
+                request=ReportRequest(
+                    scope=ReportScope.device,
+                    network_id="home",
+                    device=fx.target_device[1],
+                )
+            ),
+            True,
+        ),
         "dashboard_beast": ("beast", lambda fx: _builder(fx).dashboard(), True),
         "devices_beast": ("beast", lambda fx: _builder(fx).devices(), True),
         "inventory_ingestion_beast": ("beast", _beast_inventory_refresh, False),
@@ -844,7 +883,8 @@ def test_high_level_architectural_spies(tmp_path: Path, monkeypatch: pytest.Monk
     original_topology_links = Repository.list_topology_links
     original_devices = PayloadBuilder.devices
     original_eval = EvaluationCoordinator.evaluate_network
-    original_report_context = DataService.report_device_context
+    from zigbeelens.decisions.device_story import device_stories_for_devices as original_stories
+    import zigbeelens.services.report_composition as report_composition
 
     def network_context_spy(repo, network_id, *args, **kwargs):
         story_context_networks.append(network_id)
@@ -866,22 +906,27 @@ def test_high_level_architectural_spies(tmp_path: Path, monkeypatch: pytest.Monk
         count("evaluate_network")
         return original_eval(*args, **kwargs)
 
-    def report_context_spy(service, scenario=None, **kwargs):
-        keys = kwargs.get("device_keys")
+    def stories_spy(repo, rows, *args, **kwargs):
         report_batch_scopes.append(
-            (kwargs.get("network_id"), len(keys) if keys is not None else None)
+            (
+                rows[0].network_id if rows else None,
+                len(rows),
+            )
         )
-        return original_report_context(service, scenario, **kwargs)
+        return original_stories(repo, rows, *args, **kwargs)
 
     def devices_fail(*args, **kwargs):
         raise AssertionError("report/incident detail must not call public devices inventory path")
+
+    def dashboard_fail(*args, **kwargs):
+        raise AssertionError("report must not call dashboard composition")
 
     monkeypatch.setattr(ds, "load_device_story_network_context", network_context_spy)
     monkeypatch.setattr(Repository, "list_device_snapshots", snapshots_spy)
     monkeypatch.setattr(Repository, "list_availability_changes", availability_spy)
     monkeypatch.setattr(Repository, "list_topology_links", topology_links_spy)
     monkeypatch.setattr(EvaluationCoordinator, "evaluate_network", eval_spy)
-    monkeypatch.setattr(DataService, "report_device_context", report_context_spy)
+    monkeypatch.setattr(report_composition, "device_stories_for_devices", stories_spy)
     with deterministic_fixture(tmp_path, "compact") as fx:
         story_context_networks.clear()
         snapshot_load_keys.clear()
@@ -900,11 +945,14 @@ def test_high_level_architectural_spies(tmp_path: Path, monkeypatch: pytest.Monk
         assert calls.get("evaluate_network", 0) == before
 
         monkeypatch.setattr(PayloadBuilder, "devices", devices_fail)
+        monkeypatch.setattr(DataService, "dashboard", dashboard_fail)
         _builder(fx).incident(fx.active_incident_id)
+        report_batch_scopes.clear()
         _data(fx).report_preview(
             request=ReportRequest(scope=ReportScope.incident, incident_id=fx.active_incident_id)
         )
-        assert report_batch_scopes[-1] == (None, 3)
+        assert len(report_batch_scopes) == 1
+        assert report_batch_scopes[-1][1] == 3
         before_batches = len(report_batch_scopes)
         _data(fx).report_preview(
             request=ReportRequest(
@@ -958,10 +1006,17 @@ def test_markdown_baseline_table_matches_structured_snapshot():
         "payload_ingestion": "Ordinary MQTT payload ingestion",
         "payload_ingestion_beast": "Ordinary MQTT payload ingestion",
         "report_device": "Device report preview",
+        "report_device_history": "Device report preview",
         "report_full": "Full report preview",
+        "report_full_beast": "Full report preview",
         "report_incident": "Incident report preview",
+        "report_incident_history": "Incident report preview",
         "report_network": "Network report preview",
+        "report_network_beast": "Network report preview",
     }
+    assert "## Track 3F total baseline table" in doc
+    assert "## Track 3E total baseline table (historical)" in doc
+    assert "## Track 3E → Track 3F report execute comparison" in doc
     for key, baseline in EXPECTED_BASELINES.items():
         other = baseline["category_counts"].get("other", 0)
         row_fragment = (
@@ -969,10 +1024,26 @@ def test_markdown_baseline_table_matches_structured_snapshot():
             f"{baseline['execute_count']} | {baseline['executemany_count']} | "
             f"{baseline['commit_count']} | {baseline['rollback_count']} | {other} |"
         )
-        assert row_fragment in doc
+        assert row_fragment in doc, key
         section = doc.split(f"### {key}", 1)[1].split("\n### ", 1)[0]
         for item in baseline["top_repeated_statements"]:
             assert f"- {item['count']}× `{item['statement']}`" in section
+    for key, old in TRACK_3E_REPORT_EXECUTE_TOTALS.items():
+        new = EXPECTED_BASELINES[key]["execute_count"]
+        assert new < old
+        assert (old - new) / old >= 0.20
+    assert (
+        EXPECTED_BASELINES["report_network_beast"]["execute_count"]
+        < EXPECTED_BASELINES["report_full_beast"]["execute_count"]
+    )
+    assert (
+        EXPECTED_BASELINES["report_incident_history"]["execute_count"]
+        == EXPECTED_BASELINES["report_incident"]["execute_count"]
+    )
+    assert (
+        EXPECTED_BASELINES["report_device_history"]["execute_count"]
+        == EXPECTED_BASELINES["report_device"]["execute_count"]
+    )
 
     comparison_labels = {
         "payload_ingestion": "Payload",
@@ -988,6 +1059,56 @@ def test_markdown_baseline_table_matches_structured_snapshot():
         row = f"| {label} | {track_3a} | {track_3b_total} | {ingestion} | {delta} |"
         assert row in doc
 
+    track_3c_phase_historical = {
+        "payload_ingestion": {
+            "ingestion_execute_count": 7,
+            "ingestion_commit_count": 1,
+            "post_commit_execute_count": 29,
+            "post_commit_commit_count": 2,
+            "total_execute_count": 36,
+            "total_commit_count": 3,
+        },
+        "payload_ingestion_beast": {
+            "ingestion_execute_count": 7,
+            "ingestion_commit_count": 1,
+            "post_commit_execute_count": 55,
+            "post_commit_commit_count": 2,
+            "total_execute_count": 62,
+            "total_commit_count": 3,
+        },
+        "availability_ingestion": {
+            "ingestion_execute_count": 6,
+            "ingestion_commit_count": 1,
+            "post_commit_execute_count": 40,
+            "post_commit_commit_count": 7,
+            "total_execute_count": 46,
+            "total_commit_count": 8,
+        },
+        "availability_ingestion_beast": {
+            "ingestion_execute_count": 6,
+            "ingestion_commit_count": 1,
+            "post_commit_execute_count": 69,
+            "post_commit_commit_count": 7,
+            "total_execute_count": 75,
+            "total_commit_count": 8,
+        },
+        "inventory_ingestion_compact": {
+            "ingestion_execute_count": 43,
+            "ingestion_commit_count": 1,
+            "post_commit_execute_count": 93,
+            "post_commit_commit_count": 8,
+            "total_execute_count": 136,
+            "total_commit_count": 9,
+        },
+        "inventory_ingestion_beast": {
+            "ingestion_execute_count": 334,
+            "ingestion_commit_count": 2,
+            "post_commit_execute_count": 629,
+            "post_commit_commit_count": 25,
+            "total_execute_count": 963,
+            "total_commit_count": 27,
+        },
+    }
     track_3c_phase_labels = {
         "payload_ingestion": "Compact payload",
         "payload_ingestion_beast": "Beast payload",
@@ -997,13 +1118,25 @@ def test_markdown_baseline_table_matches_structured_snapshot():
         "inventory_ingestion_beast": "Beast inventory",
     }
     for key, label in track_3c_phase_labels.items():
-        phase = EXPECTED_PHASE_BASELINES[key]
+        phase = track_3c_phase_historical[key]
         phase_row = (
             f"| {label} | {phase['ingestion_execute_count']} | {phase['ingestion_commit_count']} | "
             f"{phase['post_commit_execute_count']} | {phase['post_commit_commit_count']} | "
             f"{phase['total_execute_count']} | {phase['total_commit_count']} |"
         )
         assert phase_row in doc
+        # Current tip phase table (Track 3F) must match measured EXPECTED_PHASE_BASELINES.
+        tip = EXPECTED_PHASE_BASELINES[key]
+        tip_row = (
+            f"| {label} | {tip['ingestion_execute_count']} | {tip['ingestion_commit_count']} | "
+            f"{tip['post_commit_execute_count']} | {tip['post_commit_commit_count']} | "
+            f"{tip['total_execute_count']} | {tip['total_commit_count']} |"
+        )
+        assert tip_row in doc
+        # Ingestion execute/commit authority remains Track 3B/3C.
+        assert tip["ingestion_execute_count"] == phase["ingestion_execute_count"]
+        assert tip["ingestion_commit_count"] == phase["ingestion_commit_count"]
+        assert tip["total_commit_count"] == phase["total_commit_count"]
 
     for key, label in (
         ("payload_ingestion", "Compact payload"),
@@ -1012,7 +1145,7 @@ def test_markdown_baseline_table_matches_structured_snapshot():
         ("inventory_ingestion_beast", "Beast inventory"),
     ):
         t3b = TRACK_3B_PHASE_BASELINES[key]
-        t3c = EXPECTED_PHASE_BASELINES[key]
+        t3c = track_3c_phase_historical[key]
         delta = t3c["total_execute_count"] - t3b["total_execute_count"]
         row = (
             f"| {label} | {t3b['total_execute_count']} | {t3c['total_execute_count']} | "
@@ -1020,6 +1153,21 @@ def test_markdown_baseline_table_matches_structured_snapshot():
         )
         assert row in doc
 
+    # Historical Track 3C → Track 3D/3E endpoint values remain frozen in the doc.
+    track_3d_historical = {
+        "dashboard": 109,
+        "dashboard_beast": 282,
+        "devices": 82,
+        "devices_beast": 405,
+        "incident_list": 51,
+        "incident_detail": 47,
+        "device_detail": 54,
+        "report_full": 262,
+        "report_network": 262,
+        "report_incident": 317,
+        "report_device": 237,
+        "evidence_graph": 99,
+    }
     track_3d_labels = {
         "dashboard": "Dashboard Compact",
         "dashboard_beast": "Dashboard Beast",
@@ -1036,8 +1184,11 @@ def test_markdown_baseline_table_matches_structured_snapshot():
     }
     for key, label in track_3d_labels.items():
         t3c = TRACK_3C_READ_EXECUTE_TOTALS[key]
-        t3d = EXPECTED_BASELINES[key]["execute_count"]
+        t3d = track_3d_historical[key]
         assert f"| {label} | {t3c} | {t3d} | {t3d - t3c} |" in doc
+    for key, old in TRACK_3E_REPORT_EXECUTE_TOTALS.items():
+        new = EXPECTED_BASELINES[key]["execute_count"]
+        assert f"| {old} | {new} | {new - old} |" in doc
 
 
 @pytest.mark.parametrize("operation_name", sorted(EXPECTED_PHASE_BASELINES))

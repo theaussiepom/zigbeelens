@@ -63,6 +63,7 @@ _TABLE_CATEGORIES = {
     "health_snapshots": ("read.health_snapshots", "write.health_snapshots"),
     "incidents": ("read.incidents", "write.incidents"),
     "incident_devices": ("read.incident_devices", "write.incident_devices"),
+    "incident_networks": ("read.incident_networks", "write.incident_networks"),
     "events": ("read.events", "write.events"),
     "topology_snapshots": ("read.topology_snapshots", "write.topology"),
     "topology_nodes": ("read.topology_nodes", "write.topology"),
