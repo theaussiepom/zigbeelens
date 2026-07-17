@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
+from zigbeelens.config.secret_validation import contains_control_characters
 from zigbeelens.config.security_types import SecurityMode
 from zigbeelens.mock.fixtures import DEFAULT_SCENARIO
 
@@ -23,7 +24,7 @@ def _reject_invalid_secret(value: object) -> SecretStr:
         raise ValueError("must not be empty")
     if raw != raw.strip():
         raise ValueError("must not have leading or trailing whitespace")
-    if any(ord(ch) < 32 for ch in raw):
+    if contains_control_characters(raw):
         raise ValueError("must not contain control characters")
     if len(raw) < MIN_SECURITY_SECRET_LENGTH:
         raise ValueError(f"must be at least {MIN_SECURITY_SECRET_LENGTH} characters")
@@ -31,6 +32,8 @@ def _reject_invalid_secret(value: object) -> SecretStr:
 
 
 class SecurityConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     mode: SecurityMode = SecurityMode.local
     api_token: SecretStr | None = None
     session_secret: SecretStr | None = None
@@ -69,9 +72,22 @@ class MqttTlsConfig(BaseModel):
 class MqttConfig(BaseModel):
     server: str = "mqtt://mosquitto:1883"
     username: str = ""
-    password: str = ""
+    password: SecretStr = SecretStr("")
     client_id: str = "zigbeelens"
     tls: MqttTlsConfig = Field(default_factory=MqttTlsConfig)
+
+    @field_validator("password", mode="before")
+    @classmethod
+    def coerce_password(cls, value: object) -> SecretStr | str:
+        """Accept plain strings/SecretStr; empty passwords remain valid."""
+        if value is None:
+            return ""
+        if isinstance(value, SecretStr):
+            return value
+        if isinstance(value, str):
+            return value
+        raise ValueError("must be a string")
+
 
 
 class NetworkConfig(BaseModel):

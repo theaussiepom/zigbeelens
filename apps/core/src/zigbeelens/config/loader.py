@@ -11,6 +11,7 @@ import yaml
 from pydantic import ValidationError
 
 from zigbeelens.config.models import AppConfig
+from zigbeelens.config.secret_validation import contains_control_characters
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,17 @@ def format_validation_error(exc: ValidationError) -> str:
     return "\n".join(lines) if lines else "invalid configuration"
 
 
+def format_yaml_error(exc: yaml.YAMLError) -> str:
+    """Render a YAML parse failure without source excerpts or secret text."""
+    mark = getattr(exc, "problem_mark", None)
+    if mark is not None:
+        line = getattr(mark, "line", None)
+        column = getattr(mark, "column", None)
+        if isinstance(line, int) and isinstance(column, int):
+            return f"YAML parse error at line {line + 1}, column {column + 1}"
+    return "YAML parse error"
+
+
 def _ensure_mapping(raw: Any, *, path: Path) -> dict[str, Any]:
     if raw is None:
         return {}
@@ -93,18 +105,31 @@ def _read_secret_file(path_value: str) -> str:
         if not path.exists():
             raise ConfigError(f"Secret file not found: {path}")
         raise ConfigError(f"Secret path is not a regular readable file: {path}")
+
+    read_error: str | None = None
+    raw: bytes | None = None
     try:
         raw = path.read_bytes()
     except OSError as exc:
-        raise ConfigError(f"Unable to read secret file {path}: {exc.strerror or exc}") from exc
+        detail = exc.strerror or "I/O error"
+        read_error = f"Unable to read secret file {path}: {detail}"
+    if read_error is not None:
+        raise ConfigError(read_error)
+    assert raw is not None
+
+    decode_failed = False
     try:
         text = raw.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ConfigError(f"Secret file is not valid UTF-8: {path}") from exc
+    except UnicodeDecodeError:
+        decode_failed = True
+        text = ""
+    if decode_failed:
+        raise ConfigError(f"Secret file is not valid UTF-8: {path}")
+
     text = text.rstrip("\r\n")
     if not text:
         raise ConfigError(f"Secret file is empty: {path}")
-    if any(ord(ch) < 32 for ch in text):
+    if contains_control_characters(text):
         raise ConfigError(f"Secret file contains control characters: {path}")
     return text
 
@@ -179,21 +204,29 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
             "Set ZIGBEELENS_CONFIG or create config/config.yaml."
         )
 
+    yaml_message: str | None = None
     try:
         loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
-        raise ConfigError(f"Invalid YAML in {path}: {exc}") from exc
+        yaml_message = format_yaml_error(exc)
+        loaded = None
+    if yaml_message is not None:
+        raise ConfigError(f"Invalid YAML in {path}: {yaml_message}")
 
     raw = _ensure_mapping(loaded, path=path)
     _apply_environment_overrides(raw)
 
+    validation_message: str | None = None
+    config: AppConfig | None = None
     try:
         config = AppConfig.model_validate(raw)
     except ValidationError as exc:
-        details = format_validation_error(exc)
+        validation_message = format_validation_error(exc)
+    if validation_message is not None:
         raise ConfigError(
-            f"Configuration validation failed for {path}:\n{details}"
-        ) from exc
+            f"Configuration validation failed for {path}:\n{validation_message}"
+        )
+    assert config is not None
 
     logger.info(
         "Loaded configuration from %s (mock=%s, networks=%d)",
