@@ -709,6 +709,231 @@ describe("ReportsPage", () => {
     expect(screen.getByRole("option", { name: "Clean scenario page" })).toBeInTheDocument();
   });
 
+  it("hides Scenario A options and cursor while Scenario B page one is pending", async () => {
+    const incidents = api.incidents as Mock;
+    const scenarioB = deferred<{
+      items: Incident[];
+      total: number;
+      limit: number;
+      next_cursor: string | null;
+    }>();
+    incidents
+      .mockResolvedValueOnce({
+        items: [makePickerIncident({ title: "Scenario A incident" })],
+        total: 2,
+        limit: 100,
+        next_cursor: "cursor-a",
+      })
+      .mockImplementationOnce(() => scenarioB.promise);
+
+    renderReportsPage();
+    await screen.findByText("Topology evidence gap");
+    fireEvent.click(screen.getByText("Incident"));
+    await screen.findByRole("option", { name: "Scenario A incident" });
+    expect(screen.getByRole("button", { name: /load more incidents/i })).toBeInTheDocument();
+
+    scenarioState.set("offline_cluster");
+
+    await waitFor(() => {
+      expect(screen.queryByRole("option", { name: "Scenario A incident" })).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: /load more incidents/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/loading incidents/i)).toBeInTheDocument();
+
+    scenarioB.resolve({
+      items: [makePickerIncident({ id: "b-1", title: "Scenario B incident" })],
+      total: 1,
+      limit: 100,
+      next_cursor: null,
+    });
+    await screen.findByRole("option", { name: "Scenario B incident" });
+  });
+
+  it("ignores a Scenario A initial-page success after switching scenario", async () => {
+    const incidents = api.incidents as Mock;
+    const scenarioA = deferred<{
+      items: Incident[];
+      total: number;
+      limit: number;
+      next_cursor: string | null;
+    }>();
+    incidents
+      .mockImplementationOnce(() => scenarioA.promise)
+      .mockResolvedValue({
+        items: [makePickerIncident({ id: "b-1", title: "Scenario B only" })],
+        total: 1,
+        limit: 100,
+        next_cursor: null,
+      });
+
+    renderReportsPage();
+    await screen.findByText("Topology evidence gap");
+    fireEvent.click(screen.getByText("Incident"));
+    await waitFor(() => expect(incidents).toHaveBeenCalledTimes(1));
+
+    scenarioState.set("offline_cluster");
+    await waitFor(() => expect(incidents).toHaveBeenCalledTimes(2));
+
+    scenarioA.resolve({
+      items: [
+        makePickerIncident({
+          id: "stale-a",
+          title: "Stale Scenario A page",
+        }),
+      ],
+      total: 2,
+      limit: 100,
+      next_cursor: "cursor-stale-a",
+    });
+
+    await screen.findByRole("option", { name: "Scenario B only" });
+    expect(screen.queryByRole("option", { name: "Stale Scenario A page" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /load more incidents/i })).not.toBeInTheDocument();
+  });
+
+  it("ignores an initial-page success after leaving Incident scope", async () => {
+    const incidents = api.incidents as Mock;
+    const pageOne = deferred<{
+      items: Incident[];
+      total: number;
+      limit: number;
+      next_cursor: string | null;
+    }>();
+    incidents.mockImplementationOnce(() => pageOne.promise);
+
+    renderReportsPage();
+    await screen.findByText("Topology evidence gap");
+    fireEvent.click(screen.getByText("Incident"));
+    await waitFor(() => expect(incidents).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByText("Network"));
+    await waitFor(() => expect(screen.queryByLabelText("Incident")).not.toBeInTheDocument());
+
+    pageOne.resolve({
+      items: [makePickerIncident({ title: "Should stay hidden" })],
+      total: 1,
+      limit: 100,
+      next_cursor: "cursor-hidden",
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("option", { name: "Should stay hidden" })).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: /load more incidents/i })).not.toBeInTheDocument();
+  });
+
+  it("re-entering Incident scope starts page one without old options or cursor", async () => {
+    const incidents = api.incidents as Mock;
+    incidents
+      .mockResolvedValueOnce({
+        items: [makePickerIncident({ title: "First entry incident" })],
+        total: 2,
+        limit: 100,
+        next_cursor: "cursor-first-entry",
+      })
+      .mockResolvedValueOnce({
+        items: [makePickerIncident({ id: "reentry", title: "Reentry page one" })],
+        total: 1,
+        limit: 100,
+        next_cursor: null,
+      });
+
+    renderReportsPage();
+    await screen.findByText("Topology evidence gap");
+    fireEvent.click(screen.getByText("Incident"));
+    await screen.findByRole("option", { name: "First entry incident" });
+    expect(screen.getByRole("button", { name: /load more incidents/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Network"));
+    await waitFor(() => expect(screen.queryByLabelText("Incident")).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByText("Incident"));
+    await screen.findByRole("option", { name: "Reentry page one" });
+    expect(screen.queryByRole("option", { name: "First entry incident" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /load more incidents/i })).not.toBeInTheDocument();
+    expect(incidents.mock.calls.at(-1)?.[0]?.cursor).toBeUndefined();
+  });
+
+  it("makes a Scenario A selection ineligible for preview as soon as Scenario B renders", async () => {
+    const incidents = api.incidents as Mock;
+    const scenarioB = deferred<{
+      items: Incident[];
+      total: number;
+      limit: number;
+      next_cursor: string | null;
+    }>();
+    incidents
+      .mockResolvedValueOnce({
+        items: [makePickerIncident({ id: "a-1", title: "Scenario A selected" })],
+        total: 1,
+        limit: 100,
+        next_cursor: null,
+      })
+      .mockImplementationOnce(() => scenarioB.promise);
+
+    renderReportsPage();
+    await screen.findByText("Topology evidence gap");
+    fireEvent.click(screen.getByText("Incident"));
+    await screen.findByRole("option", { name: "Scenario A selected" });
+    fireEvent.change(screen.getByLabelText("Incident"), { target: { value: "a-1" } });
+
+    await waitFor(() => {
+      expect(
+        previewReport.mock.calls.some(
+          (call) => call[0]?.incident_id === "a-1" && (call[1] === undefined || call[1] === ""),
+        ),
+      ).toBe(true);
+    });
+    const callsBeforeSwitch = previewReport.mock.calls.length;
+
+    scenarioState.set("offline_cluster");
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Incident")).toHaveValue("");
+    });
+    expect(screen.getByText(/choose a target/i)).toBeInTheDocument();
+
+    const callsAfterSwitch = previewReport.mock.calls.slice(callsBeforeSwitch);
+    expect(
+      callsAfterSwitch.some(
+        (call) => call[0]?.incident_id === "a-1" && call[1] === "offline_cluster",
+      ),
+    ).toBe(false);
+
+    scenarioB.resolve({
+      items: [makePickerIncident({ id: "b-1", title: "Scenario B incident" })],
+      total: 1,
+      limit: 100,
+      next_cursor: null,
+    });
+    await screen.findByRole("option", { name: "Scenario B incident" });
+  });
+
+  it("ignores a stale initial-page failure after scenario changes", async () => {
+    const incidents = api.incidents as Mock;
+    const scenarioA = deferred<never>();
+    incidents
+      .mockImplementationOnce(() => scenarioA.promise)
+      .mockResolvedValue({
+        items: [makePickerIncident({ id: "b-1", title: "Clean B page" })],
+        total: 1,
+        limit: 100,
+        next_cursor: null,
+      });
+
+    renderReportsPage();
+    await screen.findByText("Topology evidence gap");
+    fireEvent.click(screen.getByText("Incident"));
+    await waitFor(() => expect(incidents).toHaveBeenCalledTimes(1));
+
+    scenarioState.set("offline_cluster");
+    await waitFor(() => expect(incidents).toHaveBeenCalledTimes(2));
+
+    scenarioA.reject(new Error("stale initial page failed"));
+    await screen.findByRole("option", { name: "Clean B page" });
+    expect(screen.queryByText("stale initial page failed")).not.toBeInTheDocument();
+  });
+
   it("hides Mesh links for anonymised public_safe reports", async () => {
     previewReport.mockResolvedValue(
       makeDecisionReport({

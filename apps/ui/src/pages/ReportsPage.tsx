@@ -25,6 +25,31 @@ import type { DecisionPillTone } from "@/viewModels/types";
 
 const INCIDENT_PICKER_LIMIT = 100;
 
+type IncidentPickerKey = string;
+
+interface IncidentPickerPageState {
+  pickerKey: IncidentPickerKey;
+  options: Incident[];
+  nextCursor: string | null;
+  loadMoreError: string | null;
+  loadingMore: boolean;
+}
+
+interface IncidentPickerSelection {
+  pickerKey: IncidentPickerKey;
+  incidentId: string;
+}
+
+interface IncidentPickerResource {
+  pickerKey: IncidentPickerKey;
+  page: {
+    items: Incident[];
+    total: number;
+    limit?: number | null;
+    next_cursor?: string | null;
+  };
+}
+
 interface OptionState {
   preserveFriendly: boolean;
   hashIeee: boolean;
@@ -92,46 +117,35 @@ export function ReportsPage() {
   const [format, setFormat] = useState<ReportFormat>("json");
   const [profile, setProfile] = useState<RedactionProfile>("standard");
   const [networkId, setNetworkId] = useState("");
-  const [incidentId, setIncidentId] = useState("");
   const [deviceKey, setDeviceKey] = useState("");
   const [options, setOptions] = useState<OptionState>(PROFILE_DEFAULTS.standard);
   const [reloadKey, setReloadKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [incidentOptions, setIncidentOptions] = useState<Incident[]>([]);
-  const [incidentNextCursor, setIncidentNextCursor] = useState<string | null>(null);
-  const [incidentLoadingMore, setIncidentLoadingMore] = useState(false);
-  const [incidentLoadMoreError, setIncidentLoadMoreError] = useState<string | null>(null);
-  const incidentPickerGenerationRef = useRef(0);
-
-  const bumpIncidentPickerGeneration = useCallback(() => {
-    incidentPickerGenerationRef.current += 1;
-  }, []);
-
-  const resetIncidentPicker = useCallback(() => {
-    bumpIncidentPickerGeneration();
-    setIncidentId("");
-    setIncidentOptions([]);
-    setIncidentNextCursor(null);
-    setIncidentLoadMoreError(null);
-    setIncidentLoadingMore(false);
-  }, [bumpIncidentPickerGeneration]);
+  // Entry epoch changes on each Incident-scope entry so re-entry gets a new identity
+  // even when the scenario string is unchanged. Scenario is part of the key, so a
+  // scenario change invalidates the picker synchronously during render.
+  const [incidentEntryEpoch, setIncidentEntryEpoch] = useState(0);
+  const [incidentPickerState, setIncidentPickerState] =
+    useState<IncidentPickerPageState | null>(null);
+  const [incidentSelection, setIncidentSelection] =
+    useState<IncidentPickerSelection | null>(null);
+  const currentPickerKey =
+    scope === "incident" ? (`${scenario}\0${incidentEntryEpoch}` as IncidentPickerKey) : null;
+  const currentPickerKeyRef = useRef<IncidentPickerKey | null>(currentPickerKey);
+  currentPickerKeyRef.current = currentPickerKey;
 
   useEffect(() => {
     setOptions(PROFILE_DEFAULTS[profile]);
   }, [profile]);
 
-  // Scenario changes must invalidate in-flight load-more responses.
-  useEffect(() => {
-    resetIncidentPicker();
-  }, [scenario, resetIncidentPicker]);
-
   function changeScope(next: ReportScope) {
+    if (next === "incident" && scope !== "incident") {
+      // New identity on every Incident-scope entry (including same scenario).
+      setIncidentEntryEpoch((epoch) => epoch + 1);
+    }
     setScope(next);
     if (next !== "network") setNetworkId("");
-    if (next !== "incident") {
-      resetIncidentPicker();
-    }
     if (next !== "device") setDeviceKey("");
   }
 
@@ -144,52 +158,93 @@ export function ReportsPage() {
     },
   );
   const incidentsResource = useLiveResource(
-    () => api.incidents({ scenario: scen, limit: INCIDENT_PICKER_LIMIT }),
-    [scenario, scope],
+    () => {
+      const pickerKeyAtStart = currentPickerKeyRef.current;
+      if (!pickerKeyAtStart) {
+        return Promise.reject(new Error("Incident picker is not active"));
+      }
+      return api
+        .incidents({ scenario: scen, limit: INCIDENT_PICKER_LIMIT })
+        .then(
+          (page): IncidentPickerResource => ({
+            pickerKey: pickerKeyAtStart,
+            page,
+          }),
+        );
+    },
+    [scenario, scope, incidentEntryEpoch],
     {
-      enabled: scope === "incident",
+      enabled: scope === "incident" && currentPickerKey != null,
       refetchOn: ["dashboard_updated", "incidents_updated"],
     },
   );
   useEffect(() => {
-    if (scope !== "incident") return;
-    if (!incidentsResource.data) return;
-    setIncidentOptions(incidentsResource.data.items);
-    setIncidentNextCursor(incidentsResource.data.next_cursor ?? null);
-    setIncidentLoadMoreError(null);
-  }, [incidentsResource.data, scope, scenario]);
+    if (!currentPickerKey || !incidentsResource.data) return;
+    if (incidentsResource.data.pickerKey !== currentPickerKey) return;
+    setIncidentPickerState({
+      pickerKey: currentPickerKey,
+      options: incidentsResource.data.page.items,
+      nextCursor: incidentsResource.data.page.next_cursor ?? null,
+      loadMoreError: null,
+      loadingMore: false,
+    });
+  }, [incidentsResource.data, currentPickerKey]);
+
+  const pickerMatches =
+    currentPickerKey != null && incidentPickerState?.pickerKey === currentPickerKey;
+  const incidentOptions = pickerMatches ? incidentPickerState.options : [];
+  const incidentNextCursor = pickerMatches ? incidentPickerState.nextCursor : null;
+  const incidentLoadingMore = pickerMatches ? incidentPickerState.loadingMore : false;
+  const incidentLoadMoreError = pickerMatches ? incidentPickerState.loadMoreError : null;
+  const effectiveIncidentId =
+    currentPickerKey != null &&
+    incidentSelection?.pickerKey === currentPickerKey &&
+    incidentSelection.incidentId
+      ? incidentSelection.incidentId
+      : "";
 
   const loadMoreIncidents = useCallback(async () => {
-    if (!incidentNextCursor || incidentLoadingMore) return;
-    const generation = incidentPickerGenerationRef.current;
+    const pickerKey = currentPickerKeyRef.current;
+    if (!pickerKey || !incidentNextCursor || incidentLoadingMore) return;
     const requestScenario = scen;
     const cursor = incidentNextCursor;
-    setIncidentLoadingMore(true);
-    setIncidentLoadMoreError(null);
+    setIncidentPickerState((prev) => {
+      if (!prev || prev.pickerKey !== pickerKey) return prev;
+      return { ...prev, loadingMore: true, loadMoreError: null };
+    });
     try {
       const more = await api.incidents({
         scenario: requestScenario,
         limit: INCIDENT_PICKER_LIMIT,
         cursor,
       });
-      if (generation !== incidentPickerGenerationRef.current) {
+      if (pickerKey !== currentPickerKeyRef.current) {
         return;
       }
-      setIncidentOptions((prev) => {
-        const seen = new Set(prev.map((inc) => inc.id));
+      setIncidentPickerState((prev) => {
+        if (!prev || prev.pickerKey !== pickerKey) return prev;
+        const seen = new Set(prev.options.map((inc) => inc.id));
         const appended = more.items.filter((inc) => !seen.has(inc.id));
-        return [...prev, ...appended];
+        return {
+          ...prev,
+          options: [...prev.options, ...appended],
+          nextCursor: more.next_cursor ?? null,
+          loadingMore: false,
+          loadMoreError: null,
+        };
       });
-      setIncidentNextCursor(more.next_cursor ?? null);
     } catch (error) {
-      if (generation !== incidentPickerGenerationRef.current) {
+      if (pickerKey !== currentPickerKeyRef.current) {
         return;
       }
-      setIncidentLoadMoreError(error instanceof Error ? error.message : String(error));
-    } finally {
-      if (generation === incidentPickerGenerationRef.current) {
-        setIncidentLoadingMore(false);
-      }
+      setIncidentPickerState((prev) => {
+        if (!prev || prev.pickerKey !== pickerKey) return prev;
+        return {
+          ...prev,
+          loadingMore: false,
+          loadMoreError: error instanceof Error ? error.message : String(error),
+        };
+      });
     }
   }, [incidentLoadingMore, incidentNextCursor, scen]);
 
@@ -209,7 +264,7 @@ export function ReportsPage() {
       format,
       scope,
       network_id: scope === "network" ? networkId : scope === "device" ? deviceNetwork || null : null,
-      incident_id: scope === "incident" ? incidentId : null,
+      incident_id: scope === "incident" ? effectiveIncidentId || null : null,
       device: scope === "device" ? deviceIeee || null : null,
       redaction: {
         profile,
@@ -222,12 +277,21 @@ export function ReportsPage() {
         include_raw_payloads: options.includeRaw,
       },
     }),
-    [format, scope, networkId, incidentId, deviceNetwork, deviceIeee, profile, options],
+    [
+      format,
+      scope,
+      networkId,
+      effectiveIncidentId,
+      deviceNetwork,
+      deviceIeee,
+      profile,
+      options,
+    ],
   );
 
   const targetReady =
     scope === "full" ||
-    (scope === "incident" && !!incidentId) ||
+    (scope === "incident" && !!effectiveIncidentId) ||
     (scope === "network" && !!networkId) ||
     (scope === "device" && !!deviceIeee);
 
@@ -346,19 +410,29 @@ export function ReportsPage() {
               )}
               {scope === "incident" && (
                 <Field label="Incident">
-                  {incidentsResource.error ? (
+                  {incidentsResource.error &&
+                  (!incidentsResource.data ||
+                    incidentsResource.data.pickerKey === currentPickerKey) ? (
                     <ErrorState
                       message={incidentsResource.error}
                       onRetry={incidentsResource.refetch}
                     />
-                  ) : incidentsResource.loading && incidentOptions.length === 0 ? (
-                    <LoadingState label="Loading incidents…" />
                   ) : (
                     <>
+                      {!pickerMatches &&
+                      (incidentsResource.loading || !incidentsResource.data) ? (
+                        <LoadingState label="Loading incidents…" />
+                      ) : null}
                       <NativeSelect
                         ariaLabel="Incident"
-                        value={incidentId}
-                        onChange={setIncidentId}
+                        value={effectiveIncidentId}
+                        onChange={(id) => {
+                          if (!currentPickerKey) return;
+                          setIncidentSelection({
+                            pickerKey: currentPickerKey,
+                            incidentId: id,
+                          });
+                        }}
                         placeholder="Select an incident"
                         options={incidentOptions.map((i) => ({
                           value: i.id,
