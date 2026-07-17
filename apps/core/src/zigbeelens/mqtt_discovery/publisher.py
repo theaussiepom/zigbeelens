@@ -46,7 +46,8 @@ class SafeMqttPublisher:
         availability = self._availability_topic()
         self._client = mqtt.Client(client_id=client_id, protocol=mqtt.MQTTv311)
         if self._mqtt.username:
-            self._client.username_pw_set(self._mqtt.username, self._mqtt.password or None)
+            password_value = self._mqtt.password.get_secret_value()
+            self._client.username_pw_set(self._mqtt.username, password_value or None)
         if conn.use_tls or self._mqtt.tls.enabled:
             self._client.tls_set(
                 cert_reqs=ssl.CERT_REQUIRED if self._mqtt.tls.reject_unauthorized else ssl.CERT_NONE

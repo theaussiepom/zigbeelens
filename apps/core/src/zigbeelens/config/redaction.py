@@ -55,6 +55,15 @@ def is_secret_key(key: str) -> bool:
     return any(lower.endswith(suffix) for suffix in _SECRET_SUFFIXES)
 
 
+def _redact_credential_params(value: str, *, lead: str) -> str:
+    if not value:
+        return ""
+    redacted = _CONNECTION_QUERY_SECRET.sub(r"\1***", f"{lead}{value}")
+    if redacted.startswith(lead):
+        return redacted[len(lead) :]
+    return redacted
+
+
 def redact_mqtt_server(server: str, username: str = "") -> str:
     """Return an MQTT server URI safe for logs and API responses."""
     if not server:
@@ -64,12 +73,26 @@ def redact_mqtt_server(server: str, username: str = "") -> str:
     except ValueError:
         return REDACTED
 
+    try:
+        port_number = parsed.port
+    except ValueError:
+        return REDACTED
+
     host = parsed.hostname or ""
-    port = f":{parsed.port}" if parsed.port else ""
+    port = f":{port_number}" if port_number else ""
     user_part = f"{username}:{REDACTED}@" if username else ""
-    netloc = f"{user_part}{host}{port}" if host else parsed.netloc
+    if host:
+        netloc = f"{user_part}{host}{port}"
+    elif username:
+        # Avoid falling back to a credential-bearing netloc when host parsing fails.
+        return REDACTED
+    else:
+        netloc = parsed.netloc
+
+    query = _redact_credential_params(parsed.query, lead="?")
+    fragment = _redact_credential_params(parsed.fragment, lead="#")
     return urlunparse(
-        (parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+        (parsed.scheme, netloc, parsed.path, parsed.params, query, fragment)
     )
 
 

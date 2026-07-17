@@ -39,7 +39,8 @@ class TopologyRequestPublisher:
         client_id = f"{config.mqtt.client_id}-topology"
         self._client = mqtt.Client(client_id=client_id, protocol=mqtt.MQTTv311)
         if config.mqtt.username:
-            self._client.username_pw_set(config.mqtt.username, config.mqtt.password or None)
+            password_value = config.mqtt.password.get_secret_value()
+            self._client.username_pw_set(config.mqtt.username, password_value or None)
         if conn.use_tls or config.mqtt.tls.enabled:
             self._client.tls_set(
                 cert_reqs=ssl.CERT_REQUIRED if config.mqtt.tls.reject_unauthorized else ssl.CERT_NONE
