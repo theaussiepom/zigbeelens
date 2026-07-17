@@ -11,6 +11,7 @@ from zigbeelens.config.models import AppConfig, ModeConfig, NetworkConfig, Stora
 from zigbeelens.db.connection import Database
 from zigbeelens.services.network_evidence import (
     DEVICE_STORY_EVIDENCE_REQUIREMENTS,
+    EVIDENCE_GRAPH_FACTS_REQUIREMENTS,
     EVIDENCE_GRAPH_REQUIREMENTS,
     NetworkEvidenceCapability,
     NetworkEvidenceCapabilityError,
@@ -134,7 +135,7 @@ def test_supplied_device_rows_avoid_device_reread(tmp_path: Path):
         "home",
         reference_now=NOW,
         requirements=frozenset({NetworkEvidenceCapability.devices}),
-        device_rows=rows,
+        complete_device_rows=rows,
     )
     assert ctx.device_rows is not None
     assert counter.stats.category_counts.get("read.devices", 0) == 0
@@ -188,7 +189,7 @@ def test_wrong_network_device_rows_rejected(tmp_path: Path):
             "home",
             reference_now=NOW,
             requirements=frozenset({NetworkEvidenceCapability.devices}),
-            device_rows=office_rows,
+            complete_device_rows=office_rows,
         )
 
 
@@ -312,8 +313,9 @@ def test_frozen_context_survives_db_mutation(tmp_path: Path):
         repo,
         "home",
         reference_now=NOW,
-        requirements=EVIDENCE_GRAPH_REQUIREMENTS,
-        device_rows=repo.list_devices("home"),
+        requirements=EVIDENCE_GRAPH_FACTS_REQUIREMENTS,
+        complete_device_rows=repo.list_devices("home"),
+        stale_after_hours=24,
     )
     before_nodes = len(ctx.latest_nodes or ())
     before_devices = len(ctx.device_rows or ())
@@ -412,7 +414,7 @@ def test_availability_collection_feeds_derived_outputs_once(tmp_path: Path):
                 NetworkEvidenceCapability.model_patterns,
             }
         ),
-        device_rows=repo.list_devices("home"),
+        complete_device_rows=repo.list_devices("home"),
     )
     assert counter.stats.category_counts.get("read.availability_changes", 0) == 1
     assert ctx.passive_hints is not None

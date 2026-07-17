@@ -1373,7 +1373,7 @@ def test_track_3g_context_construction_invariants(tmp_path: Path):
             reference_now=REFERENCE_TIME,
             requirements=DEVICE_STORY_EVIDENCE_REQUIREMENTS,
             network_row=network,
-            device_rows=rows,
+            complete_device_rows=rows,
         )
         story_stats = fx.counter.stats
         assert story_ctx.has_capability(NetworkEvidenceCapability.snapshot_history)
@@ -1389,7 +1389,7 @@ def test_track_3g_context_construction_invariants(tmp_path: Path):
             reference_now=REFERENCE_TIME,
             requirements=EVIDENCE_GRAPH_REQUIREMENTS,
             network_row=network,
-            device_rows=rows,
+            complete_device_rows=rows,
         )
         graph_stats = fx.counter.stats
         assert graph_ctx.has_capability(NetworkEvidenceCapability.investigations)
@@ -1416,7 +1416,7 @@ def test_track_3g_context_construction_invariants(tmp_path: Path):
                 network.id: DASHBOARD_EVIDENCE_REQUIREMENTS for network in networks
             },
             network_rows_by_id={network.id: network for network in networks},
-            devices_by_network=devices_by_network,
+            complete_device_rows_by_network=devices_by_network,
         )
         stats = fx.counter.stats
         assert set(contexts) == {network.id for network in networks}
