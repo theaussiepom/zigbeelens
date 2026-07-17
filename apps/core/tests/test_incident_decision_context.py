@@ -406,7 +406,7 @@ def test_scenario_incidents_api_does_not_bleed_live_repository(
 ):
     scenario_id = "single_device_unavailable"
     provider = MockProvider(scenario_id)
-    scenario_incidents = provider.incidents_complete_history()
+    scenario_incidents = list(provider.data.incidents)
     assert scenario_incidents
     scenario_ref = next(
         ref

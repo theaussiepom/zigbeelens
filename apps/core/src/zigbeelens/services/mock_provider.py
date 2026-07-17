@@ -97,10 +97,6 @@ class MockProvider:
                 )
         return items
 
-    def incidents_complete_history(self):
-        """Full scenario incident list for report assembly (Track 3F debt)."""
-        return list(self.data.incidents)
-
     def _incident_status(self, inc) -> str:
         return inc.status.value if hasattr(inc.status, "value") else str(inc.status)
 

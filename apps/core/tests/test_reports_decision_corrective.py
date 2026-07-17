@@ -120,7 +120,7 @@ def test_device_scoped_report_stories_once_and_reuses_badges(monkeypatch, tmp_pa
 
     story_spy = MagicMock(wraps=device_stories_for_devices)
     monkeypatch.setattr(
-        "zigbeelens.services.data_service.device_stories_for_devices",
+        "zigbeelens.services.report_composition.device_stories_for_devices",
         story_spy,
     )
     badge_spy = MagicMock(wraps=device_decision_badge_for_device)
@@ -190,19 +190,21 @@ def test_incident_scoped_report_stories_once_for_multiple_devices(monkeypatch, t
     repo = Repository(db)
     data = DataService(config, repo)
     mock = MockProvider(SCENARIO)
-    incident = mock.incidents_complete_history()[0]
+    incident = mock.data.incidents[0]
     assert len(incident.affected_devices) >= 2
 
     calls = {"n": 0}
-    original = data.report_device_context
+    original = data.compose_report_scope
 
     def _wrap(*args, **kwargs):
         calls["n"] += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(data, "report_device_context", _wrap)
+    monkeypatch.setattr(data, "compose_report_scope", _wrap)
     device_spy = MagicMock(wraps=data.device)
     monkeypatch.setattr(data, "device", device_spy)
+    dashboard_spy = MagicMock(wraps=data.dashboard)
+    monkeypatch.setattr(data, "dashboard", dashboard_spy)
 
     detail = generate_report(
         data=data,
@@ -223,6 +225,7 @@ def test_incident_scoped_report_stories_once_for_multiple_devices(monkeypatch, t
     )
     assert calls["n"] == 1
     assert device_spy.call_count == 0
+    assert dashboard_spy.call_count == 0
     assert detail.device_details
     for det in detail.device_details:
         key = (det.network_id, det.ieee_address)
@@ -383,7 +386,7 @@ def test_include_timeline_false_absent_from_generated_markdown(tmp_path):
     from zigbeelens.services.mock_provider import MockProvider
 
     mock = MockProvider(SCENARIO)
-    if mock.timeline() or any(i.timeline for i in mock.incidents_complete_history()):
+    if mock.timeline() or any(i.timeline for i in mock.data.incidents):
         assert has_any
 
 
@@ -884,7 +887,7 @@ def _assert_stable_decision_vocab(detail: ReportDetail) -> None:
 
 
 def test_scoped_report_redacts_out_of_scope_configured_networks(tmp_path):
-    """Home-scoped reports must anonymise Office config_summary entries too."""
+    """Home-scoped reports include only Home config_summary networks (Track 3F)."""
     data, config, repo = _two_network_service(tmp_path)
 
     for profile in (RedactionProfile.public_safe, RedactionProfile.strict):
@@ -908,7 +911,7 @@ def test_scoped_report_redacts_out_of_scope_configured_networks(tmp_path):
         assert home_top.id.startswith("network_")
 
         configured = detail.config_summary["networks"]
-        assert len(configured) == 2
+        assert len(configured) == 1
         configured_ids = {n["id"] for n in configured}
         configured_names = {n["name"] for n in configured}
         configured_topics = {n["base_topic"] for n in configured}
@@ -919,23 +922,15 @@ def test_scoped_report_redacts_out_of_scope_configured_networks(tmp_path):
         assert HOME_PRIVATE_TOPIC not in configured_topics
         assert OFFICE_SECRET_TOPIC not in configured_topics
         assert all(str(i).startswith("network_") for i in configured_ids)
-        assert len(configured_ids) == 2
 
-        home_cfg = next(n for n in configured if n["id"] == home_top.id)
-        office_cfg = next(n for n in configured if n["id"] != home_top.id)
+        home_cfg = configured[0]
         assert home_cfg["name"] == home_top.id
         assert home_cfg["id"] == home_top.id
-        assert office_cfg["id"] != home_top.id
-        assert office_cfg["name"] == office_cfg["id"]
-        assert office_cfg["base_topic"] != home_cfg["base_topic"]
         if profile == RedactionProfile.public_safe:
             assert home_top.id == "network_001"
-            assert office_cfg["id"] == "network_002"
             assert home_cfg["base_topic"].startswith("topic_")
-            assert office_cfg["base_topic"].startswith("topic_")
         else:
             assert home_top.id.startswith("network_") and len(home_top.id) > len("network_")
-            assert office_cfg["id"].startswith("network_")
 
         assert detail.markdown_summary
         for raw in _RAW_NETWORK_VALUES:
@@ -958,13 +953,14 @@ def test_scoped_report_redacts_out_of_scope_configured_networks(tmp_path):
     assert preserved.networks[0].id == HOME_PRIVATE_ID
     assert preserved.networks[0].name == HOME_PRIVATE_NAME
     assert preserved.networks[0].base_topic == HOME_PRIVATE_TOPIC
-    configured = preserved.config_summary["networks"]
-    assert len(configured) == 2
-    by_id = {n["id"]: n for n in configured}
-    assert by_id[HOME_PRIVATE_ID]["name"] == HOME_PRIVATE_NAME
-    assert by_id[HOME_PRIVATE_ID]["base_topic"] == HOME_PRIVATE_TOPIC
-    assert by_id[OFFICE_SECRET_ID]["name"] == OFFICE_SECRET_NAME
-    assert by_id[OFFICE_SECRET_ID]["base_topic"] == OFFICE_SECRET_TOPIC
+    assert len(preserved.config_summary["networks"]) == 1
+    assert preserved.config_summary["networks"][0]["id"] == HOME_PRIVATE_ID
+    assert preserved.config_summary["networks"][0]["name"] == HOME_PRIVATE_NAME
+    assert preserved.config_summary["networks"][0]["base_topic"] == HOME_PRIVATE_TOPIC
     blob = json.dumps(preserved.model_dump(mode="json"), sort_keys=True)
-    for raw in _RAW_NETWORK_VALUES:
-        assert raw in blob
+    assert HOME_PRIVATE_ID in blob
+    assert HOME_PRIVATE_NAME in blob
+    assert HOME_PRIVATE_TOPIC in blob
+    assert OFFICE_SECRET_ID not in blob
+    assert OFFICE_SECRET_NAME not in blob
+    assert OFFICE_SECRET_TOPIC not in blob

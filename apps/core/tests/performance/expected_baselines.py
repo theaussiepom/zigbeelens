@@ -102,10 +102,10 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "ingestion_execute_count": 6,
         "ingestion_rollback_count": 0,
         "post_commit_commit_count": 7,
-        "post_commit_execute_count": 40,
+        "post_commit_execute_count": 42,
         "post_commit_rollback_count": 0,
         "total_commit_count": 8,
-        "total_execute_count": 46,
+        "total_execute_count": 48,
         "total_rollback_count": 0
     },
     "availability_ingestion_beast": {
@@ -113,32 +113,32 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "ingestion_execute_count": 6,
         "ingestion_rollback_count": 0,
         "post_commit_commit_count": 7,
-        "post_commit_execute_count": 69,
+        "post_commit_execute_count": 71,
         "post_commit_rollback_count": 0,
         "total_commit_count": 8,
-        "total_execute_count": 75,
+        "total_execute_count": 77,
         "total_rollback_count": 0
     },
     "inventory_ingestion_beast": {
-        "ingestion_execute_count": 334,
         "ingestion_commit_count": 2,
+        "ingestion_execute_count": 334,
         "ingestion_rollback_count": 0,
-        "post_commit_execute_count": 629,
         "post_commit_commit_count": 25,
+        "post_commit_execute_count": 633,
         "post_commit_rollback_count": 0,
-        "total_execute_count": 963,
         "total_commit_count": 27,
+        "total_execute_count": 967,
         "total_rollback_count": 0
     },
     "inventory_ingestion_compact": {
-        "ingestion_execute_count": 43,
         "ingestion_commit_count": 1,
+        "ingestion_execute_count": 43,
         "ingestion_rollback_count": 0,
-        "post_commit_execute_count": 93,
         "post_commit_commit_count": 8,
+        "post_commit_execute_count": 95,
         "post_commit_rollback_count": 0,
-        "total_execute_count": 136,
         "total_commit_count": 9,
+        "total_execute_count": 138,
         "total_rollback_count": 0
     },
     "payload_ingestion": {
@@ -165,7 +165,15 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
     }
 }
 
-# Exact Track 3D total-operation snapshots. They are not product budgets.
+# Track 3E report execute totals (historical) before scope-first composition.
+TRACK_3E_REPORT_EXECUTE_TOTALS: dict[str, int] = {
+    "report_full": 262,
+    "report_network": 262,
+    "report_incident": 317,
+    "report_device": 237,
+}
+
+# Exact Track 3F total-operation snapshots. They are not product budgets.
 EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
   "availability_ingestion": {
     "category_counts": {
@@ -187,10 +195,11 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "write.events": 3,
       "write.health_snapshots": 2,
       "write.incident_devices": 4,
+      "write.incident_networks": 2,
       "write.incidents": 2
     },
     "commit_count": 8,
-    "execute_count": 46,
+    "execute_count": 48,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
@@ -238,10 +247,11 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "write.events": 3,
       "write.health_snapshots": 2,
       "write.incident_devices": 10,
+      "write.incident_networks": 2,
       "write.incidents": 2
     },
     "commit_count": 8,
-    "execute_count": 75,
+    "execute_count": 77,
     "executemany_count": 0,
     "fixture": "beast",
     "rollback_count": 0,
@@ -253,7 +263,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       },
       {
         "count": 9,
-        "statement": "SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ?"
+        "statement": "WITH selected AS ( SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ? ) SELECT s.id, s.incident_type, s.lifecycle_state, s.severity, s.scope, s.confidence, s.title, s.summary, s.explanation, s.evidence_json, s.counter_evidence_json, s.limitations_json, s.opened_at, s.updated_at, s.resolved_at, s.dedup_key, n.network_id FROM selected s LEFT JOIN incident_networks n ON n.incident_id = s.id ORDER BY n.network_id"
       },
       {
         "count": 9,
@@ -277,6 +287,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.events": 1,
       "read.ha_enrichment": 25,
       "read.incident_devices": 1,
+      "read.incident_networks": 1,
       "read.incidents": 1,
       "read.networks": 4,
       "read.schema": 30,
@@ -285,7 +296,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_snapshots": 7
     },
     "commit_count": 0,
-    "execute_count": 109,
+    "execute_count": 110,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
@@ -321,8 +332,9 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.events": 1,
       "read.ha_enrichment": 75,
       "read.incident_devices": 1,
+      "read.incident_networks": 1,
       "read.incidents": 1,
-      "read.networks": 6,
+      "read.networks": 5,
       "read.schema": 87,
       "read.topology_links": 36,
       "read.topology_nodes": 10,
@@ -365,6 +377,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.events": 1,
       "read.ha_enrichment": 3,
       "read.incident_devices": 1,
+      "read.incident_networks": 1,
       "read.incidents": 3,
       "read.metric_samples": 1,
       "read.networks": 3,
@@ -374,7 +387,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_snapshots": 4
     },
     "commit_count": 0,
-    "execute_count": 54,
+    "execute_count": 55,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
@@ -409,6 +422,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.devices": 3,
       "read.ha_enrichment": 2,
       "read.incident_devices": 1,
+      "read.incident_networks": 1,
       "read.incidents": 1,
       "read.networks": 2,
       "read.schema": 5,
@@ -417,7 +431,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_snapshots": 4
     },
     "commit_count": 0,
-    "execute_count": 82,
+    "execute_count": 83,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
@@ -452,8 +466,9 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.devices": 4,
       "read.ha_enrichment": 3,
       "read.incident_devices": 1,
+      "read.incident_networks": 1,
       "read.incidents": 1,
-      "read.networks": 3,
+      "read.networks": 2,
       "read.schema": 9,
       "read.topology_links": 20,
       "read.topology_nodes": 24,
@@ -536,6 +551,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.events": 1,
       "read.ha_enrichment": 2,
       "read.incident_devices": 1,
+      "read.incident_networks": 1,
       "read.incidents": 2,
       "read.schema": 5,
       "read.topology_links": 10,
@@ -543,7 +559,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_snapshots": 4
     },
     "commit_count": 0,
-    "execute_count": 47,
+    "execute_count": 48,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
@@ -578,6 +594,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.devices": 2,
       "read.ha_enrichment": 2,
       "read.incident_devices": 1,
+      "read.incident_networks": 1,
       "read.incidents": 3,
       "read.schema": 5,
       "read.topology_links": 10,
@@ -585,7 +602,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_snapshots": 4
     },
     "commit_count": 0,
-    "execute_count": 51,
+    "execute_count": 52,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
@@ -620,6 +637,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.devices": 4,
       "read.ha_enrichment": 3,
       "read.incident_devices": 1,
+      "read.incident_networks": 1,
       "read.incidents": 3,
       "read.schema": 9,
       "read.topology_links": 10,
@@ -627,7 +645,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_snapshots": 8
     },
     "commit_count": 0,
-    "execute_count": 130,
+    "execute_count": 131,
     "executemany_count": 0,
     "fixture": "history",
     "rollback_count": 0,
@@ -676,10 +694,11 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "write.events": 5,
       "write.health_snapshots": 17,
       "write.incident_devices": 17,
+      "write.incident_networks": 4,
       "write.incidents": 3
     },
     "commit_count": 27,
-    "execute_count": 963,
+    "execute_count": 967,
     "executemany_count": 0,
     "fixture": "beast",
     "rollback_count": 0,
@@ -728,10 +747,11 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "write.events": 3,
       "write.health_snapshots": 3,
       "write.incident_devices": 3,
+      "write.incident_networks": 2,
       "write.incidents": 2
     },
     "commit_count": 9,
-    "execute_count": 136,
+    "execute_count": 138,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
@@ -843,7 +863,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       },
       {
         "count": 9,
-        "statement": "SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ?"
+        "statement": "WITH selected AS ( SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ? ) SELECT s.id, s.incident_type, s.lifecycle_state, s.severity, s.scope, s.confidence, s.title, s.summary, s.explanation, s.evidence_json, s.counter_evidence_json, s.limitations_json, s.opened_at, s.updated_at, s.resolved_at, s.dedup_key, n.network_id FROM selected s LEFT JOIN incident_networks n ON n.incident_id = s.id ORDER BY n.network_id"
       },
       {
         "count": 7,
@@ -861,183 +881,369 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
   },
   "report_device": {
     "category_counts": {
-      "read.availability_changes": 18,
-      "read.bridge_snapshots": 2,
-      "read.device_snapshots": 6,
-      "read.devices": 22,
-      "read.events": 4,
-      "read.ha_enrichment": 32,
-      "read.incident_devices": 6,
-      "read.incidents": 9,
+      "read.availability_changes": 9,
+      "read.bridge_snapshots": 1,
+      "read.device_snapshots": 1,
+      "read.devices": 11,
+      "read.events": 1,
+      "read.ha_enrichment": 28,
+      "read.incidents": 3,
       "read.metric_samples": 1,
-      "read.networks": 12,
-      "read.schema": 43,
-      "read.topology_links": 37,
-      "read.topology_nodes": 28,
-      "read.topology_snapshots": 17
+      "read.networks": 4,
+      "read.schema": 36,
+      "read.topology_links": 27,
+      "read.topology_nodes": 16,
+      "read.topology_snapshots": 13
     },
     "commit_count": 0,
-    "execute_count": 237,
+    "execute_count": 151,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
     "state": "warm",
     "top_repeated_statements": [
       {
-        "count": 43,
+        "count": 36,
         "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?"
       },
       {
-        "count": 37,
+        "count": 27,
         "statement": "SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?"
       },
       {
-        "count": 28,
-        "statement": "SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address"
-      },
-      {
-        "count": 24,
+        "count": 23,
         "statement": "SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?"
       },
       {
-        "count": 11,
+        "count": 16,
+        "statement": "SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address"
+      },
+      {
+        "count": 8,
+        "statement": "SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?"
+      }
+    ]
+  },
+  "report_device_history": {
+    "category_counts": {
+      "read.availability_changes": 9,
+      "read.bridge_snapshots": 1,
+      "read.device_snapshots": 1,
+      "read.devices": 11,
+      "read.events": 1,
+      "read.ha_enrichment": 28,
+      "read.incidents": 3,
+      "read.metric_samples": 1,
+      "read.networks": 4,
+      "read.schema": 36,
+      "read.topology_links": 27,
+      "read.topology_nodes": 16,
+      "read.topology_snapshots": 13
+    },
+    "commit_count": 0,
+    "execute_count": 151,
+    "executemany_count": 0,
+    "fixture": "history",
+    "rollback_count": 0,
+    "state": "warm",
+    "top_repeated_statements": [
+      {
+        "count": 36,
+        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?"
+      },
+      {
+        "count": 27,
+        "statement": "SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?"
+      },
+      {
+        "count": 23,
+        "statement": "SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?"
+      },
+      {
+        "count": 16,
+        "statement": "SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address"
+      },
+      {
+        "count": 8,
         "statement": "SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?"
       }
     ]
   },
   "report_full": {
     "category_counts": {
-      "read.availability_changes": 36,
-      "read.bridge_snapshots": 2,
-      "read.device_snapshots": 25,
-      "read.devices": 20,
-      "read.events": 3,
-      "read.ha_enrichment": 31,
-      "read.incident_devices": 5,
-      "read.incidents": 7,
-      "read.networks": 9,
-      "read.schema": 42,
-      "read.topology_links": 37,
-      "read.topology_nodes": 28,
-      "read.topology_snapshots": 17
+      "read.availability_changes": 27,
+      "read.bridge_snapshots": 1,
+      "read.device_snapshots": 20,
+      "read.devices": 9,
+      "read.events": 2,
+      "read.ha_enrichment": 28,
+      "read.incident_devices": 1,
+      "read.incident_networks": 1,
+      "read.incidents": 2,
+      "read.networks": 4,
+      "read.schema": 36,
+      "read.topology_links": 27,
+      "read.topology_nodes": 16,
+      "read.topology_snapshots": 13
     },
     "commit_count": 0,
-    "execute_count": 262,
+    "execute_count": 187,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
     "state": "warm",
     "top_repeated_statements": [
       {
-        "count": 42,
+        "count": 36,
         "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?"
       },
       {
-        "count": 37,
+        "count": 27,
         "statement": "SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?"
       },
       {
-        "count": 28,
-        "statement": "SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address"
+        "count": 23,
+        "statement": "SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?"
       },
       {
-        "count": 25,
+        "count": 20,
         "statement": "SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?"
       },
       {
-        "count": 25,
+        "count": 20,
         "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?"
+      }
+    ]
+  },
+  "report_full_beast": {
+    "category_counts": {
+      "read.availability_changes": 178,
+      "read.bridge_snapshots": 2,
+      "read.device_snapshots": 164,
+      "read.devices": 16,
+      "read.events": 2,
+      "read.ha_enrichment": 79,
+      "read.incident_devices": 1,
+      "read.incident_networks": 1,
+      "read.incidents": 2,
+      "read.networks": 5,
+      "read.schema": 97,
+      "read.topology_links": 56,
+      "read.topology_nodes": 34,
+      "read.topology_snapshots": 26
+    },
+    "commit_count": 0,
+    "execute_count": 663,
+    "executemany_count": 0,
+    "fixture": "beast",
+    "rollback_count": 0,
+    "state": "warm",
+    "top_repeated_statements": [
+      {
+        "count": 164,
+        "statement": "SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?"
+      },
+      {
+        "count": 164,
+        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?"
+      },
+      {
+        "count": 97,
+        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?"
+      },
+      {
+        "count": 72,
+        "statement": "SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?"
+      },
+      {
+        "count": 54,
+        "statement": "SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?"
       }
     ]
   },
   "report_incident": {
     "category_counts": {
-      "read.availability_changes": 27,
-      "read.bridge_snapshots": 2,
-      "read.device_snapshots": 11,
-      "read.devices": 28,
-      "read.events": 7,
-      "read.ha_enrichment": 36,
-      "read.incident_devices": 9,
-      "read.incidents": 18,
+      "read.availability_changes": 13,
+      "read.bridge_snapshots": 1,
+      "read.device_snapshots": 3,
+      "read.devices": 12,
+      "read.events": 4,
+      "read.ha_enrichment": 28,
+      "read.incident_devices": 2,
+      "read.incident_networks": 2,
+      "read.incidents": 9,
       "read.metric_samples": 3,
-      "read.networks": 18,
-      "read.schema": 50,
-      "read.topology_links": 47,
-      "read.topology_nodes": 40,
-      "read.topology_snapshots": 21
+      "read.networks": 6,
+      "read.schema": 36,
+      "read.topology_links": 27,
+      "read.topology_nodes": 16,
+      "read.topology_snapshots": 13
     },
     "commit_count": 0,
-    "execute_count": 317,
+    "execute_count": 175,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
     "state": "warm",
     "top_repeated_statements": [
       {
-        "count": 50,
+        "count": 36,
         "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?"
       },
       {
-        "count": 47,
+        "count": 27,
         "statement": "SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?"
       },
       {
-        "count": 40,
-        "statement": "SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address"
-      },
-      {
-        "count": 26,
+        "count": 23,
         "statement": "SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?"
       },
       {
-        "count": 14,
-        "statement": "SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name"
+        "count": 16,
+        "statement": "SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address"
+      },
+      {
+        "count": 8,
+        "statement": "SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?"
+      }
+    ]
+  },
+  "report_incident_history": {
+    "category_counts": {
+      "read.availability_changes": 13,
+      "read.bridge_snapshots": 1,
+      "read.device_snapshots": 3,
+      "read.devices": 12,
+      "read.events": 4,
+      "read.ha_enrichment": 28,
+      "read.incident_devices": 2,
+      "read.incident_networks": 2,
+      "read.incidents": 9,
+      "read.metric_samples": 3,
+      "read.networks": 6,
+      "read.schema": 36,
+      "read.topology_links": 27,
+      "read.topology_nodes": 16,
+      "read.topology_snapshots": 13
+    },
+    "commit_count": 0,
+    "execute_count": 175,
+    "executemany_count": 0,
+    "fixture": "history",
+    "rollback_count": 0,
+    "state": "warm",
+    "top_repeated_statements": [
+      {
+        "count": 36,
+        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?"
+      },
+      {
+        "count": 27,
+        "statement": "SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?"
+      },
+      {
+        "count": 23,
+        "statement": "SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?"
+      },
+      {
+        "count": 16,
+        "statement": "SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address"
+      },
+      {
+        "count": 8,
+        "statement": "SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?"
       }
     ]
   },
   "report_network": {
     "category_counts": {
-      "read.availability_changes": 36,
-      "read.bridge_snapshots": 2,
-      "read.device_snapshots": 25,
-      "read.devices": 20,
-      "read.events": 3,
-      "read.ha_enrichment": 31,
-      "read.incident_devices": 5,
-      "read.incidents": 7,
-      "read.networks": 9,
-      "read.schema": 42,
-      "read.topology_links": 37,
-      "read.topology_nodes": 28,
-      "read.topology_snapshots": 17
+      "read.availability_changes": 27,
+      "read.bridge_snapshots": 1,
+      "read.device_snapshots": 20,
+      "read.devices": 9,
+      "read.events": 2,
+      "read.ha_enrichment": 28,
+      "read.incident_devices": 1,
+      "read.incident_networks": 1,
+      "read.incidents": 2,
+      "read.networks": 4,
+      "read.schema": 36,
+      "read.topology_links": 27,
+      "read.topology_nodes": 16,
+      "read.topology_snapshots": 13
     },
     "commit_count": 0,
-    "execute_count": 262,
+    "execute_count": 187,
     "executemany_count": 0,
     "fixture": "compact",
     "rollback_count": 0,
     "state": "warm",
     "top_repeated_statements": [
       {
-        "count": 42,
+        "count": 36,
         "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?"
       },
       {
-        "count": 37,
+        "count": 27,
         "statement": "SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?"
       },
       {
-        "count": 28,
-        "statement": "SELECT ieee_address, friendly_name, node_type, depth, lqi FROM topology_nodes WHERE snapshot_id = ? ORDER BY node_type, ieee_address"
+        "count": 23,
+        "statement": "SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?"
       },
       {
-        "count": 25,
+        "count": 20,
         "statement": "SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?"
       },
       {
-        "count": 25,
+        "count": 20,
         "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?"
+      }
+    ]
+  },
+  "report_network_beast": {
+    "category_counts": {
+      "read.availability_changes": 127,
+      "read.bridge_snapshots": 1,
+      "read.device_snapshots": 120,
+      "read.devices": 9,
+      "read.events": 2,
+      "read.ha_enrichment": 41,
+      "read.incident_devices": 1,
+      "read.incident_networks": 1,
+      "read.incidents": 2,
+      "read.networks": 4,
+      "read.schema": 51,
+      "read.topology_links": 29,
+      "read.topology_nodes": 18,
+      "read.topology_snapshots": 15
+    },
+    "commit_count": 0,
+    "execute_count": 421,
+    "executemany_count": 0,
+    "fixture": "beast",
+    "rollback_count": 0,
+    "state": "warm",
+    "top_repeated_statements": [
+      {
+        "count": 120,
+        "statement": "SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?"
+      },
+      {
+        "count": 120,
+        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?"
+      },
+      {
+        "count": 51,
+        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?"
+      },
+      {
+        "count": 36,
+        "statement": "SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?"
+      },
+      {
+        "count": 27,
+        "statement": "SELECT source_ieee, target_ieee, source_type, target_type, linkquality, depth, relationship, route_count FROM topology_links WHERE snapshot_id = ?"
       }
     ]
   }

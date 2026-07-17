@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from zigbeelens.schemas import InvestigationPrioritySummary
@@ -31,12 +32,14 @@ def _card_to_summary(network_id: str, card: dict[str, Any]) -> InvestigationPrio
 def compose_dashboard_investigation_priorities(
     repo: Repository,
     networks: list[NetworkRow],
+    *,
+    now: datetime | None = None,
 ) -> list[InvestigationPrioritySummary]:
     """Flatten ranked mesh investigation cards across networks for Overview."""
     service = EvidenceGraphService(repo)
     summaries: list[InvestigationPrioritySummary] = []
     for network in networks:
-        investigations = service.investigations_for_network(network.id)
+        investigations = service.investigations_for_network(network.id, now=now)
         for card in investigations["investigations"]:
             summaries.append(_card_to_summary(network.id, card))
 

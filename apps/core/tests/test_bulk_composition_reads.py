@@ -103,6 +103,20 @@ def _seed_incident(
         incident_id,
         [AffectedDevice(network_id, ieee, role="primary") for network_id, ieee in refs],
     )
+    network_ids = sorted({network_id for network_id, _ in refs})
+    if not network_ids and dedup_key and ":" in dedup_key:
+        from zigbeelens.diagnostics.incidents.network_identity import (
+            network_ids_from_dedup_key,
+        )
+
+        network_ids = list(
+            network_ids_from_dedup_key(
+                dedup_key,
+                known_network_ids=[n.id for n in repo.list_networks()],
+            )
+        )
+    if network_ids:
+        repo.replace_incident_networks(incident_id, network_ids)
 
 
 def test_empty_bulk_inputs_execute_zero_sql(tmp_path: Path):
@@ -576,16 +590,24 @@ def test_read_only_surfaces_commit_zero(tmp_path: Path):
 
 
 def test_track_3c_ingestion_baselines_unchanged():
+    """Ingestion-phase execute/commit authority remains Track 3B/3C.
+
+    Track 3F may add factual post-commit incident_networks work, but must not
+    change ingestion transaction execute or physical commit counts.
+    """
     from performance.expected_baselines import EXPECTED_BASELINES, EXPECTED_PHASE_BASELINES
 
-    assert EXPECTED_BASELINES["payload_ingestion"]["execute_count"] == 36
     assert EXPECTED_BASELINES["payload_ingestion"]["commit_count"] == 3
-    assert EXPECTED_BASELINES["payload_ingestion_beast"]["execute_count"] == 62
-    assert EXPECTED_BASELINES["availability_ingestion"]["execute_count"] == 46
-    assert EXPECTED_BASELINES["availability_ingestion_beast"]["execute_count"] == 75
-    assert EXPECTED_BASELINES["inventory_ingestion_compact"]["execute_count"] == 136
-    assert EXPECTED_BASELINES["inventory_ingestion_beast"]["execute_count"] == 963
-    assert EXPECTED_PHASE_BASELINES["payload_ingestion"]["total_execute_count"] == 36
+    assert EXPECTED_BASELINES["availability_ingestion"]["commit_count"] == 8
+    assert EXPECTED_BASELINES["inventory_ingestion_compact"]["commit_count"] == 9
+    assert EXPECTED_BASELINES["inventory_ingestion_beast"]["commit_count"] == 27
+    assert EXPECTED_PHASE_BASELINES["payload_ingestion"]["ingestion_execute_count"] == 7
+    assert EXPECTED_PHASE_BASELINES["payload_ingestion"]["ingestion_commit_count"] == 1
+    assert EXPECTED_PHASE_BASELINES["availability_ingestion"]["ingestion_execute_count"] == 6
+    assert EXPECTED_PHASE_BASELINES["availability_ingestion"]["ingestion_commit_count"] == 1
+    assert EXPECTED_PHASE_BASELINES["inventory_ingestion_compact"]["ingestion_execute_count"] == 43
+    assert EXPECTED_PHASE_BASELINES["inventory_ingestion_beast"]["ingestion_execute_count"] == 334
+    assert EXPECTED_PHASE_BASELINES["inventory_ingestion_beast"]["ingestion_commit_count"] == 2
 
 
 def test_track_3e_incident_list_scales_with_page_not_history(tmp_path: Path):

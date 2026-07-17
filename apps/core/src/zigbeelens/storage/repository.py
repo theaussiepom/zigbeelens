@@ -1080,19 +1080,62 @@ class Repository:
         )
 
     def get_incident_by_dedup_key(self, dedup_key: str) -> dict[str, Any] | None:
+        """Return the active incident for a dedup key with preloaded network IDs.
+
+        Network associations are assembled from the same lookup path so lifecycle
+        evaluation does not issue a per-candidate incident_networks read.
+        """
         cur = self.db.conn.execute(
             """
-            SELECT id, incident_type, lifecycle_state, severity, scope, confidence,
-                   title, summary, explanation, evidence_json, counter_evidence_json,
-                   limitations_json, opened_at, updated_at, resolved_at, dedup_key
-            FROM incidents
-            WHERE dedup_key = ? AND lifecycle_state IN ('open', 'watching')
-            ORDER BY updated_at DESC LIMIT 1
+            WITH selected AS (
+                SELECT id, incident_type, lifecycle_state, severity, scope, confidence,
+                       title, summary, explanation, evidence_json, counter_evidence_json,
+                       limitations_json, opened_at, updated_at, resolved_at, dedup_key
+                FROM incidents
+                WHERE dedup_key = ? AND lifecycle_state IN ('open', 'watching')
+                ORDER BY updated_at DESC
+                LIMIT 1
+            )
+            SELECT
+                s.id, s.incident_type, s.lifecycle_state, s.severity, s.scope, s.confidence,
+                s.title, s.summary, s.explanation, s.evidence_json, s.counter_evidence_json,
+                s.limitations_json, s.opened_at, s.updated_at, s.resolved_at, s.dedup_key,
+                n.network_id
+            FROM selected s
+            LEFT JOIN incident_networks n ON n.incident_id = s.id
+            ORDER BY n.network_id
             """,
             (dedup_key,),
         )
-        row = cur.fetchone()
-        return dict(row) if row else None
+        rows = cur.fetchall()
+        if not rows:
+            return None
+        result = {
+            key: rows[0][key]
+            for key in (
+                "id",
+                "incident_type",
+                "lifecycle_state",
+                "severity",
+                "scope",
+                "confidence",
+                "title",
+                "summary",
+                "explanation",
+                "evidence_json",
+                "counter_evidence_json",
+                "limitations_json",
+                "opened_at",
+                "updated_at",
+                "resolved_at",
+                "dedup_key",
+            )
+        }
+        network_ids = tuple(
+            row["network_id"] for row in rows if row["network_id"] is not None
+        )
+        result["network_ids"] = network_ids
+        return result
 
     def insert_incident(
         self,
@@ -1215,6 +1258,192 @@ class Repository:
                 (incident_id, device.network_id, device.ieee_address, device.role),
             )
         self.db.conn.commit()
+
+    def replace_incident_networks(
+        self, incident_id: str, network_ids: list[str], *, commit: bool = True
+    ) -> None:
+        """Replace factual network associations for one incident (Track 3F)."""
+        ordered = list(dict.fromkeys(nid for nid in network_ids if nid))
+        self.db.conn.execute(
+            "DELETE FROM incident_networks WHERE incident_id = ?", (incident_id,)
+        )
+        for network_id in ordered:
+            self.db.conn.execute(
+                """
+                INSERT INTO incident_networks (incident_id, network_id)
+                VALUES (?, ?)
+                """,
+                (incident_id, network_id),
+            )
+        if commit:
+            self.db.conn.commit()
+
+    def replace_incident_devices_and_networks(
+        self, incident_id: str, devices, network_ids: list[str]
+    ) -> None:
+        """Replace incident membership and network associations in one commit."""
+        from zigbeelens.diagnostics.incidents.models import AffectedDevice
+
+        self.db.conn.execute("DELETE FROM incident_devices WHERE incident_id = ?", (incident_id,))
+        for device in devices:
+            if not isinstance(device, AffectedDevice):
+                continue
+            self.db.conn.execute(
+                """
+                INSERT INTO incident_devices (incident_id, network_id, ieee_address, role)
+                VALUES (?, ?, ?, ?)
+                """,
+                (incident_id, device.network_id, device.ieee_address, device.role),
+            )
+        self.replace_incident_networks(incident_id, network_ids, commit=False)
+        self.db.conn.commit()
+
+    def list_incident_networks(self, incident_id: str) -> list[str]:
+        cur = self.db.conn.execute(
+            """
+            SELECT network_id FROM incident_networks
+            WHERE incident_id = ?
+            ORDER BY network_id
+            """,
+            (incident_id,),
+        )
+        return [row[0] for row in cur.fetchall()]
+
+    def list_incident_networks_for_incidents(
+        self, incident_ids: Collection[str]
+    ) -> dict[str, list[str]]:
+        ordered_ids = list(dict.fromkeys(incident_ids))
+        result: dict[str, list[str]] = {incident_id: [] for incident_id in ordered_ids}
+        if not ordered_ids:
+            return result
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            placeholders = ",".join("?" for _ in chunk)
+            cur = self.db.conn.execute(
+                f"""
+                SELECT incident_id, network_id
+                FROM incident_networks
+                WHERE incident_id IN ({placeholders})
+                ORDER BY incident_id, network_id
+                """,
+                chunk,
+            )
+            for row in cur.fetchall():
+                result[row["incident_id"]].append(row["network_id"])
+        return result
+
+    def get_networks_by_ids(self, network_ids: Collection[str]) -> list[NetworkRow]:
+        ordered_ids = list(dict.fromkeys(nid for nid in network_ids if nid))
+        if not ordered_ids:
+            return []
+        result_by_id: dict[str, NetworkRow] = {}
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            placeholders = ",".join("?" for _ in chunk)
+            cur = self.db.conn.execute(
+                f"""
+                SELECT id, name, base_topic, bridge_state
+                FROM networks
+                WHERE id IN ({placeholders})
+                """,
+                chunk,
+            )
+            for row in cur.fetchall():
+                result_by_id[row["id"]] = NetworkRow(**dict(row))
+        return [result_by_id[nid] for nid in ordered_ids if nid in result_by_id]
+
+    def list_incident_rows_for_network_history(self, network_id: str) -> list[dict[str, Any]]:
+        """Complete incident history associated with one network (report scope)."""
+        cur = self.db.conn.execute(
+            """
+            SELECT i.id, i.incident_type, i.lifecycle_state, i.severity, i.scope, i.confidence,
+                   i.title, i.summary, i.explanation, i.evidence_json, i.counter_evidence_json,
+                   i.limitations_json, i.opened_at, i.updated_at, i.resolved_at, i.dedup_key
+            FROM incidents i
+            WHERE EXISTS (
+                SELECT 1 FROM incident_networks n
+                WHERE n.incident_id = i.id AND n.network_id = ?
+            )
+            ORDER BY CASE i.lifecycle_state WHEN 'open' THEN 0 WHEN 'watching' THEN 1 ELSE 2 END,
+                     i.updated_at DESC, i.id DESC
+            """,
+            (network_id,),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+    def list_incident_rows_for_device_history(
+        self, network_id: str, ieee_address: str
+    ) -> list[dict[str, Any]]:
+        """Complete incident history for one composite device identity (report scope)."""
+        cur = self.db.conn.execute(
+            """
+            SELECT i.id, i.incident_type, i.lifecycle_state, i.severity, i.scope, i.confidence,
+                   i.title, i.summary, i.explanation, i.evidence_json, i.counter_evidence_json,
+                   i.limitations_json, i.opened_at, i.updated_at, i.resolved_at, i.dedup_key
+            FROM incidents i
+            WHERE EXISTS (
+                SELECT 1 FROM incident_devices d
+                WHERE d.incident_id = i.id
+                  AND d.network_id = ?
+                  AND d.ieee_address = ?
+            )
+            ORDER BY CASE i.lifecycle_state WHEN 'open' THEN 0 WHEN 'watching' THEN 1 ELSE 2 END,
+                     i.updated_at DESC, i.id DESC
+            """,
+            (network_id, ieee_address),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+    def count_topology_snapshots_for_networks(self, network_ids: Collection[str]) -> int:
+        ordered_ids = list(dict.fromkeys(nid for nid in network_ids if nid))
+        if not ordered_ids:
+            return 0
+        total = 0
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            placeholders = ",".join("?" for _ in chunk)
+            cur = self.db.conn.execute(
+                f"""
+                SELECT COUNT(*) FROM topology_snapshots
+                WHERE network_id IN ({placeholders})
+                """,
+                chunk,
+            )
+            total += int(cur.fetchone()[0])
+        return total
+
+    def list_report_timeline_events(
+        self,
+        *,
+        network_id: str | None = None,
+        ieee_address: str | None = None,
+        incident_id: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """Scoped top-level timeline rows for report composition (SQL-limited)."""
+        if limit <= 0:
+            return []
+        clauses: list[str] = []
+        params: list[Any] = []
+        if incident_id is not None:
+            clauses.append("incident_id = ?")
+            params.append(incident_id)
+        if network_id is not None:
+            clauses.append("network_id = ?")
+            params.append(network_id)
+        if ieee_address is not None:
+            clauses.append("ieee_address = ?")
+            params.append(ieee_address)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        cur = self.db.conn.execute(
+            f"""
+            SELECT id, network_id, ieee_address, event_type, severity, title, summary,
+                   incident_id, occurred_at
+            FROM events
+            {where}
+            ORDER BY occurred_at DESC, id DESC
+            LIMIT ?
+            """,
+            [*params, limit],
+        )
+        return [dict(row) for row in cur.fetchall()]
 
     def list_offline_transitions_since(
         self, network_id: str, since_iso: str

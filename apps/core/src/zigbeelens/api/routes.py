@@ -33,6 +33,7 @@ from zigbeelens.schemas import (
     TopologyCaptureRequest,
     ZigbeeLensConfigStatus,
 )
+from zigbeelens.services.report_scope import ReportScopeAmbiguityError
 from zigbeelens.services.reports import (
     generate_report,
     report_body_as_json,
@@ -365,7 +366,10 @@ def report_preview(
         include_timeline=include_timeline,
         include_raw_payloads=include_raw_payloads,
     )
-    return ctx.data.report_preview(scenario, request, collector_status_dict(ctx))
+    try:
+        return ctx.data.report_preview(scenario, request, collector_status_dict(ctx))
+    except ReportScopeAmbiguityError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/reports", response_model=ReportSummary)
@@ -375,15 +379,18 @@ def create_report(
     ctx: AppContext = Depends(ctx_dep),
 ) -> ReportSummary:
     req = request or ReportRequest()
-    detail = generate_report(
-        data=ctx.data,
-        config=ctx.config,
-        reporting=ctx.config.reporting,
-        collector=collector_status_dict(ctx),
-        request=req,
-        scenario=scenario,
-        repo=ctx.repo,
-    )
+    try:
+        detail = generate_report(
+            data=ctx.data,
+            config=ctx.config,
+            reporting=ctx.config.reporting,
+            collector=collector_status_dict(ctx),
+            request=req,
+            scenario=scenario,
+            repo=ctx.repo,
+        )
+    except ReportScopeAmbiguityError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     row = store_report(ctx.repo, detail, req)
     return summary_from_detail(row, detail)
 

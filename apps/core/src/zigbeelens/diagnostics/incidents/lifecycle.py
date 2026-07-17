@@ -50,7 +50,11 @@ class IncidentLifecycleManager:
                         resolved_at=None,
                         updated_at=ts,
                     )
-                    self.repo.incidents.replace_incident_devices(existing["id"], candidate.affected_devices)
+                    self.repo.incidents.replace_incident_devices_and_networks(
+                        existing["id"],
+                        candidate.affected_devices,
+                        list(candidate.network_ids),
+                    )
                     self.repo.insert_event(
                         event_id=str(uuid.uuid4()),
                         network_id=candidate.network_ids[0] if candidate.network_ids else None,
@@ -82,7 +86,11 @@ class IncidentLifecycleManager:
                     opened_at=ts,
                     updated_at=ts,
                 )
-                self.repo.incidents.replace_incident_devices(incident_id, candidate.affected_devices)
+                self.repo.incidents.replace_incident_devices_and_networks(
+                    incident_id,
+                    candidate.affected_devices,
+                    list(candidate.network_ids),
+                )
                 self.repo.insert_event(
                     event_id=str(uuid.uuid4()),
                     network_id=candidate.network_ids[0] if candidate.network_ids else None,
@@ -186,7 +194,11 @@ class IncidentLifecycleManager:
             resolved_at=None,
             updated_at=ts,
         )
-        self.repo.incidents.replace_incident_devices(existing["id"], candidate.affected_devices)
+        self.repo.incidents.replace_incident_devices_and_networks(
+            existing["id"],
+            candidate.affected_devices,
+            list(candidate.network_ids),
+        )
         self.repo.insert_event(
             event_id=str(uuid.uuid4()),
             network_id=candidate.network_ids[0] if candidate.network_ids else None,
@@ -205,6 +217,13 @@ class IncidentLifecycleManager:
             (row["network_id"], row["ieee_address"], row.get("role") or "affected")
             for row in self.repo.incidents.list_incident_devices(existing["id"])
         }
+        preloaded = existing.get("network_ids")
+        if isinstance(preloaded, (list, tuple)):
+            existing_networks = tuple(preloaded)
+        else:
+            existing_networks = tuple(
+                self.repo.incidents.list_incident_networks(existing["id"])
+            )
         payload = {
             "title": candidate.title,
             "summary": candidate.summary,
@@ -216,6 +235,7 @@ class IncidentLifecycleManager:
             "counter_evidence": candidate.counter_evidence,
             "limitations": candidate.limitations,
             "affected_devices": sorted(candidate.device_role_keys()),
+            "network_ids": sorted(set(candidate.network_ids)),
         }
         previous = {
             "title": existing.get("title"),
@@ -228,6 +248,7 @@ class IncidentLifecycleManager:
             "counter_evidence": json.loads(existing.get("counter_evidence_json") or "[]"),
             "limitations": json.loads(existing.get("limitations_json") or "[]"),
             "affected_devices": sorted(existing_devices),
+            "network_ids": sorted(set(existing_networks)),
         }
         return json.dumps(payload, sort_keys=True) != json.dumps(previous, sort_keys=True)
 

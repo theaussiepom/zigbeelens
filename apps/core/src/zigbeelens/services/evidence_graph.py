@@ -46,10 +46,11 @@ class EvidenceGraphService:
         history: dict[str, Any],
         last_known: dict[str, Any],
         passive: dict[str, Any],
+        now: datetime | None = None,
     ) -> dict[str, Any]:
         """Compose ranked investigation cards from already-loaded evidence inputs."""
         shared_availability = shared_availability_event_groups_for_network(
-            self._repo, network_id
+            self._repo, network_id, now=now
         )
         devices = self._repo.list_devices(network_id)
         issue_device_ieees = issue_device_ieees_from_state(devices)
@@ -64,7 +65,7 @@ class EvidenceGraphService:
             issue_device_ieees=issue_device_ieees,
         )
         observed_model_patterns = observed_model_patterns_for_network(
-            self._repo, network_id
+            self._repo, network_id, now=now
         )
         return aggregate_investigations(
             self._repo,
@@ -77,7 +78,9 @@ class EvidenceGraphService:
             last_known_links=last_known["last_known_links"],
         )
 
-    def investigations_for_network(self, network_id: str) -> dict[str, Any]:
+    def investigations_for_network(
+        self, network_id: str, *, now: datetime | None = None
+    ) -> dict[str, Any]:
         """Ranked investigation cards for one network (shared by mesh and Overview)."""
         network = self._repo.networks.get_network(network_id)
         if network is None:
@@ -86,15 +89,16 @@ class EvidenceGraphService:
         topology = self._repo.topology
         latest = topology.get_latest_topology_snapshot(network_id)
         links = topology.list_topology_links(latest["snapshot_id"]) if latest else []
-        history = aggregate_historical_evidence(self._repo, network_id)
+        history = aggregate_historical_evidence(self._repo, network_id, now=now)
         last_known = aggregate_last_known_links(self._repo, network_id)
-        passive = aggregate_passive_hints(self._repo, network_id)
+        passive = aggregate_passive_hints(self._repo, network_id, now=now)
         return self._compose_investigations(
             network_id,
             links=links,
             history=history,
             last_known=last_known,
             passive=passive,
+            now=now,
         )
 
     def build(self, network_id: str, *, now: datetime | None = None) -> dict:
@@ -135,7 +139,7 @@ class EvidenceGraphService:
         links = topology.list_topology_links(latest["snapshot_id"]) if latest else []
         history = aggregate_historical_evidence(self._repo, network_id, now=now)
         last_known = aggregate_last_known_links(self._repo, network_id)
-        passive = aggregate_passive_hints(self._repo, network_id)
+        passive = aggregate_passive_hints(self._repo, network_id, now=now)
         device_stats = aggregate_device_stats(self._repo, network_id)
         investigations = self._compose_investigations(
             network_id,
@@ -143,6 +147,7 @@ class EvidenceGraphService:
             history=history,
             last_known=last_known,
             passive=passive,
+            now=now,
         )
 
         latest_neighbor_pairs = {
