@@ -6,8 +6,9 @@
 #   docker compose -f deploy/docker/docker-compose.example.yaml up -d
 #
 # Port 8377 is published on the Docker host for convenient local/trusted-network access.
-# ZigbeeLens Core has no built-in authentication in v0.1.0. If Core is reachable beyond
-# users or networks you trust, access-control decisions are your responsibility.
+# Core binds from AppConfig (Docker examples use server.host=0.0.0.0). Only the optional
+# mutation-route API-key guard is available today; read routes/SSE remain open. If Core
+# is reachable beyond users or networks you trust, access-control decisions are yours.
 #
 # Image: replace ghcr.io/theaussiepom/zigbeelens with your registry path.
 

@@ -206,7 +206,7 @@ def test_topology_and_discovery_publishers_unwrap_password():
     mock_client.username_pw_set.assert_called_with("u", MQTT_SENTINEL)
 
 
-def test_source_and_example_defaults_are_loopback():
+def test_source_and_example_defaults_are_loopback(monkeypatch):
     assert ServerConfig().host == "127.0.0.1"
     assert AppConfig().server.host == "127.0.0.1"
 
@@ -216,6 +216,7 @@ def test_source_and_example_defaults_are_loopback():
     source_config = REPO_ROOT / "config" / "config.yaml"
     assert load_config(source_config).server.host == "127.0.0.1"
 
+    monkeypatch.delenv("ZIGBEELENS_CONFIG", raising=False)
     previous = Path.cwd()
     try:
         os.chdir(REPO_ROOT)
@@ -259,6 +260,32 @@ def test_redact_mqtt_server_query_and_fragment():
 
 def test_redact_mqtt_server_malformed_port_is_safe():
     assert redact_mqtt_server("mqtt://broker:notaport") == REDACTED
+
+
+def test_redact_mqtt_server_hostless_userinfo_is_redacted():
+    sentinel = "credential-sentinel"
+    assert redact_mqtt_server(f"mqtt://user:{sentinel}@") == REDACTED
+    assert sentinel not in redact_mqtt_server(f"mqtt://user:{sentinel}@")
+
+    messy = (
+        f"mqtt://user:{sentinel}@/path"
+        f"?password={QUERY_SECRET}&token={TOKEN_QUERY}"
+        f"#api_key={FRAGMENT_SECRET}"
+    )
+    redacted = redact_mqtt_server(messy, username="")
+    assert redacted == REDACTED
+    assert sentinel not in redacted
+    assert QUERY_SECRET not in redacted
+    assert TOKEN_QUERY not in redacted
+    assert FRAGMENT_SECRET not in redacted
+
+
+def test_redact_mqtt_server_valid_userinfo_still_useful():
+    redacted = redact_mqtt_server("mqtt://user:password@broker:1883", username="user")
+    assert "password" not in redacted.split("@", 1)[0] or ":***@" in redacted
+    assert "user:***@" in redacted
+    assert "broker" in redacted
+    assert "1883" in redacted
 
 
 def test_config_status_redacts_uri_query_secrets(tmp_path: Path, monkeypatch):
@@ -323,6 +350,34 @@ mqtt:
         res = client.get("/api/config/status")
         assert res.status_code == 200
         assert res.json()["mqtt_server"] == REDACTED
+
+
+def test_config_status_hostless_userinfo_is_redacted(tmp_path: Path, monkeypatch):
+    sentinel = "hostless-userinfo-sentinel"
+    cfg = tmp_path / "config.yaml"
+    _write_config(
+        cfg,
+        f"""
+mode:
+  mock: true
+storage:
+  path: {tmp_path / "hostless.sqlite"}
+networks: []
+mqtt:
+  server: "mqtt://user:{sentinel}@"
+  username: ""
+""",
+    )
+    monkeypatch.setenv("ZIGBEELENS_CONFIG", str(cfg))
+    app = create_app(str(cfg))
+    with TestClient(app) as client:
+        legacy = client.get("/api/config/status")
+        v1 = client.get("/api/v1/config/status")
+        assert legacy.status_code == 200
+        assert v1.status_code == 200
+        assert legacy.json() == v1.json()
+        assert legacy.json()["mqtt_server"] == REDACTED
+        assert sentinel not in legacy.text
 
 
 @pytest.mark.parametrize(

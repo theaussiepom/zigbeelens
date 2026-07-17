@@ -70,19 +70,23 @@ export ZIGBEELENS_CONFIG=config/config.yaml
 Or manually:
 
 ```bash
-# Terminal 1 — Core
+# Terminal 1 — Core (bind comes from AppConfig; source default is 127.0.0.1:8377)
 export ZIGBEELENS_CONFIG=config/config.yaml
 source apps/core/.venv/bin/activate
-PYTHONPATH=apps/core/src uvicorn zigbeelens.main:app --host 0.0.0.0 --port 8377 --reload
+PYTHONPATH=apps/core/src python -m zigbeelens --reload
 
 # Terminal 2 — UI
 pnpm --filter @zigbeelens/ui dev
 ```
 
-- UI: http://localhost:5173
-- API docs: http://localhost:8377/docs
+- UI: http://localhost:5173 (proxies API to localhost:8377)
+- API docs: http://localhost:8377/docs (enable with `ZIGBEELENS_OPENAPI_ENABLED=true`)
+
+Do not pass a separate `--host`/`--port` that can disagree with `server.host` / `server.port` in config. Optional port compatibility override: `ZIGBEELENS_PORT` (resolved into typed AppConfig).
 
 ## Docker dev
+
+Compose development uses `deploy/compose/config.dev.yaml` with an explicit container bind of `0.0.0.0` so the UI service can reach Core. The source/default config remains loopback.
 
 ```bash
 docker compose -f deploy/compose/docker-compose.dev.yaml up --build

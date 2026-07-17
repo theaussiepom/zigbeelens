@@ -5,8 +5,10 @@ With live mode and the collector enabled:
 ```bash
 export ZIGBEELENS_CONFIG=config/config.live.example.yaml
 source apps/core/.venv/bin/activate
-PYTHONPATH=apps/core/src uvicorn zigbeelens.main:app --host 0.0.0.0 --port 8377
+PYTHONPATH=apps/core/src python -m zigbeelens
 ```
+
+Bind address and port come from the effective AppConfig (`server.host` / `server.port`). The source default is loopback (`127.0.0.1:8377`).
 
 Publish sample Zigbee2MQTT messages:
 

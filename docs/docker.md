@@ -71,7 +71,7 @@ sudo chown -R 1000:1000 data
 | `ZIGBEELENS_CONFIG` | `/config/config.yaml` | Config file path |
 | `ZIGBEELENS_STATIC_DIR` | `/app/static` | Bundled UI assets |
 | `ZIGBEELENS_LOG_LEVEL` | `info` | `debug`, `info`, `warning`, `error` |
-| `ZIGBEELENS_PORT` | `8377` | Listen port (usually leave default) |
+| `ZIGBEELENS_PORT` | — | Optional compatibility override for `server.port` (resolved into typed AppConfig before bind) |
 | `ZIGBEELENS_OPENAPI_ENABLED` | `false` | Set `true` to expose `/docs` and `/openapi.json` (dev/debug only) |
 | `ZIGBEELENS_SECURITY_MODE` | — | Override `security.mode` (`local`, `authenticated`, `home_assistant_ingress`) |
 | `ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` | — | Mutation-route API token (prefer over YAML) |
@@ -83,7 +83,7 @@ sudo chown -R 1000:1000 data
 
 Secrets may come from environment or `*_FILE` paths. They are **never logged**. See [security.md](security.md).
 
-Core’s process default bind is loopback (`127.0.0.1`). Docker example configs explicitly set `server.host: 0.0.0.0` inside the container. Publishing `8377` on the host is **not** fully authenticated yet — prefer `127.0.0.1:8377:8377` or a trusted authenticated reverse proxy.
+Core’s process default bind is loopback (`127.0.0.1`). The `zigbeelens` launcher binds exactly `AppConfig.server.host` / `server.port` (including `ZIGBEELENS_PORT` when set). Docker example configs explicitly set `server.host: 0.0.0.0` inside the container. Publishing `8377` on the host is **not** fully authenticated yet — prefer `127.0.0.1:8377:8377` or a trusted authenticated reverse proxy. See [security.md](security.md).
 
 ## Health check
 
@@ -117,7 +117,7 @@ Validate examples:
 
 **Recommended:** subdomain (`zigbeelens.example.com` → container `:8377`).
 
-ZigbeeLens Core does **not** include built-in authentication in v0.1.0. If Core is reachable beyond users or networks you trust, access-control decisions are your responsibility — for example firewall rules, network isolation, Home Assistant Ingress, or an authenticated reverse proxy / VPN.
+ZigbeeLens Core currently offers typed security configuration and an optional mutation-route API-key guard; read routes, downloads, and SSE remain open. Full bearer/session/ingress protection has not landed. If Core is reachable beyond users or networks you trust, access-control decisions are your responsibility — for example firewall rules, network isolation, Home Assistant Ingress, or an authenticated reverse proxy / VPN.
 
 ### Beast / Authentik split routing
 
@@ -151,7 +151,7 @@ Full setup, certificate trust, and security notes: **[HACS embedded view — opt
 
 ## Security
 
-ZigbeeLens Core does **not** include built-in authentication in v0.1.0.
+ZigbeeLens Core currently configures typed security settings and may enforce an optional mutation-route API-key guard. Read routes, report downloads, and SSE remain open until broader authentication lands. See [security.md](security.md).
 
 - ZigbeeLens is **read-only** toward Zigbee2MQTT — no device commands, permit join, remove, reset, bind/unbind, or OTA
 - Some API routes modify **ZigbeeLens local data only** (reports, topology snapshots, HA enrichment metadata)

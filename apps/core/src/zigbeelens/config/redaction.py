@@ -81,13 +81,14 @@ def redact_mqtt_server(server: str, username: str = "") -> str:
     host = parsed.hostname or ""
     port = f":{port_number}" if port_number else ""
     user_part = f"{username}:{REDACTED}@" if username else ""
-    if host:
-        netloc = f"{user_part}{host}{port}"
-    elif username:
-        # Avoid falling back to a credential-bearing netloc when host parsing fails.
-        return REDACTED
+    if not host:
+        # Fail closed for hostless/malformed authorities (e.g. mqtt://user:pass@).
+        # Never return a raw netloc that may still contain userinfo.
+        if parsed.netloc or "@" in server:
+            return REDACTED
+        netloc = ""
     else:
-        netloc = parsed.netloc
+        netloc = f"{user_part}{host}{port}"
 
     query = _redact_credential_params(parsed.query, lead="?")
     fragment = _redact_credential_params(parsed.fragment, lead="#")
