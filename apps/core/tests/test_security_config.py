@@ -306,14 +306,14 @@ mqtt:
     monkeypatch.setenv("ZIGBEELENS_MQTT_PASSWORD", "env-pass-value")
     config = load_config(cfg_file)
     assert config.mqtt.username == "env-user"
-    assert config.mqtt.password == "env-pass-value"
+    assert config.mqtt.password.get_secret_value() == "env-pass-value"
 
     secret_file = tmp_path / "mqtt.pass"
     secret_file.write_text("file-pass-value\n", encoding="utf-8")
     monkeypatch.delenv("ZIGBEELENS_MQTT_PASSWORD")
     monkeypatch.setenv("ZIGBEELENS_MQTT_PASSWORD_FILE", str(secret_file))
     config = load_config(cfg_file)
-    assert config.mqtt.password == "file-pass-value"
+    assert config.mqtt.password.get_secret_value() == "file-pass-value"
 
 
 def test_mqtt_direct_and_file_conflict(tmp_path: Path, monkeypatch):

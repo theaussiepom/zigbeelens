@@ -17,6 +17,20 @@ def test_redact_mqtt_server_with_credentials():
     assert "mosquitto" in redacted
 
 
+def test_redact_mqtt_server_query_and_fragment_credentials():
+    redacted = redact_mqtt_server(
+        "mqtt://user:pw@broker:1883/path?password=qsecret&token=qtoken&client_id=safe#api_key=fsecret",
+        "user",
+    )
+    assert "pw" not in redacted
+    assert "qsecret" not in redacted
+    assert "qtoken" not in redacted
+    assert "fsecret" not in redacted
+    assert "client_id=safe" in redacted
+    assert "broker" in redacted
+
+
+
 def test_redact_dict_secrets():
     data = {"mqtt": {"password": "secret-pass", "username": "user"}}
     redacted = redact_dict_secrets(data)
