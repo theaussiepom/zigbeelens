@@ -455,15 +455,41 @@ def health_result_to_diagnostic(result: HealthResult, friendly_name: str) -> Dia
 
 
 def health_result_to_router_risk(
-    row: DeviceRow, result: HealthResult, repo: Repository | None = None
+    row: DeviceRow,
+    result: HealthResult,
+    repo: Repository | None = None,
+    *,
+    network_evidence_context=None,
 ) -> RouterRisk:
     from zigbeelens.schemas import Availability
 
     dependent = None
-    if repo is not None:
+    if repo is not None or network_evidence_context is not None:
         from zigbeelens.topology.enrichment import enrich_router_risk
 
-        topo = enrich_router_risk(repo, row.network_id, row.ieee_address)
+        if network_evidence_context is not None:
+            from zigbeelens.services.network_evidence import NetworkEvidenceCapability
+
+            network_evidence_context.require(NetworkEvidenceCapability.latest_topology)
+            topo = enrich_router_risk(
+                repo,
+                row.network_id,
+                row.ieee_address,
+                latest_snapshot=(
+                    dict(network_evidence_context.latest_usable_snapshot)
+                    if network_evidence_context.latest_usable_snapshot is not None
+                    else None
+                ),
+                latest_nodes=[
+                    dict(node) for node in (network_evidence_context.latest_nodes or ())
+                ],
+                latest_links=[
+                    dict(link) for link in (network_evidence_context.latest_links or ())
+                ],
+            )
+        else:
+            assert repo is not None
+            topo = enrich_router_risk(repo, row.network_id, row.ieee_address)
         if topo.has_snapshot:
             dependent = topo.linked_affected_count
 

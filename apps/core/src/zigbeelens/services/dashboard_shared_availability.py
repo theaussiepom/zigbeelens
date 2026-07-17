@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from zigbeelens.decisions.availability_event_groups import (
     shared_availability_event_groups_for_network,
 )
 from zigbeelens.schemas import SharedAvailabilityEventSummary
+from zigbeelens.services.network_evidence import NetworkEvidenceCapability
 
 if TYPE_CHECKING:
     from zigbeelens.storage.repository import NetworkRow, Repository
@@ -21,10 +22,9 @@ def compose_dashboard_shared_availability_events(
     networks: list[NetworkRow],
     *,
     now: datetime | None = None,
-    network_evidence_contexts: dict | None = None,
+    network_evidence_contexts: dict[str, Any] | None = None,
 ) -> list[SharedAvailabilityEventSummary]:
     """Flatten Phase 4E-1 groups across networks for Overview presentation."""
-    now = now or datetime.now(timezone.utc)
     summaries: list[SharedAvailabilityEventSummary] = []
     for network in networks:
         context = (
@@ -32,11 +32,18 @@ def compose_dashboard_shared_availability_events(
             if network_evidence_contexts is not None
             else None
         )
-        if context is not None and context.shared_availability is not None:
+        if context is not None:
+            reference_now = now if now is not None else context.reference_now
+            context.require_compatible(
+                network_id=network.id, reference_now=reference_now
+            )
+            context.require(NetworkEvidenceCapability.shared_availability)
+            assert context.shared_availability is not None
             groups = context.shared_availability
         else:
+            reference_now = now or datetime.now(timezone.utc)
             groups = shared_availability_event_groups_for_network(
-                repo, network.id, now=now
+                repo, network.id, now=reference_now
             )
         for event in groups.groups:
             summaries.append(

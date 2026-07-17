@@ -258,22 +258,28 @@ def latest_offline_transition_at(
     affected_ieees: set[str],
     *,
     now: datetime | None = None,
+    availability_rows: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> str | None:
     """Most recent offline transition among affected devices in the lookback window."""
     if not affected_ieees:
         return None
     now = now or datetime.now(timezone.utc)
     cutoff = (now - timedelta(days=MODEL_PATTERN_LOOKBACK_DAYS)).isoformat()
+    rows = (
+        list(availability_rows)
+        if availability_rows is not None
+        else repo.availability.list_availability_changes_since(network_id, cutoff)
+    )
     latest: str | None = None
-    for row in repo.availability.list_availability_changes_since(network_id, cutoff):
+    for row in rows:
         if row.get("to_state") != "offline":
+            continue
+        changed_at = str(row.get("changed_at") or "")
+        if not changed_at or changed_at < cutoff:
             continue
         ieee = _norm(row.get("ieee_address"))
         if ieee not in affected_ieees:
             continue
-        changed_at = row.get("changed_at")
-        if not changed_at:
-            continue
         if latest is None or changed_at > latest:
-            latest = str(changed_at)
+            latest = changed_at
     return latest

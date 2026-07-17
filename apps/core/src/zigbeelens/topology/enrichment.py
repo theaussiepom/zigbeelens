@@ -76,12 +76,76 @@ def enrich_correlated_unavailability(
     )
 
 
-def enrich_router_risk(
-    repo: Repository,
-    network_id: str,
+def enrich_router_risk_from_latest_topology(
+    *,
+    latest_snapshot: dict | None,
+    latest_nodes: list[dict] | tuple[dict, ...] | None,
+    latest_links: list[dict] | tuple[dict, ...] | None,
     router_ieee: str,
     affected_ieees: Iterable[str] | None = None,
 ) -> TopologyEnrichment:
+    """Derive router-risk topology enrichment from preloaded latest evidence."""
+    if not latest_snapshot:
+        return TopologyEnrichment(
+            has_snapshot=False,
+            snapshot_id=None,
+            captured_at=None,
+            limitations=[TOPOLOGY_LIMITATION, "No topology snapshot is available"],
+        )
+
+    router = str(router_ieee or "").strip().lower()
+    children = [
+        str(link.get("target_ieee") or "").strip().lower()
+        for link in (latest_links or ())
+        if str(link.get("source_ieee") or "").strip().lower() == router
+        and str(link.get("target_ieee") or "").strip()
+    ]
+    linked_affected = 0
+    if affected_ieees is not None:
+        affected = {str(ieee).strip().lower() for ieee in affected_ieees}
+        linked_affected = sum(1 for child in children if child in affected)
+
+    router_name = None
+    for node in latest_nodes or ():
+        if str(node.get("ieee_address") or "").strip().lower() == router:
+            name = node.get("friendly_name")
+            router_name = str(name) if name else None
+            break
+
+    return TopologyEnrichment(
+        has_snapshot=True,
+        snapshot_id=latest_snapshot["snapshot_id"],
+        captured_at=latest_snapshot["captured_at"],
+        shared_router_ieee=router_ieee,
+        shared_router_name=router_name,
+        linked_affected_count=linked_affected or len(children),
+        limitations=[TOPOLOGY_LIMITATION],
+    )
+
+
+def enrich_router_risk(
+    repo: Repository | None,
+    network_id: str,
+    router_ieee: str,
+    affected_ieees: Iterable[str] | None = None,
+    *,
+    latest_snapshot: dict | None = None,
+    latest_nodes: list[dict] | tuple[dict, ...] | None = None,
+    latest_links: list[dict] | tuple[dict, ...] | None = None,
+) -> TopologyEnrichment:
+    if latest_snapshot is not None or (
+        latest_nodes is not None and latest_links is not None
+    ):
+        return enrich_router_risk_from_latest_topology(
+            latest_snapshot=latest_snapshot,
+            latest_nodes=latest_nodes,
+            latest_links=latest_links,
+            router_ieee=router_ieee,
+            affected_ieees=affected_ieees,
+        )
+
+    if repo is None:
+        raise ValueError("repo is required when latest topology evidence is not supplied")
     snapshot = repo.get_latest_topology_snapshot(network_id)
     if not snapshot:
         return TopologyEnrichment(

@@ -16,6 +16,7 @@ from zigbeelens.decisions.router_area import observed_router_areas_for_network
 from zigbeelens.decisions.model_pattern import observed_model_patterns_for_network
 from zigbeelens.topology.investigations import issue_device_ieees_from_state
 from zigbeelens.services.network_evidence import (
+    EVIDENCE_GRAPH_FACTS_REQUIREMENTS,
     EVIDENCE_GRAPH_REQUIREMENTS,
     NetworkEvidenceCapability,
     NetworkEvidenceContext,
@@ -44,13 +45,24 @@ class EvidenceGraphService:
         *,
         now: datetime | None,
         context: NetworkEvidenceContext | None,
+        requirements=EVIDENCE_GRAPH_REQUIREMENTS,
+        stale_after_hours: int | None | object = ...,
     ) -> NetworkEvidenceContext:
+        if context is not None:
+            reference_now = now if now is not None else context.reference_now
+            if reference_now.tzinfo is None:
+                reference_now = reference_now.replace(tzinfo=timezone.utc)
+            compat_kwargs: dict[str, Any] = {
+                "network_id": network_id,
+                "reference_now": reference_now,
+            }
+            if stale_after_hours is not ...:
+                compat_kwargs["stale_after_hours"] = stale_after_hours
+            context.require_compatible(**compat_kwargs)
+            return context
         reference_now = now or datetime.now(timezone.utc)
         if reference_now.tzinfo is None:
             reference_now = reference_now.replace(tzinfo=timezone.utc)
-        if context is not None:
-            context.require_compatible(network_id=network_id, reference_now=reference_now)
-            return context
         network = self._repo.networks.get_network(network_id)
         if network is None:
             raise NetworkNotFoundError(network_id)
@@ -58,8 +70,11 @@ class EvidenceGraphService:
             self._repo,
             network_id,
             reference_now=reference_now,
-            requirements=EVIDENCE_GRAPH_REQUIREMENTS,
+            requirements=requirements,
             network_row=network,
+            stale_after_hours=(
+                None if stale_after_hours is ... else stale_after_hours  # type: ignore[arg-type]
+            ),
         )
 
     def _compose_investigations_from_context(
@@ -242,7 +257,15 @@ class EvidenceGraphService:
         context: NetworkEvidenceContext | None = None,
     ) -> dict:
         """Evidence graph payload with network topology facts attached."""
-        evidence = self._ensure_context(network_id, now=now, context=context)
+        evidence = self._ensure_context(
+            network_id,
+            now=now,
+            context=context,
+            requirements=EVIDENCE_GRAPH_FACTS_REQUIREMENTS,
+            stale_after_hours=stale_after_hours,
+        )
+        evidence.require(NetworkEvidenceCapability.topology_facts)
+        evidence.require(NetworkEvidenceCapability.coverage)
         body = self.build(network_id, now=evidence.reference_now, context=evidence)
         body["topology_facts"] = compose_network_topology_facts_payload(
             self,

@@ -52,9 +52,11 @@ def compose_network_topology_facts_payload(
         context=network_evidence_context,
     )
     network_id = evidence_graph["network_id"]
-    if network_evidence_context is not None and (
-        network_evidence_context.network_topology_coverage is not None
-    ):
+    if network_evidence_context is not None:
+        from zigbeelens.services.network_evidence import NetworkEvidenceCapability
+
+        network_evidence_context.require(NetworkEvidenceCapability.coverage)
+        assert network_evidence_context.network_topology_coverage is not None
         coverage = network_evidence_context.network_topology_coverage
     else:
         coverage = build_network_topology_coverage(
@@ -115,7 +117,7 @@ def build_device_snapshot_history_response(
 ) -> dict[str, Any]:
     from datetime import datetime, timezone
 
-    from zigbeelens.services.network_evidence import EVIDENCE_GRAPH_REQUIREMENTS
+    from zigbeelens.services.network_evidence import EVIDENCE_GRAPH_FACTS_REQUIREMENTS
     from zigbeelens.services.network_evidence_composition import (
         compose_network_evidence_context,
     )
@@ -127,7 +129,7 @@ def build_device_snapshot_history_response(
         repo,
         network_id,
         reference_now=reference_now,
-        requirements=EVIDENCE_GRAPH_REQUIREMENTS,
+        requirements=EVIDENCE_GRAPH_FACTS_REQUIREMENTS,
         stale_after_hours=stale_after_hours,
     )
     history = device_snapshot_history(

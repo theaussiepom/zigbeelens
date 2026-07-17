@@ -3,11 +3,15 @@
 One NetworkEvidenceContext owns stored facts (and optionally derived evidence)
 for one network at one reference_now. Capabilities distinguish loaded-empty
 from not-loaded; consumers must not treat a missing capability as "no evidence".
+
+NetworkEvidenceCapability.devices always means the complete factual device
+inventory for that network — never a response subject subset.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from copy import deepcopy
+from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
 from types import MappingProxyType
@@ -43,6 +47,103 @@ class NetworkEvidenceCapability(str, Enum):
 
 NetworkEvidenceRequirements = frozenset[NetworkEvidenceCapability]
 
+_CAPABILITY_DEPENDENCIES: Mapping[
+    NetworkEvidenceCapability, frozenset[NetworkEvidenceCapability]
+] = {
+    NetworkEvidenceCapability.passive_hints: frozenset(
+        {
+            NetworkEvidenceCapability.devices,
+            NetworkEvidenceCapability.availability_observations,
+            NetworkEvidenceCapability.latest_topology,
+        }
+    ),
+    NetworkEvidenceCapability.shared_availability: frozenset(
+        {
+            NetworkEvidenceCapability.devices,
+            NetworkEvidenceCapability.availability_observations,
+        }
+    ),
+    NetworkEvidenceCapability.model_patterns: frozenset(
+        {
+            NetworkEvidenceCapability.devices,
+            NetworkEvidenceCapability.availability_observations,
+        }
+    ),
+    NetworkEvidenceCapability.router_areas: frozenset(
+        {
+            NetworkEvidenceCapability.devices,
+            NetworkEvidenceCapability.latest_topology,
+            NetworkEvidenceCapability.historical_links,
+            NetworkEvidenceCapability.last_known_links,
+            NetworkEvidenceCapability.passive_hints,
+            NetworkEvidenceCapability.ha_areas,
+        }
+    ),
+    NetworkEvidenceCapability.device_stats: frozenset(
+        {
+            NetworkEvidenceCapability.snapshot_history,
+            NetworkEvidenceCapability.availability_observations,
+        }
+    ),
+    NetworkEvidenceCapability.historical_links: frozenset(
+        {
+            NetworkEvidenceCapability.latest_topology,
+            NetworkEvidenceCapability.snapshot_history,
+        }
+    ),
+    NetworkEvidenceCapability.last_known_links: frozenset(
+        {
+            NetworkEvidenceCapability.latest_topology,
+            NetworkEvidenceCapability.snapshot_history,
+        }
+    ),
+    NetworkEvidenceCapability.investigations: frozenset(
+        {
+            NetworkEvidenceCapability.devices,
+            NetworkEvidenceCapability.latest_topology,
+            NetworkEvidenceCapability.historical_links,
+            NetworkEvidenceCapability.last_known_links,
+            NetworkEvidenceCapability.availability_observations,
+            NetworkEvidenceCapability.passive_hints,
+            NetworkEvidenceCapability.shared_availability,
+            NetworkEvidenceCapability.model_patterns,
+            NetworkEvidenceCapability.router_areas,
+        }
+    ),
+    NetworkEvidenceCapability.topology_facts: frozenset(
+        {
+            NetworkEvidenceCapability.latest_topology,
+            NetworkEvidenceCapability.historical_links,
+            NetworkEvidenceCapability.last_known_links,
+            NetworkEvidenceCapability.passive_hints,
+        }
+    ),
+    NetworkEvidenceCapability.coverage: frozenset(
+        {
+            NetworkEvidenceCapability.devices,
+            NetworkEvidenceCapability.latest_topology,
+            NetworkEvidenceCapability.earliest_availability,
+            NetworkEvidenceCapability.ha_areas,
+            NetworkEvidenceCapability.topology_facts,
+        }
+    ),
+}
+
+
+def expand_requirements(
+    requirements: NetworkEvidenceRequirements,
+) -> NetworkEvidenceRequirements:
+    """Close requirements under capability dependencies before loading."""
+    expanded: set[NetworkEvidenceCapability] = set(requirements)
+    pending = list(requirements)
+    while pending:
+        capability = pending.pop()
+        for dependency in _CAPABILITY_DEPENDENCIES.get(capability, ()):
+            if dependency not in expanded:
+                expanded.add(dependency)
+                pending.append(dependency)
+    return frozenset(expanded)
+
 
 # Named presets describe evidence needs, not UI products.
 DEVICE_STORY_EVIDENCE_REQUIREMENTS: NetworkEvidenceRequirements = frozenset(
@@ -55,7 +156,22 @@ DEVICE_STORY_EVIDENCE_REQUIREMENTS: NetworkEvidenceRequirements = frozenset(
         NetworkEvidenceCapability.earliest_availability,
         NetworkEvidenceCapability.ha_areas,
         NetworkEvidenceCapability.model_patterns,
+        NetworkEvidenceCapability.availability_observations,
     }
+)
+
+DEVICE_COVERAGE_EVIDENCE_REQUIREMENTS: NetworkEvidenceRequirements = frozenset(
+    {
+        NetworkEvidenceCapability.devices,
+        NetworkEvidenceCapability.latest_topology,
+        NetworkEvidenceCapability.snapshot_history,
+        NetworkEvidenceCapability.earliest_availability,
+        NetworkEvidenceCapability.ha_areas,
+    }
+)
+
+LATEST_TOPOLOGY_REQUIREMENTS: NetworkEvidenceRequirements = frozenset(
+    {NetworkEvidenceCapability.latest_topology}
 )
 
 EVIDENCE_GRAPH_REQUIREMENTS: NetworkEvidenceRequirements = frozenset(
@@ -74,6 +190,12 @@ EVIDENCE_GRAPH_REQUIREMENTS: NetworkEvidenceRequirements = frozenset(
         NetworkEvidenceCapability.router_areas,
         NetworkEvidenceCapability.device_stats,
         NetworkEvidenceCapability.investigations,
+    }
+)
+
+EVIDENCE_GRAPH_FACTS_REQUIREMENTS: NetworkEvidenceRequirements = frozenset(
+    EVIDENCE_GRAPH_REQUIREMENTS
+    | {
         NetworkEvidenceCapability.topology_facts,
         NetworkEvidenceCapability.coverage,
     }
@@ -102,7 +224,6 @@ DASHBOARD_EVIDENCE_REQUIREMENTS: NetworkEvidenceRequirements = frozenset(
 REPORT_EVIDENCE_REQUIREMENTS: NetworkEvidenceRequirements = frozenset(
     DEVICE_STORY_EVIDENCE_REQUIREMENTS
     | {
-        NetworkEvidenceCapability.availability_observations,
         NetworkEvidenceCapability.passive_hints,
         NetworkEvidenceCapability.shared_availability,
         NetworkEvidenceCapability.investigations,
@@ -145,6 +266,27 @@ def _freeze_rows_by_key(
     )
 
 
+def _copy_device_row(row: DeviceRow) -> DeviceRow:
+    return replace(row)
+
+
+def _copy_network_row(row: NetworkRow) -> NetworkRow:
+    return replace(row)
+
+
+def _freeze_derived(value: Any) -> Any:
+    """Defensive copy for context-owned derived evidence."""
+    if value is None:
+        return None
+    if hasattr(value, "model_copy"):
+        return value.model_copy(deep=True)
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: deepcopy(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(deepcopy(item) for item in value)
+    return deepcopy(value)
+
+
 @dataclass(frozen=True)
 class NetworkEvidenceContext:
     """Immutable request-local evidence for one network at one reference time."""
@@ -153,7 +295,7 @@ class NetworkEvidenceContext:
     reference_now: datetime
     loaded_capabilities: frozenset[NetworkEvidenceCapability]
     network_row: NetworkRow | None = None
-    # Raw inventory
+    # Raw inventory (complete network inventory when devices capability loaded)
     device_rows: tuple[DeviceRow, ...] | None = None
     devices_by_ieee: Mapping[str, DeviceRow] | None = None
     # Topology raw
@@ -169,6 +311,8 @@ class NetworkEvidenceContext:
     earliest_availability_at: str | None = None
     availability_tracking_enabled: bool | None = None
     network_has_usable_ha_areas: bool | None = None
+    # Staleness policy used when topology_facts/coverage were built
+    stale_after_hours: int | None = None
     # Derived evidence (None means capability not loaded)
     historical_evidence: Mapping[str, Any] | None = None
     last_known_links: Mapping[str, Any] | None = None
@@ -197,6 +341,7 @@ class NetworkEvidenceContext:
         *,
         network_id: str,
         reference_now: datetime | None = None,
+        stale_after_hours: int | None | object = ...,
     ) -> None:
         if self.network_id != network_id:
             raise ValueError(
@@ -208,3 +353,14 @@ class NetworkEvidenceContext:
                 f"NetworkEvidenceContext reference_now {self.reference_now!r} "
                 f"does not match requested {reference_now!r}"
             )
+        if stale_after_hours is not ... and self.stale_after_hours != stale_after_hours:
+            raise ValueError(
+                f"NetworkEvidenceContext stale_after_hours {self.stale_after_hours!r} "
+                f"does not match requested {stale_after_hours!r}"
+            )
+
+    def projected_device_rows(self) -> tuple[DeviceRow, ...]:
+        """Defensive copies of complete inventory rows."""
+        self.require(NetworkEvidenceCapability.devices)
+        assert self.device_rows is not None
+        return tuple(_copy_device_row(row) for row in self.device_rows)
