@@ -25,7 +25,15 @@ import type { DecisionPillTone } from "@/viewModels/types";
 
 const INCIDENT_PICKER_LIMIT = 100;
 
-type IncidentPickerKey = string;
+/** Opaque session token — identity is by object reference, never by scenario text. */
+function createOpaqueSession(): object {
+  return Object.create(null);
+}
+
+type IncidentPickerKey = {
+  readonly scenarioSession: object;
+  readonly incidentEntryEpoch: number;
+};
 
 interface IncidentPickerPageState {
   pickerKey: IncidentPickerKey;
@@ -122,16 +130,25 @@ export function ReportsPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  // Entry epoch changes on each Incident-scope entry so re-entry gets a new identity
-  // even when the scenario string is unchanged. Scenario is part of the key, so a
-  // scenario change invalidates the picker synchronously during render.
+  // Opaque scenario session changes on every scenario transition (including A→B→A),
+  // so returning to a prior scenario text never reuses the old picker identity.
+  const [scenarioSession, setScenarioSession] = useState(createOpaqueSession);
+  const [trackedScenario, setTrackedScenario] = useState(scenario);
+  if (trackedScenario !== scenario) {
+    setTrackedScenario(scenario);
+    setScenarioSession(createOpaqueSession());
+  }
+  // Entry epoch changes on each Incident-scope entry so leave/re-enter is fresh
+  // even when the scenario session is unchanged.
   const [incidentEntryEpoch, setIncidentEntryEpoch] = useState(0);
   const [incidentPickerState, setIncidentPickerState] =
     useState<IncidentPickerPageState | null>(null);
   const [incidentSelection, setIncidentSelection] =
     useState<IncidentPickerSelection | null>(null);
-  const currentPickerKey =
-    scope === "incident" ? (`${scenario}\0${incidentEntryEpoch}` as IncidentPickerKey) : null;
+  const currentPickerKey = useMemo((): IncidentPickerKey | null => {
+    if (scope !== "incident") return null;
+    return { scenarioSession, incidentEntryEpoch };
+  }, [scope, scenarioSession, incidentEntryEpoch]);
   const currentPickerKeyRef = useRef<IncidentPickerKey | null>(currentPickerKey);
   currentPickerKeyRef.current = currentPickerKey;
 
@@ -172,7 +189,7 @@ export function ReportsPage() {
           }),
         );
     },
-    [scenario, scope, incidentEntryEpoch],
+    [scenario, scope, incidentEntryEpoch, scenarioSession],
     {
       enabled: scope === "incident" && currentPickerKey != null,
       refetchOn: ["dashboard_updated", "incidents_updated"],

@@ -934,6 +934,112 @@ describe("ReportsPage", () => {
     expect(screen.queryByText("stale initial page failed")).not.toBeInTheDocument();
   });
 
+  it("treats A → B → A as a fresh picker session and ignores the first A Load more", async () => {
+    const incidents = api.incidents as Mock;
+    const firstALoadMore = deferred<{
+      items: Incident[];
+      total: number;
+      limit: number;
+      next_cursor: string | null;
+    }>();
+    const scenarioB = deferred<{
+      items: Incident[];
+      total: number;
+      limit: number;
+      next_cursor: string | null;
+    }>();
+    const secondA = deferred<{
+      items: Incident[];
+      total: number;
+      limit: number;
+      next_cursor: string | null;
+    }>();
+
+    incidents
+      .mockResolvedValueOnce({
+        items: [makePickerIncident({ id: "a1", title: "First A visit" })],
+        total: 2,
+        limit: 100,
+        next_cursor: "cursor-first-a",
+      })
+      .mockImplementationOnce(() => firstALoadMore.promise)
+      .mockImplementationOnce(() => scenarioB.promise)
+      .mockImplementationOnce(() => secondA.promise);
+
+    renderReportsPage();
+    await screen.findByText("Topology evidence gap");
+    fireEvent.click(screen.getByText("Incident"));
+    await screen.findByRole("option", { name: "First A visit" });
+    fireEvent.change(screen.getByLabelText("Incident"), { target: { value: "a1" } });
+    expect(screen.getByLabelText("Incident")).toHaveValue("a1");
+
+    fireEvent.click(screen.getByRole("button", { name: /load more incidents/i }));
+    await waitFor(() => expect(incidents).toHaveBeenCalledTimes(2));
+    expect(incidents.mock.calls[1]?.[0]).toMatchObject({ cursor: "cursor-first-a" });
+
+    scenarioState.set("offline_cluster");
+    await waitFor(() => expect(incidents).toHaveBeenCalledTimes(3));
+    await waitFor(() => {
+      expect(screen.getByLabelText("Incident")).toHaveValue("");
+    });
+    expect(screen.queryByRole("option", { name: "First A visit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /load more incidents/i })).not.toBeInTheDocument();
+
+    scenarioB.resolve({
+      items: [makePickerIncident({ id: "b1", title: "Scenario B visit" })],
+      total: 1,
+      limit: 100,
+      next_cursor: null,
+    });
+    await screen.findByRole("option", { name: "Scenario B visit" });
+
+    const previewCallsBeforeReturn = previewReport.mock.calls.length;
+    scenarioState.set("");
+    await waitFor(() => expect(incidents).toHaveBeenCalledTimes(4));
+    expect(incidents.mock.calls[3]?.[0]?.cursor).toBeUndefined();
+    expect(incidents.mock.calls[3]?.[0]?.scenario).toBeUndefined();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Incident")).toHaveValue("");
+    });
+    expect(screen.queryByRole("option", { name: "First A visit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /load more incidents/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/loading incidents/i)).toBeInTheDocument();
+
+    const previewCallsAfterReturn = previewReport.mock.calls.slice(previewCallsBeforeReturn);
+    expect(
+      previewCallsAfterReturn.some(
+        (call) =>
+          call[0]?.incident_id === "a1" && (call[1] === undefined || call[1] === ""),
+      ),
+    ).toBe(false);
+
+    secondA.resolve({
+      items: [makePickerIncident({ id: "a2", title: "Second A visit" })],
+      total: 1,
+      limit: 100,
+      next_cursor: null,
+    });
+    await screen.findByRole("option", { name: "Second A visit" });
+    expect(screen.getByLabelText("Incident")).toHaveValue("");
+    expect(screen.queryByRole("option", { name: "First A visit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /load more incidents/i })).not.toBeInTheDocument();
+
+    firstALoadMore.resolve({
+      items: [makePickerIncident({ id: "stale-a-more", title: "Stale first A page two" })],
+      total: 2,
+      limit: 100,
+      next_cursor: null,
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("option", { name: "Stale first A page two" }),
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("option", { name: "Second A visit" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Incident")).toHaveValue("");
+  });
+
   it("hides Mesh links for anonymised public_safe reports", async () => {
     previewReport.mockResolvedValue(
       makeDecisionReport({
