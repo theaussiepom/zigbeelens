@@ -29,6 +29,7 @@ from zigbeelens.services.network_evidence import (
     _freeze_row,
     _freeze_rows,
     _freeze_rows_by_key,
+    build_network_evidence_context,
     expand_requirements,
 )
 from zigbeelens.storage.repository import DeviceRow, NetworkRow, Repository
@@ -352,12 +353,8 @@ def compose_network_evidence_contexts(
                 loaded.add(NetworkEvidenceCapability.snapshot_history)
 
         device_rows_tuple: tuple[DeviceRow, ...] | None = None
-        devices_by_ieee: Mapping[str, DeviceRow] | None = None
         if network_id in device_map:
             device_rows_tuple = tuple(device_map[network_id])
-            devices_by_ieee = MappingProxyType(
-                {row.ieee_address.lower(): row for row in device_rows_tuple}
-            )
             loaded.add(NetworkEvidenceCapability.devices)
 
         availability_tuple: tuple[Mapping[str, Any], ...] | None = None
@@ -421,15 +418,14 @@ def compose_network_evidence_contexts(
                 )
                 loaded.add(NetworkEvidenceCapability.last_known_links)
             if NetworkEvidenceCapability.snapshot_history in requirements:
+                # Dependency closure guarantees devices + earliest_availability.
                 snap_history_ctx = load_device_snapshot_history_network_context(
                     repo,
                     network_id,
                     snapshots=snap_list,
                     links_by_snapshot_id=links_map,
                     earliest_availability_at=earliest_at,
-                    earliest_availability_supplied=(
-                        NetworkEvidenceCapability.earliest_availability in requirements
-                    ),
+                    earliest_availability_supplied=True,
                     devices=list(device_rows_tuple or ()),
                 )
 
@@ -637,13 +633,12 @@ def compose_network_evidence_contexts(
                 f"required capabilities: {sorted(c.value for c in missing)}"
             )
 
-        contexts[network_id] = NetworkEvidenceContext(
+        contexts[network_id] = build_network_evidence_context(
             network_id=network_id,
             reference_now=reference_now,
             loaded_capabilities=frozenset(loaded),
             network_row=loaded_networks.get(network_id),
             device_rows=device_rows_tuple,
-            devices_by_ieee=devices_by_ieee,
             topology_snapshots=(
                 _freeze_rows(snapshots)
                 if snapshots is not None and needs_window
