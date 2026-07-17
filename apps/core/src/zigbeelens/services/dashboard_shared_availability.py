@@ -9,7 +9,10 @@ from zigbeelens.decisions.availability_event_groups import (
     shared_availability_event_groups_for_network,
 )
 from zigbeelens.schemas import SharedAvailabilityEventSummary
-from zigbeelens.services.network_evidence import NetworkEvidenceCapability
+from zigbeelens.services.network_evidence import (
+    NetworkEvidenceCapability,
+    require_mapped_network_evidence_context,
+)
 
 if TYPE_CHECKING:
     from zigbeelens.storage.repository import NetworkRow, Repository
@@ -27,12 +30,10 @@ def compose_dashboard_shared_availability_events(
     """Flatten Phase 4E-1 groups across networks for Overview presentation."""
     summaries: list[SharedAvailabilityEventSummary] = []
     for network in networks:
-        context = (
-            network_evidence_contexts.get(network.id)
-            if network_evidence_contexts is not None
-            else None
-        )
-        if context is not None:
+        if network_evidence_contexts is not None:
+            context = require_mapped_network_evidence_context(
+                network_evidence_contexts, network.id
+            )
             reference_now = now if now is not None else context.reference_now
             context.require_compatible(
                 network_id=network.id, reference_now=reference_now

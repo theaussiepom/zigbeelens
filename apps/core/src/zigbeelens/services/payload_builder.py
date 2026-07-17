@@ -772,7 +772,11 @@ class PayloadBuilder:
         health: HealthDiagnosticService | None = None,
         network_evidence_contexts: Mapping[str, Any] | None = None,
     ) -> list[RouterRisk]:
-        from zigbeelens.services.network_evidence import LATEST_TOPOLOGY_REQUIREMENTS
+        from zigbeelens.services.network_evidence import (
+            LATEST_TOPOLOGY_REQUIREMENTS,
+            NetworkEvidenceCapability,
+            require_mapped_network_evidence_context,
+        )
         from zigbeelens.services.network_evidence_composition import (
             compose_network_evidence_contexts,
         )
@@ -781,9 +785,9 @@ class PayloadBuilder:
         device_rows = devices if devices is not None else self.repo.list_devices()
         if incident_context is None and self._incident_service is not None:
             incident_context = self._incident_service.active_incident_read_context()
-        evidence_map = dict(network_evidence_contexts or {})
+        network_ids = list(dict.fromkeys(row.network_id for row in device_rows))
         if network_evidence_contexts is None:
-            network_ids = list(dict.fromkeys(row.network_id for row in device_rows))
+            evidence_map: dict[str, Any] = {}
             if network_ids:
                 reference_now = datetime.now(timezone.utc)
                 evidence_map = dict(
@@ -797,6 +801,14 @@ class PayloadBuilder:
                         },
                     )
                 )
+        else:
+            evidence_map = {}
+            for network_id in network_ids:
+                context = require_mapped_network_evidence_context(
+                    network_evidence_contexts, network_id
+                )
+                context.require(NetworkEvidenceCapability.latest_topology)
+                evidence_map[network_id] = context
         items: list[RouterRisk] = []
         for row in device_rows:
             if row.device_type != "Router":
@@ -808,7 +820,7 @@ class PayloadBuilder:
                 row,
                 result,
                 self.repo,
-                network_evidence_context=evidence_map.get(row.network_id),
+                network_evidence_context=evidence_map[row.network_id],
             )
             if self._incident_service:
                 key = (row.network_id, row.ieee_address)

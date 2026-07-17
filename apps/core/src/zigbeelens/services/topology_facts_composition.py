@@ -55,6 +55,11 @@ def compose_network_topology_facts_payload(
     if network_evidence_context is not None:
         from zigbeelens.services.network_evidence import NetworkEvidenceCapability
 
+        network_evidence_context.require_compatible(
+            network_id=str(network_id),
+            reference_now=now,
+            stale_after_hours=stale_after_hours,
+        )
         network_evidence_context.require(NetworkEvidenceCapability.coverage)
         assert network_evidence_context.network_topology_coverage is not None
         coverage = network_evidence_context.network_topology_coverage

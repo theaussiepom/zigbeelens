@@ -884,6 +884,14 @@ def device_stories_for_devices(
     network_evidence_contexts: Mapping[str, Any] | None = None,
 ) -> dict[tuple[str, str], DeviceStory]:
     """Compose full Device Stories for many devices with one network context each."""
+    from zigbeelens.services.network_evidence import (
+        DEVICE_STORY_EVIDENCE_REQUIREMENTS,
+        require_mapped_network_evidence_context,
+    )
+    from zigbeelens.services.network_evidence_composition import (
+        compose_network_evidence_context,
+    )
+
     by_network: dict[str, list[DeviceRow]] = defaultdict(list)
     for row in rows:
         by_network[row.network_id].append(row)
@@ -899,35 +907,44 @@ def device_stories_for_devices(
 
     stories: dict[tuple[str, str], DeviceStory] = {}
     for network_id, network_rows in by_network.items():
-        evidence_ctx = (
-            network_evidence_contexts.get(network_id)
-            if network_evidence_contexts is not None
-            else None
-        )
-        if evidence_ctx is not None:
+        if network_evidence_contexts is not None:
+            evidence_ctx = require_mapped_network_evidence_context(
+                network_evidence_contexts, network_id
+            )
             reference_now = now if now is not None else evidence_ctx.reference_now
             if reference_now.tzinfo is None:
                 reference_now = reference_now.replace(tzinfo=timezone.utc)
             evidence_ctx.require_compatible(
                 network_id=network_id, reference_now=reference_now
             )
-            context = device_story_network_context_from_evidence(evidence_ctx)
         else:
             reference_now = now or datetime.now(timezone.utc)
             if reference_now.tzinfo is None:
                 reference_now = reference_now.replace(tzinfo=timezone.utc)
-            context = load_device_story_network_context(
-                repo, network_id, now=reference_now
+            evidence_ctx = compose_network_evidence_context(
+                repo,
+                network_id,
+                reference_now=reference_now,
+                requirements=DEVICE_STORY_EVIDENCE_REQUIREMENTS,
             )
+        context = device_story_network_context_from_evidence(evidence_ctx)
         for row in network_rows:
             key = (network_id, row.ieee_address)
+            owned = evidence_ctx.get_device_row(row.ieee_address)
+            if owned is None:
+                if network_evidence_contexts is not None:
+                    raise ValueError(
+                        f"subject device {(network_id, row.ieee_address)!r} is absent "
+                        f"from NetworkEvidenceContext complete inventory"
+                    )
+                continue
             evidence = load_device_story_evidence(
                 repo,
                 network_id,
                 row.ieee_address,
                 now=reference_now,
                 network_context=context,
-                device_row=row,
+                device_row=owned,
                 related_unresolved_incident_ids=related_incident_ids_by_key.get(key, ()),
                 ha_enrichment=ha_enrichment_by_key.get(key),
                 ha_enrichment_loaded=True,
@@ -971,6 +988,11 @@ def device_story_for_device(
     network_evidence_context: Any | None = None,
 ) -> DeviceStory | None:
     """Build a device story from stored evidence. Returns None when unknown."""
+    from zigbeelens.services.network_evidence import DEVICE_STORY_EVIDENCE_REQUIREMENTS
+    from zigbeelens.services.network_evidence_composition import (
+        compose_network_evidence_context,
+    )
+
     if network_evidence_context is not None:
         reference_now = (
             now if now is not None else network_evidence_context.reference_now
@@ -980,20 +1002,28 @@ def device_story_for_device(
         network_evidence_context.require_compatible(
             network_id=network_id, reference_now=reference_now
         )
-        context = device_story_network_context_from_evidence(network_evidence_context)
+        evidence_ctx = network_evidence_context
     else:
         reference_now = now or datetime.now(timezone.utc)
         if reference_now.tzinfo is None:
             reference_now = reference_now.replace(tzinfo=timezone.utc)
-        context = load_device_story_network_context(
-            repo, network_id, now=reference_now
+        evidence_ctx = compose_network_evidence_context(
+            repo,
+            network_id,
+            reference_now=reference_now,
+            requirements=DEVICE_STORY_EVIDENCE_REQUIREMENTS,
         )
+    owned = evidence_ctx.get_device_row(device_ieee)
+    if owned is None:
+        return None
+    context = device_story_network_context_from_evidence(evidence_ctx)
     evidence = load_device_story_evidence(
         repo,
         network_id,
         device_ieee,
         now=reference_now,
         network_context=context,
+        device_row=owned,
     )
     if evidence is None:
         return None

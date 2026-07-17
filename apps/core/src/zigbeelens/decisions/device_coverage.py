@@ -193,10 +193,6 @@ def load_device_coverage_evidence(
     if not device:
         return None
 
-    row = repo.devices.get_device(network_id, device)
-    if row is None:
-        return None
-
     from zigbeelens.services.network_evidence import (
         DEVICE_COVERAGE_EVIDENCE_REQUIREMENTS,
         NetworkEvidenceCapability,
@@ -228,6 +224,10 @@ def load_device_coverage_evidence(
             reference_now=reference_now,
             requirements=DEVICE_COVERAGE_EVIDENCE_REQUIREMENTS,
         )
+
+    row = context.get_device_row(device)
+    if row is None:
+        return None
 
     snapshots = repo.devices.list_device_snapshots(network_id, device, limit=MAX_SNAPSHOT_HISTORY)
     device_changes = repo.availability.list_availability_changes(network_id, device, limit=1)

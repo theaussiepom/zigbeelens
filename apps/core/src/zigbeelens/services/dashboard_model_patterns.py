@@ -10,7 +10,10 @@ from zigbeelens.decisions.model_pattern import (
     observed_model_patterns_for_network,
 )
 from zigbeelens.schemas import ModelPatternSummary
-from zigbeelens.services.network_evidence import NetworkEvidenceCapability
+from zigbeelens.services.network_evidence import (
+    NetworkEvidenceCapability,
+    require_mapped_network_evidence_context,
+)
 
 if TYPE_CHECKING:
     from zigbeelens.storage.repository import NetworkRow, Repository
@@ -28,12 +31,10 @@ def compose_dashboard_model_patterns(
     """Flatten qualifying Phase 4G patterns across networks for Overview."""
     summaries: list[ModelPatternSummary] = []
     for network in networks:
-        context = (
-            network_evidence_contexts.get(network.id)
-            if network_evidence_contexts is not None
-            else None
-        )
-        if context is not None:
+        if network_evidence_contexts is not None:
+            context = require_mapped_network_evidence_context(
+                network_evidence_contexts, network.id
+            )
             reference_now = now if now is not None else context.reference_now
             context.require_compatible(
                 network_id=network.id, reference_now=reference_now

@@ -10,7 +10,10 @@ from zigbeelens.decisions.topology_coverage import build_network_topology_covera
 from zigbeelens.decisions.topology_facts import build_network_topology_facts
 from zigbeelens.decisions.types import CoverageLabelCode, CoverageState, DataCoverage
 from zigbeelens.schemas import DataCoverageWarningSummary
-from zigbeelens.services.network_evidence import NetworkEvidenceCapability
+from zigbeelens.services.network_evidence import (
+    NetworkEvidenceCapability,
+    require_mapped_network_evidence_context,
+)
 from zigbeelens.services.topology_facts_composition import topology_stale_threshold_hours
 
 if TYPE_CHECKING:
@@ -90,12 +93,10 @@ def compose_dashboard_coverage_warnings(
     summaries: list[DataCoverageWarningSummary] = []
 
     for network in networks:
-        context = (
-            network_evidence_contexts.get(network.id)
-            if network_evidence_contexts is not None
-            else None
-        )
-        if context is not None:
+        if network_evidence_contexts is not None:
+            context = require_mapped_network_evidence_context(
+                network_evidence_contexts, network.id
+            )
             reference_now = now if now is not None else context.reference_now
             context.require_compatible(
                 network_id=network.id,
