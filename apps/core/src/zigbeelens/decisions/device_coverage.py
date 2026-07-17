@@ -121,6 +121,29 @@ def _topology_observation_counts(
     return observed, len(window)
 
 
+def _topology_observation_counts_from_context(
+    network_evidence_context: Any,
+    device_ieee: str,
+) -> tuple[int, int]:
+    from zigbeelens.services.network_evidence import NetworkEvidenceCapability
+
+    network_evidence_context.require(NetworkEvidenceCapability.snapshot_history)
+    network_evidence_context.require(NetworkEvidenceCapability.latest_topology)
+    if network_evidence_context.nodes_by_snapshot_id is None:
+        raise ValueError("NetworkEvidenceContext is missing nodes_by_snapshot_id")
+    window = list(network_evidence_context.complete_topology_snapshots or ())[
+        :MAX_SNAPSHOT_HISTORY
+    ]
+    observed = 0
+    for snapshot in window:
+        snapshot_id = str(snapshot["snapshot_id"])
+        nodes = network_evidence_context.nodes_by_snapshot_id.get(snapshot_id, ())
+        if any(
+            normalize_device_ieee(node.get("ieee_address")) == device_ieee for node in nodes
+        ):
+            observed += 1
+    return observed, len(window)
+
 
 def build_device_coverage_evidence(
     *,
@@ -161,24 +184,64 @@ def load_device_coverage_evidence(
     repo: Repository,
     network_id: str,
     device_ieee: str,
+    *,
+    network_evidence_context: Any | None = None,
+    now: datetime | None = None,
 ) -> DeviceCoverageEvidence | None:
     """Load bounded stored evidence for device coverage. Returns None when unknown."""
     device = normalize_device_ieee(device_ieee)
     if not device:
         return None
 
-    row = repo.devices.get_device(network_id, device)
+    from zigbeelens.services.network_evidence import (
+        DEVICE_COVERAGE_EVIDENCE_REQUIREMENTS,
+        NetworkEvidenceCapability,
+    )
+    from zigbeelens.services.network_evidence_composition import (
+        compose_network_evidence_context,
+    )
+
+    if network_evidence_context is not None:
+        reference_now = (
+            now if now is not None else network_evidence_context.reference_now
+        )
+        if reference_now.tzinfo is None:
+            reference_now = reference_now.replace(tzinfo=timezone.utc)
+        network_evidence_context.require_compatible(
+            network_id=network_id,
+            reference_now=reference_now,
+        )
+        network_evidence_context.require(NetworkEvidenceCapability.devices)
+        network_evidence_context.require(NetworkEvidenceCapability.earliest_availability)
+        context = network_evidence_context
+    else:
+        reference_now = now or datetime.now(timezone.utc)
+        if reference_now.tzinfo is None:
+            reference_now = reference_now.replace(tzinfo=timezone.utc)
+        context = compose_network_evidence_context(
+            repo,
+            network_id,
+            reference_now=reference_now,
+            requirements=DEVICE_COVERAGE_EVIDENCE_REQUIREMENTS,
+        )
+
+    row = context.get_device_row(device)
     if row is None:
         return None
 
     snapshots = repo.devices.list_device_snapshots(network_id, device, limit=MAX_SNAPSHOT_HISTORY)
     device_changes = repo.availability.list_availability_changes(network_id, device, limit=1)
     ha_enrichment = repo.get_ha_device_enrichment(network_id, device)
-    topology_observed, topology_window = _topology_observation_counts(repo, network_id, device)
+    topology_observed, topology_window = _topology_observation_counts_from_context(
+        context, device
+    )
+    tracking_enabled = bool(context.availability_tracking_enabled)
+    if context.availability_tracking_enabled is None:
+        tracking_enabled = availability_tracking_enabled_now(repo, network_id)
 
     return build_device_coverage_evidence(
         device_row=row,
-        tracking_enabled=availability_tracking_enabled_now(repo, network_id),
+        tracking_enabled=tracking_enabled,
         device_snapshots=snapshots,
         availability_changes=device_changes,
         topology_observed_snapshot_count=topology_observed,
@@ -285,9 +348,18 @@ def device_coverage_for_device(
     repo: Repository,
     network_id: str,
     device_ieee: str,
+    *,
+    network_evidence_context: Any | None = None,
+    now: datetime | None = None,
 ) -> list[DataCoverage] | None:
     """Evaluate per-device evidence coverage. Returns None when device unknown."""
-    evidence = load_device_coverage_evidence(repo, network_id, device_ieee)
+    evidence = load_device_coverage_evidence(
+        repo,
+        network_id,
+        device_ieee,
+        network_evidence_context=network_evidence_context,
+        now=now,
+    )
     if evidence is None:
         return None
     return build_device_coverage(evidence)

@@ -417,7 +417,45 @@ def compose_live_report_scope(
     )
 
     # --- one Device Story batch ------------------------------------------
-    stories = device_stories_for_devices(repo, device_rows, now=reference_now)
+    from zigbeelens.services.network_evidence import REPORT_EVIDENCE_REQUIREMENTS
+    from zigbeelens.services.network_evidence_composition import (
+        compose_network_evidence_contexts,
+    )
+    from zigbeelens.services.topology_facts_composition import (
+        topology_stale_threshold_hours,
+    )
+
+    devices_by_network_id: dict[str, list[DeviceRow]] = {}
+    for row in device_rows:
+        devices_by_network_id.setdefault(row.network_id, []).append(row)
+    # Full/Network report rows are complete inventories; Device/Incident rows are
+    # subjects only and must not satisfy NetworkEvidenceCapability.devices.
+    complete_inventory = (
+        devices_by_network_id if complete_network_scope else None
+    )
+    evidence_contexts = compose_network_evidence_contexts(
+        repo,
+        list(plan.network_ids),
+        reference_now=reference_now,
+        requirements_by_network={
+            network_id: REPORT_EVIDENCE_REQUIREMENTS for network_id in plan.network_ids
+        },
+        network_rows_by_id=networks_by_id,
+        complete_device_rows_by_network=complete_inventory,
+        stale_after_hours=topology_stale_threshold_hours(config),
+    )
+    evidence_map = dict(evidence_contexts)
+
+    subject_keys = [(row.network_id, row.ieee_address) for row in device_rows]
+    ha_enrichment_by_key = repo.list_ha_device_enrichment_for_devices(subject_keys)
+
+    stories = device_stories_for_devices(
+        repo,
+        device_rows,
+        now=reference_now,
+        network_evidence_contexts=evidence_map,
+        ha_enrichment_by_key=ha_enrichment_by_key,
+    )
     badges = {
         key: device_decision_badge_from_story(story) for key, story in stories.items()
     }
@@ -427,6 +465,7 @@ def compose_live_report_scope(
         include_related_incidents=plan.scope == ReportScope.device,
         incident_context=active_incident_context,
         networks_by_id=networks_by_id,
+        ha_enrichment_by_key=ha_enrichment_by_key,
     )
     devices = builder._devices_from_rows(
         device_rows,
@@ -561,6 +600,7 @@ def compose_live_report_scope(
         devices=device_rows,
         incident_context=active_incident_context,
         health=health,
+        network_evidence_contexts=evidence_map,
     )
 
     finding_conclusion = live_finding(
@@ -601,7 +641,10 @@ def compose_live_report_scope(
     )
 
     investigation = compose_dashboard_investigation_priorities(
-        repo, network_rows, now=reference_now
+        repo,
+        network_rows,
+        now=reference_now,
+        network_evidence_contexts=evidence_map,
     )
     coverage = compose_dashboard_coverage_warnings(
         repo,
@@ -613,6 +656,7 @@ def compose_live_report_scope(
             if item.card_type == "router_neighbourhood_review"
         },
         now=reference_now,
+        network_evidence_contexts=evidence_map,
     )
 
     if plan.scope == ReportScope.incident and incidents:

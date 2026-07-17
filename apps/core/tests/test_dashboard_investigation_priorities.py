@@ -179,7 +179,7 @@ def test_compose_uses_global_ranked_top_six_across_networks(tmp_path: Path):
         _fake_card("office-6", score=6, evidence_at=evidence),
     ]
 
-    def _fake_investigations(network_id: str, *, now=None) -> dict:
+    def _fake_investigations(network_id: str, *, now=None, context=None) -> dict:
         cards = home_cards if network_id == "home" else office_cards
         return {"investigations": cards, "available_count": len(cards)}
 

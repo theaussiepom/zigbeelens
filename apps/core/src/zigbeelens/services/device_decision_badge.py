@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Mapping
 
 from zigbeelens.decisions.device_story import (
     DeviceStory,
@@ -71,6 +71,7 @@ def device_decision_badges_for_devices(
     now: datetime | None = None,
     ha_enrichment_by_key=None,
     related_incident_ids_by_key=None,
+    network_evidence_contexts: Mapping[str, Any] | None = None,
 ) -> dict[tuple[str, str], DeviceDecisionBadge]:
     """Compose decision badges for many devices via shared full-story batching."""
     stories = device_stories_for_devices(
@@ -79,6 +80,7 @@ def device_decision_badges_for_devices(
         now=now,
         ha_enrichment_by_key=ha_enrichment_by_key,
         related_incident_ids_by_key=related_incident_ids_by_key,
+        network_evidence_contexts=network_evidence_contexts,
     )
     return {
         key: device_decision_badge_from_story(story)

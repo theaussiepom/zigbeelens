@@ -135,6 +135,7 @@ def test_build_composes_observed_model_patterns_once(monkeypatch, tmp_path: Path
     service = EvidenceGraphService(repo)
     calls = {"count": 0}
     from zigbeelens.decisions.model_pattern import observed_model_patterns_for_network
+    from zigbeelens.services import network_evidence_composition as evidence_module
 
     original = observed_model_patterns_for_network
 
@@ -142,11 +143,7 @@ def test_build_composes_observed_model_patterns_once(monkeypatch, tmp_path: Path
         calls["count"] += 1
         return original(*args, **kwargs)
 
-    from zigbeelens.services import evidence_graph as evidence_graph_module
-
-    monkeypatch.setattr(
-        evidence_graph_module, "observed_model_patterns_for_network", _spy
-    )
+    monkeypatch.setattr(evidence_module, "observed_model_patterns_for_network", _spy)
     service.build("home")
     assert calls["count"] == 1
 
@@ -156,14 +153,13 @@ def test_build_composes_observed_router_areas_once(monkeypatch, tmp_path: Path):
     service = EvidenceGraphService(repo)
     calls = {"count": 0}
     original = observed_router_areas_for_network
+    from zigbeelens.services import network_evidence_composition as evidence_module
 
     def _spy(*args, **kwargs):
         calls["count"] += 1
         return original(*args, **kwargs)
 
-    from zigbeelens.services import evidence_graph as evidence_graph_module
-
-    monkeypatch.setattr(evidence_graph_module, "observed_router_areas_for_network", _spy)
+    monkeypatch.setattr(evidence_module, "observed_router_areas_for_network", _spy)
     service.build("home")
     assert calls["count"] == 1
 
@@ -172,7 +168,7 @@ def test_build_aggregates_history_last_known_and_passive_once(monkeypatch, tmp_p
     """build() must not re-run bounded evidence aggregation via investigations."""
     repo = _repo(tmp_path)
     service = EvidenceGraphService(repo)
-    from zigbeelens.services import evidence_graph as evidence_graph_module
+    from zigbeelens.services import network_evidence_composition as evidence_module
     from zigbeelens.topology.history import (
         aggregate_historical_evidence,
         aggregate_last_known_links,
@@ -196,12 +192,10 @@ def test_build_aggregates_history_last_known_and_passive_once(monkeypatch, tmp_p
         return aggregate_passive_hints(*args, **kwargs)
 
     monkeypatch.setattr(
-        evidence_graph_module, "aggregate_historical_evidence", _historical_spy
+        evidence_module, "aggregate_historical_evidence", _historical_spy
     )
-    monkeypatch.setattr(
-        evidence_graph_module, "aggregate_last_known_links", _last_known_spy
-    )
-    monkeypatch.setattr(evidence_graph_module, "aggregate_passive_hints", _passive_spy)
+    monkeypatch.setattr(evidence_module, "aggregate_last_known_links", _last_known_spy)
+    monkeypatch.setattr(evidence_module, "aggregate_passive_hints", _passive_spy)
 
     service.build("home")
 

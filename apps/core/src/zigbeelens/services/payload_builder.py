@@ -65,7 +65,7 @@ from zigbeelens.services.live_dashboard import (
     build_network_summary,
     live_finding,
 )
-from zigbeelens.storage.repository import DeviceRow, NetworkRow, Repository, utc_now_iso
+from zigbeelens.storage.repository import DeviceRow, NetworkRow, Repository
 from zigbeelens.util.json_helpers import parse_json_list
 
 
@@ -314,11 +314,13 @@ class PayloadBuilder:
             networks_by_incident_id = MappingProxyType(dict(networks_by_incident_id))
         if decision_badges_by_key is None:
             device_rows = list(devices_by_key.values())
+            evidence_map = self._device_story_evidence_contexts(device_rows, now=now)
             decision_badges_by_key = MappingProxyType(
                 device_decision_badges_for_devices(
                     self.repo,
                     device_rows,
                     now=now,
+                    network_evidence_contexts=evidence_map,
                 )
             )
         else:
@@ -397,12 +399,48 @@ class PayloadBuilder:
             for net_row in network_rows
         ]
 
-        shared_availability_events = compose_dashboard_shared_availability_events(
-            self.repo, network_rows
+        from zigbeelens.services.network_evidence import DASHBOARD_EVIDENCE_REQUIREMENTS
+        from zigbeelens.services.network_evidence_composition import (
+            compose_network_evidence_contexts,
         )
-        model_patterns = compose_dashboard_model_patterns(self.repo, network_rows)
+        from zigbeelens.services.topology_facts_composition import (
+            topology_stale_threshold_hours,
+        )
+
+        reference_now = datetime.now(timezone.utc)
+        devices_by_network_id = {
+            network.id: devices_by_network.get(network.id, []) for network in network_rows
+        }
+        evidence_contexts = compose_network_evidence_contexts(
+            self.repo,
+            [network.id for network in network_rows],
+            reference_now=reference_now,
+            requirements_by_network={
+                network.id: DASHBOARD_EVIDENCE_REQUIREMENTS for network in network_rows
+            },
+            network_rows_by_id={network.id: network for network in network_rows},
+            complete_device_rows_by_network=devices_by_network_id,
+            stale_after_hours=topology_stale_threshold_hours(self.config),
+        )
+        evidence_map = dict(evidence_contexts)
+
+        shared_availability_events = compose_dashboard_shared_availability_events(
+            self.repo,
+            network_rows,
+            now=reference_now,
+            network_evidence_contexts=evidence_map,
+        )
+        model_patterns = compose_dashboard_model_patterns(
+            self.repo,
+            network_rows,
+            now=reference_now,
+            network_evidence_contexts=evidence_map,
+        )
         investigation_priorities = compose_dashboard_investigation_priorities(
-            self.repo, network_rows
+            self.repo,
+            network_rows,
+            now=reference_now,
+            network_evidence_contexts=evidence_map,
         )
         data_coverage_warnings = compose_dashboard_coverage_warnings(
             self.repo,
@@ -413,10 +451,12 @@ class PayloadBuilder:
                 for item in investigation_priorities
                 if item.card_type == "router_neighbourhood_review"
             },
+            now=reference_now,
+            network_evidence_contexts=evidence_map,
         )
 
         return DashboardPayload(
-            generated_at=utc_now_iso(),
+            generated_at=reference_now.isoformat(),
             scenario=None,
             overall_severity=finding.severity,
             current_finding=finding,
@@ -428,6 +468,7 @@ class PayloadBuilder:
                 devices=rows,
                 incident_context=incident_context,
                 health=health,
+                network_evidence_contexts=evidence_map,
             ),
             recently_unstable=[
                 d
@@ -522,6 +563,46 @@ class PayloadBuilder:
             incident_context=incident_context,
         )
 
+    def _device_story_evidence_contexts(
+        self,
+        rows: list[DeviceRow],
+        *,
+        now: datetime | None = None,
+        complete_inventory: bool = False,
+    ) -> dict[str, Any]:
+        """One Device Story evidence context per represented network.
+
+        When ``complete_inventory`` is false, ``rows`` are treated as subjects
+        only and complete network inventories are loaded via bulk repository
+        reads.
+        """
+        from zigbeelens.services.network_evidence import DEVICE_STORY_EVIDENCE_REQUIREMENTS
+        from zigbeelens.services.network_evidence_composition import (
+            compose_network_evidence_contexts,
+        )
+
+        if not rows:
+            return {}
+        reference_now = now or datetime.now(timezone.utc)
+        if reference_now.tzinfo is None:
+            reference_now = reference_now.replace(tzinfo=timezone.utc)
+        devices_by_network = _group_devices_by_network(rows)
+        network_ids = list(devices_by_network)
+        return dict(
+            compose_network_evidence_contexts(
+                self.repo,
+                network_ids,
+                reference_now=reference_now,
+                requirements_by_network={
+                    network_id: DEVICE_STORY_EVIDENCE_REQUIREMENTS
+                    for network_id in network_ids
+                },
+                complete_device_rows_by_network=(
+                    devices_by_network if complete_inventory else None
+                ),
+            )
+        )
+
     def devices(self, network_id: str | None = None) -> list[DeviceSummary]:
         rows = self.repo.list_devices(network_id)
         # Complete health for every requested device before freezing incident context.
@@ -536,11 +617,18 @@ class PayloadBuilder:
             include_related_incidents=True,
             incident_context=incident_context,
         )
+        reference_now = datetime.now(timezone.utc)
+        # Devices inventory rows are complete for each represented network.
+        evidence_map = self._device_story_evidence_contexts(
+            rows, now=reference_now, complete_inventory=True
+        )
         badges = device_decision_badges_for_devices(
             self.repo,
             rows,
+            now=reference_now,
             ha_enrichment_by_key=composition.summary.ha_enrichment_by_key,
             related_incident_ids_by_key=composition.related_incident_ids_by_key,
+            network_evidence_contexts=evidence_map,
         )
         return self._devices_from_rows(
             rows,
@@ -682,11 +770,46 @@ class PayloadBuilder:
         devices: list[DeviceRow] | None = None,
         incident_context: ActiveIncidentReadContext | None = None,
         health: HealthDiagnosticService | None = None,
+        network_evidence_contexts: Mapping[str, Any] | None = None,
     ) -> list[RouterRisk]:
+        from zigbeelens.services.network_evidence import (
+            LATEST_TOPOLOGY_REQUIREMENTS,
+            NetworkEvidenceCapability,
+            require_mapped_network_evidence_context,
+        )
+        from zigbeelens.services.network_evidence_composition import (
+            compose_network_evidence_contexts,
+        )
+
         health_svc = health or self._ensure_health() or self._fallback_health()
         device_rows = devices if devices is not None else self.repo.list_devices()
         if incident_context is None and self._incident_service is not None:
             incident_context = self._incident_service.active_incident_read_context()
+        network_ids = list(dict.fromkeys(row.network_id for row in device_rows))
+        if network_evidence_contexts is None:
+            evidence_map: dict[str, Any] = {}
+            if network_ids:
+                reference_now = datetime.now(timezone.utc)
+                evidence_map = dict(
+                    compose_network_evidence_contexts(
+                        self.repo,
+                        network_ids,
+                        reference_now=reference_now,
+                        requirements_by_network={
+                            network_id: LATEST_TOPOLOGY_REQUIREMENTS
+                            for network_id in network_ids
+                        },
+                    )
+                )
+        else:
+            evidence_map = {}
+            for network_id in network_ids:
+                context = require_mapped_network_evidence_context(
+                    network_evidence_contexts, network_id
+                )
+                context.require_compatible(network_id=network_id)
+                context.require(NetworkEvidenceCapability.latest_topology)
+                evidence_map[network_id] = context
         items: list[RouterRisk] = []
         for row in device_rows:
             if row.device_type != "Router":
@@ -694,7 +817,12 @@ class PayloadBuilder:
             result = health_svc.get_device_health(row.network_id, row.ieee_address)
             if result is None or HealthFlag.router_risk not in result.flags:
                 continue
-            risk = health_result_to_router_risk(row, result, self.repo)
+            risk = health_result_to_router_risk(
+                row,
+                result,
+                self.repo,
+                network_evidence_context=evidence_map[row.network_id],
+            )
             if self._incident_service:
                 key = (row.network_id, row.ieee_address)
                 if incident_context is not None:

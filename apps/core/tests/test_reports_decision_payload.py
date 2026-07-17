@@ -14,7 +14,6 @@ from zigbeelens.decisions.device_story import (
     device_stories_for_devices,
     device_story_for_device,
     device_story_report_payload,
-    load_device_story_network_context,
 )
 from zigbeelens.schemas import RedactionOptions, RedactionProfile, ReportRequest, ReportScope
 from zigbeelens.services.data_service import DataService, ReportDeviceContext
@@ -83,20 +82,24 @@ def _enable_tracking(repo: Repository, ieee: str, *, network_id: str = "home"):
 
 
 def test_device_stories_for_devices_one_network_context(monkeypatch, tmp_path):
+    from zigbeelens.services.network_evidence_composition import (
+        compose_network_evidence_context,
+    )
+
     repo, _ = _repo(tmp_path)
     for ieee in ("0xa", "0xb"):
         _add_device(repo, ieee, friendly_name=ieee)
         _enable_tracking(repo, ieee)
 
     calls: list[str] = []
-    original = load_device_story_network_context
+    original = compose_network_evidence_context
 
-    def _wrap(r, network_id, *, now=None):
+    def _wrap(r, network_id, **kwargs):
         calls.append(network_id)
-        return original(r, network_id, now=now)
+        return original(r, network_id, **kwargs)
 
     monkeypatch.setattr(
-        "zigbeelens.decisions.device_story.load_device_story_network_context",
+        "zigbeelens.services.network_evidence_composition.compose_network_evidence_context",
         _wrap,
     )
     rows = [repo.get_device("home", "0xa"), repo.get_device("home", "0xb")]
@@ -107,6 +110,9 @@ def test_device_stories_for_devices_one_network_context(monkeypatch, tmp_path):
 
 def test_device_stories_for_devices_two_networks(monkeypatch, tmp_path):
     from zigbeelens.config.models import ModeConfig, NetworkConfig, StorageConfig
+    from zigbeelens.services.network_evidence_composition import (
+        compose_network_evidence_context,
+    )
 
     db_path = tmp_path / "r2.sqlite"
     db = Database(db_path)
@@ -127,14 +133,14 @@ def test_device_stories_for_devices_two_networks(monkeypatch, tmp_path):
     _enable_tracking(repo, "0xb", network_id="n2")
 
     calls: list[str] = []
-    original = load_device_story_network_context
+    original = compose_network_evidence_context
 
-    def _wrap(r, network_id, *, now=None):
+    def _wrap(r, network_id, **kwargs):
         calls.append(network_id)
-        return original(r, network_id, now=now)
+        return original(r, network_id, **kwargs)
 
     monkeypatch.setattr(
-        "zigbeelens.decisions.device_story.load_device_story_network_context",
+        "zigbeelens.services.network_evidence_composition.compose_network_evidence_context",
         _wrap,
     )
     rows = [repo.get_device("n1", "0xa"), repo.get_device("n2", "0xb")]

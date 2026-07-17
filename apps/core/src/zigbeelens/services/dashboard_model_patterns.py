@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from zigbeelens.decisions.model_pattern import (
     latest_offline_transition_at,
     observed_model_patterns_for_network,
 )
 from zigbeelens.schemas import ModelPatternSummary
+from zigbeelens.services.network_evidence import (
+    NetworkEvidenceCapability,
+    require_mapped_network_evidence_context,
+)
 
 if TYPE_CHECKING:
     from zigbeelens.storage.repository import NetworkRow, Repository
@@ -22,12 +26,32 @@ def compose_dashboard_model_patterns(
     networks: list[NetworkRow],
     *,
     now: datetime | None = None,
+    network_evidence_contexts: dict[str, Any] | None = None,
 ) -> list[ModelPatternSummary]:
     """Flatten qualifying Phase 4G patterns across networks for Overview."""
-    now = now or datetime.now(timezone.utc)
     summaries: list[ModelPatternSummary] = []
     for network in networks:
-        patterns = observed_model_patterns_for_network(repo, network.id, now=now)
+        if network_evidence_contexts is not None:
+            context = require_mapped_network_evidence_context(
+                network_evidence_contexts, network.id
+            )
+            reference_now = now if now is not None else context.reference_now
+            context.require_compatible(
+                network_id=network.id, reference_now=reference_now
+            )
+            context.require(NetworkEvidenceCapability.model_patterns)
+            context.require(NetworkEvidenceCapability.availability_observations)
+            assert context.model_patterns is not None
+            patterns = context.model_patterns
+            availability_rows = [
+                dict(row) for row in (context.availability_changes or ())
+            ]
+        else:
+            reference_now = now or datetime.now(timezone.utc)
+            patterns = observed_model_patterns_for_network(
+                repo, network.id, now=reference_now
+            )
+            availability_rows = None
         for pattern in patterns.patterns:
             affected_ieees = set(pattern.affected_ieees)
             summaries.append(
@@ -46,7 +70,8 @@ def compose_dashboard_model_patterns(
                         repo,
                         network.id,
                         affected_ieees,
-                        now=now,
+                        now=reference_now,
+                        availability_rows=availability_rows,
                     ),
                 )
             )

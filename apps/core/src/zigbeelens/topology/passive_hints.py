@@ -101,7 +101,12 @@ def _parse_ts(value: str | None) -> datetime | None:
 
 
 def _instability_events(
-    repo: Repository, network_id: str, known: set[str], cutoff_iso: str
+    repo: Repository,
+    network_id: str,
+    known: set[str],
+    cutoff_iso: str,
+    *,
+    availability_rows: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> list[tuple[datetime, str]]:
     """Offline transitions inside the lookback window for known devices.
 
@@ -111,7 +116,11 @@ def _instability_events(
     """
     events: list[tuple[datetime, str]] = []
     per_device: dict[str, int] = {}
-    rows = repo.availability.list_availability_changes_since(network_id, cutoff_iso)
+    rows = (
+        list(availability_rows)
+        if availability_rows is not None
+        else repo.availability.list_availability_changes_since(network_id, cutoff_iso)
+    )
     # Rows are oldest-first; walk newest-first so the per-device cap keeps
     # the most recent events.
     for row in reversed(rows):
@@ -172,7 +181,13 @@ class _PairAccumulator:
 
 
 def _topology_neighbourhoods(
-    repo: Repository, network_id: str, *, now: datetime
+    repo: Repository,
+    network_id: str,
+    *,
+    now: datetime,
+    snapshots: list[dict[str, Any]] | None = None,
+    links_by_snapshot_id: dict[str, list[dict[str, Any]]] | None = None,
+    latest_snapshot: dict[str, Any] | None = None,
 ) -> tuple[dict[str, set[str]], set[tuple[str, str]]]:
     """Router/coordinator neighbourhoods from latest + recent snapshots.
 
@@ -181,12 +196,22 @@ def _topology_neighbourhoods(
     router/coordinator neighbours plus the set of observed adjacency pairs.
     """
     cutoff = now - timedelta(days=RECENT_HISTORY_WINDOW_DAYS)
-    latest = repo.get_latest_topology_snapshot(network_id)
+    if latest_snapshot is not None or snapshots is not None:
+        latest = latest_snapshot
+        if latest is None and snapshots is not None:
+            latest = next(
+                (snap for snap in snapshots if snap.get("status") == "complete"),
+                None,
+            )
+        snapshot_rows = snapshots if snapshots is not None else []
+    else:
+        latest = repo.get_latest_topology_snapshot(network_id)
+        snapshot_rows = repo.list_topology_snapshots(network_id)
     snapshot_ids: list[str] = []
     if latest:
-        snapshot_ids.append(latest["snapshot_id"])
+        snapshot_ids.append(str(latest["snapshot_id"]))
     previous = 0
-    for snapshot in repo.list_topology_snapshots(network_id):
+    for snapshot in snapshot_rows:
         if latest and snapshot["snapshot_id"] == latest["snapshot_id"]:
             continue
         if snapshot.get("status") != "complete":
@@ -194,16 +219,21 @@ def _topology_neighbourhoods(
         captured = _parse_ts(snapshot.get("captured_at"))
         if captured is None or captured < cutoff:
             continue
-        snapshot_ids.append(snapshot["snapshot_id"])
+        snapshot_ids.append(str(snapshot["snapshot_id"]))
         previous += 1
         if previous >= RECENT_HISTORY_MAX_SNAPSHOTS:
             break
+
+    def _links_for(snapshot_id: str) -> list[dict[str, Any]]:
+        if links_by_snapshot_id is not None and snapshot_id in links_by_snapshot_id:
+            return links_by_snapshot_id[snapshot_id]
+        return repo.list_topology_links(snapshot_id)
 
     router_neighbours: dict[str, set[str]] = {}
     adjacency: set[tuple[str, str]] = set()
     infra_types = {"Router", "Coordinator"}
     for snapshot_id in snapshot_ids:
-        for link in repo.list_topology_links(snapshot_id):
+        for link in _links_for(snapshot_id):
             source = _norm(link.get("source_ieee"))
             target = _norm(link.get("target_ieee"))
             if not source or not target or source == target:
@@ -217,10 +247,16 @@ def _topology_neighbourhoods(
     return router_neighbours, adjacency
 
 
-def _issue_device_ids(repo: Repository, network_id: str) -> set[str]:
+def _issue_device_ids(
+    repo: Repository,
+    network_id: str,
+    *,
+    devices: list | None = None,
+) -> set[str]:
     """Devices with independent current issue signals for passive relevance."""
     issues: set[str] = set()
-    for device in repo.list_devices(network_id):
+    device_rows = list(devices) if devices is not None else repo.list_devices(network_id)
+    for device in device_rows:
         if getattr(device, "availability", None) == "offline":
             issues.add(_norm(device.ieee_address))
     return issues
@@ -240,6 +276,11 @@ def aggregate_passive_hints(
     network_id: str,
     *,
     now: datetime | None = None,
+    devices: list | None = None,
+    availability_rows: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+    snapshots: list[dict[str, Any]] | None = None,
+    links_by_snapshot_id: dict[str, list[dict[str, Any]]] | None = None,
+    latest_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Aggregate passive-derived investigation hints for a network.
 
@@ -256,22 +297,29 @@ def aggregate_passive_hints(
         "min_repeated_windows": PASSIVE_HINT_MIN_REPEATED_WINDOWS,
     }
 
-    known = {_norm(device.ieee_address) for device in repo.list_devices(network_id)}
+    device_rows = list(devices) if devices is not None else repo.list_devices(network_id)
+    known = {_norm(device.ieee_address) for device in device_rows}
     if not known:
         return {"window": window_meta, "available_count": 0, "hints": []}
 
-    events = _instability_events(repo, network_id, known, cutoff.isoformat())
+    events = _instability_events(
+        repo,
+        network_id,
+        known,
+        cutoff.isoformat(),
+        availability_rows=availability_rows,
+    )
     if not events:
         return {"window": window_meta, "available_count": 0, "hints": []}
 
     pairs: dict[tuple[str, str], _PairAccumulator] = {}
-    for start, end, devices in _cluster_windows(events):
-        if len(devices) < 2:
+    for start, end, window_devices in _cluster_windows(events):
+        if len(window_devices) < 2:
             continue
-        if len(devices) > PASSIVE_HINT_MAX_DEVICES_PER_WINDOW:
+        if len(window_devices) > PASSIVE_HINT_MAX_DEVICES_PER_WINDOW:
             # Network-wide window: no pairwise signal.
             continue
-        ordered = sorted(devices)
+        ordered = sorted(window_devices)
         for i, first in enumerate(ordered):
             for second in ordered[i + 1 :]:
                 pairs.setdefault((first, second), _PairAccumulator()).add(start, end)
@@ -286,8 +334,15 @@ def aggregate_passive_hints(
 
     # Corroboration and relevance are looked up only for pairs that already
     # earned a passive hint — they can raise confidence, never create hints.
-    router_neighbours, adjacency = _topology_neighbourhoods(repo, network_id, now=now)
-    issue_devices = _issue_device_ids(repo, network_id)
+    router_neighbours, adjacency = _topology_neighbourhoods(
+        repo,
+        network_id,
+        now=now,
+        snapshots=snapshots,
+        links_by_snapshot_id=links_by_snapshot_id,
+        latest_snapshot=latest_snapshot,
+    )
+    issue_devices = _issue_device_ids(repo, network_id, devices=device_rows)
 
     hints: list[dict[str, Any]] = []
     for (first, second), acc in sorted(qualifying.items()):

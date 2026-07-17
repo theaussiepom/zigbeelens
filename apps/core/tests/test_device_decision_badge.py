@@ -156,7 +156,7 @@ def _store_topology_gap_fixtures(repo: Repository, ieee: str = "0x03") -> None:
 
 
 def _spy_network_composers(monkeypatch):
-    import zigbeelens.decisions.device_story as device_story_module
+    import zigbeelens.services.network_evidence_composition as evidence_module
     from zigbeelens.decisions.model_pattern import observed_model_patterns_for_network
     from zigbeelens.topology.history import (
         aggregate_historical_evidence,
@@ -179,14 +179,10 @@ def _spy_network_composers(monkeypatch):
         model_patterns["count"] += 1
         return observed_model_patterns_for_network(*args, **kwargs)
 
+    monkeypatch.setattr(evidence_module, "aggregate_historical_evidence", _historical)
+    monkeypatch.setattr(evidence_module, "aggregate_last_known_links", _last_known)
     monkeypatch.setattr(
-        device_story_module, "aggregate_historical_evidence", _historical
-    )
-    monkeypatch.setattr(
-        device_story_module, "aggregate_last_known_links", _last_known
-    )
-    monkeypatch.setattr(
-        device_story_module, "observed_model_patterns_for_network", _model_patterns
+        evidence_module, "observed_model_patterns_for_network", _model_patterns
     )
     return historical, last_known, model_patterns
 
@@ -411,31 +407,34 @@ def _spy_snapshot_link_loads(repo: Repository, monkeypatch):
     tracking_calls: list[str] = []
     earliest_calls: list[str] = []
 
-    original_list_snapshots = repo.list_topology_snapshots
-    original_list_links = repo.list_topology_links
-    original_earliest = repo.availability.get_earliest_availability_change_at
+    original_list_snapshots = repo.list_topology_snapshots_for_networks
+    original_list_links = repo.list_topology_links_for_snapshots
+    original_earliest = repo.get_earliest_availability_change_at_for_networks
     original_tracking = device_compare_module.availability_tracking_enabled_now
 
-    def _list_snapshots(network_id: str):
-        snapshot_calls.append(network_id)
-        return original_list_snapshots(network_id)
+    def _list_snapshots(network_ids):
+        ordered = list(dict.fromkeys(nid for nid in network_ids if nid))
+        snapshot_calls.extend(ordered)
+        return original_list_snapshots(network_ids)
 
-    def _list_links(snapshot_id: str):
-        link_calls.append(snapshot_id)
-        return original_list_links(snapshot_id)
+    def _list_links(snapshot_ids):
+        ordered = list(dict.fromkeys(sid for sid in snapshot_ids if sid))
+        link_calls.extend(ordered)
+        return original_list_links(snapshot_ids)
 
-    def _earliest(network_id: str):
-        earliest_calls.append(network_id)
-        return original_earliest(network_id)
+    def _earliest(network_ids):
+        ordered = list(dict.fromkeys(nid for nid in network_ids if nid))
+        earliest_calls.extend(ordered)
+        return original_earliest(network_ids)
 
     def _tracking(repo_arg, network_id: str, **kwargs):
         tracking_calls.append(network_id)
         return original_tracking(repo_arg, network_id, **kwargs)
 
-    monkeypatch.setattr(repo, "list_topology_snapshots", _list_snapshots)
-    monkeypatch.setattr(repo, "list_topology_links", _list_links)
+    monkeypatch.setattr(repo, "list_topology_snapshots_for_networks", _list_snapshots)
+    monkeypatch.setattr(repo, "list_topology_links_for_snapshots", _list_links)
     monkeypatch.setattr(
-        repo.availability, "get_earliest_availability_change_at", _earliest
+        repo, "get_earliest_availability_change_at_for_networks", _earliest
     )
     monkeypatch.setattr(
         device_compare_module, "availability_tracking_enabled_now", _tracking

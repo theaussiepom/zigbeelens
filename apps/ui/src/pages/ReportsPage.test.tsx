@@ -734,11 +734,13 @@ describe("ReportsPage", () => {
 
     scenarioState.set("offline_cluster");
 
+    // Options clear on the first render after scenario change; LoadingState
+    // appears on the following effect tick once useLiveResource resets.
     await waitFor(() => {
       expect(screen.queryByRole("option", { name: "Scenario A incident" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /load more incidents/i })).not.toBeInTheDocument();
+      expect(screen.getByText(/loading incidents/i)).toBeInTheDocument();
     });
-    expect(screen.queryByRole("button", { name: /load more incidents/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/loading incidents/i)).toBeInTheDocument();
 
     scenarioB.resolve({
       items: [makePickerIncident({ id: "b-1", title: "Scenario B incident" })],

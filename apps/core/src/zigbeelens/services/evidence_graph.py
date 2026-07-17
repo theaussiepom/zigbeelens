@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from zigbeelens.decisions.topology_facts import (
@@ -15,14 +15,15 @@ from zigbeelens.decisions.availability_event_groups import (
 from zigbeelens.decisions.router_area import observed_router_areas_for_network
 from zigbeelens.decisions.model_pattern import observed_model_patterns_for_network
 from zigbeelens.topology.investigations import issue_device_ieees_from_state
-from zigbeelens.services.topology_facts_composition import compose_network_topology_facts_payload
-from zigbeelens.topology.device_stats import aggregate_device_stats
-from zigbeelens.topology.history import (
-    aggregate_historical_evidence,
-    aggregate_last_known_links,
+from zigbeelens.services.network_evidence import (
+    EVIDENCE_GRAPH_FACTS_REQUIREMENTS,
+    EVIDENCE_GRAPH_REQUIREMENTS,
+    NetworkEvidenceCapability,
+    NetworkEvidenceContext,
 )
+from zigbeelens.services.network_evidence_composition import compose_network_evidence_context
+from zigbeelens.services.topology_facts_composition import compose_network_topology_facts_payload
 from zigbeelens.topology.investigations import aggregate_investigations
-from zigbeelens.topology.passive_hints import aggregate_passive_hints
 
 if TYPE_CHECKING:
     from zigbeelens.storage.repository import Repository
@@ -38,6 +39,52 @@ class EvidenceGraphService:
     def __init__(self, repo: Repository) -> None:
         self._repo = repo
 
+    def _ensure_context(
+        self,
+        network_id: str,
+        *,
+        now: datetime | None,
+        context: NetworkEvidenceContext | None,
+        requirements=EVIDENCE_GRAPH_REQUIREMENTS,
+        stale_after_hours: int | None | object = ...,
+    ) -> NetworkEvidenceContext:
+        if context is not None:
+            reference_now = now if now is not None else context.reference_now
+            if reference_now.tzinfo is None:
+                reference_now = reference_now.replace(tzinfo=timezone.utc)
+            compat_kwargs: dict[str, Any] = {
+                "network_id": network_id,
+                "reference_now": reference_now,
+            }
+            if stale_after_hours is not ...:
+                compat_kwargs["stale_after_hours"] = stale_after_hours
+            context.require_compatible(**compat_kwargs)
+            return context
+        reference_now = now or datetime.now(timezone.utc)
+        if reference_now.tzinfo is None:
+            reference_now = reference_now.replace(tzinfo=timezone.utc)
+        network = self._repo.networks.get_network(network_id)
+        if network is None:
+            raise NetworkNotFoundError(network_id)
+        return compose_network_evidence_context(
+            self._repo,
+            network_id,
+            reference_now=reference_now,
+            requirements=requirements,
+            network_row=network,
+            stale_after_hours=(
+                None if stale_after_hours is ... else stale_after_hours  # type: ignore[arg-type]
+            ),
+        )
+
+    def _compose_investigations_from_context(
+        self,
+        context: NetworkEvidenceContext,
+    ) -> dict[str, Any]:
+        context.require(NetworkEvidenceCapability.investigations)
+        assert context.investigations is not None
+        return dict(context.investigations)
+
     def _compose_investigations(
         self,
         network_id: str,
@@ -47,17 +94,23 @@ class EvidenceGraphService:
         last_known: dict[str, Any],
         passive: dict[str, Any],
         now: datetime | None = None,
+        devices: list | None = None,
+        availability_rows: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Compose ranked investigation cards from already-loaded evidence inputs."""
         shared_availability = shared_availability_event_groups_for_network(
-            self._repo, network_id, now=now
+            self._repo,
+            network_id,
+            now=now,
+            devices=devices,
+            availability_rows=availability_rows,
         )
-        devices = self._repo.list_devices(network_id)
-        issue_device_ieees = issue_device_ieees_from_state(devices)
+        device_rows = list(devices) if devices is not None else self._repo.list_devices(network_id)
+        issue_device_ieees = issue_device_ieees_from_state(device_rows)
         observed_router_areas = observed_router_areas_for_network(
             self._repo,
             network_id,
-            devices=devices,
+            devices=device_rows,
             latest_links=links,
             history=history,
             last_known_links=last_known["last_known_links"],
@@ -65,7 +118,11 @@ class EvidenceGraphService:
             issue_device_ieees=issue_device_ieees,
         )
         observed_model_patterns = observed_model_patterns_for_network(
-            self._repo, network_id, now=now
+            self._repo,
+            network_id,
+            now=now,
+            devices=device_rows,
+            availability_rows=availability_rows,
         )
         return aggregate_investigations(
             self._repo,
@@ -79,29 +136,23 @@ class EvidenceGraphService:
         )
 
     def investigations_for_network(
-        self, network_id: str, *, now: datetime | None = None
+        self,
+        network_id: str,
+        *,
+        now: datetime | None = None,
+        context: NetworkEvidenceContext | None = None,
     ) -> dict[str, Any]:
         """Ranked investigation cards for one network (shared by mesh and Overview)."""
-        network = self._repo.networks.get_network(network_id)
-        if network is None:
-            raise NetworkNotFoundError(network_id)
+        evidence = self._ensure_context(network_id, now=now, context=context)
+        return self._compose_investigations_from_context(evidence)
 
-        topology = self._repo.topology
-        latest = topology.get_latest_topology_snapshot(network_id)
-        links = topology.list_topology_links(latest["snapshot_id"]) if latest else []
-        history = aggregate_historical_evidence(self._repo, network_id, now=now)
-        last_known = aggregate_last_known_links(self._repo, network_id)
-        passive = aggregate_passive_hints(self._repo, network_id, now=now)
-        return self._compose_investigations(
-            network_id,
-            links=links,
-            history=history,
-            last_known=last_known,
-            passive=passive,
-            now=now,
-        )
-
-    def build(self, network_id: str, *, now: datetime | None = None) -> dict:
+    def build(
+        self,
+        network_id: str,
+        *,
+        now: datetime | None = None,
+        context: NetworkEvidenceContext | None = None,
+    ) -> dict:
         """Graph-ready topology evidence: latest snapshot plus aggregated
         recent-missing (historical) neighbour/route evidence.
 
@@ -112,42 +163,36 @@ class EvidenceGraphService:
         latest usable snapshot (typically sleepy battery devices whose entries
         aged out of router neighbour tables): each gets its most recently stored
         link evidence, clearly marked as last known rather than currently
-        reported. Passive-derived investigation hints come only from passive
-        observations already stored (availability transitions, existing
-        incidents); topology evidence corroborates them but never creates them,
-        and they are never routes. ``hidden_for_readability`` and
-        ``passive_hint_count_drawn`` are client rendering decisions and
-        therefore reported as null here, never zero. Investigations are ranked
-        problem-first cards built only from the evidence above — investigation
-        priorities, never root-cause, routing or parentage claims.
-
-        ``now`` is optional and only affects the recent-history window used for
-        historical neighbour/route aggregation. When omitted, wall-clock UTC
-        is used.
-
-        This service backs the public evidence-graph endpoint. Its returned
-        dict is an API contract; keep response-shape changes intentional and
-        covered by API parity tests.
+        reported. Passive service backs the public evidence-graph endpoint.
         """
-        network = self._repo.networks.get_network(network_id)
-        if network is None:
-            raise NetworkNotFoundError(network_id)
+        evidence = self._ensure_context(network_id, now=now, context=context)
+        evidence.require(NetworkEvidenceCapability.latest_topology)
+        evidence.require(NetworkEvidenceCapability.historical_links)
+        evidence.require(NetworkEvidenceCapability.last_known_links)
+        evidence.require(NetworkEvidenceCapability.passive_hints)
+        evidence.require(NetworkEvidenceCapability.device_stats)
+        evidence.require(NetworkEvidenceCapability.investigations)
+        evidence.require(NetworkEvidenceCapability.devices)
 
-        topology = self._repo.topology
-        latest = topology.get_latest_topology_snapshot(network_id)
-        nodes = topology.list_topology_nodes(latest["snapshot_id"]) if latest else []
-        links = topology.list_topology_links(latest["snapshot_id"]) if latest else []
-        history = aggregate_historical_evidence(self._repo, network_id, now=now)
-        last_known = aggregate_last_known_links(self._repo, network_id)
-        passive = aggregate_passive_hints(self._repo, network_id, now=now)
-        device_stats = aggregate_device_stats(self._repo, network_id)
-        investigations = self._compose_investigations(
-            network_id,
-            links=links,
-            history=history,
-            last_known=last_known,
-            passive=passive,
-            now=now,
+        latest = (
+            dict(evidence.latest_usable_snapshot)
+            if evidence.latest_usable_snapshot is not None
+            else None
+        )
+        nodes = [dict(row) for row in (evidence.latest_nodes or ())]
+        links = [dict(row) for row in (evidence.latest_links or ())]
+        history = dict(evidence.historical_evidence or {})
+        last_known = dict(evidence.last_known_links or {})
+        passive = dict(evidence.passive_hints or {})
+        device_stats = dict(evidence.device_stats or {})
+        investigations = dict(evidence.investigations or {})
+        inventory = _topology_inventory_counts_from_devices(
+            list(evidence.device_rows or ())
+        )
+        network_name = (
+            evidence.network_row.name
+            if evidence.network_row is not None
+            else network_id
         )
 
         latest_neighbor_pairs = {
@@ -160,11 +205,10 @@ class EvidenceGraphService:
             for link in links
             if link.get("route_count") is not None and link["route_count"] > 0
         )
-        inventory = _topology_inventory_counts(self._repo, network_id)
 
         return {
             "network_id": network_id,
-            "network_name": network.name,
+            "network_name": network_name,
             "data_source": "latest_snapshot_plus_history",
             "latest_snapshot": latest,
             "nodes": nodes,
@@ -197,7 +241,6 @@ class EvidenceGraphService:
                 "last_known_link_count": len(last_known["last_known_links"]),
                 "passive_hint_count_available": passive["available_count"],
                 "passive_hint_count_total": len(passive["hints"]),
-                # Rendering subsets are chosen client-side; unknown here, not zero.
                 "passive_hint_count_drawn": None,
                 "hidden_for_readability": None,
                 "known_inventory_devices": inventory["device_count"],
@@ -211,15 +254,26 @@ class EvidenceGraphService:
         *,
         stale_after_hours: int | None,
         now: datetime | None = None,
+        context: NetworkEvidenceContext | None = None,
     ) -> dict:
         """Evidence graph payload with network topology facts attached."""
-        body = self.build(network_id, now=now)
+        evidence = self._ensure_context(
+            network_id,
+            now=now,
+            context=context,
+            requirements=EVIDENCE_GRAPH_FACTS_REQUIREMENTS,
+            stale_after_hours=stale_after_hours,
+        )
+        evidence.require(NetworkEvidenceCapability.topology_facts)
+        evidence.require(NetworkEvidenceCapability.coverage)
+        body = self.build(network_id, now=evidence.reference_now, context=evidence)
         body["topology_facts"] = compose_network_topology_facts_payload(
             self,
             self._repo,
             body,
             stale_after_hours=stale_after_hours,
-            now=now,
+            now=evidence.reference_now,
+            network_evidence_context=evidence,
         )
         return body
 
@@ -232,6 +286,7 @@ class EvidenceGraphService:
         stale_after_hours: int | None = None,
         device_ieees: list[str] | None = None,
         device_snapshot_histories: dict[str, dict[str, Any]] | None = None,
+        context: NetworkEvidenceContext | None = None,
     ) -> TopologyFacts:
         """Build topology decision facts from stored evidence for one network.
 
@@ -239,7 +294,11 @@ class EvidenceGraphService:
         ``latest_snapshot_stale`` facts are required. When omitted, snapshot
         age is not compared against any implicit product default.
         """
-        graph = evidence_graph if evidence_graph is not None else self.build(network_id, now=now)
+        if evidence_graph is not None:
+            graph = evidence_graph
+        else:
+            evidence = self._ensure_context(network_id, now=now, context=context)
+            graph = self.build(network_id, now=evidence.reference_now, context=evidence)
         return build_topology_facts_from_evidence_graph(
             network_id=network_id,
             evidence_graph=graph,
@@ -266,10 +325,13 @@ class EvidenceGraphService:
         )
 
 
-def _topology_inventory_counts(repo: Repository, network_id: str) -> dict[str, int]:
-    devices = repo.devices.list_devices(network_id)
+def _topology_inventory_counts_from_devices(devices: list) -> dict[str, int]:
     return {
         "device_count": len(devices),
         "router_count": sum(1 for device in devices if device.device_type == "Router"),
         "end_device_count": sum(1 for device in devices if device.device_type == "EndDevice"),
     }
+
+
+def _topology_inventory_counts(repo: Repository, network_id: str) -> dict[str, int]:
+    return _topology_inventory_counts_from_devices(repo.devices.list_devices(network_id))

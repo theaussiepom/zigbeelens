@@ -10,6 +10,10 @@ from zigbeelens.decisions.topology_coverage import build_network_topology_covera
 from zigbeelens.decisions.topology_facts import build_network_topology_facts
 from zigbeelens.decisions.types import CoverageLabelCode, CoverageState, DataCoverage
 from zigbeelens.schemas import DataCoverageWarningSummary
+from zigbeelens.services.network_evidence import (
+    NetworkEvidenceCapability,
+    require_mapped_network_evidence_context,
+)
 from zigbeelens.services.topology_facts_composition import topology_stale_threshold_hours
 
 if TYPE_CHECKING:
@@ -77,6 +81,7 @@ def compose_dashboard_coverage_warnings(
     *,
     route_hint_relevant_network_ids: set[str] | None = None,
     now: datetime | None = None,
+    network_evidence_contexts: dict | None = None,
 ) -> list[DataCoverageWarningSummary]:
     """Compose Overview-relevant coverage warnings from latest topology facts.
 
@@ -88,28 +93,42 @@ def compose_dashboard_coverage_warnings(
     summaries: list[DataCoverageWarningSummary] = []
 
     for network in networks:
-        topology = repo.topology
-        latest = topology.get_latest_topology_snapshot(network.id)
-        nodes = topology.list_topology_nodes(latest["snapshot_id"]) if latest else []
-        links = topology.list_topology_links(latest["snapshot_id"]) if latest else []
-        network_facts = build_network_topology_facts(
-            latest_snapshot=latest,
-            nodes=nodes,
-            links=links,
-            counts={
-                "latest_snapshot_route_edges": _latest_route_edge_count(links),
-            },
-            now=now,
-            stale_after_hours=stale_after_hours,
-        )
-        coverage_items = build_network_topology_coverage(
-            network_facts,
-            tracking_enabled_now=availability_tracking_enabled_now(repo, network.id),
-            has_known_devices=bool(repo.list_devices(network.id)),
-            has_usable_ha_area_assignments=repo.network_has_usable_ha_area_assignments(
-                network.id
-            ),
-        )
+        if network_evidence_contexts is not None:
+            context = require_mapped_network_evidence_context(
+                network_evidence_contexts, network.id
+            )
+            reference_now = now if now is not None else context.reference_now
+            context.require_compatible(
+                network_id=network.id,
+                reference_now=reference_now,
+                stale_after_hours=stale_after_hours,
+            )
+            context.require(NetworkEvidenceCapability.coverage)
+            assert context.network_topology_coverage is not None
+            coverage_items = context.network_topology_coverage
+        else:
+            topology = repo.topology
+            latest = topology.get_latest_topology_snapshot(network.id)
+            nodes = topology.list_topology_nodes(latest["snapshot_id"]) if latest else []
+            links = topology.list_topology_links(latest["snapshot_id"]) if latest else []
+            network_facts = build_network_topology_facts(
+                latest_snapshot=latest,
+                nodes=nodes,
+                links=links,
+                counts={
+                    "latest_snapshot_route_edges": _latest_route_edge_count(links),
+                },
+                now=now,
+                stale_after_hours=stale_after_hours,
+            )
+            coverage_items = build_network_topology_coverage(
+                network_facts,
+                tracking_enabled_now=availability_tracking_enabled_now(repo, network.id),
+                has_known_devices=bool(repo.list_devices(network.id)),
+                has_usable_ha_area_assignments=repo.network_has_usable_ha_area_assignments(
+                    network.id
+                ),
+            )
 
         for item in coverage_items:
             try:

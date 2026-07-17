@@ -324,13 +324,20 @@ def ha_area_context_for_members(
     repo: Repository,
     network_id: str,
     member_ieees: list[str],
+    *,
+    enrichment_by_ieee: dict[str, dict[str, Any]] | None = None,
 ) -> RouterAreaHAAreaContext | None:
     """Optional HA area context for selected router-area members."""
     from zigbeelens.enrichment.ha import area_cluster_for_devices
 
     if not member_ieees:
         return None
-    cluster = area_cluster_for_devices(repo, network_id, member_ieees)
+    cluster = area_cluster_for_devices(
+        repo,
+        network_id,
+        member_ieees,
+        enrichment_by_ieee=enrichment_by_ieee,
+    )
     matched = int(cluster.get("matched") or 0)
     if matched <= 0:
         return None
@@ -367,10 +374,25 @@ def observed_router_areas_for_network(
         passive_hints=passive_hints,
         issue_device_ieees=issue_device_ieees,
     )
+    member_keys = {
+        (network_id, ieee)
+        for area in preliminary.areas
+        for ieee in area.member_ieees
+        if ieee
+    }
+    enrichment_by_ieee: dict[str, dict[str, Any]] = {}
+    if member_keys:
+        bulk = repo.list_ha_device_enrichment_for_devices(member_keys)
+        enrichment_by_ieee = {
+            ieee.lower(): row for (_network_id, ieee), row in bulk.items()
+        }
     ha_context_by_router: dict[str, RouterAreaHAAreaContext | None] = {}
     for area in preliminary.areas:
         ha_context_by_router[area.router_ieee] = ha_area_context_for_members(
-            repo, network_id, area.member_ieees
+            repo,
+            network_id,
+            area.member_ieees,
+            enrichment_by_ieee=enrichment_by_ieee,
         )
     return build_observed_router_areas(
         network_id=network_id,

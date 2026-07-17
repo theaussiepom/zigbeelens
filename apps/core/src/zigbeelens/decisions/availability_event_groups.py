@@ -123,10 +123,13 @@ def shared_availability_event_groups_for_network(
     network_id: str,
     *,
     now: datetime | None = None,
+    devices: list | None = None,
+    availability_rows: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> SharedAvailabilityEventGroups:
     """Load stored availability transitions and group network-wide offline windows."""
     now = now or datetime.now(timezone.utc)
-    known = {_norm(device.ieee_address) for device in repo.list_devices(network_id)}
+    device_rows = list(devices) if devices is not None else repo.list_devices(network_id)
+    known = {_norm(device.ieee_address) for device in device_rows}
     if not known:
         return SharedAvailabilityEventGroups(
             subject_id=network_id,
@@ -134,6 +137,12 @@ def shared_availability_event_groups_for_network(
         )
 
     cutoff = now - timedelta(days=PASSIVE_HINT_LOOKBACK_DAYS)
-    events = _instability_events(repo, network_id, known, cutoff.isoformat())
+    events = _instability_events(
+        repo,
+        network_id,
+        known,
+        cutoff.isoformat(),
+        availability_rows=availability_rows,
+    )
     windows = _cluster_windows(events)
     return build_shared_availability_event_groups(network_id=network_id, windows=windows)

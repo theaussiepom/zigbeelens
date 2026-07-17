@@ -70,6 +70,15 @@ class TopologyRepository:
     def list_topology_links(self, snapshot_id: str) -> list[dict[str, Any]]:
         return self._repo.list_topology_links(snapshot_id)
 
+    def list_topology_snapshots_for_networks(self, network_ids):
+        return self._repo.list_topology_snapshots_for_networks(network_ids)
+
+    def list_topology_nodes_for_snapshots(self, snapshot_ids):
+        return self._repo.list_topology_nodes_for_snapshots(snapshot_ids)
+
+    def list_topology_links_for_snapshots(self, snapshot_ids):
+        return self._repo.list_topology_links_for_snapshots(snapshot_ids)
+
     def get_topology_node_name(self, snapshot_id: str, ieee_address: str) -> str | None:
         return self._repo.get_topology_node_name(snapshot_id, ieee_address)
 

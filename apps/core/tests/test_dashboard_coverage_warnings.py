@@ -283,7 +283,7 @@ def test_dashboard_aggregates_history_last_known_passive_once_for_one_network(
     health = HealthDiagnosticService(config, repo)
     health.recalculate_all()
 
-    from zigbeelens.services import evidence_graph as evidence_graph_module
+    from zigbeelens.services import network_evidence_composition as composition_module
     from zigbeelens.topology.history import (
         aggregate_historical_evidence,
         aggregate_last_known_links,
@@ -307,12 +307,12 @@ def test_dashboard_aggregates_history_last_known_passive_once_for_one_network(
         return aggregate_passive_hints(*args, **kwargs)
 
     monkeypatch.setattr(
-        evidence_graph_module, "aggregate_historical_evidence", _historical_spy
+        composition_module, "aggregate_historical_evidence", _historical_spy
     )
     monkeypatch.setattr(
-        evidence_graph_module, "aggregate_last_known_links", _last_known_spy
+        composition_module, "aggregate_last_known_links", _last_known_spy
     )
-    monkeypatch.setattr(evidence_graph_module, "aggregate_passive_hints", _passive_spy)
+    monkeypatch.setattr(composition_module, "aggregate_passive_hints", _passive_spy)
 
     PayloadBuilder(config, repo, health).dashboard()
 

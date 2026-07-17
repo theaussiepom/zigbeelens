@@ -1409,6 +1409,199 @@ class Repository:
             total += int(cur.fetchone()[0])
         return total
 
+    def list_topology_snapshots_for_networks(
+        self, network_ids: Collection[str]
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Bulk topology snapshots keyed by network_id (captured_at DESC per network)."""
+        ordered_ids = list(dict.fromkeys(nid for nid in network_ids if nid))
+        result: dict[str, list[dict[str, Any]]] = {nid: [] for nid in ordered_ids}
+        if not ordered_ids:
+            return result
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            placeholders = ",".join("?" for _ in chunk)
+            cur = self.db.conn.execute(
+                f"""
+                SELECT snapshot_id, network_id, captured_at, requested_by, status,
+                       router_count, end_device_count, link_count, warning_acknowledged, error
+                FROM topology_snapshots
+                WHERE network_id IN ({placeholders})
+                ORDER BY network_id ASC, captured_at DESC
+                """,
+                chunk,
+            )
+            for row in cur.fetchall():
+                network_id = str(row["network_id"])
+                if network_id in result:
+                    result[network_id].append(dict(row))
+        return result
+
+    def list_topology_nodes_for_snapshots(
+        self, snapshot_ids: Collection[str]
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Bulk topology nodes keyed by snapshot_id (node_type, ieee_address)."""
+        ordered_ids = list(dict.fromkeys(sid for sid in snapshot_ids if sid))
+        result: dict[str, list[dict[str, Any]]] = {sid: [] for sid in ordered_ids}
+        if not ordered_ids:
+            return result
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            placeholders = ",".join("?" for _ in chunk)
+            cur = self.db.conn.execute(
+                f"""
+                SELECT snapshot_id, ieee_address, friendly_name, node_type, depth, lqi
+                FROM topology_nodes
+                WHERE snapshot_id IN ({placeholders})
+                ORDER BY snapshot_id ASC, node_type ASC, ieee_address ASC
+                """,
+                chunk,
+            )
+            for row in cur.fetchall():
+                snapshot_id = str(row["snapshot_id"])
+                if snapshot_id in result:
+                    item = dict(row)
+                    item.pop("snapshot_id", None)
+                    result[snapshot_id].append(item)
+        return result
+
+    def list_topology_links_for_snapshots(
+        self, snapshot_ids: Collection[str]
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Bulk topology links keyed by snapshot_id (same columns as single-snapshot read)."""
+        ordered_ids = list(dict.fromkeys(sid for sid in snapshot_ids if sid))
+        result: dict[str, list[dict[str, Any]]] = {sid: [] for sid in ordered_ids}
+        if not ordered_ids:
+            return result
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            placeholders = ",".join("?" for _ in chunk)
+            cur = self.db.conn.execute(
+                f"""
+                SELECT snapshot_id, source_ieee, target_ieee, source_type, target_type,
+                       linkquality, depth, relationship, route_count
+                FROM topology_links
+                WHERE snapshot_id IN ({placeholders})
+                ORDER BY snapshot_id ASC
+                """,
+                chunk,
+            )
+            for row in cur.fetchall():
+                snapshot_id = str(row["snapshot_id"])
+                if snapshot_id in result:
+                    item = dict(row)
+                    item.pop("snapshot_id", None)
+                    result[snapshot_id].append(item)
+        return result
+
+    def list_devices_for_networks(
+        self, network_ids: Collection[str]
+    ) -> dict[str, list[DeviceRow]]:
+        """Bulk device rows keyed by network_id (friendly_name order per network)."""
+        ordered_ids = list(dict.fromkeys(nid for nid in network_ids if nid))
+        result: dict[str, list[DeviceRow]] = {nid: [] for nid in ordered_ids}
+        if not ordered_ids:
+            return result
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            placeholders = ",".join("?" for _ in chunk)
+            cur = self.db.conn.execute(
+                f"""
+                SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source,
+                       d.manufacturer, d.model, d.interview_state,
+                       COALESCE(s.availability, 'unknown') AS availability,
+                       s.last_seen, s.last_payload_at, s.linkquality, s.battery
+                FROM devices d
+                LEFT JOIN device_current_state s
+                  ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address
+                WHERE d.network_id IN ({placeholders})
+                ORDER BY d.network_id ASC, d.friendly_name ASC
+                """,
+                chunk,
+            )
+            for row in cur.fetchall():
+                network_id = str(row["network_id"])
+                if network_id in result:
+                    result[network_id].append(DeviceRow(**dict(row)))
+        return result
+
+    def list_availability_changes_for_networks_since(
+        self, network_ids: Collection[str], since_iso: str
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Bulk availability transitions since cutoff, oldest-first per network."""
+        ordered_ids = list(dict.fromkeys(nid for nid in network_ids if nid))
+        result: dict[str, list[dict[str, Any]]] = {nid: [] for nid in ordered_ids}
+        if not ordered_ids:
+            return result
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            placeholders = ",".join("?" for _ in chunk)
+            cur = self.db.conn.execute(
+                f"""
+                SELECT network_id, ieee_address, from_state, to_state, changed_at
+                FROM availability_changes
+                WHERE network_id IN ({placeholders}) AND changed_at >= ?
+                ORDER BY network_id ASC, changed_at ASC
+                """,
+                (*chunk, since_iso),
+            )
+            for row in cur.fetchall():
+                network_id = str(row["network_id"])
+                if network_id in result:
+                    item = dict(row)
+                    item.pop("network_id", None)
+                    result[network_id].append(item)
+        return result
+
+    def get_earliest_availability_change_at_for_networks(
+        self, network_ids: Collection[str]
+    ) -> dict[str, str | None]:
+        """Earliest availability transition timestamp per network (None when never)."""
+        ordered_ids = list(dict.fromkeys(nid for nid in network_ids if nid))
+        result: dict[str, str | None] = {nid: None for nid in ordered_ids}
+        if not ordered_ids:
+            return result
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            placeholders = ",".join("?" for _ in chunk)
+            cur = self.db.conn.execute(
+                f"""
+                SELECT network_id, MIN(changed_at) AS earliest_at
+                FROM availability_changes
+                WHERE network_id IN ({placeholders})
+                GROUP BY network_id
+                """,
+                chunk,
+            )
+            for row in cur.fetchall():
+                network_id = str(row["network_id"])
+                if network_id in result:
+                    result[network_id] = row["earliest_at"] or None
+        return result
+
+    def network_has_usable_ha_area_assignments_for_networks(
+        self, network_ids: Collection[str]
+    ) -> dict[str, bool]:
+        """Whether each network has at least one usable HA area assignment."""
+        ordered_ids = list(dict.fromkeys(nid for nid in network_ids if nid))
+        result: dict[str, bool] = {nid: False for nid in ordered_ids}
+        if not ordered_ids:
+            return result
+        if not self._has_table("ha_device_enrichment"):
+            return result
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            placeholders = ",".join("?" for _ in chunk)
+            cur = self.db.conn.execute(
+                f"""
+                SELECT DISTINCT network_id
+                FROM ha_device_enrichment
+                WHERE network_id IN ({placeholders})
+                  AND (
+                    (area_id IS NOT NULL AND TRIM(area_id) != '')
+                    OR (area_name IS NOT NULL AND TRIM(area_name) != '')
+                  )
+                """,
+                chunk,
+            )
+            for row in cur.fetchall():
+                network_id = str(row["network_id"])
+                if network_id in result:
+                    result[network_id] = True
+        return result
+
     def list_report_timeline_events(
         self,
         *,

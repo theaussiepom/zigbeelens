@@ -190,21 +190,29 @@ def observed_model_patterns_for_network(
     network_id: str,
     *,
     now: datetime | None = None,
+    devices: list | None = None,
+    availability_rows: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> ObservedModelPatterns:
     """Load stored inventory and availability transitions for model patterns."""
-    devices = repo.list_devices(network_id)
-    if not devices:
+    device_rows = list(devices) if devices is not None else repo.list_devices(network_id)
+    if not device_rows:
         return ObservedModelPatterns(
             subject_id=network_id,
             state=ObservedModelPatternState.no_patterns,
         )
 
     now = now or datetime.now(timezone.utc)
-    known = {_norm(device.ieee_address) for device in devices}
+    known = {_norm(device.ieee_address) for device in device_rows}
     cutoff = now - timedelta(days=MODEL_PATTERN_LOOKBACK_DAYS)
-    events = _instability_events(repo, network_id, known, cutoff.isoformat())
+    events = _instability_events(
+        repo,
+        network_id,
+        known,
+        cutoff.isoformat(),
+        availability_rows=availability_rows,
+    )
     affected_ieees = {ieee for _, ieee in events}
-    groups = _group_devices_by_model(devices)
+    groups = _group_devices_by_model(device_rows)
     return build_observed_model_patterns(
         network_id=network_id,
         groups=groups,
@@ -250,22 +258,28 @@ def latest_offline_transition_at(
     affected_ieees: set[str],
     *,
     now: datetime | None = None,
+    availability_rows: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> str | None:
     """Most recent offline transition among affected devices in the lookback window."""
     if not affected_ieees:
         return None
     now = now or datetime.now(timezone.utc)
     cutoff = (now - timedelta(days=MODEL_PATTERN_LOOKBACK_DAYS)).isoformat()
+    rows = (
+        list(availability_rows)
+        if availability_rows is not None
+        else repo.availability.list_availability_changes_since(network_id, cutoff)
+    )
     latest: str | None = None
-    for row in repo.availability.list_availability_changes_since(network_id, cutoff):
+    for row in rows:
         if row.get("to_state") != "offline":
+            continue
+        changed_at = str(row.get("changed_at") or "")
+        if not changed_at or changed_at < cutoff:
             continue
         ieee = _norm(row.get("ieee_address"))
         if ieee not in affected_ieees:
             continue
-        changed_at = row.get("changed_at")
-        if not changed_at:
-            continue
         if latest is None or changed_at > latest:
-            latest = str(changed_at)
+            latest = changed_at
     return latest
