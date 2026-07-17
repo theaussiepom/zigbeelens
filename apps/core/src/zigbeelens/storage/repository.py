@@ -1080,19 +1080,62 @@ class Repository:
         )
 
     def get_incident_by_dedup_key(self, dedup_key: str) -> dict[str, Any] | None:
+        """Return the active incident for a dedup key with preloaded network IDs.
+
+        Network associations are assembled from the same lookup path so lifecycle
+        evaluation does not issue a per-candidate incident_networks read.
+        """
         cur = self.db.conn.execute(
             """
-            SELECT id, incident_type, lifecycle_state, severity, scope, confidence,
-                   title, summary, explanation, evidence_json, counter_evidence_json,
-                   limitations_json, opened_at, updated_at, resolved_at, dedup_key
-            FROM incidents
-            WHERE dedup_key = ? AND lifecycle_state IN ('open', 'watching')
-            ORDER BY updated_at DESC LIMIT 1
+            WITH selected AS (
+                SELECT id, incident_type, lifecycle_state, severity, scope, confidence,
+                       title, summary, explanation, evidence_json, counter_evidence_json,
+                       limitations_json, opened_at, updated_at, resolved_at, dedup_key
+                FROM incidents
+                WHERE dedup_key = ? AND lifecycle_state IN ('open', 'watching')
+                ORDER BY updated_at DESC
+                LIMIT 1
+            )
+            SELECT
+                s.id, s.incident_type, s.lifecycle_state, s.severity, s.scope, s.confidence,
+                s.title, s.summary, s.explanation, s.evidence_json, s.counter_evidence_json,
+                s.limitations_json, s.opened_at, s.updated_at, s.resolved_at, s.dedup_key,
+                n.network_id
+            FROM selected s
+            LEFT JOIN incident_networks n ON n.incident_id = s.id
+            ORDER BY n.network_id
             """,
             (dedup_key,),
         )
-        row = cur.fetchone()
-        return dict(row) if row else None
+        rows = cur.fetchall()
+        if not rows:
+            return None
+        result = {
+            key: rows[0][key]
+            for key in (
+                "id",
+                "incident_type",
+                "lifecycle_state",
+                "severity",
+                "scope",
+                "confidence",
+                "title",
+                "summary",
+                "explanation",
+                "evidence_json",
+                "counter_evidence_json",
+                "limitations_json",
+                "opened_at",
+                "updated_at",
+                "resolved_at",
+                "dedup_key",
+            )
+        }
+        network_ids = tuple(
+            row["network_id"] for row in rows if row["network_id"] is not None
+        )
+        result["network_ids"] = network_ids
+        return result
 
     def insert_incident(
         self,

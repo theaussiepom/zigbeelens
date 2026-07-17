@@ -217,9 +217,13 @@ class IncidentLifecycleManager:
             (row["network_id"], row["ieee_address"], row.get("role") or "affected")
             for row in self.repo.incidents.list_incident_devices(existing["id"])
         }
-        existing_networks = tuple(
-            self.repo.incidents.list_incident_networks(existing["id"])
-        )
+        preloaded = existing.get("network_ids")
+        if isinstance(preloaded, (list, tuple)):
+            existing_networks = tuple(preloaded)
+        else:
+            existing_networks = tuple(
+                self.repo.incidents.list_incident_networks(existing["id"])
+            )
         payload = {
             "title": candidate.title,
             "summary": candidate.summary,
