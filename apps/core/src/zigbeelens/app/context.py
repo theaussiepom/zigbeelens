@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from zigbeelens.config import AppConfig, ConfigError, load_config
+from zigbeelens.config.security_status import log_security_posture
 from zigbeelens.db.connection import Database
 from zigbeelens.diagnostics.coordinator import EvaluationCoordinator, PeriodicEvaluationScheduler
 from zigbeelens.diagnostics.incidents.service import IncidentDiagnosticService
@@ -144,12 +145,7 @@ def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -
         cfg.storage.path,
         migration_version,
     )
-    if not cfg.mode.mock:
-        logger.info(
-            "Security notice: ZigbeeLens Core has no built-in authentication by default. "
-            "Set ZIGBEELENS_API_KEY to protect mutating routes when Core is exposed beyond "
-            "trusted networks."
-        )
+    log_security_posture(cfg)
     return ctx
 
 

@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, StrictBool
 
+from zigbeelens.config.security_types import SecurityMode
+
 
 class Severity(str, Enum):
     healthy = "healthy"
@@ -523,6 +525,16 @@ class ReportDetail(BaseModel):
     markdown_summary: str
 
 
+class SecurityConfigStatus(BaseModel):
+    """Secret-free security posture metadata for config/status responses."""
+
+    mode: SecurityMode
+    loopback_bind: bool
+    api_token_configured: bool
+    session_secret_configured: bool
+    legacy_mutation_guard_enabled: bool
+
+
 class ZigbeeLensConfigStatus(BaseModel):
     version: str
     uptime_seconds: int
@@ -539,6 +551,7 @@ class ZigbeeLensConfigStatus(BaseModel):
     data_mode: str
     mock_mode: bool = False
     active_scenario: str | None = None
+    security: SecurityConfigStatus
 
 
 class HealthResponse(BaseModel):

@@ -478,6 +478,17 @@ export interface ReportRedactionStatus {
   network_names: RedactionMode;
 }
 
+/** Secret-free security posture from Core config/status */
+export type SecurityMode = "local" | "authenticated" | "home_assistant_ingress";
+
+export interface SecurityConfigStatus {
+  mode: SecurityMode;
+  loopback_bind: boolean;
+  api_token_configured: boolean;
+  session_secret_configured: boolean;
+  legacy_mutation_guard_enabled: boolean;
+}
+
 /** Config / connection status */
 export interface ZigbeeLensConfigStatus {
   version: string;
@@ -499,6 +510,7 @@ export interface ZigbeeLensConfigStatus {
   data_mode: "mock" | "live";
   mock_mode?: boolean;
   active_scenario?: string;
+  security: SecurityConfigStatus;
 }
 
 /** Per-network collector subscription status */

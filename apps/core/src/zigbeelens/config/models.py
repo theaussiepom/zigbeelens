@@ -2,27 +2,12 @@
 
 from __future__ import annotations
 
-from enum import Enum
-
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
+from zigbeelens.config.security_types import SecurityMode, is_loopback_bind
 from zigbeelens.mock.fixtures import DEFAULT_SCENARIO
 
 MIN_SECURITY_SECRET_LENGTH = 32
-
-
-class SecurityMode(str, Enum):
-    local = "local"
-    authenticated = "authenticated"
-    home_assistant_ingress = "home_assistant_ingress"
-
-
-def is_loopback_bind(host: str) -> bool:
-    """Return True when *host* is a loopback bind without DNS resolution."""
-    normalized = host.strip().lower()
-    if normalized.startswith("[") and normalized.endswith("]"):
-        normalized = normalized[1:-1]
-    return normalized in {"127.0.0.1", "localhost", "::1"}
 
 
 def _reject_invalid_secret(value: object) -> SecretStr:
