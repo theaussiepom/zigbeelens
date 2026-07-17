@@ -15,7 +15,10 @@ from zigbeelens.config.models import (
 )
 from zigbeelens.db.connection import Database
 from zigbeelens.decisions.device_coverage import device_coverage_for_device
-from zigbeelens.decisions.device_story import device_story_for_device
+from zigbeelens.decisions.device_story import (
+    device_stories_for_devices,
+    device_story_for_device,
+)
 from zigbeelens.decisions.model_pattern import (
     MODEL_PATTERN_MIN_AFFECTED_COUNT,
     MODEL_PATTERN_MIN_GROUP_SIZE,
@@ -641,3 +644,327 @@ def test_omitted_now_uses_context_reference_now(tmp_path: Path):
         network_evidence_context=ctx,
     )
     assert story is not None
+
+
+def test_frozen_target_row_survives_db_mutations(tmp_path: Path):
+    from zigbeelens.decisions.device_coverage import load_device_coverage_evidence
+
+    repo, _ = _repo(tmp_path)
+    _add_device(repo, "home", "0xaa", name="Sensor", availability="online")
+    ctx = compose_network_evidence_context(
+        repo,
+        "home",
+        reference_now=NOW,
+        requirements=DEVICE_STORY_EVIDENCE_REQUIREMENTS,
+    )
+    assert ctx.get_device_row("0xaa") is not None
+
+    # New device after freeze is invisible to old context.
+    _add_device(repo, "home", "0xnew", name="New")
+    assert ctx.get_device_row("0xnew") is None
+    assert device_story_for_device(
+        repo, "home", "0xnew", now=NOW, network_evidence_context=ctx
+    ) is None
+    assert load_device_coverage_evidence(
+        repo, "home", "0xnew", network_evidence_context=ctx, now=NOW
+    ) is None
+    fresh = compose_network_evidence_context(
+        repo,
+        "home",
+        reference_now=NOW,
+        requirements=DEVICE_STORY_EVIDENCE_REQUIREMENTS,
+    )
+    assert fresh.get_device_row("0xnew") is not None
+
+    # Target mutation after freeze is invisible to old context.
+    repo.update_device_current_state(
+        network_id="home",
+        ieee_address="0xaa",
+        availability="offline",
+        last_seen=NOW.isoformat(),
+    )
+    repo.db.conn.execute(
+        "UPDATE devices SET friendly_name = ? WHERE network_id = ? AND ieee_address = ?",
+        ("Mutated", "home", "0xaa"),
+    )
+    repo.db.conn.commit()
+    owned = ctx.get_device_row("0xaa")
+    assert owned is not None
+    assert owned.friendly_name == "Sensor"
+    assert owned.availability == "online"
+    story = device_story_for_device(
+        repo, "home", "0xaa", now=NOW, network_evidence_context=ctx
+    )
+    assert story is not None
+    coverage = load_device_coverage_evidence(
+        repo, "home", "0xaa", network_evidence_context=ctx, now=NOW
+    )
+    assert coverage is not None
+    assert coverage.current_availability == "online"
+    later = compose_network_evidence_context(
+        repo,
+        "home",
+        reference_now=NOW,
+        requirements=DEVICE_STORY_EVIDENCE_REQUIREMENTS,
+    )
+    later_row = later.get_device_row("0xaa")
+    assert later_row is not None
+    assert later_row.friendly_name == "Mutated"
+    assert later_row.availability == "offline"
+
+    # Deleted target remains projectable from old context; new context is not found.
+    repo.db.conn.execute(
+        "DELETE FROM devices WHERE network_id = ? AND ieee_address = ?",
+        ("home", "0xaa"),
+    )
+    repo.db.conn.commit()
+    assert ctx.get_device_row("0xaa") is not None
+    assert device_story_for_device(
+        repo, "home", "0xaa", now=NOW, network_evidence_context=ctx
+    ) is not None
+    gone = compose_network_evidence_context(
+        repo,
+        "home",
+        reference_now=NOW,
+        requirements=DEVICE_STORY_EVIDENCE_REQUIREMENTS,
+    )
+    assert gone.get_device_row("0xaa") is None
+
+
+def test_supplied_context_story_and_coverage_zero_device_reads(tmp_path: Path):
+    from zigbeelens.decisions.device_coverage import load_device_coverage_evidence
+
+    repo, _ = _repo(tmp_path)
+    _add_device(repo, "home", "0xaa")
+    _add_snapshot(repo, snapshot_id="s1", network_id="home", nodes=["0xaa"])
+    ctx = compose_network_evidence_context(
+        repo,
+        "home",
+        reference_now=NOW,
+        requirements=DEVICE_STORY_EVIDENCE_REQUIREMENTS,
+    )
+    counter = install_counter(repo)
+    counter.reset()
+    story = device_story_for_device(
+        repo, "home", "0xaa", now=NOW, network_evidence_context=ctx
+    )
+    assert story is not None
+    assert counter.stats.category_counts.get("read.devices", 0) == 0
+    assert counter.stats.category_counts.get("read.device_current_state", 0) == 0
+
+    coverage_ctx = compose_network_evidence_context(
+        repo,
+        "home",
+        reference_now=NOW,
+        requirements=frozenset(
+            {
+                NetworkEvidenceCapability.devices,
+                NetworkEvidenceCapability.latest_topology,
+                NetworkEvidenceCapability.snapshot_history,
+                NetworkEvidenceCapability.earliest_availability,
+                NetworkEvidenceCapability.ha_areas,
+            }
+        ),
+    )
+    counter.reset()
+    coverage = load_device_coverage_evidence(
+        repo, "home", "0xaa", network_evidence_context=coverage_ctx, now=NOW
+    )
+    assert coverage is not None
+    assert counter.stats.category_counts.get("read.devices", 0) == 0
+
+
+def test_strict_context_map_missing_network_no_fallback_sql(tmp_path: Path):
+    from zigbeelens.services.network_evidence import DASHBOARD_EVIDENCE_REQUIREMENTS
+
+    repo, config = _repo(tmp_path)
+    _add_device(repo, "home", "0xa")
+    _add_device(repo, "office", "0xb")
+    home_ctx = compose_network_evidence_context(
+        repo,
+        "home",
+        reference_now=NOW,
+        requirements=DASHBOARD_EVIDENCE_REQUIREMENTS,
+        stale_after_hours=topology_stale_threshold_hours(config),
+    )
+    networks = repo.list_networks()
+    partial = {"home": home_ctx}
+    counter = install_counter(repo)
+
+    for composer in (
+        lambda: compose_dashboard_model_patterns(
+            repo, networks, now=NOW, network_evidence_contexts=partial
+        ),
+        lambda: compose_dashboard_shared_availability_events(
+            repo, networks, now=NOW, network_evidence_contexts=partial
+        ),
+        lambda: compose_dashboard_investigation_priorities(
+            repo, networks, now=NOW, network_evidence_contexts=partial
+        ),
+        lambda: compose_dashboard_coverage_warnings(
+            repo, networks, config, now=NOW, network_evidence_contexts=partial
+        ),
+    ):
+        counter.reset()
+        with pytest.raises(ValueError, match="no entry"):
+            composer()
+        assert counter.stats.category_counts.get("read.devices", 0) == 0
+        assert counter.stats.category_counts.get("read.availability_changes", 0) == 0
+        assert counter.stats.category_counts.get("read.topology_snapshots", 0) == 0
+
+    office_rows = [row for row in repo.list_devices() if row.network_id == "office"]
+    office_keys = [(row.network_id, row.ieee_address) for row in office_rows]
+    counter.reset()
+    with pytest.raises(ValueError, match="no entry"):
+        device_stories_for_devices(
+            repo,
+            office_rows,
+            now=NOW,
+            network_evidence_contexts=partial,
+            ha_enrichment_by_key={key: {} for key in office_keys},
+            related_incident_ids_by_key={key: () for key in office_keys},
+        )
+    assert counter.stats.execute_count == 0
+
+    health = HealthDiagnosticService(config, repo)
+    health.recalculate_all()
+    builder = PayloadBuilder(config, repo, health)
+    all_devices = repo.list_devices()
+    counter.reset()
+    with pytest.raises(ValueError, match="no entry"):
+        builder.routers(
+            devices=all_devices,
+            network_evidence_contexts={},
+        )
+    assert counter.stats.category_counts.get("read.topology_snapshots", 0) == 0
+
+
+def test_snapshot_history_minimal_requirements_use_bulk_reads(tmp_path: Path):
+    from zigbeelens.services.network_evidence_composition import (
+        compose_network_evidence_contexts,
+    )
+
+    repo, _ = _repo(tmp_path)
+    _add_device(repo, "home", "0xa")
+    _add_device(repo, "office", "0xb")
+    _add_snapshot(repo, snapshot_id="h1", network_id="home", nodes=["0xa"])
+    _add_snapshot(repo, snapshot_id="o1", network_id="office", nodes=["0xb"])
+
+    original_earliest = repo.availability.get_earliest_availability_change_at
+    original_list_devices = repo.list_devices
+    calls = {"earliest": 0, "list_devices": 0}
+
+    def earliest_spy(network_id: str):
+        calls["earliest"] += 1
+        return original_earliest(network_id)
+
+    def list_devices_spy(network_id: str | None = None):
+        calls["list_devices"] += 1
+        return original_list_devices(network_id)
+
+    repo.availability.get_earliest_availability_change_at = earliest_spy  # type: ignore[method-assign]
+    repo.list_devices = list_devices_spy  # type: ignore[method-assign]
+
+    counter = install_counter(repo)
+    counter.reset()
+    for requirements in (
+        frozenset({NetworkEvidenceCapability.snapshot_history}),
+        frozenset({NetworkEvidenceCapability.historical_links}),
+        frozenset({NetworkEvidenceCapability.topology_facts}),
+    ):
+        counter.reset()
+        calls["earliest"] = 0
+        calls["list_devices"] = 0
+        contexts = compose_network_evidence_contexts(
+            repo,
+            ["home", "office"],
+            reference_now=NOW,
+            requirements_by_network={
+                "home": requirements,
+                "office": requirements,
+            },
+            stale_after_hours=24,
+        )
+        expanded = expand_requirements(requirements)
+        for network_id in ("home", "office"):
+            assert expanded <= contexts[network_id].loaded_capabilities
+        assert calls["earliest"] == 0
+        assert calls["list_devices"] == 0
+        assert counter.stats.category_counts.get("read.devices", 0) == 1
+        if NetworkEvidenceCapability.earliest_availability in expanded:
+            assert counter.stats.category_counts.get("read.availability_changes", 0) >= 1
+        assert counter.stats.category_counts.get("read.topology_nodes", 0) <= 1
+        assert counter.stats.category_counts.get("read.topology_links", 0) <= 1
+
+
+def test_mutation_isolation_across_projections(tmp_path: Path):
+    repo, _ = _repo(tmp_path)
+    ieees = [f"0xm{i:02d}" for i in range(MODEL_PATTERN_MIN_GROUP_SIZE)]
+    for ieee in ieees:
+        _add_device(repo, "home", ieee)
+    for ieee in ieees[:MODEL_PATTERN_MIN_AFFECTED_COUNT]:
+        _offline_event(repo, "home", ieee, NOW - timedelta(days=1))
+    _add_snapshot(
+        repo,
+        snapshot_id="s-mut",
+        network_id="home",
+        route_count=1,
+        nodes=["0xm00", "0xm01"],
+    )
+    ctx = compose_network_evidence_context(
+        repo,
+        "home",
+        reference_now=NOW,
+        requirements=EVIDENCE_GRAPH_FACTS_REQUIREMENTS,
+        stale_after_hours=24,
+    )
+
+    # Mutating projected DeviceRow copies must not alter later projections.
+    projected = list(ctx.device_rows or ())
+    projected[0].friendly_name = "Consumer Mutation"
+    projected[0].availability = "offline"
+    again = ctx.get_device_row(projected[0].ieee_address)
+    assert again is not None
+    assert again.friendly_name != "Consumer Mutation"
+    assert again.availability == "online"
+
+    # Nested derived structures project defensively.
+    historical = ctx.historical_evidence
+    assert historical is not None
+    neighbors = historical.get("historical_neighbors")
+    if isinstance(neighbors, list):
+        neighbors.append({"mutated": True})
+    historical2 = ctx.historical_evidence
+    assert historical2 is not None
+    neighbors2 = historical2.get("historical_neighbors") or []
+    assert not any(isinstance(item, dict) and item.get("mutated") for item in neighbors2)
+
+    patterns = ctx.model_patterns
+    assert patterns is not None
+    if patterns.patterns:
+        patterns.patterns[0].affected_ieees.append("0xmutated")
+    patterns2 = ctx.model_patterns
+    assert patterns2 is not None
+    assert all("0xmutated" not in p.affected_ieees for p in patterns2.patterns)
+
+    investigations = ctx.investigations
+    assert investigations is not None
+    cards = list(investigations.get("investigations") or [])
+    cards.append({"id": "mutated-card"})
+    investigations2 = ctx.investigations
+    assert investigations2 is not None
+    assert all(
+        card.get("id") != "mutated-card"
+        for card in (investigations2.get("investigations") or [])
+    )
+
+    counter = install_counter(repo)
+    counter.reset()
+    graph = EvidenceGraphService(repo).build("home", now=NOW, context=ctx)
+    story = device_story_for_device(
+        repo, "home", ieees[0], now=NOW, network_evidence_context=ctx
+    )
+    assert graph["inventory"]["device_count"] == len(ieees)
+    assert story is not None
+    assert counter.stats.category_counts.get("read.topology_nodes", 0) == 0
+    assert counter.stats.category_counts.get("read.devices", 0) == 0

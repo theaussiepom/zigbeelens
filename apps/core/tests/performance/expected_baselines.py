@@ -199,7 +199,7 @@ TRACK_3G_READ_EXECUTE_TOTALS: dict[str, int] = {
     "dashboard_beast": 25,
     "devices": 57,
     "devices_beast": 345,
-    "device_detail": 30,
+    "device_detail": 29,
     "incident_list": 27,
     "incident_list_history": 93,
     "evidence_graph": 11,
@@ -412,13 +412,13 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
   "device_detail": {
     "fixture": "compact",
     "state": "warm",
-    "execute_count": 30,
+    "execute_count": 29,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
     "category_counts": {
       "read.networks": 4,
-      "read.devices": 5,
+      "read.devices": 4,
       "read.events": 1,
       "read.incidents": 3,
       "read.incident_devices": 1,
@@ -446,11 +446,11 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
         "count": 2
       },
       {
-        "statement": "SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM devices d LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address WHERE d.network_id = ? AND d.ieee_address = ?",
+        "statement": "SELECT DISTINCT i.id FROM incidents i JOIN incident_devices d ON d.incident_id = i.id WHERE d.network_id = ? AND d.ieee_address = ? AND i.lifecycle_state IN (?) ORDER BY i.updated_at DESC, i.id DESC",
         "count": 2
       },
       {
-        "statement": "SELECT DISTINCT i.id FROM incidents i JOIN incident_devices d ON d.incident_id = i.id WHERE d.network_id = ? AND d.ieee_address = ? AND i.lifecycle_state IN (?) ORDER BY i.updated_at DESC, i.id DESC",
+        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
         "count": 2
       }
     ]

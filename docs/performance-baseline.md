@@ -132,7 +132,7 @@ Preserved Track 3E tip totals before scope-first report composition. Report comp
 | Availability change ingestion | beast | warm | 73 | 0 | 8 | 0 | 0 | read.incidents (10) |
 | Dashboard composition | compact | warm | 22 | 0 | 0 | 0 | 0 | read.networks (3) |
 | Dashboard composition | beast | warm | 25 | 0 | 0 | 0 | 0 | read.schema (4) |
-| Device detail | compact | warm | 30 | 0 | 0 | 0 | 0 | read.devices (5) |
+| Device detail | compact | warm | 29 | 0 | 0 | 0 | 0 | read.networks (4) |
 | Devices inventory composition | compact | warm | 57 | 0 | 0 | 0 | 0 | read.availability_changes (22) |
 | Devices inventory composition | beast | warm | 345 | 0 | 0 | 0 | 0 | read.availability_changes (166) |
 | EvidenceGraphService.build | compact | warm | 11 | 0 | 0 | 0 | 0 | read.schema (2) |
@@ -216,7 +216,7 @@ Remaining repeated `read.topology_*` / Device Story network-context loads on in-
 | Incident report preview | 175 | 56 | -119 | shared NetworkEvidenceContext |
 | Device report preview | 151 | 32 | -119 | shared NetworkEvidenceContext |
 | Incident list | 52 | 27 | -25 | shared NetworkEvidenceContext (+1 complete inventory) |
-| Device detail | 55 | 30 | -25 | Device Story NetworkEvidenceContext |
+| Device detail | 55 | 29 | -26 | Device Story NetworkEvidenceContext |
 
 Duplicate topology snapshot/node/link and availability scans across Device Story, Evidence Graph, Dashboard, and Reports are collapsed into one request-local context per network. Remaining Devices/Device Detail cost is dominated by per-device availability-history and device-snapshot reads outside Track 3G topology ownership. The corrective pass loads complete network inventories for Incident/Device subject scopes (bounded one-network inventory read), which can add a small execute count versus an incorrect subject-as-inventory baseline.
 
@@ -292,8 +292,8 @@ No page class above may contain `USE TEMP B-TREE FOR ORDER BY`.
 - 3× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 2× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
 - 2× `SELECT COUNT(*) FROM devices`
-- 2× `SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM devices d LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address WHERE d.network_id = ? AND d.ieee_address = ?`
 - 2× `SELECT DISTINCT i.id FROM incidents i JOIN incident_devices d ON d.incident_id = i.id WHERE d.network_id = ? AND d.ieee_address = ? AND i.lifecycle_state IN (?) ORDER BY i.updated_at DESC, i.id DESC`
+- 2× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
 
 ### devices
 - 20× `SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?`
