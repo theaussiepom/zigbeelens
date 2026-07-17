@@ -6,6 +6,9 @@ mode:
   mock: true
   default_scenario: four_devices_same_room_unavailable
 
+security:
+  mode: local
+
 mqtt:
   server: mqtt://mosquitto:1883
   username: ""

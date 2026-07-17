@@ -73,9 +73,17 @@ sudo chown -R 1000:1000 data
 | `ZIGBEELENS_LOG_LEVEL` | `info` | `debug`, `info`, `warning`, `error` |
 | `ZIGBEELENS_PORT` | `8377` | Listen port (usually leave default) |
 | `ZIGBEELENS_OPENAPI_ENABLED` | `false` | Set `true` to expose `/docs` and `/openapi.json` (dev/debug only) |
+| `ZIGBEELENS_SECURITY_MODE` | — | Override `security.mode` (`local`, `authenticated`, `home_assistant_ingress`) |
+| `ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` | — | Mutation-route API token (prefer over YAML) |
+| `ZIGBEELENS_SECURITY_SESSION_SECRET` / `_FILE` | — | Session secret (configured only; unused by HTTP layer yet) |
+| `ZIGBEELENS_MQTT_USERNAME` | — | MQTT username override |
+| `ZIGBEELENS_MQTT_PASSWORD` / `_FILE` | — | MQTT password override |
+| `ZIGBEELENS_API_KEY` | — | Temporary alias for the API token (conflicts with canonical token vars) |
 | `TZ` | — | Timezone for logs/display |
 
-Secrets are read from config YAML only — they are **never logged**.
+Secrets may come from environment or `*_FILE` paths. They are **never logged**. See [security.md](security.md).
+
+Core’s process default bind is loopback (`127.0.0.1`). Docker example configs explicitly set `server.host: 0.0.0.0` inside the container. Publishing `8377` on the host is **not** fully authenticated yet — prefer `127.0.0.1:8377:8377` or a trusted authenticated reverse proxy.
 
 ## Health check
 

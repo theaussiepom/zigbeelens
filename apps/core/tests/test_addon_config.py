@@ -83,6 +83,9 @@ def test_options_to_app_config_validates():
     assert cfg.mode.mock is False
     assert cfg.mqtt.password == "secret-pass"
     assert len(cfg.networks) == 2
+    assert cfg.server.host == "0.0.0.0"
+    assert cfg.security.mode.value == "local"
+    assert cfg.security.api_token is None
 
 
 def test_requires_at_least_one_network():

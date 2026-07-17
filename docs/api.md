@@ -21,7 +21,7 @@ All other public routes under `/api/` are also mounted at `/api/v1/` (devices, i
 
 ## Authentication
 
-ZigbeeLens Core has **no built-in authentication** in v0.x. Run on a trusted network or place access control in front of the HTTP service. See [security.md](security.md).
+ZigbeeLens Core currently enforces only an optional mutation-route API-key guard. Read routes and SSE remain open. Run on a trusted network or place access control in front of the HTTP service until broader auth lands. See [security.md](security.md).
 
 ## Core endpoints
 
