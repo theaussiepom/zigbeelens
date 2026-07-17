@@ -65,7 +65,7 @@ from zigbeelens.services.live_dashboard import (
     build_network_summary,
     live_finding,
 )
-from zigbeelens.storage.repository import DeviceRow, NetworkRow, Repository, utc_now_iso
+from zigbeelens.storage.repository import DeviceRow, NetworkRow, Repository
 from zigbeelens.util.json_helpers import parse_json_list
 
 

@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from zigbeelens.decisions.availability_tracking import availability_tracking_enabled_now
 from zigbeelens.decisions.model_pattern import observed_model_patterns_for_network
 from zigbeelens.decisions.router_area import observed_router_areas_for_network
 from zigbeelens.decisions.topology_coverage import build_network_topology_coverage
@@ -305,7 +306,12 @@ def compose_network_evidence_contexts(
         tracking_enabled: bool | None = None
         if network_id in earliest_by_network or NetworkEvidenceCapability.earliest_availability in requirements:
             earliest_at = earliest_by_network.get(network_id)
-            tracking_enabled = earliest_at is not None
+            tracking_enabled = availability_tracking_enabled_now(
+                repo,
+                network_id,
+                earliest_availability_at=earliest_at,
+                devices=device_map.get(network_id),
+            )
             loaded.add(NetworkEvidenceCapability.earliest_availability)
 
         ha_areas: bool | None = None

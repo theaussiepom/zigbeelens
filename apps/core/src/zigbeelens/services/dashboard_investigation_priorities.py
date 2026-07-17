@@ -9,7 +9,6 @@ from zigbeelens.schemas import InvestigationPrioritySummary
 from zigbeelens.services.evidence_graph import EvidenceGraphService
 
 if TYPE_CHECKING:
-    from zigbeelens.services.network_evidence import NetworkEvidenceContext
     from zigbeelens.storage.repository import NetworkRow, Repository
 
 MAX_OVERVIEW_INVESTIGATION_PRIORITIES = 6
