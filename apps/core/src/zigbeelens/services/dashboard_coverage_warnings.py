@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from zigbeelens.decisions.availability_tracking import availability_tracking_enabled_now
@@ -75,6 +76,7 @@ def compose_dashboard_coverage_warnings(
     config: AppConfig,
     *,
     route_hint_relevant_network_ids: set[str] | None = None,
+    now: datetime | None = None,
 ) -> list[DataCoverageWarningSummary]:
     """Compose Overview-relevant coverage warnings from latest topology facts.
 
@@ -97,6 +99,7 @@ def compose_dashboard_coverage_warnings(
             counts={
                 "latest_snapshot_route_edges": _latest_route_edge_count(links),
             },
+            now=now,
             stale_after_hours=stale_after_hours,
         )
         coverage_items = build_network_topology_coverage(

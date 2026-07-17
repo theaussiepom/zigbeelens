@@ -143,6 +143,150 @@ def _empty_health_snapshot(now: datetime, network_count: int = 0) -> HealthSnaps
     )
 
 
+_ACTIVE_LIFECYCLES = frozenset({"open", "watching"})
+
+
+def _build_scope_active_incident_context(
+    *,
+    plan: ReportScopePlan,
+    historical_rows: list[dict[str, Any]],
+    refs_by_incident_id: Mapping[str, tuple[dict[str, str], ...]],
+    networks_by_incident_id: Mapping[str, tuple[str, ...]],
+):
+    """Build scope-local active context (open/watching only) for current findings."""
+    from zigbeelens.diagnostics.incidents.service import ActiveIncidentReadContext
+
+    active_rows = [
+        row
+        for row in historical_rows
+        if row.get("lifecycle_state") in _ACTIVE_LIFECYCLES
+    ]
+    if plan.scope == ReportScope.device and plan.target_network_id and plan.target_device_ieee:
+        target = (plan.target_network_id, plan.target_device_ieee)
+        active_rows = [
+            row
+            for row in active_rows
+            if any(
+                (ref["network_id"], ref["ieee_address"]) == target
+                for ref in refs_by_incident_id.get(row["id"], ())
+            )
+        ]
+    elif plan.scope == ReportScope.incident:
+        selected = plan.target_incident_id
+        active_rows = [row for row in active_rows if row["id"] == selected]
+
+    active_ids = [row["id"] for row in active_rows]
+    active_refs = MappingProxyType(
+        {incident_id: refs_by_incident_id.get(incident_id, ()) for incident_id in active_ids}
+    )
+    affected: set[tuple[str, str]] = set()
+    incident_ids_by_device: dict[tuple[str, str], list[str]] = {}
+    for incident_id in active_ids:
+        for ref in active_refs.get(incident_id, ()):
+            key = (ref["network_id"], ref["ieee_address"])
+            affected.add(key)
+            incident_ids_by_device.setdefault(key, []).append(incident_id)
+
+    active_count_by_network: dict[str, int] = {nid: 0 for nid in plan.network_ids}
+    for row in active_rows:
+        for network_id in networks_by_incident_id.get(row["id"], ()):
+            if network_id in active_count_by_network:
+                active_count_by_network[network_id] += 1
+            else:
+                active_count_by_network[network_id] = (
+                    active_count_by_network.get(network_id, 0) + 1
+                )
+
+    return ActiveIncidentReadContext(
+        incidents=tuple(active_rows),
+        incidents_by_id=MappingProxyType({row["id"]: row for row in active_rows}),
+        refs_by_incident_id=active_refs,
+        affected_keys=frozenset(affected),
+        incident_ids_by_device_key=MappingProxyType(
+            {key: tuple(ids) for key, ids in incident_ids_by_device.items()}
+        ),
+        active_count_by_network_id=MappingProxyType(active_count_by_network),
+    )
+
+
+def _scoped_device_health_map(health, device_rows: list[DeviceRow]) -> dict:
+    """Collect per-device health for represented devices only (no estate-wide map)."""
+    mapping = {}
+    for row in device_rows:
+        result = health.get_device_health(row.network_id, row.ieee_address)
+        if result is not None:
+            mapping[(row.network_id, row.ieee_address)] = result
+    return mapping
+
+
+def _scoped_collector(
+    collector: dict[str, Any], network_ids: tuple[str, ...]
+) -> dict[str, Any]:
+    """Keep global collector facts; restrict per-network identities to the plan."""
+    scoped = dict(collector)
+    networks = collector.get("networks")
+    if isinstance(networks, dict):
+        allowed = set(network_ids)
+        scoped["networks"] = {
+            key: value for key, value in networks.items() if key in allowed
+        }
+    return scoped
+
+
+def _devices_by_key_for_incident_refs(
+    repo: Repository,
+    *,
+    device_rows: list[DeviceRow],
+    refs_by_incident_id: Mapping[str, tuple[dict[str, str], ...]],
+    plan: ReportScopePlan,
+) -> Mapping[tuple[str, str], DeviceRow]:
+    """Reuse loaded device rows; fetch only genuinely missing in-scope refs."""
+    devices_by_key: dict[tuple[str, str], DeviceRow] = {
+        (row.network_id, row.ieee_address): row for row in device_rows
+    }
+    needed: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for refs in refs_by_incident_id.values():
+        for ref in refs:
+            key = (ref["network_id"], ref["ieee_address"])
+            if plan.scope == ReportScope.network:
+                if ref["network_id"] not in plan.network_ids:
+                    continue
+            elif plan.scope == ReportScope.device:
+                if key != (plan.target_network_id, plan.target_device_ieee):
+                    continue
+            if key in seen:
+                continue
+            seen.add(key)
+            if key not in devices_by_key:
+                needed.append(key)
+    if needed:
+        devices_by_key.update(repo.get_devices_by_keys(needed))
+    return MappingProxyType(devices_by_key)
+
+
+def _projection_refs_for_scope(
+    refs_by_incident_id: Mapping[str, tuple[dict[str, str], ...]],
+    plan: ReportScopePlan,
+) -> Mapping[str, tuple[dict[str, str], ...]]:
+    """Limit Network/Device affected-device projection to report representation."""
+    if plan.scope == ReportScope.incident or plan.scope == ReportScope.full:
+        return refs_by_incident_id
+    filtered: dict[str, tuple[dict[str, str], ...]] = {}
+    for incident_id, refs in refs_by_incident_id.items():
+        if plan.scope == ReportScope.network:
+            kept = tuple(ref for ref in refs if ref["network_id"] in plan.network_ids)
+        else:
+            target = (plan.target_network_id, plan.target_device_ieee)
+            kept = tuple(
+                ref
+                for ref in refs
+                if (ref["network_id"], ref["ieee_address"]) == target
+            )
+        filtered[incident_id] = kept
+    return MappingProxyType(filtered)
+
+
 def compose_live_report_scope(
     builder: PayloadBuilder,
     request: ReportRequest,
@@ -219,15 +363,17 @@ def compose_live_report_scope(
 
     networks_by_id = {row.id: row for row in network_rows}
     health = builder._ensure_device_health_for_rows(device_rows) or builder._fallback_health()
+    scoped_health = _scoped_device_health_map(health, device_rows)
+    complete_network_scope = plan.scope in {ReportScope.full, ReportScope.network}
 
-    # Active incident context restricted to selected incident rows where useful.
+    # Historical incident rows (all statuses) for ReportDetail.incidents.
     incident_ids = [row["id"] for row in incident_rows]
     refs_map = (
         repo.incidents.list_incident_devices_for_incidents(incident_ids)
         if incident_ids
         else {}
     )
-    refs_by_incident_id = MappingProxyType(
+    historical_refs_by_incident_id = MappingProxyType(
         {incident_id: tuple(refs_map.get(incident_id, [])) for incident_id in incident_ids}
     )
     networks_map = (
@@ -241,6 +387,18 @@ def compose_live_report_scope(
             for incident_id in incident_ids
         }
     )
+    # Projection refs: Incident/Full keep full membership; Network/Device trim.
+    projection_refs_by_incident_id = _projection_refs_for_scope(
+        historical_refs_by_incident_id, plan
+    )
+
+    # Scope-local active context — never global active_incident_read_context().
+    active_incident_context = _build_scope_active_incident_context(
+        plan=plan,
+        historical_rows=incident_rows,
+        refs_by_incident_id=historical_refs_by_incident_id,
+        networks_by_incident_id=networks_by_incident_id,
+    )
 
     # --- one Device Story batch ------------------------------------------
     stories = device_stories_for_devices(repo, device_rows, now=reference_now)
@@ -248,49 +406,12 @@ def compose_live_report_scope(
         key: device_decision_badge_from_story(story) for key, story in stories.items()
     }
 
-    # Device summaries from the same badges / scoped networks.
-    incident_affected = frozenset(
-        (ref["network_id"], ref["ieee_address"])
-        for refs in refs_by_incident_id.values()
-        for ref in refs
-    )
-    # For full/network scopes, also mark currently active membership so related
-    # presentation stays consistent with dashboard vocabulary when available.
-    if builder._incident_service is not None and plan.scope in {
-        ReportScope.full,
-        ReportScope.network,
-    }:
-        active_ctx = builder._incident_service.active_incident_read_context()
-        incident_affected = frozenset(active_ctx.affected_keys)
-
-    from zigbeelens.diagnostics.incidents.service import ActiveIncidentReadContext
-
-    scoped_incident_context = ActiveIncidentReadContext(
-        incidents=tuple(incident_rows),
-        incidents_by_id=MappingProxyType({row["id"]: row for row in incident_rows}),
-        refs_by_incident_id=refs_by_incident_id,
-        affected_keys=incident_affected,
-        incident_ids_by_device_key=MappingProxyType({}),
-        active_count_by_network_id=MappingProxyType(
-            {
-                nid: sum(
-                    1
-                    for row in incident_rows
-                    if row.get("lifecycle_state") in {"open", "watching"}
-                    and nid in networks_by_incident_id.get(row["id"], ())
-                )
-                for nid in plan.network_ids
-            }
-        ),
-    )
-
     composition = builder._device_composition_context(
         device_rows,
         include_related_incidents=plan.scope == ReportScope.device,
-        incident_context=scoped_incident_context,
+        incident_context=active_incident_context,
         networks_by_id=networks_by_id,
     )
-    # Inject story-derived badges; do not call device_decision_badges_for_devices.
     devices = builder._devices_from_rows(
         device_rows,
         summary_context=composition.summary,
@@ -333,25 +454,18 @@ def compose_live_report_scope(
             {incident_id: () for incident_id in incident_ids}
         )
 
-    # Existing devices for incident refs (may include missing devices as absent).
-    ref_keys: list[tuple[str, str]] = []
-    seen_ref_keys: set[tuple[str, str]] = set()
-    for refs in refs_by_incident_id.values():
-        for ref in refs:
-            key = (ref["network_id"], ref["ieee_address"])
-            if key in seen_ref_keys:
-                continue
-            seen_ref_keys.add(key)
-            ref_keys.append(key)
-    devices_by_key = MappingProxyType(
-        {**repo.get_devices_by_keys(ref_keys), **{(r.network_id, r.ieee_address): r for r in device_rows}}
+    devices_by_key = _devices_by_key_for_incident_refs(
+        repo,
+        device_rows=device_rows,
+        refs_by_incident_id=projection_refs_by_incident_id,
+        plan=plan,
     )
 
     incident_composition = builder._incident_composition_context(
         incident_rows,
         now=reference_now,
         include_events=include_timeline,
-        refs_by_incident_id=refs_by_incident_id,
+        refs_by_incident_id=projection_refs_by_incident_id,
         devices_by_key=devices_by_key,
         events_by_incident_id=events_by_incident_id,
         decision_badges_by_key=badges,
@@ -403,16 +517,18 @@ def compose_live_report_scope(
             health,
             builder._incident_service,
             devices=devices_by_network.get(row.id, []),
-            active_incident_count=scoped_incident_context.active_count_by_network_id.get(
+            active_incident_count=active_incident_context.active_count_by_network_id.get(
                 row.id, 0
             ),
-            incident_context=scoped_incident_context,
+            incident_context=active_incident_context,
+            complete_network_scope=complete_network_scope,
+            scoped_device_health_by_key=scoped_health,
         )
         for row in network_rows
     ]
     routers = builder.routers(
         devices=device_rows,
-        incident_context=scoped_incident_context,
+        incident_context=active_incident_context,
         health=health,
     )
 
@@ -423,7 +539,8 @@ def compose_live_report_scope(
         builder._incident_service,
         devices=device_rows,
         networks=network_rows,
-        incident_context=scoped_incident_context,
+        incident_context=active_incident_context,
+        scoped_device_health_by_key=scoped_health,
     )
     health_snapshot = build_health_snapshot(
         repo,
@@ -432,13 +549,16 @@ def compose_live_report_scope(
         networks=network_rows,
         devices=device_rows,
         network_summaries=networks,
-        incident_context=scoped_incident_context,
+        incident_context=active_incident_context,
+        scoped_device_health_by_key=scoped_health,
+        complete_network_scope=complete_network_scope,
     )
     health_snapshot = health_snapshot.model_copy(
         update={
             "timestamp": _reference_iso(reference_now),
             "incident_count": sum(
-                1 for i in incidents if i.status == IncidentStatus.open
+                1 for row in active_incident_context.incidents
+                if row.get("lifecycle_state") == "open"
             ),
         }
     )
@@ -448,7 +568,9 @@ def compose_live_report_scope(
         _filter_investigation_priorities,
     )
 
-    investigation = compose_dashboard_investigation_priorities(repo, network_rows)
+    investigation = compose_dashboard_investigation_priorities(
+        repo, network_rows, now=reference_now
+    )
     coverage = compose_dashboard_coverage_warnings(
         repo,
         network_rows,
@@ -458,19 +580,24 @@ def compose_live_report_scope(
             for item in investigation
             if item.card_type == "router_neighbourhood_review"
         },
+        now=reference_now,
     )
 
-    affected_keys = {
-        (ref.network_id, ref.ieee_address)
-        for incident in incidents
-        for ref in incident.affected_devices
-    }
+    if plan.scope == ReportScope.incident and incidents:
+        priority_affected_keys = {
+            (ref.network_id, ref.ieee_address)
+            for ref in incidents[0].affected_devices
+        }
+    elif plan.scope == ReportScope.device and plan.target_network_id and plan.target_device_ieee:
+        priority_affected_keys = {(plan.target_network_id, plan.target_device_ieee)}
+    else:
+        priority_affected_keys = set(active_incident_context.affected_keys)
     investigation = _filter_investigation_priorities(
         investigation,
         scope=plan.scope,
         network_id=plan.target_network_id,
         device_ieee=plan.target_device_ieee,
-        affected_keys=affected_keys,
+        affected_keys=priority_affected_keys,
     )
     coverage = _filter_coverage_warnings(
         coverage,
@@ -497,7 +624,7 @@ def compose_live_report_scope(
         decision_badges_by_key=MappingProxyType(badges),
         device_details=tuple(device_details),
         incident_rows=tuple(incident_rows),
-        refs_by_incident_id=refs_by_incident_id,
+        refs_by_incident_id=historical_refs_by_incident_id,
         incidents=tuple(incidents),
         timeline=tuple(timeline),
         router_risks=tuple(routers),
@@ -626,12 +753,117 @@ def compose_mock_report_scope(
     badges = {
         key: device_decision_badge_from_story(story) for key, story in stories.items()
     }
+
+    active_incidents = [
+        inc for inc in incidents if inc.status in {IncidentStatus.open, IncidentStatus.watching}
+    ]
+    if plan.scope == ReportScope.device and plan.target_network_id and plan.target_device_ieee:
+        target = (plan.target_network_id, plan.target_device_ieee)
+        active_incidents = [
+            inc
+            for inc in active_incidents
+            if any((ref.network_id, ref.ieee_address) == target for ref in inc.affected_devices)
+        ]
+    elif plan.scope == ReportScope.incident:
+        active_incidents = [
+            inc for inc in active_incidents if inc.id == plan.target_incident_id
+        ]
+    active_affected = {
+        (ref.network_id, ref.ieee_address)
+        for inc in active_incidents
+        for ref in inc.affected_devices
+    }
     devices = [
-        d.model_copy(update={"decision": badges.get((d.network_id, d.ieee_address))})
+        d.model_copy(
+            update={
+                "decision": badges.get((d.network_id, d.ieee_address)),
+                "incident_affected": (d.network_id, d.ieee_address) in active_affected,
+            }
+        )
         for d in devices
     ]
 
+    from zigbeelens.mock.device_stories import apply_incident_device_story_badges
     from zigbeelens.mock.fixtures import device_detail_from_summary
+    from zigbeelens.schemas import DeviceHealthPrimary, DeviceType
+
+    # Narrow Device/Incident reports: NetworkSummary counts must match represented devices.
+    if plan.scope in {ReportScope.device, ReportScope.incident}:
+        rebuilt: list[NetworkSummary] = []
+        for net in networks:
+            scoped = [d for d in devices if d.network_id == net.id]
+            active_count = sum(1 for inc in active_incidents if net.id in inc.network_ids)
+            rebuilt.append(
+                net.model_copy(
+                    update={
+                        "device_count": len(scoped),
+                        "router_count": sum(
+                            1 for d in scoped if d.device_type == DeviceType.Router
+                        ),
+                        "end_device_count": sum(
+                            1 for d in scoped if d.device_type == DeviceType.EndDevice
+                        ),
+                        "unavailable_count": sum(
+                            1
+                            for d in scoped
+                            if d.health.primary == DeviceHealthPrimary.unavailable
+                        ),
+                        "recently_unstable_count": sum(
+                            1
+                            for d in scoped
+                            if d.health.primary == DeviceHealthPrimary.recently_unstable
+                        ),
+                        "weak_link_count": sum(
+                            1
+                            for d in scoped
+                            if d.health.primary == DeviceHealthPrimary.weak_link
+                        ),
+                        "low_battery_count": sum(
+                            1
+                            for d in scoped
+                            if d.health.primary == DeviceHealthPrimary.low_battery
+                        ),
+                        "stale_count": sum(
+                            1
+                            for d in scoped
+                            if d.health.primary == DeviceHealthPrimary.stale_reporting
+                        ),
+                        "interview_issue_count": sum(
+                            1
+                            for d in scoped
+                            if str(d.interview_state.value) in {"failed", "in_progress"}
+                        ),
+                        "active_incident_count": active_count,
+                    }
+                )
+            )
+        networks = rebuilt
+
+    # Project fixture-story badges onto incident refs without mutating shared fixtures.
+    incidents = list(apply_incident_device_story_badges(incidents, stories))
+    if plan.scope in {ReportScope.network, ReportScope.device}:
+        trimmed: list[Incident] = []
+        for inc in incidents:
+            if plan.scope == ReportScope.network:
+                kept = [
+                    ref for ref in inc.affected_devices if ref.network_id in plan.network_ids
+                ]
+            else:
+                target = (plan.target_network_id, plan.target_device_ieee)
+                kept = [
+                    ref
+                    for ref in inc.affected_devices
+                    if (ref.network_id, ref.ieee_address) == target
+                ]
+            trimmed.append(
+                inc.model_copy(
+                    update={
+                        "affected_devices": kept,
+                        "affected_device_count": len(kept),
+                    }
+                )
+            )
+        incidents = trimmed
 
     device_details: list[DeviceDetail] = []
     if plan.require_device_details:
@@ -641,15 +873,13 @@ def compose_mock_report_scope(
             detail = detail.model_copy(
                 update={
                     "decision": badges.get(key),
+                    "incident_affected": device.incident_affected,
                     "recent_events": list(detail.recent_events) if include_timeline else [],
                 }
             )
             device_details.append(detail)
 
-    if include_timeline:
-        for idx, incident in enumerate(incidents):
-            incidents[idx] = incident
-    else:
+    if not include_timeline:
         incidents = [inc.model_copy(update={"timeline": []}) for inc in incidents]
 
     max_events = reporting.max_recent_events
@@ -667,34 +897,74 @@ def compose_mock_report_scope(
     router_network_ids = set(plan.network_ids)
     routers = [r for r in mock.routers() if r.network_id in router_network_ids]
 
-    dashboard = data.dashboard
-    health_snapshot = dashboard.health_snapshot.model_copy(
-        update={
-            "timestamp": _reference_iso(reference_now),
-            "network_count": len(networks),
-            "device_count": len(devices),
-            "incident_count": sum(1 for i in incidents if i.status == IncidentStatus.open),
-            "networks": [
-                entry
-                for entry in (dashboard.health_snapshot.networks or [])
-                if entry.get("network_id") in plan.network_ids
-            ],
+    unavailable = sum(
+        1 for d in devices if d.health.primary == DeviceHealthPrimary.unavailable
+    )
+    network_payload = [
+        {
+            "network_id": n.id,
+            "severity": n.incident_state.value,
+            "unavailable_count": sum(
+                1
+                for d in devices
+                if d.network_id == n.id
+                and d.health.primary == DeviceHealthPrimary.unavailable
+            ),
+            "unknown_count": 0,
         }
+        for n in networks
+    ]
+    if any(n.bridge_state.value == "offline" for n in networks):
+        scoped_severity = Severity.critical
+    elif any(i.status == IncidentStatus.open for i in active_incidents):
+        scoped_severity = Severity.incident
+    elif active_incidents or unavailable:
+        scoped_severity = Severity.watch
+    elif any(d.health.severity not in {Severity.healthy} for d in devices):
+        scoped_severity = Severity.watch
+    else:
+        scoped_severity = Severity.healthy
+    worst_primary = DeviceHealthPrimary.healthy
+    for d in devices:
+        if d.health.primary == DeviceHealthPrimary.unavailable:
+            worst_primary = DeviceHealthPrimary.unavailable
+            break
+        if d.health.primary not in {
+            DeviceHealthPrimary.healthy,
+            DeviceHealthPrimary.unknown,
+        }:
+            worst_primary = d.health.primary
+    if not devices:
+        worst_primary = DeviceHealthPrimary.unknown
+
+    health_snapshot = HealthSnapshot(
+        timestamp=_reference_iso(reference_now),
+        overall_severity=scoped_severity,
+        overall_health=worst_primary,
+        network_count=len(networks),
+        device_count=len(devices),
+        unavailable_count=unavailable,
+        incident_count=sum(1 for i in active_incidents if i.status == IncidentStatus.open),
+        networks=network_payload,
     )
 
+    if plan.scope == ReportScope.incident and incidents:
+        priority_affected = {
+            (ref.network_id, ref.ieee_address) for ref in incidents[0].affected_devices
+        }
+    elif plan.scope == ReportScope.device and plan.target_network_id and plan.target_device_ieee:
+        priority_affected = {(plan.target_network_id, plan.target_device_ieee)}
+    else:
+        priority_affected = active_affected
     investigation = _filter_investigation_priorities(
-        list(dashboard.investigation_priorities or []),
+        list(data.dashboard.investigation_priorities or []),
         scope=plan.scope,
         network_id=plan.target_network_id,
         device_ieee=plan.target_device_ieee,
-        affected_keys={
-            (ref.network_id, ref.ieee_address)
-            for incident in incidents
-            for ref in incident.affected_devices
-        },
+        affected_keys=priority_affected,
     )
     coverage = _filter_coverage_warnings(
-        list(dashboard.data_coverage_warnings or []),
+        list(data.dashboard.data_coverage_warnings or []),
         scope=plan.scope,
         network_ids=set(plan.network_ids),
     )
@@ -703,8 +973,10 @@ def compose_mock_report_scope(
         conclusions = [incidents[0].conclusion]
     elif plan.scope == ReportScope.device and device_details:
         conclusions = [device_details[0].diagnostic]
+    elif active_incidents:
+        conclusions = [active_incidents[0].conclusion]
     else:
-        conclusions = [dashboard.current_finding]
+        conclusions = [data.dashboard.current_finding]
 
     return ReportCompositionContext(
         plan=plan,
@@ -724,7 +996,7 @@ def compose_mock_report_scope(
         data_coverage_warnings=tuple(coverage),
         health_snapshot=health_snapshot,
         diagnostic_conclusions=tuple(conclusions),
-        overall_severity=dashboard.overall_severity,
+        overall_severity=scoped_severity,
         limitations=tuple(STANDARD_LIMITATIONS),
         raw_counts=MappingProxyType(
             {
@@ -789,7 +1061,7 @@ def project_report_detail(
         device_stories=report_stories,
         data_coverage_warnings=list(ctx.data_coverage_warnings),
         config_summary=_scoped_config_summary(config, ctx.plan.network_ids),
-        collector=collector,
+        collector=_scoped_collector(collector, ctx.plan.network_ids),
         networks=list(ctx.networks),
         devices=list(ctx.devices),
         device_details=list(ctx.device_details),

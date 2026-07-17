@@ -299,12 +299,17 @@ def _filter_investigation_priorities(
         return [p for p in priorities if p.network_id == network_id]
     if scope == ReportScope.device and network_id and device_ieee:
         target = device_ieee.strip().lower()
-        return [
-            p
-            for p in priorities
-            if p.network_id == network_id
-            and any(ieee.strip().lower() == target for ieee in p.device_ieees)
-        ]
+        scoped: list[InvestigationPrioritySummary] = []
+        for priority in priorities:
+            if priority.network_id != network_id:
+                continue
+            device_ieees = [
+                ieee for ieee in priority.device_ieees if ieee.strip().lower() == target
+            ]
+            if not device_ieees:
+                continue
+            scoped.append(priority.model_copy(update={"device_ieees": device_ieees}))
+        return scoped
     if scope == ReportScope.incident and affected_keys:
         filtered: list[InvestigationPrioritySummary] = []
         for priority in priorities:
@@ -313,9 +318,14 @@ def _filter_investigation_priorities(
                 for nid, ieee in affected_keys
                 if nid == priority.network_id
             }
-            device_norm = {ieee.strip().lower() for ieee in priority.device_ieees}
-            if affected_on_network & device_norm:
-                filtered.append(priority)
+            device_ieees = [
+                ieee
+                for ieee in priority.device_ieees
+                if ieee.strip().lower() in affected_on_network
+            ]
+            if not device_ieees:
+                continue
+            filtered.append(priority.model_copy(update={"device_ieees": device_ieees}))
         return filtered
     return []
 

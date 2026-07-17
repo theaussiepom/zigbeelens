@@ -51,6 +51,7 @@ def live_finding(
     devices: list | None = None,
     networks: list | None = None,
     incident_context=None,
+    scoped_device_health_by_key: dict | None = None,
 ) -> DiagnosticConclusion:
     if incidents:
         incident_finding = incidents.current_finding(health, context=incident_context)
@@ -59,7 +60,10 @@ def live_finding(
 
     device_rows = devices if devices is not None else repo.list_devices()
     network_rows = networks if networks is not None else repo.list_networks()
-    device_health = health.all_device_health()
+    if scoped_device_health_by_key is not None:
+        device_health = scoped_device_health_by_key
+    else:
+        device_health = health.all_device_health()
 
     unavailable = sum(
         1 for h in device_health.values() if HealthFlag.unavailable in h.flags
@@ -74,8 +78,8 @@ def live_finding(
     offline_bridges = sum(
         1
         for n in network_rows
-        if (health.get_bridge_health(n.id) or None)
-        and health.get_bridge_health(n.id).state == BridgeHealthState.offline
+        if (bridge := health.get_bridge_health(n.id)) is not None
+        and bridge.state == BridgeHealthState.offline
     )
 
     signal_count = unavailable + unstable + weak + stale + low_bat + router_risk
@@ -154,6 +158,41 @@ def live_finding(
     )
 
 
+def _counts_from_scoped_device_health(
+    device_rows: list,
+    scoped_device_health_by_key: dict | None,
+) -> tuple[int, int, int, int, int]:
+    """Derive compatibility counts from represented devices only."""
+    unavailable = 0
+    unstable = 0
+    weak = 0
+    low_bat = 0
+    stale = 0
+    for row in device_rows:
+        key = (row.network_id, row.ieee_address)
+        result = (
+            scoped_device_health_by_key.get(key)
+            if scoped_device_health_by_key is not None
+            else None
+        )
+        if result is None:
+            if getattr(row, "availability", None) == "offline":
+                unavailable += 1
+            continue
+        flags = result.flags or []
+        if HealthFlag.unavailable in flags:
+            unavailable += 1
+        if HealthFlag.recently_unstable in flags:
+            unstable += 1
+        if HealthFlag.weak_link in flags:
+            weak += 1
+        if HealthFlag.low_battery in flags:
+            low_bat += 1
+        if HealthFlag.stale_reporting in flags:
+            stale += 1
+    return unavailable, unstable, weak, low_bat, stale
+
+
 def build_network_summary(
     repo: Repository,
     row: NetworkRow,
@@ -163,6 +202,8 @@ def build_network_summary(
     devices: list | None = None,
     active_incident_count: int | None = None,
     incident_context=None,
+    complete_network_scope: bool = True,
+    scoped_device_health_by_key: dict | None = None,
 ) -> NetworkSummary:
     device_rows = devices if devices is not None else repo.list_devices(row.id)
     net_health = health.get_network_health(row.id)
@@ -179,29 +220,46 @@ def build_network_summary(
             extended_pan_id=snapshot.get("extended_pan_id"),
         )
 
-    counts = net_health or None
-    unavailable = counts.unavailable_count if counts else sum(1 for d in device_rows if d.availability == "offline")
-    unstable = counts.recently_unstable_count if counts else 0
-    weak = counts.weak_link_count if counts else 0
-    low_bat = counts.low_battery_count if counts else 0
-    stale = counts.stale_count if counts else 0
     interview_issues = sum(
         1 for d in device_rows if d.interview_state in {"failed", "in_progress"}
     )
+    if complete_network_scope and net_health is not None:
+        unavailable = net_health.unavailable_count
+        unstable = net_health.recently_unstable_count
+        weak = net_health.weak_link_count
+        low_bat = net_health.low_battery_count
+        stale = net_health.stale_count
+    else:
+        unavailable, unstable, weak, low_bat, stale = _counts_from_scoped_device_health(
+            device_rows, scoped_device_health_by_key
+        )
 
     bridge_offline = bridge_health is not None and bridge_health.state == BridgeHealthState.offline
-    incident_state = (
-        _network_severity(net_health.state, bridge_offline)
-        if net_health
-        else (Severity.critical if bridge == BridgeState.offline else Severity.healthy)
-    )
+    if complete_network_scope and net_health is not None:
+        incident_state = _network_severity(net_health.state, bridge_offline)
+    elif bridge_offline or bridge == BridgeState.offline:
+        incident_state = Severity.critical
+    elif active_incident_count:
+        incident_state = Severity.incident
+    elif unavailable or unstable or weak or low_bat or stale:
+        incident_state = Severity.watch
+    else:
+        incident_state = Severity.healthy
 
     health_payload = DeviceHealth(
         primary=DeviceHealthPrimary.unknown,
         severity=incident_state,
-        confidence=Confidence(net_health.confidence.value) if net_health else Confidence.low,
-        evidence=net_health.evidence[:3] if net_health else [f"{len(device_rows)} devices tracked from MQTT"],
-        limitations=net_health.limitations if net_health else [],
+        confidence=(
+            Confidence(net_health.confidence.value)
+            if complete_network_scope and net_health
+            else Confidence.low
+        ),
+        evidence=(
+            net_health.evidence[:3]
+            if complete_network_scope and net_health
+            else [f"{len(device_rows)} devices in report scope"]
+        ),
+        limitations=net_health.limitations if complete_network_scope and net_health else [],
     )
 
     routers = sum(1 for d in device_rows if d.device_type == "Router")
@@ -244,34 +302,61 @@ def build_health_snapshot(
     devices: list | None = None,
     network_summaries: list | None = None,
     incident_context=None,
+    scoped_device_health_by_key: dict | None = None,
+    complete_network_scope: bool = True,
 ) -> HealthSnapshot:
     network_rows = networks if networks is not None else repo.list_networks()
     device_rows = devices if devices is not None else repo.list_devices()
-    device_health = health.all_device_health()
-    if devices is not None:
-        scoped_keys = {(row.network_id, row.ieee_address) for row in device_rows}
-        device_health = {
-            key: result for key, result in device_health.items() if key in scoped_keys
-        }
+    if scoped_device_health_by_key is not None:
+        device_health = scoped_device_health_by_key
+    else:
+        device_health = health.all_device_health()
+        if devices is not None:
+            scoped_keys = {(row.network_id, row.ieee_address) for row in device_rows}
+            device_health = {
+                key: result for key, result in device_health.items() if key in scoped_keys
+            }
 
     unavailable = sum(
         1 for h in device_health.values() if HealthFlag.unavailable in h.flags
     )
 
     overall = Severity.healthy
-    for n in network_rows:
-        net = health.get_network_health(n.id)
-        if net:
-            sev = _map_severity(net.severity)
-            if sev == Severity.incident:
-                overall = Severity.incident
+    if complete_network_scope:
+        for n in network_rows:
+            net = health.get_network_health(n.id)
+            if net:
+                sev = _map_severity(net.severity)
+                if sev == Severity.incident:
+                    overall = Severity.incident
+                    break
+                if sev == Severity.watch and overall == Severity.healthy:
+                    overall = Severity.watch
+            bridge = health.get_bridge_health(n.id)
+            if bridge and bridge.state == BridgeHealthState.offline:
+                overall = Severity.critical
                 break
-            if sev == Severity.watch and overall == Severity.healthy:
+    else:
+        for n in network_rows:
+            bridge = health.get_bridge_health(n.id)
+            if bridge and bridge.state == BridgeHealthState.offline:
+                overall = Severity.critical
+                break
+        if overall != Severity.critical and incident_context is not None:
+            if any(
+                row.get("lifecycle_state") == "open"
+                for row in incident_context.incidents
+            ):
+                overall = Severity.incident
+            elif incident_context.incidents and overall == Severity.healthy:
                 overall = Severity.watch
-        bridge = health.get_bridge_health(n.id)
-        if bridge and bridge.state == BridgeHealthState.offline:
-            overall = Severity.critical
-            break
+        if overall == Severity.healthy and unavailable:
+            overall = Severity.watch
+        elif overall == Severity.healthy:
+            for h in device_health.values():
+                if h.primary not in {HealthFlag.healthy, HealthFlag.unknown}:
+                    overall = Severity.watch
+                    break
 
     worst_primary = DeviceHealthPrimary.healthy
     for h in device_health.values():
@@ -280,6 +365,8 @@ def build_health_snapshot(
             break
         if h.primary != HealthFlag.healthy and h.primary != HealthFlag.unknown:
             worst_primary = DeviceHealthPrimary(h.primary.value)
+    if not device_health and not complete_network_scope:
+        worst_primary = DeviceHealthPrimary.unknown
 
     open_count, _watching = (
         incidents.count_by_status(context=incident_context) if incidents else (0, 0)
@@ -287,44 +374,55 @@ def build_health_snapshot(
 
     if network_summaries is not None:
         summary_by_id = {item.id: item for item in network_summaries}
-        network_payload = [
-            {
-                "network_id": n.id,
-                "severity": summary_by_id[n.id].incident_state.value
-                if n.id in summary_by_id
-                else Severity.healthy.value,
-                "unavailable_count": (
-                    health.get_network_health(n.id).unavailable_count
-                    if health.get_network_health(n.id)
-                    else (
-                        summary_by_id[n.id].unavailable_count
-                        if n.id in summary_by_id
-                        else repo.count_unavailable_for_network(n.id)
-                    )
-                ),
-                "unknown_count": (
-                    health.get_network_health(n.id).unknown_count
-                    if health.get_network_health(n.id)
-                    else 0
-                ),
-            }
-            for n in network_rows
-        ]
+        network_payload = []
+        for n in network_rows:
+            summary = summary_by_id.get(n.id)
+            if summary is not None:
+                unavailable_count = summary.unavailable_count
+                severity = summary.incident_state.value
+            elif complete_network_scope and (net := health.get_network_health(n.id)):
+                unavailable_count = net.unavailable_count
+                severity = Severity.healthy.value
+            else:
+                unavailable_count = 0
+                severity = Severity.healthy.value
+            unknown_count = 0
+            if complete_network_scope:
+                net = health.get_network_health(n.id)
+                unknown_count = net.unknown_count if net else 0
+            network_payload.append(
+                {
+                    "network_id": n.id,
+                    "severity": severity,
+                    "unavailable_count": unavailable_count,
+                    "unknown_count": unknown_count,
+                }
+            )
     else:
         network_payload = [
             {
                 "network_id": n.id,
                 "severity": build_network_summary(
-                    repo, n, health, incidents, incident_context=incident_context
+                    repo,
+                    n,
+                    health,
+                    incidents,
+                    incident_context=incident_context,
+                    complete_network_scope=complete_network_scope,
+                    scoped_device_health_by_key=scoped_device_health_by_key,
                 ).incident_state.value,
                 "unavailable_count": (
                     health.get_network_health(n.id).unavailable_count
-                    if health.get_network_health(n.id)
-                    else repo.count_unavailable_for_network(n.id)
+                    if complete_network_scope and health.get_network_health(n.id)
+                    else sum(
+                        1
+                        for d in device_rows
+                        if d.network_id == n.id and d.availability == "offline"
+                    )
                 ),
                 "unknown_count": (
                     health.get_network_health(n.id).unknown_count
-                    if health.get_network_health(n.id)
+                    if complete_network_scope and health.get_network_health(n.id)
                     else 0
                 ),
             }
