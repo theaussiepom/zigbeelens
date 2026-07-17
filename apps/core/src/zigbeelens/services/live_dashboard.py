@@ -248,6 +248,11 @@ def build_health_snapshot(
     network_rows = networks if networks is not None else repo.list_networks()
     device_rows = devices if devices is not None else repo.list_devices()
     device_health = health.all_device_health()
+    if devices is not None:
+        scoped_keys = {(row.network_id, row.ieee_address) for row in device_rows}
+        device_health = {
+            key: result for key, result in device_health.items() if key in scoped_keys
+        }
 
     unavailable = sum(
         1 for h in device_health.values() if HealthFlag.unavailable in h.flags

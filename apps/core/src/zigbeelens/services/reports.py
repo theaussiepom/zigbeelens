@@ -9,11 +9,11 @@ it on demand.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 import yaml
 
-from zigbeelens import __version__
 from zigbeelens.config.models import AppConfig, ReportingConfig
 from zigbeelens.config.redaction import redact_mqtt_server
 from zigbeelens.schemas import (
@@ -36,12 +36,9 @@ from zigbeelens.schemas import (
     Severity,
 )
 from zigbeelens.presentation.lens_buckets import BUCKET_LABELS, LensBucket
-from zigbeelens.services.report_device_story import (
-    report_decision_summary_from_stories,
-    report_device_story_from_story,
-)
 from zigbeelens.services.report_redaction import Redactor, resolve_redaction
-from zigbeelens.storage.repository import ReportRow, Repository, utc_now_iso
+from zigbeelens.services.report_scope import ReportScopeAmbiguityError
+from zigbeelens.storage.repository import ReportRow, Repository
 
 STANDARD_LIMITATIONS: list[LimitationItem] = [
     LimitationItem(
@@ -61,38 +58,36 @@ STANDARD_LIMITATIONS: list[LimitationItem] = [
 
 
 class ReportDataSource(Protocol):
-    """Subset of DataService used to assemble reports (mock or live)."""
+    """Narrow composition entry used to assemble reports (mock or live)."""
 
-    def dashboard(self, scenario: str | None = None): ...
-    def networks(self, scenario: str | None = None): ...
-    def devices(self, scenario: str | None = None, network_id: str | None = None): ...
-    def report_device_context(
+    def compose_report_scope(
         self,
+        request: ReportRequest,
         scenario: str | None = None,
         *,
-        network_id: str | None = None,
-        device_keys: set[tuple[str, str]] | None = None,
-        include_device_details: bool = False,
-        now=None,
+        reference_now: datetime,
+        include_timeline: bool,
+        reporting: ReportingConfig,
     ): ...
-    def device(self, network_id: str, ieee_address: str, scenario: str | None = None): ...
-    def routers(self, scenario: str | None = None): ...
-    def incidents_complete_history_for_reports(self, scenario: str | None = None): ...
-    def incident(self, incident_id: str, scenario: str | None = None): ...
-    def timeline(self, scenario: str | None = None, network_id: str | None = None): ...
 
 
 def default_redaction_status() -> ReportRedactionStatus:
     return ReportRedactionStatus(applied=True, profile="standard", mqtt_credentials=True)
 
 
-def topology_report_counts(repo: Repository, config: AppConfig) -> dict[str, int]:
+def topology_report_counts(
+    repo: Repository,
+    config: AppConfig,
+    *,
+    network_ids: list[str] | None = None,
+) -> dict[str, int]:
     if not config.topology.enabled:
         return {"topology_snapshots": 0}
-    total = 0
-    for network in config.networks:
-        total += len(repo.list_topology_snapshots(network.id))
-    return {"topology_snapshots": total}
+    if network_ids is None:
+        network_ids = [network.id for network in config.networks]
+    return {
+        "topology_snapshots": repo.count_topology_snapshots_for_networks(network_ids)
+    }
 
 
 def _report_limitations(config: AppConfig, repo: Repository) -> list[LimitationItem]:
@@ -336,212 +331,6 @@ def _filter_coverage_warnings(
     return [w for w in warnings if w.network_id in network_ids]
 
 
-def _assemble(
-    *,
-    data: ReportDataSource,
-    config: AppConfig,
-    reporting: ReportingConfig,
-    collector: dict[str, Any],
-    request: ReportRequest,
-    scenario: str | None,
-    repo: Repository | None = None,
-) -> ReportDetail:
-    dashboard = data.dashboard(scenario)
-    all_networks = data.networks(scenario)
-    all_routers = data.routers(scenario)
-    # Track 3F debt: reports still need complete history. Public /incidents is
-    # page-bounded (Track 3E); do not silently adopt collection pagination here.
-    all_incidents = data.incidents_complete_history_for_reports(scenario)
-    timeline = list(data.timeline(scenario))[: reporting.max_recent_events]
-
-    networks = all_networks
-    routers = all_routers
-    incidents = all_incidents
-    device_details: list[DeviceDetail] = []
-    device_keys: set[tuple[str, str]] | None = None
-    context_network_id: str | None = None
-    target_device_ieee: str | None = None
-    finding = "Evidence report for the selected ZigbeeLens scope."
-    conclusions = [dashboard.current_finding]
-
-    if request.scope == ReportScope.network and request.network_id:
-        nid = request.network_id
-        context_network_id = nid
-        networks = [n for n in all_networks if n.id == nid]
-        routers = [r for r in all_routers if r.network_id == nid]
-        incidents = [i for i in all_incidents if nid in i.network_ids]
-        timeline = [e for e in timeline if e.network_id == nid]
-    elif request.scope == ReportScope.incident and request.incident_id:
-        inc = data.incident(request.incident_id, scenario)
-        incidents = [inc] if inc else []
-        net_ids = set(inc.network_ids) if inc else set()
-        networks = [n for n in all_networks if n.id in net_ids]
-        device_keys = {
-            (ref.network_id, ref.ieee_address)
-            for i in incidents
-            for ref in i.affected_devices
-        }
-        routers = [r for r in all_routers if r.network_id in net_ids]
-        timeline = list(inc.timeline) if inc else []
-        if inc:
-            conclusions = [inc.conclusion]
-    elif request.scope == ReportScope.device and request.device:
-        # Prefer explicit network + device identity; do not compose full inventory.
-        if request.network_id:
-            context_network_id = request.network_id
-            device_keys = {(request.network_id, request.device)}
-            target_device_ieee = request.device
-        else:
-            # Fallback: resolve from inventory once when network was omitted.
-            inventory = data.devices(scenario)
-            match = [d for d in inventory if d.ieee_address == request.device]
-            if match:
-                context_network_id = match[0].network_id
-                device_keys = {(match[0].network_id, match[0].ieee_address)}
-                target_device_ieee = match[0].ieee_address
-            else:
-                device_keys = set()
-
-    include_details = request.scope in {ReportScope.incident, ReportScope.device}
-    device_ctx = data.report_device_context(
-        scenario,
-        network_id=context_network_id,
-        device_keys=device_keys,
-        include_device_details=include_details,
-    )
-    devices = device_ctx.devices
-    stories = device_ctx.stories
-
-    if request.scope == ReportScope.incident and device_keys is not None:
-        devices = [
-            d for d in devices if (d.network_id, d.ieee_address) in device_keys
-        ]
-        device_details = [
-            device_ctx.device_details[key]
-            for d in devices
-            if (key := (d.network_id, d.ieee_address)) in device_ctx.device_details
-        ]
-    elif request.scope == ReportScope.device:
-        if devices:
-            first = devices[0]
-            key = (first.network_id, first.ieee_address)
-            det = device_ctx.device_details.get(key)
-            if det:
-                device_details = [det]
-                devices = [_as_summary(det)]
-                networks = [n for n in all_networks if n.id == det.network_id]
-                routers = [r for r in all_routers if r.network_id == det.network_id]
-                incidents = [
-                    i
-                    for i in all_incidents
-                    if any(
-                        ref.ieee_address == det.ieee_address
-                        and ref.network_id == det.network_id
-                        for ref in i.affected_devices
-                    )
-                ]
-                timeline = list(det.recent_events)[: reporting.max_recent_events]
-                conclusions = [det.diagnostic]
-                target_device_ieee = det.ieee_address
-                context_network_id = det.network_id
-            else:
-                networks, devices, routers, incidents, timeline = [], [], [], [], []
-                stories = {}
-        else:
-            networks, devices, routers, incidents, timeline = [], [], [], [], []
-            stories = {}
-
-    report_stories = []
-    for device in devices:
-        story = stories.get((device.network_id, device.ieee_address))
-        if story is None:
-            continue
-        report_stories.append(
-            report_device_story_from_story(device=device, story=story)
-        )
-
-    affected_keys: set[tuple[str, str]] = set()
-    if request.scope == ReportScope.incident:
-        affected_keys = {
-            (ref.network_id, ref.ieee_address)
-            for i in incidents
-            for ref in i.affected_devices
-        }
-
-    scoped_network_ids = {n.id for n in networks}
-    if request.scope == ReportScope.device and context_network_id:
-        scoped_network_ids = {context_network_id}
-    elif request.scope == ReportScope.incident:
-        scoped_network_ids = {nid for nid, _ in affected_keys} | {
-            n for i in incidents for n in i.network_ids
-        }
-
-    investigation_priorities = _filter_investigation_priorities(
-        list(dashboard.investigation_priorities or []),
-        scope=request.scope,
-        network_id=context_network_id,
-        device_ieee=target_device_ieee,
-        affected_keys=affected_keys,
-    )
-
-    data_coverage_warnings = _filter_coverage_warnings(
-        list(dashboard.data_coverage_warnings or []),
-        scope=request.scope,
-        network_ids=scoped_network_ids,
-    )
-
-    story_list = [
-        stories[key]
-        for rs in report_stories
-        if (key := (rs.network_id, rs.ieee_address)) in stories
-    ]
-    decision_summary = report_decision_summary_from_stories(
-        story_list if story_list else report_stories
-    )
-
-    summary = _summary_block(
-        overall_state=dashboard.overall_severity,
-        current_finding=finding,
-        networks=networks,
-        devices=devices,
-        routers=routers,
-        incidents=incidents,
-    )
-
-    return ReportDetail(
-        id="report-preview",
-        report_version=2,
-        generated_at=utc_now_iso(),
-        version=__version__,
-        scope=request.scope.value,
-        format=request.format.value,
-        redaction=default_redaction_status(),
-        summary=summary,
-        decision_summary=decision_summary,
-        investigation_priorities=investigation_priorities,
-        device_stories=report_stories,
-        data_coverage_warnings=data_coverage_warnings,
-        config_summary=build_config_summary(config),
-        collector=collector,
-        networks=networks,
-        devices=devices,
-        device_details=device_details,
-        router_risks=routers,
-        incidents=incidents,
-        timeline=timeline,
-        health_snapshot=dashboard.health_snapshot,
-        diagnostic_conclusions=conclusions,
-        limitations=_report_limitations(config, repo) if repo else list(STANDARD_LIMITATIONS),
-        raw_counts={
-            "events_included": len(timeline),
-            "devices_included": len(devices),
-            "incidents_included": len(incidents),
-            **(topology_report_counts(repo, config) if repo else {"topology_snapshots": 0}),
-        },
-        markdown_summary="",
-    )
-
-
 def _without_timelines(detail: ReportDetail) -> ReportDetail:
     """Clear every timeline/event collection controlled by include_timeline."""
     device_stories = [
@@ -588,21 +377,34 @@ def generate_report(
     request: ReportRequest,
     scenario: str | None = None,
     repo: Repository | None = None,
+    now: datetime | None = None,
 ) -> ReportDetail:
-    detail = _assemble(
-        data=data,
-        config=config,
-        reporting=reporting,
-        collector=collector,
-        request=request,
-        scenario=scenario,
-        repo=repo,
-    )
+    """Assemble one report via scope-first composition (Track 3F)."""
+    from zigbeelens.services.report_composition import project_report_detail
+
     resolved = resolve_redaction(
         request.redaction,
         default_profile=reporting.default_profile,
         default_include_raw=reporting.include_raw_payloads,
     )
+    reference_now = now or datetime.now(timezone.utc)
+    if reference_now.tzinfo is None:
+        reference_now = reference_now.replace(tzinfo=timezone.utc)
+
+    composition = data.compose_report_scope(
+        request,
+        scenario,
+        reference_now=reference_now,
+        include_timeline=resolved.include_timeline,
+        reporting=reporting,
+    )
+    detail = project_report_detail(
+        composition,
+        config=config,
+        collector=collector,
+        request=request,
+    )
+
     redactor = Redactor(resolved)
     dumped = detail.model_dump(mode="json")
     # The redaction-status block is metadata about redaction (and contains
@@ -623,6 +425,10 @@ def generate_report(
     redacted.raw_counts["events_included"] = len(redacted.timeline)
     redacted.markdown_summary = render_markdown(redacted)
     return redacted
+
+
+# Re-export for API/route handlers that map scope ambiguity to HTTP errors.
+__all_report_errors__ = (ReportScopeAmbiguityError,)
 
 
 # -- rendering -----------------------------------------------------------

@@ -103,6 +103,20 @@ def _seed_incident(
         incident_id,
         [AffectedDevice(network_id, ieee, role="primary") for network_id, ieee in refs],
     )
+    network_ids = sorted({network_id for network_id, _ in refs})
+    if not network_ids and dedup_key and ":" in dedup_key:
+        from zigbeelens.diagnostics.incidents.network_identity import (
+            network_ids_from_dedup_key,
+        )
+
+        network_ids = list(
+            network_ids_from_dedup_key(
+                dedup_key,
+                known_network_ids=[n.id for n in repo.list_networks()],
+            )
+        )
+    if network_ids:
+        repo.replace_incident_networks(incident_id, network_ids)
 
 
 def test_empty_bulk_inputs_execute_zero_sql(tmp_path: Path):

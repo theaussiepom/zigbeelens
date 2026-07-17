@@ -99,6 +99,7 @@ class IncidentCompositionContext:
     devices_by_key: Mapping[tuple[str, str], DeviceRow]
     events_by_incident_id: Mapping[str, tuple[dict[str, Any], ...]]
     decision_badges_by_key: Mapping[tuple[str, str], DeviceDecisionBadge]
+    networks_by_incident_id: Mapping[str, tuple[str, ...]] = MappingProxyType({})
 
 
 def _parse_json_list(raw: str | None) -> list:
@@ -199,14 +200,15 @@ class PayloadBuilder:
         rows: list[DeviceRow],
         include_related_incidents: bool,
         incident_context: ActiveIncidentReadContext | None = None,
+        *,
+        networks_by_id: Mapping[str, NetworkRow] | None = None,
+        ha_enrichment_by_key: Mapping[tuple[str, str], Mapping[str, Any]] | None = None,
     ) -> DeviceCompositionReadContext:
         keys = [(row.network_id, row.ieee_address) for row in rows]
-        networks_by_id = MappingProxyType(
-            {network.id: network for network in self.repo.list_networks()}
-        )
-        ha_enrichment_by_key = MappingProxyType(
-            self.repo.list_ha_device_enrichment_for_devices(keys)
-        )
+        if networks_by_id is None:
+            networks_by_id = {network.id: network for network in self.repo.list_networks()}
+        if ha_enrichment_by_key is None:
+            ha_enrichment_by_key = self.repo.list_ha_device_enrichment_for_devices(keys)
         if incident_context is None and self._incident_service is not None:
             incident_context = self._incident_service.active_incident_read_context()
         affected_keys = (
@@ -215,8 +217,8 @@ class PayloadBuilder:
             else frozenset()
         )
         summary_context = DeviceSummaryReadContext(
-            networks_by_id=networks_by_id,
-            ha_enrichment_by_key=ha_enrichment_by_key,
+            networks_by_id=MappingProxyType(dict(networks_by_id)),
+            ha_enrichment_by_key=MappingProxyType(dict(ha_enrichment_by_key)),
             incident_affected_keys=affected_keys,
         )
         if include_related_incidents:
@@ -247,6 +249,11 @@ class PayloadBuilder:
         *,
         now: datetime | None = None,
         include_events: bool = True,
+        refs_by_incident_id: Mapping[str, tuple[dict[str, str], ...]] | None = None,
+        devices_by_key: Mapping[tuple[str, str], DeviceRow] | None = None,
+        events_by_incident_id: Mapping[str, tuple[dict[str, Any], ...]] | None = None,
+        decision_badges_by_key: Mapping[tuple[str, str], DeviceDecisionBadge] | None = None,
+        networks_by_incident_id: Mapping[str, tuple[str, ...]] | None = None,
     ) -> IncidentCompositionContext:
         incident_ids = [row["id"] for row in rows]
         if not incident_ids:
@@ -255,45 +262,73 @@ class PayloadBuilder:
                 devices_by_key=MappingProxyType({}),
                 events_by_incident_id=MappingProxyType({}),
                 decision_badges_by_key=MappingProxyType({}),
+                networks_by_incident_id=MappingProxyType({}),
             )
-        refs_map = self.repo.incidents.list_incident_devices_for_incidents(incident_ids)
-        refs_by_incident_id = MappingProxyType(
-            {
-                incident_id: tuple(refs_map.get(incident_id, []))
-                for incident_id in incident_ids
-            }
-        )
-        keys: list[tuple[str, str]] = []
-        seen_keys: set[tuple[str, str]] = set()
-        for refs in refs_map.values():
-            for ref in refs:
-                key = (ref["network_id"], ref["ieee_address"])
-                if key in seen_keys:
-                    continue
-                seen_keys.add(key)
-                keys.append(key)
-        devices_by_key = MappingProxyType(self.repo.get_devices_by_keys(keys))
-        if include_events:
-            events_map = self.repo.list_events_for_incidents(incident_ids)
+        if refs_by_incident_id is None:
+            refs_map = self.repo.incidents.list_incident_devices_for_incidents(incident_ids)
+            refs_by_incident_id = MappingProxyType(
+                {
+                    incident_id: tuple(refs_map.get(incident_id, []))
+                    for incident_id in incident_ids
+                }
+            )
         else:
-            events_map = {incident_id: [] for incident_id in incident_ids}
-        events_by_incident_id = MappingProxyType(
-            {
-                incident_id: tuple(events_map.get(incident_id, []))
-                for incident_id in incident_ids
-            }
-        )
-        device_rows = list(devices_by_key.values())
-        decision_badges = device_decision_badges_for_devices(
-            self.repo,
-            device_rows,
-            now=now,
-        )
+            refs_by_incident_id = MappingProxyType(dict(refs_by_incident_id))
+        if devices_by_key is None:
+            keys: list[tuple[str, str]] = []
+            seen_keys: set[tuple[str, str]] = set()
+            for refs in refs_by_incident_id.values():
+                for ref in refs:
+                    key = (ref["network_id"], ref["ieee_address"])
+                    if key in seen_keys:
+                        continue
+                    seen_keys.add(key)
+                    keys.append(key)
+            devices_by_key = MappingProxyType(self.repo.get_devices_by_keys(keys))
+        else:
+            devices_by_key = MappingProxyType(dict(devices_by_key))
+        if events_by_incident_id is None:
+            if include_events:
+                events_map = self.repo.list_events_for_incidents(incident_ids)
+            else:
+                events_map = {incident_id: [] for incident_id in incident_ids}
+            events_by_incident_id = MappingProxyType(
+                {
+                    incident_id: tuple(events_map.get(incident_id, []))
+                    for incident_id in incident_ids
+                }
+            )
+        else:
+            events_by_incident_id = MappingProxyType(dict(events_by_incident_id))
+        if networks_by_incident_id is None:
+            networks_map = self.repo.incidents.list_incident_networks_for_incidents(
+                incident_ids
+            )
+            networks_by_incident_id = MappingProxyType(
+                {
+                    incident_id: tuple(networks_map.get(incident_id, []))
+                    for incident_id in incident_ids
+                }
+            )
+        else:
+            networks_by_incident_id = MappingProxyType(dict(networks_by_incident_id))
+        if decision_badges_by_key is None:
+            device_rows = list(devices_by_key.values())
+            decision_badges_by_key = MappingProxyType(
+                device_decision_badges_for_devices(
+                    self.repo,
+                    device_rows,
+                    now=now,
+                )
+            )
+        else:
+            decision_badges_by_key = MappingProxyType(dict(decision_badges_by_key))
         return IncidentCompositionContext(
             refs_by_incident_id=refs_by_incident_id,
             devices_by_key=devices_by_key,
             events_by_incident_id=events_by_incident_id,
-            decision_badges_by_key=MappingProxyType(decision_badges),
+            decision_badges_by_key=decision_badges_by_key,
+            networks_by_incident_id=networks_by_incident_id,
         )
 
     def dashboard(self) -> DashboardPayload:
@@ -551,11 +586,19 @@ class PayloadBuilder:
         row: DeviceRow,
         *,
         decision_badge: DeviceDecisionBadge | None = None,
+        include_events: bool = True,
+        summary: DeviceSummary | None = None,
+        summary_context: DeviceSummaryReadContext | None = None,
     ) -> DeviceDetail:
         """Build DeviceDetail without composing Device Story decisions."""
         network_id = row.network_id
         ieee_address = row.ieee_address
-        summary = self._device_summary(row, decision_badge=decision_badge)
+        if summary is None:
+            summary = self._device_summary(
+                row,
+                summary_context=summary_context,
+                decision_badge=decision_badge,
+            )
         health_svc = self._ensure_health()
         result = (
             health_svc.get_device_health(network_id, ieee_address) if health_svc else None
@@ -616,12 +659,18 @@ class PayloadBuilder:
                 point.battery = int(sample["metric_value"])
             trends.append(point)
 
-        event_rows = self.repo.list_events_for_device(network_id, ieee_address, limit=20)
+        if include_events:
+            event_rows = self.repo.list_events_for_device(
+                network_id, ieee_address, limit=20
+            )
+            recent_events = _timeline_from_event_rows(event_rows)
+        else:
+            recent_events = []
 
         return DeviceDetail(
             **summary.model_dump(),
             recent_availability_changes=availability_changes,
-            recent_events=_timeline_from_event_rows(event_rows),
+            recent_events=recent_events,
             recent_bridge_logs=[],
             diagnostic=finding,
             trends=trends,
@@ -677,24 +726,6 @@ class PayloadBuilder:
             "limit": page.limit,
             "next_cursor": page.next_cursor,
         }
-
-    def incidents_complete_history(self) -> list[Incident]:
-        """Internal complete-history composition for reports (Track 3F debt).
-
-        Not exposed on the public /incidents collection route. Track 3F will
-        replace this with scope-first report assembly.
-        """
-        rows = self.repo.incidents.list_incidents()
-        composition = self._incident_composition_context(
-            rows,
-            now=datetime.now(timezone.utc),
-            include_events=True,
-        )
-        return [
-            inc
-            for row in rows
-            if (inc := self._incident_from_row(row, composition=composition)) is not None
-        ]
 
     def incident(self, incident_id: str) -> Incident | None:
         row = self.repo.incidents.get_incident(incident_id)
@@ -847,6 +878,7 @@ class PayloadBuilder:
             badge_source = composition.decision_badges_by_key
             event_rows = composition.events_by_incident_id.get(incident_id, ())
             devices_by_key = composition.devices_by_key
+            network_ids = list(composition.networks_by_incident_id.get(incident_id, ()))
         else:
             refs = tuple(self.repo.incidents.list_incident_devices(incident_id))
             badge_source = decision_badges or {}
@@ -858,6 +890,10 @@ class PayloadBuilder:
                     [(ref["network_id"], ref["ieee_address"]) for ref in refs]
                 )
             )
+            network_ids = self.repo.incidents.list_incident_networks(incident_id)
+        if not network_ids:
+            # Fallback for rows not yet backfilled: membership networks only.
+            network_ids = sorted({r["network_id"] for r in refs})
         affected = []
         for ref in refs:
             key = (ref["network_id"], ref["ieee_address"])
@@ -926,7 +962,7 @@ class PayloadBuilder:
             title=row["title"],
             summary=row["summary"],
             interpretation=row["explanation"],
-            network_ids=sorted({r["network_id"] for r in refs}),
+            network_ids=sorted(set(network_ids)),
             affected_device_count=len(affected),
             affected_devices=affected,
             opened_at=row["opened_at"],

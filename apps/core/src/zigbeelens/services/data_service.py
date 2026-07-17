@@ -198,16 +198,6 @@ class DataService:
             return self._mock(scenario).incidents_page(collection_query)
         return self._builder.incidents_page(collection_query)
 
-    def incidents_complete_history_for_reports(self, scenario: str | None = None):
-        """Internal complete history for report assembly (Track 3F debt).
-
-        Public /incidents is page-bounded. Reports still need the full composed
-        history until Track 3F introduces scope-first assembly.
-        """
-        if self.uses_mock(scenario):
-            return self._mock(scenario).incidents_complete_history()
-        return self._builder.incidents_complete_history()
-
     def incident(self, incident_id: str, scenario: str | None = None):
         if self.uses_mock(scenario):
             return self._mock(scenario).incident(incident_id)
@@ -217,6 +207,38 @@ class DataService:
         if self.uses_mock(scenario):
             return self._mock(scenario).timeline(network_id)
         return self._builder.timeline(network_id)
+
+    def compose_report_scope(
+        self,
+        request: ReportRequest,
+        scenario: str | None = None,
+        *,
+        reference_now: datetime,
+        include_timeline: bool,
+        reporting=None,
+    ):
+        """One request-local scoped report composition context (Track 3F)."""
+        from zigbeelens.services.report_composition import (
+            compose_live_report_scope,
+            compose_mock_report_scope,
+        )
+
+        reporting_config = reporting or self.config.reporting
+        if self.uses_mock(scenario):
+            return compose_mock_report_scope(
+                self._mock(scenario),
+                request,
+                reference_now=reference_now,
+                include_timeline=include_timeline,
+                reporting=reporting_config,
+            )
+        return compose_live_report_scope(
+            self._builder,
+            request,
+            reference_now=reference_now,
+            include_timeline=include_timeline,
+            reporting=reporting_config,
+        )
 
     def report_preview(
         self,

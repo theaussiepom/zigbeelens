@@ -671,8 +671,8 @@ def test_reports_still_use_complete_history(tmp_path: Path):
         storage=StorageConfig(path=str(tmp_path / "collection.sqlite")),
     )
     data = DataService(config, repo, HealthDiagnosticService(config, repo))
-    history = data.incidents_complete_history_for_reports()
-    assert {inc.id for inc in history} == {
+    history_ids = {row["id"] for row in repo.incidents.list_incidents()}
+    assert history_ids == {
         "open-b",
         "open-a",
         "watch-1",
@@ -683,4 +683,4 @@ def test_reports_still_use_complete_history(tmp_path: Path):
     page = data.incidents(query=build_incident_collection_query(limit=2))
     assert len(page["items"]) == 2
     report = data.report_preview(request=ReportRequest(scope=ReportScope.full))
-    assert {inc.id for inc in report.incidents} == {inc.id for inc in history}
+    assert {inc.id for inc in report.incidents} == history_ids
