@@ -204,6 +204,7 @@ def build_network_summary(
     incident_context=None,
     complete_network_scope: bool = True,
     scoped_device_health_by_key: dict | None = None,
+    active_incident_severity: Severity | None = None,
 ) -> NetworkSummary:
     device_rows = devices if devices is not None else repo.list_devices(row.id)
     net_health = health.get_network_health(row.id)
@@ -239,8 +240,8 @@ def build_network_summary(
         incident_state = _network_severity(net_health.state, bridge_offline)
     elif bridge_offline or bridge == BridgeState.offline:
         incident_state = Severity.critical
-    elif active_incident_count:
-        incident_state = Severity.incident
+    elif active_incident_severity is not None:
+        incident_state = active_incident_severity
     elif unavailable or unstable or weak or low_bat or stale:
         incident_state = Severity.watch
     else:
@@ -293,6 +294,26 @@ def build_network_summary(
     )
 
 
+def _scoped_unknown_count_for_network(
+    network_id: str,
+    device_rows: list,
+    scoped_device_health_by_key: dict | None,
+) -> int:
+    """Count represented devices that are unknown or lack a usable health result."""
+    count = 0
+    for row in device_rows:
+        if row.network_id != network_id:
+            continue
+        result = (
+            scoped_device_health_by_key.get((row.network_id, row.ieee_address))
+            if scoped_device_health_by_key is not None
+            else None
+        )
+        if result is None or result.primary == HealthFlag.unknown:
+            count += 1
+    return count
+
+
 def build_health_snapshot(
     repo: Repository,
     health: HealthDiagnosticService,
@@ -304,6 +325,7 @@ def build_health_snapshot(
     incident_context=None,
     scoped_device_health_by_key: dict | None = None,
     complete_network_scope: bool = True,
+    active_incident_severity: Severity | None = None,
 ) -> HealthSnapshot:
     network_rows = networks if networks is not None else repo.list_networks()
     device_rows = devices if devices is not None else repo.list_devices()
@@ -342,14 +364,8 @@ def build_health_snapshot(
             if bridge and bridge.state == BridgeHealthState.offline:
                 overall = Severity.critical
                 break
-        if overall != Severity.critical and incident_context is not None:
-            if any(
-                row.get("lifecycle_state") == "open"
-                for row in incident_context.incidents
-            ):
-                overall = Severity.incident
-            elif incident_context.incidents and overall == Severity.healthy:
-                overall = Severity.watch
+        if overall != Severity.critical and active_incident_severity is not None:
+            overall = active_incident_severity
         if overall == Severity.healthy and unavailable:
             overall = Severity.watch
         elif overall == Severity.healthy:
@@ -359,13 +375,37 @@ def build_health_snapshot(
                     break
 
     worst_primary = DeviceHealthPrimary.healthy
+    if not complete_network_scope and device_rows:
+        # Represented rows with no health result remain unknown.
+        if scoped_device_health_by_key is not None:
+            missing = any(
+                (row.network_id, row.ieee_address) not in scoped_device_health_by_key
+                for row in device_rows
+            )
+            if missing and not device_health:
+                worst_primary = DeviceHealthPrimary.unknown
     for h in device_health.values():
         if h.primary == HealthFlag.unavailable:
             worst_primary = DeviceHealthPrimary.unavailable
             break
-        if h.primary != HealthFlag.healthy and h.primary != HealthFlag.unknown:
+        if h.primary == HealthFlag.unknown:
+            if worst_primary == DeviceHealthPrimary.healthy:
+                worst_primary = DeviceHealthPrimary.unknown
+            continue
+        if h.primary != HealthFlag.healthy:
             worst_primary = DeviceHealthPrimary(h.primary.value)
     if not device_health and not complete_network_scope:
+        worst_primary = DeviceHealthPrimary.unknown
+    elif (
+        not complete_network_scope
+        and device_rows
+        and scoped_device_health_by_key is not None
+        and worst_primary == DeviceHealthPrimary.healthy
+        and any(
+            (row.network_id, row.ieee_address) not in scoped_device_health_by_key
+            for row in device_rows
+        )
+    ):
         worst_primary = DeviceHealthPrimary.unknown
 
     open_count, _watching = (
@@ -386,10 +426,13 @@ def build_health_snapshot(
             else:
                 unavailable_count = 0
                 severity = Severity.healthy.value
-            unknown_count = 0
             if complete_network_scope:
                 net = health.get_network_health(n.id)
                 unknown_count = net.unknown_count if net else 0
+            else:
+                unknown_count = _scoped_unknown_count_for_network(
+                    n.id, device_rows, scoped_device_health_by_key
+                )
             network_payload.append(
                 {
                     "network_id": n.id,
@@ -410,6 +453,7 @@ def build_health_snapshot(
                     incident_context=incident_context,
                     complete_network_scope=complete_network_scope,
                     scoped_device_health_by_key=scoped_device_health_by_key,
+                    active_incident_severity=active_incident_severity,
                 ).incident_state.value,
                 "unavailable_count": (
                     health.get_network_health(n.id).unavailable_count
@@ -423,7 +467,9 @@ def build_health_snapshot(
                 "unknown_count": (
                     health.get_network_health(n.id).unknown_count
                     if complete_network_scope and health.get_network_health(n.id)
-                    else 0
+                    else _scoped_unknown_count_for_network(
+                        n.id, device_rows, scoped_device_health_by_key
+                    )
                 ),
             }
             for n in network_rows

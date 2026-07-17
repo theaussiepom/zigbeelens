@@ -15,12 +15,14 @@ from zigbeelens import __version__
 from zigbeelens.config.models import AppConfig, ReportingConfig
 from zigbeelens.decisions.device_story import DeviceStory, device_stories_for_devices
 from zigbeelens.schemas import (
+    Confidence,
     DeviceDetail,
     DeviceDecisionBadge,
     DeviceSummary,
     DiagnosticConclusion,
     HealthSnapshot,
     Incident,
+    IncidentScope,
     IncidentStatus,
     NetworkSummary,
     ReportDetail,
@@ -222,14 +224,28 @@ def _scoped_device_health_map(health, device_rows: list[DeviceRow]) -> dict:
 def _scoped_collector(
     collector: dict[str, Any], network_ids: tuple[str, ...]
 ) -> dict[str, Any]:
-    """Keep global collector facts; restrict per-network identities to the plan."""
+    """Keep global collector facts; restrict per-network identities to the plan.
+
+    Supports both established shapes:
+    - mapping keyed by network id
+    - production list of ``{"network_id": ..., ...}`` entries
+    """
     scoped = dict(collector)
     networks = collector.get("networks")
+    allowed = set(network_ids)
     if isinstance(networks, dict):
-        allowed = set(network_ids)
         scoped["networks"] = {
             key: value for key, value in networks.items() if key in allowed
         }
+    elif isinstance(networks, list):
+        retained: list[Any] = []
+        for entry in networks:
+            if not isinstance(entry, dict):
+                continue
+            network_id = entry.get("network_id")
+            if isinstance(network_id, str) and network_id in allowed:
+                retained.append(entry)
+        scoped["networks"] = retained
     return scoped
 
 
@@ -506,9 +522,23 @@ def compose_live_report_scope(
                 timeline = _timeline_from_event_rows(event_rows)
 
     # --- network summaries / routers / finding ---------------------------
+    from zigbeelens.services.report_active_severity import (
+        active_severity_by_network_id,
+        pick_active_incident_severity,
+    )
+
     devices_by_network: dict[str, list[DeviceRow]] = {}
     for row in device_rows:
         devices_by_network.setdefault(row.network_id, []).append(row)
+
+    scope_active_severity = pick_active_incident_severity(
+        active_incident_context.incidents
+    )
+    severity_by_network = active_severity_by_network_id(
+        active_incident_context.incidents,
+        networks_by_incident_id,
+        plan.network_ids,
+    )
 
     networks = [
         build_network_summary(
@@ -523,6 +553,7 @@ def compose_live_report_scope(
             incident_context=active_incident_context,
             complete_network_scope=complete_network_scope,
             scoped_device_health_by_key=scoped_health,
+            active_incident_severity=severity_by_network.get(row.id),
         )
         for row in network_rows
     ]
@@ -552,6 +583,7 @@ def compose_live_report_scope(
         incident_context=active_incident_context,
         scoped_device_health_by_key=scoped_health,
         complete_network_scope=complete_network_scope,
+        active_incident_severity=scope_active_severity,
     )
     health_snapshot = health_snapshot.model_copy(
         update={
@@ -785,59 +817,12 @@ def compose_mock_report_scope(
 
     from zigbeelens.mock.device_stories import apply_incident_device_story_badges
     from zigbeelens.mock.fixtures import device_detail_from_summary
-    from zigbeelens.schemas import DeviceHealthPrimary, DeviceType
-
-    # Narrow Device/Incident reports: NetworkSummary counts must match represented devices.
-    if plan.scope in {ReportScope.device, ReportScope.incident}:
-        rebuilt: list[NetworkSummary] = []
-        for net in networks:
-            scoped = [d for d in devices if d.network_id == net.id]
-            active_count = sum(1 for inc in active_incidents if net.id in inc.network_ids)
-            rebuilt.append(
-                net.model_copy(
-                    update={
-                        "device_count": len(scoped),
-                        "router_count": sum(
-                            1 for d in scoped if d.device_type == DeviceType.Router
-                        ),
-                        "end_device_count": sum(
-                            1 for d in scoped if d.device_type == DeviceType.EndDevice
-                        ),
-                        "unavailable_count": sum(
-                            1
-                            for d in scoped
-                            if d.health.primary == DeviceHealthPrimary.unavailable
-                        ),
-                        "recently_unstable_count": sum(
-                            1
-                            for d in scoped
-                            if d.health.primary == DeviceHealthPrimary.recently_unstable
-                        ),
-                        "weak_link_count": sum(
-                            1
-                            for d in scoped
-                            if d.health.primary == DeviceHealthPrimary.weak_link
-                        ),
-                        "low_battery_count": sum(
-                            1
-                            for d in scoped
-                            if d.health.primary == DeviceHealthPrimary.low_battery
-                        ),
-                        "stale_count": sum(
-                            1
-                            for d in scoped
-                            if d.health.primary == DeviceHealthPrimary.stale_reporting
-                        ),
-                        "interview_issue_count": sum(
-                            1
-                            for d in scoped
-                            if str(d.interview_state.value) in {"failed", "in_progress"}
-                        ),
-                        "active_incident_count": active_count,
-                    }
-                )
-            )
-        networks = rebuilt
+    from zigbeelens.schemas import DeviceHealth, DeviceHealthPrimary, DeviceType
+    from zigbeelens.services.report_active_severity import (
+        active_severity_by_network_id,
+        mock_networks_by_incident_id,
+        pick_active_incident_severity,
+    )
 
     # Project fixture-story badges onto incident refs without mutating shared fixtures.
     incidents = list(apply_incident_device_story_badges(incidents, stories))
@@ -864,6 +849,71 @@ def compose_mock_report_scope(
                 )
             )
         incidents = trimmed
+
+    networks_by_incident = mock_networks_by_incident_id(active_incidents)
+    scope_active_severity = pick_active_incident_severity(active_incidents)
+    severity_by_network = active_severity_by_network_id(
+        active_incidents, networks_by_incident, plan.network_ids
+    )
+
+    def _mock_scoped_network_summary(net: NetworkSummary) -> NetworkSummary:
+        scoped = [d for d in devices if d.network_id == net.id]
+        active_count = sum(1 for inc in active_incidents if net.id in inc.network_ids)
+        unavailable = sum(
+            1 for d in scoped if d.health.primary == DeviceHealthPrimary.unavailable
+        )
+        unstable = sum(
+            1 for d in scoped if d.health.primary == DeviceHealthPrimary.recently_unstable
+        )
+        weak = sum(1 for d in scoped if d.health.primary == DeviceHealthPrimary.weak_link)
+        low_bat = sum(
+            1 for d in scoped if d.health.primary == DeviceHealthPrimary.low_battery
+        )
+        stale = sum(
+            1 for d in scoped if d.health.primary == DeviceHealthPrimary.stale_reporting
+        )
+        interview_issues = sum(
+            1 for d in scoped if str(d.interview_state.value) in {"failed", "in_progress"}
+        )
+        if net.bridge_state.value == "offline":
+            incident_state = Severity.critical
+        elif severity_by_network.get(net.id) is not None:
+            incident_state = severity_by_network[net.id]
+        elif unavailable or unstable or weak or low_bat or stale:
+            incident_state = Severity.watch
+        else:
+            incident_state = Severity.healthy
+        health_payload = DeviceHealth(
+            primary=DeviceHealthPrimary.unknown,
+            severity=incident_state,
+            confidence=net.health.confidence,
+            evidence=[f"{len(scoped)} devices in report scope"],
+            limitations=[],
+        )
+        return net.model_copy(
+            update={
+                "device_count": len(scoped),
+                "router_count": sum(1 for d in scoped if d.device_type == DeviceType.Router),
+                "end_device_count": sum(
+                    1 for d in scoped if d.device_type == DeviceType.EndDevice
+                ),
+                "unavailable_count": unavailable,
+                "recently_unstable_count": unstable,
+                "weak_link_count": weak,
+                "low_battery_count": low_bat,
+                "stale_count": stale,
+                "interview_issue_count": interview_issues,
+                "active_incident_count": active_count,
+                "incident_state": incident_state,
+                "health": health_payload,
+            }
+        )
+
+    if plan.scope in {ReportScope.device, ReportScope.incident}:
+        networks = [_mock_scoped_network_summary(net) for net in networks]
+    elif plan.scope == ReportScope.network:
+        # Keep factual bridge/coordinator context; align active count and state.
+        networks = [_mock_scoped_network_summary(net) for net in networks]
 
     device_details: list[DeviceDetail] = []
     if plan.require_device_details:
@@ -894,8 +944,25 @@ def compose_mock_report_scope(
         elif plan.scope == ReportScope.device and device_details:
             timeline = list(device_details[0].recent_events)[:max_events]
 
-    router_network_ids = set(plan.network_ids)
-    routers = [r for r in mock.routers() if r.network_id in router_network_ids]
+    all_routers = list(mock.routers())
+    if plan.scope == ReportScope.full:
+        routers = [r for r in all_routers if r.network_id in plan.network_ids]
+    elif plan.scope == ReportScope.network:
+        routers = [r for r in all_routers if r.network_id in plan.network_ids]
+    elif plan.scope == ReportScope.device and plan.target_network_id and plan.target_device_ieee:
+        target = (plan.target_network_id, plan.target_device_ieee)
+        routers = [
+            r for r in all_routers if (r.network_id, r.ieee_address) == target
+        ]
+    elif plan.scope == ReportScope.incident and incidents:
+        affected_keys = {
+            (ref.network_id, ref.ieee_address) for ref in incidents[0].affected_devices
+        }
+        routers = [
+            r for r in all_routers if (r.network_id, r.ieee_address) in affected_keys
+        ]
+    else:
+        routers = []
 
     unavailable = sum(
         1 for d in devices if d.health.primary == DeviceHealthPrimary.unavailable
@@ -910,15 +977,20 @@ def compose_mock_report_scope(
                 if d.network_id == n.id
                 and d.health.primary == DeviceHealthPrimary.unavailable
             ),
-            "unknown_count": 0,
+            "unknown_count": sum(
+                1
+                for d in devices
+                if d.network_id == n.id
+                and d.health.primary == DeviceHealthPrimary.unknown
+            ),
         }
         for n in networks
     ]
     if any(n.bridge_state.value == "offline" for n in networks):
         scoped_severity = Severity.critical
-    elif any(i.status == IncidentStatus.open for i in active_incidents):
-        scoped_severity = Severity.incident
-    elif active_incidents or unavailable:
+    elif scope_active_severity is not None:
+        scoped_severity = scope_active_severity
+    elif unavailable:
         scoped_severity = Severity.watch
     elif any(d.health.severity not in {Severity.healthy} for d in devices):
         scoped_severity = Severity.watch
@@ -929,10 +1001,11 @@ def compose_mock_report_scope(
         if d.health.primary == DeviceHealthPrimary.unavailable:
             worst_primary = DeviceHealthPrimary.unavailable
             break
-        if d.health.primary not in {
-            DeviceHealthPrimary.healthy,
-            DeviceHealthPrimary.unknown,
-        }:
+        if d.health.primary == DeviceHealthPrimary.unknown:
+            if worst_primary == DeviceHealthPrimary.healthy:
+                worst_primary = DeviceHealthPrimary.unknown
+            continue
+        if d.health.primary != DeviceHealthPrimary.healthy:
             worst_primary = d.health.primary
     if not devices:
         worst_primary = DeviceHealthPrimary.unknown
@@ -973,10 +1046,57 @@ def compose_mock_report_scope(
         conclusions = [incidents[0].conclusion]
     elif plan.scope == ReportScope.device and device_details:
         conclusions = [device_details[0].diagnostic]
-    elif active_incidents:
-        conclusions = [active_incidents[0].conclusion]
-    else:
+    elif plan.scope == ReportScope.full:
         conclusions = [data.dashboard.current_finding]
+    elif active_incidents:
+        top = sorted(
+            active_incidents,
+            key=lambda inc: (
+                0 if inc.status == IncidentStatus.open else 1,
+                {
+                    Severity.critical: 0,
+                    Severity.incident: 1,
+                    Severity.watch: 2,
+                    Severity.healthy: 3,
+                }.get(inc.severity, 9),
+            ),
+        )[0]
+        conclusions = [top.conclusion]
+    else:
+        # Narrow Network with no active incident: derive from represented network facts.
+        net = networks[0] if networks else None
+        if net is not None and net.incident_state == Severity.healthy:
+            conclusions = [
+                DiagnosticConclusion(
+                    classification="health_ok",
+                    severity=Severity.healthy,
+                    scope=IncidentScope.network,
+                    confidence=Confidence.medium if devices else Confidence.low,
+                    summary=(
+                        f"ZigbeeLens is monitoring 1 network(s) with {len(devices)} known "
+                        "device(s). No current health concerns were detected."
+                    ),
+                    evidence=[],
+                    limitations=[],
+                )
+            ]
+        elif net is not None:
+            conclusions = [
+                DiagnosticConclusion(
+                    classification="health_signals",
+                    severity=net.incident_state,
+                    scope=IncidentScope.network,
+                    confidence=Confidence.medium if devices else Confidence.low,
+                    summary=(
+                        f"Health signals detected on {net.name}. "
+                        "ZigbeeLens does not yet see a correlated incident pattern."
+                    ),
+                    evidence=[],
+                    limitations=[],
+                )
+            ]
+        else:
+            conclusions = [empty_finding()]
 
     return ReportCompositionContext(
         plan=plan,
