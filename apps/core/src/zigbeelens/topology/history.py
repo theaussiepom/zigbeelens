@@ -168,6 +168,8 @@ def aggregate_historical_evidence(
     now: datetime | None = None,
     snapshots: list[dict[str, Any]] | None = None,
     links_by_snapshot_id: dict[str, list[dict[str, Any]]] | None = None,
+    latest_snapshot: dict[str, Any] | None = None,
+    latest_nodes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Aggregate recent-missing neighbour/route evidence for a network.
 
@@ -185,11 +187,27 @@ def aggregate_historical_evidence(
             return links_by_snapshot_id[snapshot_id]
         return repo.list_topology_links(snapshot_id)
 
-    latest = repo.get_latest_topology_snapshot(network_id)
+    latest = (
+        latest_snapshot
+        if latest_snapshot is not None or (
+            snapshots is not None and links_by_snapshot_id is not None
+        )
+        else repo.get_latest_topology_snapshot(network_id)
+    )
+    if latest is None and snapshots is not None:
+        latest = next(
+            (snap for snap in snapshots if snap.get("status") == "complete"),
+            None,
+        )
     latest_snapshot_id = latest["snapshot_id"] if latest else None
     latest_links = _links_for(latest_snapshot_id) if latest_snapshot_id else []
-    latest_nodes = repo.list_topology_nodes(latest_snapshot_id) if latest_snapshot_id else []
-    latest_layout_available = bool(latest_nodes or latest_links)
+    if latest_nodes is not None:
+        resolved_latest_nodes = latest_nodes
+    elif latest_snapshot_id:
+        resolved_latest_nodes = repo.list_topology_nodes(latest_snapshot_id)
+    else:
+        resolved_latest_nodes = []
+    latest_layout_available = bool(resolved_latest_nodes or latest_links)
 
     latest_neighbor_pairs: set[tuple[str, str]] = set()
     latest_route_pairs: set[tuple[str, str]] = set()
@@ -341,6 +359,8 @@ def aggregate_last_known_links(
     *,
     snapshots: list[dict[str, Any]] | None = None,
     links_by_snapshot_id: dict[str, list[dict[str, Any]]] | None = None,
+    latest_snapshot: dict[str, Any] | None = None,
+    latest_nodes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Last known link evidence for devices with no links in the latest snapshot.
 
@@ -362,11 +382,27 @@ def aggregate_last_known_links(
             return links_by_snapshot_id[snapshot_id]
         return repo.list_topology_links(snapshot_id)
 
-    latest = repo.get_latest_topology_snapshot(network_id)
+    latest = (
+        latest_snapshot
+        if latest_snapshot is not None or (
+            snapshots is not None and links_by_snapshot_id is not None
+        )
+        else repo.get_latest_topology_snapshot(network_id)
+    )
+    if latest is None and snapshots is not None:
+        latest = next(
+            (snap for snap in snapshots if snap.get("status") == "complete"),
+            None,
+        )
     latest_snapshot_id = latest["snapshot_id"] if latest else None
     latest_links = _links_for(latest_snapshot_id) if latest_snapshot_id else []
-    latest_nodes = repo.list_topology_nodes(latest_snapshot_id) if latest_snapshot_id else []
-    latest_layout_available = bool(latest_nodes or latest_links)
+    if latest_nodes is not None:
+        resolved_latest_nodes = latest_nodes
+    elif latest_snapshot_id:
+        resolved_latest_nodes = repo.list_topology_nodes(latest_snapshot_id)
+    else:
+        resolved_latest_nodes = []
+    latest_layout_available = bool(resolved_latest_nodes or latest_links)
 
     empty_window = {"snapshots_considered": 0, "earliest_captured_at": None,
                     "latest_captured_at": None}

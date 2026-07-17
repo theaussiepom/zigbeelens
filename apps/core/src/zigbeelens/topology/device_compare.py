@@ -352,6 +352,9 @@ def load_device_snapshot_history_network_context(
     max_snapshots: int = MAX_SNAPSHOT_HISTORY,
     snapshots: list[dict[str, Any]] | None = None,
     links_by_snapshot_id: dict[str, list[dict[str, Any]]] | None = None,
+    earliest_availability_at: str | None | object = None,
+    earliest_availability_supplied: bool = False,
+    devices: list | None = None,
 ) -> DeviceSnapshotHistoryNetworkContext:
     """Load network-scoped snapshot-history evidence once for a network."""
     snapshot_rows = (
@@ -369,18 +372,22 @@ def load_device_snapshot_history_network_context(
             resolved_links[snapshot_id] = links_by_snapshot_id[snapshot_id]
         else:
             resolved_links[snapshot_id] = list(repo.list_topology_links(snapshot_id))
-    earliest_availability_at = repo.availability.get_earliest_availability_change_at(
-        network_id
-    )
+    if earliest_availability_supplied:
+        resolved_earliest = earliest_availability_at  # may be None
+    else:
+        resolved_earliest = repo.availability.get_earliest_availability_change_at(
+            network_id
+        )
     return DeviceSnapshotHistoryNetworkContext(
         network_id=network_id,
         usable_snapshots=usable,
         links_by_snapshot_id=resolved_links,
-        earliest_availability_at=earliest_availability_at,
+        earliest_availability_at=resolved_earliest,  # type: ignore[arg-type]
         tracking_enabled_now=availability_tracking_enabled_now(
             repo,
             network_id,
-            earliest_availability_at=earliest_availability_at,
+            earliest_availability_at=resolved_earliest,
+            devices=devices,
         ),
     )
 
