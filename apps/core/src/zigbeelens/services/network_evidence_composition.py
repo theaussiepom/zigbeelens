@@ -365,25 +365,47 @@ def compose_network_evidence_contexts(
                     devices=list(device_rows_tuple or ()),
                 )
 
-        # Derived consumers that still use repo wrappers (purified in Commit 2).
+        avail_rows = (
+            [dict(row) for row in availability_tuple]
+            if availability_tuple is not None
+            else None
+        )
+        device_list = list(device_rows_tuple) if device_rows_tuple is not None else None
+
         passive: Mapping[str, Any] | None = None
         if NetworkEvidenceCapability.passive_hints in requirements:
             passive = MappingProxyType(
-                dict(aggregate_passive_hints(repo, network_id, now=reference_now))
+                dict(
+                    aggregate_passive_hints(
+                        repo,
+                        network_id,
+                        now=reference_now,
+                        devices=device_list,
+                        availability_rows=avail_rows,
+                    )
+                )
             )
             loaded.add(NetworkEvidenceCapability.passive_hints)
 
         shared: Any | None = None
         if NetworkEvidenceCapability.shared_availability in requirements:
             shared = shared_availability_event_groups_for_network(
-                repo, network_id, now=reference_now
+                repo,
+                network_id,
+                now=reference_now,
+                devices=device_list,
+                availability_rows=avail_rows,
             )
             loaded.add(NetworkEvidenceCapability.shared_availability)
 
         models: Any | None = None
         if NetworkEvidenceCapability.model_patterns in requirements:
             models = observed_model_patterns_for_network(
-                repo, network_id, now=reference_now
+                repo,
+                network_id,
+                now=reference_now,
+                devices=device_list,
+                availability_rows=avail_rows,
             )
             loaded.add(NetworkEvidenceCapability.model_patterns)
 

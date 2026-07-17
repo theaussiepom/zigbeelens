@@ -101,7 +101,12 @@ def _parse_ts(value: str | None) -> datetime | None:
 
 
 def _instability_events(
-    repo: Repository, network_id: str, known: set[str], cutoff_iso: str
+    repo: Repository,
+    network_id: str,
+    known: set[str],
+    cutoff_iso: str,
+    *,
+    availability_rows: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> list[tuple[datetime, str]]:
     """Offline transitions inside the lookback window for known devices.
 
@@ -111,7 +116,11 @@ def _instability_events(
     """
     events: list[tuple[datetime, str]] = []
     per_device: dict[str, int] = {}
-    rows = repo.availability.list_availability_changes_since(network_id, cutoff_iso)
+    rows = (
+        list(availability_rows)
+        if availability_rows is not None
+        else repo.availability.list_availability_changes_since(network_id, cutoff_iso)
+    )
     # Rows are oldest-first; walk newest-first so the per-device cap keeps
     # the most recent events.
     for row in reversed(rows):
@@ -240,6 +249,8 @@ def aggregate_passive_hints(
     network_id: str,
     *,
     now: datetime | None = None,
+    devices: list | None = None,
+    availability_rows: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> dict[str, Any]:
     """Aggregate passive-derived investigation hints for a network.
 
@@ -256,11 +267,18 @@ def aggregate_passive_hints(
         "min_repeated_windows": PASSIVE_HINT_MIN_REPEATED_WINDOWS,
     }
 
-    known = {_norm(device.ieee_address) for device in repo.list_devices(network_id)}
+    device_rows = list(devices) if devices is not None else repo.list_devices(network_id)
+    known = {_norm(device.ieee_address) for device in device_rows}
     if not known:
         return {"window": window_meta, "available_count": 0, "hints": []}
 
-    events = _instability_events(repo, network_id, known, cutoff.isoformat())
+    events = _instability_events(
+        repo,
+        network_id,
+        known,
+        cutoff.isoformat(),
+        availability_rows=availability_rows,
+    )
     if not events:
         return {"window": window_meta, "available_count": 0, "hints": []}
 

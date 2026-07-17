@@ -190,21 +190,29 @@ def observed_model_patterns_for_network(
     network_id: str,
     *,
     now: datetime | None = None,
+    devices: list | None = None,
+    availability_rows: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> ObservedModelPatterns:
     """Load stored inventory and availability transitions for model patterns."""
-    devices = repo.list_devices(network_id)
-    if not devices:
+    device_rows = list(devices) if devices is not None else repo.list_devices(network_id)
+    if not device_rows:
         return ObservedModelPatterns(
             subject_id=network_id,
             state=ObservedModelPatternState.no_patterns,
         )
 
     now = now or datetime.now(timezone.utc)
-    known = {_norm(device.ieee_address) for device in devices}
+    known = {_norm(device.ieee_address) for device in device_rows}
     cutoff = now - timedelta(days=MODEL_PATTERN_LOOKBACK_DAYS)
-    events = _instability_events(repo, network_id, known, cutoff.isoformat())
+    events = _instability_events(
+        repo,
+        network_id,
+        known,
+        cutoff.isoformat(),
+        availability_rows=availability_rows,
+    )
     affected_ieees = {ieee for _, ieee in events}
-    groups = _group_devices_by_model(devices)
+    groups = _group_devices_by_model(device_rows)
     return build_observed_model_patterns(
         network_id=network_id,
         groups=groups,

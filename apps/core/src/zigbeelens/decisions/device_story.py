@@ -884,6 +884,42 @@ def _resolve_story_outcome(
     )
 
 
+def device_story_network_context_from_evidence(
+    evidence_context: Any,
+) -> DeviceStoryNetworkContext:
+    """Project a NetworkEvidenceContext into DeviceStoryNetworkContext."""
+    from zigbeelens.services.network_evidence import NetworkEvidenceCapability
+
+    evidence_context.require(NetworkEvidenceCapability.latest_topology)
+    evidence_context.require(NetworkEvidenceCapability.historical_links)
+    evidence_context.require(NetworkEvidenceCapability.last_known_links)
+    evidence_context.require(NetworkEvidenceCapability.model_patterns)
+    if evidence_context.snapshot_history_context is None:
+        raise ValueError("NetworkEvidenceContext is missing snapshot_history_context")
+    return DeviceStoryNetworkContext(
+        network_id=evidence_context.network_id,
+        latest_snapshot=(
+            dict(evidence_context.latest_usable_snapshot)
+            if evidence_context.latest_usable_snapshot is not None
+            else None
+        ),
+        latest_nodes=[dict(row) for row in (evidence_context.latest_nodes or ())],
+        latest_links=[dict(row) for row in (evidence_context.latest_links or ())],
+        nodes_by_snapshot_id={
+            sid: [dict(row) for row in rows]
+            for sid, rows in (evidence_context.nodes_by_snapshot_id or {}).items()
+        },
+        historical_evidence=dict(evidence_context.historical_evidence or {}),
+        last_known_links=dict(evidence_context.last_known_links or {}),
+        availability_tracking_enabled=bool(
+            evidence_context.availability_tracking_enabled
+        ),
+        network_has_usable_ha_areas=bool(evidence_context.network_has_usable_ha_areas),
+        model_patterns=evidence_context.model_patterns,
+        snapshot_history_context=evidence_context.snapshot_history_context,
+    )
+
+
 def device_stories_for_devices(
     repo: Repository,
     rows: list[DeviceRow],
@@ -891,6 +927,7 @@ def device_stories_for_devices(
     now: datetime | None = None,
     ha_enrichment_by_key: Mapping[tuple[str, str], Mapping[str, Any]] | None = None,
     related_incident_ids_by_key: Mapping[tuple[str, str], tuple[str, ...]] | None = None,
+    network_evidence_contexts: Mapping[str, Any] | None = None,
 ) -> dict[tuple[str, str], DeviceStory]:
     """Compose full Device Stories for many devices with one network context each."""
     reference_now = now or datetime.now(timezone.utc)
@@ -909,9 +946,20 @@ def device_stories_for_devices(
 
     stories: dict[tuple[str, str], DeviceStory] = {}
     for network_id, network_rows in by_network.items():
-        context = load_device_story_network_context(
-            repo, network_id, now=reference_now
+        evidence_ctx = (
+            network_evidence_contexts.get(network_id)
+            if network_evidence_contexts is not None
+            else None
         )
+        if evidence_ctx is not None:
+            evidence_ctx.require_compatible(
+                network_id=network_id, reference_now=reference_now
+            )
+            context = device_story_network_context_from_evidence(evidence_ctx)
+        else:
+            context = load_device_story_network_context(
+                repo, network_id, now=reference_now
+            )
         for row in network_rows:
             key = (network_id, row.ieee_address)
             evidence = load_device_story_evidence(
