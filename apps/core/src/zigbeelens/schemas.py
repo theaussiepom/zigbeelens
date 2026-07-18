@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from zigbeelens.config.security_types import SecurityMode
 
@@ -523,6 +523,18 @@ class ReportDetail(BaseModel):
     domain_details: dict[str, Any] = Field(default_factory=dict)
     raw_counts: dict[str, int] = Field(default_factory=dict)
     markdown_summary: str
+
+
+class BrowserSessionStatus(BaseModel):
+    """Public browser-session status projection (no secrets or session IDs)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    authenticated: bool
+    auth_method: Literal["trusted_local", "bearer", "session"] | None
+    browser_session_enabled: bool
+    expires_at: str | None = None
+    csrf_token: str | None = None
 
 
 class SecurityConfigStatus(BaseModel):

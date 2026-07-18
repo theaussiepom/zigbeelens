@@ -170,7 +170,7 @@ def create_app(
 
     if not mount_static_ui(app):
 
-        @app.get("/")
+        @app.get("/", include_in_schema=False)
         def root() -> dict[str, str]:
             # Public product-shell identity only — no operational or auth state.
             return {"name": "ZigbeeLens Core", "version": __version__}

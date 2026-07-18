@@ -481,6 +481,15 @@ export interface ReportRedactionStatus {
 /** Secret-free security posture from Core config/status */
 export type SecurityMode = "local" | "authenticated" | "home_assistant_ingress";
 
+/** Public browser-session status from GET/POST /api/auth/session */
+export interface BrowserSessionStatus {
+  authenticated: boolean;
+  auth_method: "trusted_local" | "bearer" | "session" | null;
+  browser_session_enabled: boolean;
+  expires_at: string | null;
+  csrf_token: string | null;
+}
+
 export interface SecurityConfigStatus {
   mode: SecurityMode;
   loopback_bind: boolean;

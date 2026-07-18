@@ -36,6 +36,7 @@ from zigbeelens.mqtt_discovery import discovery_status_dict
 from zigbeelens.topology.service import get_topology_service, topology_status_dict
 from zigbeelens.topology.topics import CAPTURE_WARNING
 from zigbeelens.schemas import (
+    BrowserSessionStatus,
     DashboardPayload,
     DeviceDetail,
     HealthResponse,
@@ -91,18 +92,18 @@ def _session_status_body(
     browser_session_enabled: bool,
     expires_at: str | None = None,
     csrf_token: str | None = None,
-) -> dict:
-    return {
-        "authenticated": authenticated,
-        "auth_method": auth_method,
-        "browser_session_enabled": browser_session_enabled,
-        "expires_at": expires_at,
-        "csrf_token": csrf_token,
-    }
+) -> BrowserSessionStatus:
+    return BrowserSessionStatus(
+        authenticated=authenticated,
+        auth_method=auth_method,  # type: ignore[arg-type]
+        browser_session_enabled=browser_session_enabled,
+        expires_at=expires_at,
+        csrf_token=csrf_token,
+    )
 
 
-@public_router.get("/auth/session")
-def get_auth_session(request: Request, response: Response) -> dict:
+@public_router.get("/auth/session", response_model=BrowserSessionStatus)
+def get_auth_session(request: Request, response: Response) -> BrowserSessionStatus:
     """Public session status — never requires bearer merely to inspect state."""
     from zigbeelens.api.auth import _extract_bearer_token, _token_matches, _unauthorized
     from zigbeelens.config.security_types import browser_sessions_enabled, trusted_local_open
@@ -162,8 +163,8 @@ def get_auth_session(request: Request, response: Response) -> dict:
     )
 
 
-@session_bootstrap_router.post("/auth/session")
-def create_auth_session(response: Response) -> dict:
+@session_bootstrap_router.post("/auth/session", response_model=BrowserSessionStatus)
+def create_auth_session(response: Response) -> BrowserSessionStatus:
     """Exchange a valid API bearer token for an HttpOnly browser session."""
     from zigbeelens.config.security_types import browser_sessions_enabled
 
