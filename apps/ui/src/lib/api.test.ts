@@ -56,6 +56,7 @@ describe("deviceStory API client", () => {
     const url = String(fetchMock.mock.calls[0]?.[0]);
     expect(url).toContain("api/devices/home/0x03/story");
     expect(url).not.toContain("scenario=");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ credentials: "include" });
   });
 
   it("omits scenario query when scenario is undefined", async () => {
