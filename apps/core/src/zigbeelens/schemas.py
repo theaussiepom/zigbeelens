@@ -533,7 +533,14 @@ class SecurityConfigStatus(BaseModel):
     api_token_configured: bool
     session_secret_configured: bool
     bearer_auth_enabled: bool
+    browser_session_enabled: bool = False
+    csrf_protection_enabled: bool = False
+    session_cookie_secure: bool = False
+    read_routes_require_authentication: bool = False
+    mutation_routes_require_authentication: bool = False
+    # Deprecated: true only when auth is required and browser sessions are off.
     read_routes_require_bearer: bool
+    # Deprecated: true only when auth is required and browser sessions are off.
     mutation_routes_require_bearer: bool
     ingress_identity_enforced: bool = False
     trusted_local_open: bool

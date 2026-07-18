@@ -487,7 +487,20 @@ export interface SecurityConfigStatus {
   api_token_configured: boolean;
   session_secret_configured: boolean;
   bearer_auth_enabled: boolean;
+  browser_session_enabled: boolean;
+  csrf_protection_enabled: boolean;
+  session_cookie_secure: boolean;
+  read_routes_require_authentication: boolean;
+  mutation_routes_require_authentication: boolean;
+  /**
+   * @deprecated True only when authentication is required and browser sessions
+   * are not enabled. Prefer read_routes_require_authentication.
+   */
   read_routes_require_bearer: boolean;
+  /**
+   * @deprecated True only when authentication is required and browser sessions
+   * are not enabled. Prefer mutation_routes_require_authentication.
+   */
   mutation_routes_require_bearer: boolean;
   ingress_identity_enforced: boolean;
   trusted_local_open: boolean;

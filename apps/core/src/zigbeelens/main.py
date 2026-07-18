@@ -15,7 +15,10 @@ from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
 from zigbeelens import __version__
+from fastapi.openapi.utils import get_openapi
+
 from zigbeelens.api.auth import require_read_access
+from zigbeelens.api.openapi_security import apply_openapi_security
 from zigbeelens.api.routes import include_api_routers
 from zigbeelens.app.context import bootstrap, get_context, reset_context
 from zigbeelens.config import AppConfig, load_effective_config, resolve_config_path
@@ -138,6 +141,20 @@ def create_app(
         return await _events_stream()
 
     if openapi_enabled:
+
+        def custom_openapi() -> dict:
+            if app.openapi_schema is not None:
+                return app.openapi_schema
+            schema = get_openapi(
+                title=app.title,
+                version=app.version,
+                description=app.description,
+                routes=app.routes,
+            )
+            app.openapi_schema = apply_openapi_security(schema)
+            return app.openapi_schema
+
+        app.openapi = custom_openapi  # type: ignore[method-assign]
 
         @app.get("/openapi.json", include_in_schema=False, dependencies=[Depends(require_read_access)])
         def openapi_json() -> dict:
