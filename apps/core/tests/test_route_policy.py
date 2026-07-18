@@ -5,12 +5,18 @@ from __future__ import annotations
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
-from zigbeelens.api.auth import require_mutation_access, require_read_access
+from zigbeelens.api.auth import (
+    require_bearer_bootstrap_access,
+    require_mutation_access,
+    require_read_access,
+)
 from zigbeelens.main import create_app
 
 PUBLIC_API_PATHS = {
     "/api/version",
     "/api/v1/version",
+    "/api/auth/session",
+    "/api/v1/auth/session",
 }
 
 MUTATION_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -18,6 +24,9 @@ MUTATION_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 # methods + suffix that must exist under both /api and /api/v1
 REQUIRED_ALIASED_KEYS = {
     "GET /version",
+    "GET /auth/session",
+    "POST /auth/session",
+    "DELETE /auth/session",
     "GET /health",
     "GET /config/status",
     "GET /dashboard",
@@ -81,14 +90,18 @@ def test_api_routes_have_explicit_access_policy(mock_client: TestClient):
     for methods, path, calls in _iter_api_routes(mock_client.app):
         has_read = require_read_access in calls
         has_mutation = require_mutation_access in calls
+        has_bootstrap = require_bearer_bootstrap_access in calls
 
-        if path in PUBLIC_API_PATHS:
-            assert not has_read and not has_mutation, path
+        if path in PUBLIC_API_PATHS and methods == {"GET"}:
+            assert not has_read and not has_mutation and not has_bootstrap, path
             policy = "public"
-        elif has_mutation and not has_read:
+        elif has_bootstrap and not has_read and not has_mutation:
+            assert methods == {"POST"} and path.endswith("/auth/session"), path
+            policy = "bearer_bootstrap"
+        elif has_mutation and not has_read and not has_bootstrap:
             assert methods & MUTATION_METHODS, path
             policy = "mutation"
-        elif has_read and not has_mutation:
+        elif has_read and not has_mutation and not has_bootstrap:
             policy = "read"
         else:
             raise AssertionError(
@@ -135,9 +148,11 @@ def test_api_routes_have_explicit_access_policy(mock_client: TestClient):
         assert set(by_alias_key[required]) == {"/api", "/api/v1"}
 
     for key, policy in classified.items():
-        methods, _path = key.split(" ", 1)
+        methods, path = key.split(" ", 1)
         method_set = set(methods.split(","))
-        if method_set & MUTATION_METHODS:
+        if path.endswith("/auth/session") and method_set == {"POST"}:
+            assert policy == "bearer_bootstrap", key
+        elif method_set & MUTATION_METHODS:
             assert policy == "mutation", key
 
 

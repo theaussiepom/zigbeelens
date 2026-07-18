@@ -40,13 +40,19 @@ def test_security_status_booleans_only():
         "api_token_configured": True,
         "session_secret_configured": True,
         "bearer_auth_enabled": True,
-        "read_routes_require_bearer": True,
-        "mutation_routes_require_bearer": True,
+        "browser_session_enabled": True,
+        "csrf_protection_enabled": True,
+        "session_cookie_secure": True,
+        "read_routes_require_authentication": True,
+        "mutation_routes_require_authentication": True,
+        "read_routes_require_bearer": False,
+        "mutation_routes_require_bearer": False,
         "ingress_identity_enforced": False,
         "trusted_local_open": False,
         "legacy_mutation_guard_enabled": False,
     }
     assert VALID_TOKEN not in status.model_dump_json()
+    assert "h" * 32 not in status.model_dump_json()
 
 
 def test_security_status_trusted_local_open():
@@ -145,7 +151,7 @@ def test_startup_posture_ingress_bearer_fallback_warning(caplog):
     )
     with caplog.at_level(logging.WARNING):
         log_security_posture(config)
-    assert "temporary bearer authentication" in caplog.text
+    assert "temporary bearer/session" in caplog.text
     assert "ingress identity validation is not" in caplog.text
 
 

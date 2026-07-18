@@ -29,7 +29,8 @@ Run all automated checks:
 - [ ] I understand the process bind (`server.host`) — loopback vs non-loopback — and that status/Uvicorn share one AppConfig.
 - [ ] I have decided whether to configure an API token (`ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` or legacy `ZIGBEELENS_API_KEY` config alias).
 - [ ] If a token is set, I understand protected reads, mutations, SSE, and downloads require `Authorization: Bearer` (not `X-ZigbeeLens-Api-Key`).
-- [ ] I understand `local` without a token is trusted-open, and that the bundled UI/HACS cannot yet attach bearer credentials.
+- [ ] If I also set `session_secret`, I understand browser sessions use an HttpOnly cookie and cookie mutations need `X-ZigbeeLens-CSRF-Token`.
+- [ ] I understand `local` without a token is trusted-open, and that the bundled UI/HACS are not yet wired to login or bearer credentials.
 - [ ] I have checked logs/config status for accidental secret leakage.
 - [ ] If Core is reachable beyond users/networks I trust, I have intentionally added a trusted proxy/firewall (or accepted the risk).
 - [ ] I understand ZigbeeLens is read-only for Zigbee control and does not perform permit join, remove, reset, bind/unbind, OTA, or channel changes.

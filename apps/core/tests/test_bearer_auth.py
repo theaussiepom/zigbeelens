@@ -90,6 +90,9 @@ def test_local_token_protects_reads_mutations_sse_downloads(tmp_path, monkeypatc
         status = client.get("/api/config/status", headers=_bearer()).json()["security"]
         assert status["trusted_local_open"] is False
         assert status["bearer_auth_enabled"] is True
+        assert status["browser_session_enabled"] is False
+        assert status["read_routes_require_authentication"] is True
+        assert status["mutation_routes_require_authentication"] is True
         assert status["read_routes_require_bearer"] is True
         assert status["mutation_routes_require_bearer"] is True
         assert status["ingress_identity_enforced"] is False
@@ -314,7 +317,8 @@ def test_capabilities_advertise_auth_support_not_token_state(mock_client: TestCl
     body = mock_client.get("/api/capabilities").json()
     caps = body["capabilities"]
     assert caps["bearer_authentication"] is True
-    assert caps["browser_session_authentication"] is False
+    assert caps["browser_session_authentication"] is True
+    assert caps["csrf_protection"] is True
     assert caps["home_assistant_ingress_identity"] is False
 
 
@@ -348,10 +352,10 @@ def test_openapi_security_contract(tmp_path, monkeypatch):
     ) as client:
         schema = client.get("/openapi.json", headers=_bearer()).json()
         schemes = schema["components"]["securitySchemes"]
-        assert len(schemes) == 1
-        _name, scheme = next(iter(schemes.items()))
-        assert scheme["type"] == "http"
-        assert scheme["scheme"].lower() == "bearer"
+        assert set(schemes) == {"BearerAuth", "BrowserSession", "CsrfToken"}
+        assert schemes["BearerAuth"] == {"type": "http", "scheme": "bearer"}
+        assert schemes["BrowserSession"]["in"] == "cookie"
+        assert schemes["CsrfToken"]["in"] == "header"
 
         for path in (
             "/api/dashboard",
@@ -359,10 +363,19 @@ def test_openapi_security_contract(tmp_path, monkeypatch):
             "/api/reports/{report_id}/download",
         ):
             security = _operation_security(schema, path, "get")
-            assert security, path
-        assert _operation_security(schema, "/api/reports", "post")
+            assert {"BearerAuth": []} in security
+            assert {"BrowserSession": []} in security
+        mutation = _operation_security(schema, "/api/reports", "post")
+        assert {"BearerAuth": []} in mutation
+        assert {"BrowserSession": [], "CsrfToken": []} in mutation
 
-        for path in ("/api/version", "/api/v1/version", "/healthz"):
+        for path in (
+            "/api/version",
+            "/api/v1/version",
+            "/healthz",
+            "/api/auth/session",
+            "/api/v1/auth/session",
+        ):
             op = schema["paths"][path]["get"]
             assert not op.get("security"), path
 

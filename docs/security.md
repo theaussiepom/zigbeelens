@@ -10,15 +10,27 @@ ZigbeeLens is read-only with respect to Zigbee control. It does not perform devi
 
 Some API routes can modify ZigbeeLens’ own local data, such as creating/deleting reports, requesting a topology snapshot, or storing Home Assistant enrichment metadata.
 
-When an API token is configured, Core requires:
+When an API token is configured, Core requires authentication for protected
+reads, mutations, SSE, and report downloads. Direct API clients use:
 
 ```http
 Authorization: Bearer <token>
 ```
 
-for protected reads, mutations, SSE, and report downloads. Browser sessions/CSRF, CORS/CSP hardening, bundled UI login, HACS token support, and Home Assistant ingress identity validation are **not** implemented yet.
+When both `security.api_token` and `security.session_secret` are configured,
+same-origin browsers may exchange that bearer token for a short-lived HttpOnly
+session cookie. Cookie-authenticated mutations also require:
 
-Bearer authentication authenticates the HTTP request. It does **not** replace TLS on untrusted networks.
+```http
+X-ZigbeeLens-CSRF-Token: <csrf-token>
+```
+
+CORS credential support, CSP/framing hardening, bundled UI login wiring, HACS
+token support, and Home Assistant ingress identity validation are **not**
+implemented yet. Browser sessions are same-origin only.
+
+Bearer and session authentication authenticate the HTTP request. They do **not**
+replace TLS on untrusted networks.
 
 ## Security modes
 
@@ -26,26 +38,31 @@ Configured under `security.mode` (or `ZIGBEELENS_SECURITY_MODE`):
 
 | Mode | Meaning | What this build enforces |
 |------|---------|--------------------------|
-| `local` without `api_token` | Trusted-open compatibility | All API routes open (public + protected). Strong warning when bound non-loopback. |
-| `local` with `api_token` | Local deploy with a shared secret | Bearer required for all protected API routes |
-| `authenticated` | Credentials required in config | Bearer required for all protected API routes (`api_token` mandatory) |
-| `home_assistant_ingress` | Intended HA ingress deploy | Temporary bearer fallback (`api_token` mandatory). Ingress identity headers are **not** trusted yet. |
+| `local` without `api_token` | Trusted-open compatibility | All API routes open. No session/CSRF. Strong warning when bound non-loopback. |
+| `local` with `api_token` only | Bearer-only | Bearer required for protected routes |
+| `local` with `api_token` + `session_secret` | Bearer + browser sessions | Bearer or HttpOnly session; CSRF on cookie mutations |
+| `authenticated` | Credentials required in config | `api_token` mandatory; optional `session_secret` enables browser sessions |
+| `home_assistant_ingress` | Intended HA ingress deploy | Temporary bearer/session fallback (`api_token` mandatory). Ingress identity headers are **not** trusted yet. |
 
 Missing required credentials fail closed at config load. Core does **not** auto-generate secrets at startup and does not persist generated secrets into SQLite or YAML.
 
 ## Public HTTP surface
 
-When bearer authentication is active, only these endpoints are unauthenticated:
+When authentication is active, only these endpoints are unauthenticated:
 
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /healthz` | Minimal readiness (`{"status":"ok"}` or degraded `503`) |
 | `GET /api/version` | Product name/version |
 | `GET /api/v1/version` | Same as `/api/version` |
+| `GET /api/auth/session` | Minimal browser session status |
+| `GET /api/v1/auth/session` | Same as `/api/auth/session` |
 | Static UI shell / `/assets/*` | Bundled dashboard assets |
 | CORS preflight | Handled by existing middleware |
 
-Everything else under `/api` and `/api/v1` requires Bearer when a token is configured — including detailed `/api/health`, `/api/config/status`, Dashboard, SSE, reports, and downloads.
+Everything else under `/api` and `/api/v1` requires Bearer and/or a valid
+browser session when a token is configured — including detailed `/api/health`,
+`/api/config/status`, Dashboard, SSE, reports, and downloads.
 
 ## Bearer authentication
 
@@ -87,6 +104,56 @@ curl -s http://127.0.0.1:8377/api/dashboard \
   -H "Authorization: Bearer $ZIGBEELENS_TEST_API_TOKEN"
 ```
 
+## Browser sessions and CSRF
+
+Browser sessions are enabled only when **both** `api_token` and `session_secret`
+are configured. A session secret alone does nothing.
+
+Optional settings:
+
+| Setting | Default | Notes |
+|---------|---------|-------|
+| `security.session_ttl_seconds` | `43200` (12h) | Bounds: 300–604800; fixed non-sliding expiry |
+| `security.session_cookie_secure` | `null` (automatic) | `null` → Secure false on loopback, true otherwise |
+
+Cookie contract (`zigbeelens_session`):
+
+- HttpOnly, SameSite=Strict, Path=/
+- no Domain attribute
+- never contains the API token or CSRF token
+- signed with HMAC-SHA256 via `itsdangerous` (integrity, not confidentiality)
+
+Session login (bearer bootstrap only):
+
+```bash
+curl -s -c cookies.txt -X POST http://127.0.0.1:8377/api/auth/session \
+  -H "Authorization: Bearer $ZIGBEELENS_TEST_API_TOKEN" \
+  | python3 -m json.tool
+```
+
+Authenticated read with the cookie jar (SSE/downloads work the same way):
+
+```bash
+curl -s -b cookies.txt http://127.0.0.1:8377/api/dashboard | python3 -m json.tool
+```
+
+Cookie-authenticated mutation (CSRF from login/status JSON):
+
+```bash
+CSRF=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["csrf_token"])' \
+  < <(curl -s -b cookies.txt http://127.0.0.1:8377/api/auth/session))
+curl -s -b cookies.txt -X POST http://127.0.0.1:8377/api/reports \
+  -H "Content-Type: application/json" \
+  -H "X-ZigbeeLens-CSRF-Token: $CSRF" \
+  -d '{"scope":"full","format":"json","redaction":{"profile":"public_safe"}}' \
+  | python3 -m json.tool
+```
+
+Logout clears the browser cookie. Stolen cookies remain usable until expiry
+unless `api_token` or `session_secret` is rotated. Rotating either invalidates
+all existing sessions. The bundled UI is not wired to login yet; HACS does not
+use browser sessions.
+
 ## Canonical secret environment variables
 
 Prefer environment or file injection over YAML:
@@ -96,7 +163,7 @@ Prefer environment or file injection over YAML:
 | `ZIGBEELENS_SECURITY_MODE` | Override `security.mode` |
 | `ZIGBEELENS_SECURITY_API_TOKEN` | API token value |
 | `ZIGBEELENS_SECURITY_API_TOKEN_FILE` | Path to API token file |
-| `ZIGBEELENS_SECURITY_SESSION_SECRET` | Session secret value (reserved; unused by this build’s HTTP layer) |
+| `ZIGBEELENS_SECURITY_SESSION_SECRET` | Session signing secret |
 | `ZIGBEELENS_SECURITY_SESSION_SECRET_FILE` | Path to session secret file |
 | `ZIGBEELENS_MQTT_USERNAME` | MQTT username override |
 | `ZIGBEELENS_MQTT_PASSWORD` | MQTT password override |

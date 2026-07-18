@@ -74,7 +74,8 @@ sudo chown -R 1000:1000 data
 | `ZIGBEELENS_PORT` | — | Optional compatibility override for `server.port` (resolved into typed AppConfig before bind) |
 | `ZIGBEELENS_OPENAPI_ENABLED` | `false` | Set `true` to expose `/docs` and `/openapi.json` (dev/debug only) |
 | `ZIGBEELENS_SECURITY_MODE` | — | Override `security.mode` (`local`, `authenticated`, `home_assistant_ingress`) |
-| `ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` | — | Mutation-route API token (prefer over YAML) |
+| `ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` | — | API bearer token (prefer over YAML) |
+| `ZIGBEELENS_SECURITY_SESSION_SECRET` / `_FILE` | — | Browser-session signing secret (with API token) |
 | `ZIGBEELENS_SECURITY_SESSION_SECRET` / `_FILE` | — | Session secret (configured only; unused by HTTP layer yet) |
 | `ZIGBEELENS_MQTT_USERNAME` | — | MQTT username override |
 | `ZIGBEELENS_MQTT_PASSWORD` / `_FILE` | — | MQTT password override |
@@ -127,7 +128,7 @@ Validate examples:
 
 **Recommended:** subdomain (`zigbeelens.example.com` → container `:8377`).
 
-ZigbeeLens Core supports typed security configuration and bearer authentication when an API token is configured. Browser sessions, bundled UI login, HACS token support, and ingress identity enforcement have not landed. If Core is reachable beyond users or networks you trust, access-control decisions are your responsibility — for example firewall rules, network isolation, Home Assistant Ingress, or an authenticated reverse proxy / VPN.
+ZigbeeLens Core supports typed security configuration, bearer authentication, and optional same-origin browser sessions when an API token and session secret are configured. Bundled UI login wiring, credentialed CORS, HACS token support, and ingress identity enforcement have not landed. If Core is reachable beyond users or networks you trust, access-control decisions are your responsibility — for example firewall rules, network isolation, Home Assistant Ingress, or an authenticated reverse proxy / VPN.
 
 ### Beast / Authentik split routing
 
