@@ -17,7 +17,7 @@ _IPV4_STRICT = re.compile(
     r"^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}"
     r"(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$"
 )
-_NUMERIC_HOST = re.compile(r"^(?:[0-9.]+|0[xX][0-9A-Fa-f]+|[0-9]+)$")
+_IPV4_NUMBER_LABEL = re.compile(r"^(?:[0-9]+|0[xX][0-9A-Fa-f]+)$")
 
 
 class InvalidCoreOrigin(ValueError):
@@ -31,15 +31,41 @@ class InvalidCoreOrigin(ValueError):
 def _has_forbidden_characters(value: str) -> bool:
     if "\\" in value:
         return True
-    # Full Unicode Cc category (matches Core secret_validation predicate).
     return any(unicodedata.category(ch) == "Cc" for ch in value)
 
 
-def _looks_like_numeric_host(hostname: str) -> bool:
-    return _NUMERIC_HOST.fullmatch(hostname) is not None
+def _ends_in_ipv4_number(hostname: str) -> bool:
+    if not hostname:
+        return False
+    label = hostname.rsplit(".", 1)[-1]
+    return _IPV4_NUMBER_LABEL.fullmatch(label) is not None
 
 
-def _normalize_hostname(hostname: str) -> str:
+def _strict_ipv4(hostname: str) -> str:
+    if _IPV4_STRICT.fullmatch(hostname) is None:
+        raise InvalidCoreOrigin("invalid_url")
+    try:
+        return str(ipaddress.IPv4Address(hostname))
+    except ValueError:
+        raise InvalidCoreOrigin("invalid_url") from None
+
+
+def _validate_ascii_hostname(hostname: str) -> None:
+    if not hostname:
+        raise InvalidCoreOrigin("invalid_url")
+    if hostname.endswith(".") or hostname.startswith("."):
+        raise InvalidCoreOrigin("invalid_url")
+    if ".." in hostname:
+        raise InvalidCoreOrigin("invalid_url")
+    if any(ch.isspace() for ch in hostname):
+        raise InvalidCoreOrigin("invalid_url")
+    if any(ch in hostname for ch in ("'", '"', ";", ",", "\\")):
+        raise InvalidCoreOrigin("invalid_url")
+    if _ends_in_ipv4_number(hostname) and _IPV4_STRICT.fullmatch(hostname) is None:
+        raise InvalidCoreOrigin("invalid_url")
+
+
+def _normalize_hostname(hostname: str, *, bracketed: bool) -> str:
     if not hostname:
         raise InvalidCoreOrigin("invalid_url")
     if "*" in hostname:
@@ -53,26 +79,30 @@ def _normalize_hostname(hostname: str) -> str:
     if any(ch in hostname for ch in ("'", '"', ";", ",", "\\")):
         raise InvalidCoreOrigin("invalid_url")
 
+    if bracketed:
+        try:
+            return ipaddress.IPv6Address(hostname).compressed
+        except ValueError:
+            raise InvalidCoreOrigin("invalid_url") from None
+
     if ":" in hostname:
         try:
             return ipaddress.IPv6Address(hostname).compressed
-        except ValueError as exc:
-            raise InvalidCoreOrigin("invalid_url") from exc
+        except ValueError:
+            raise InvalidCoreOrigin("invalid_url") from None
 
-    if _looks_like_numeric_host(hostname):
-        if _IPV4_STRICT.fullmatch(hostname) is None:
-            raise InvalidCoreOrigin("invalid_url")
-        try:
-            return str(ipaddress.IPv4Address(hostname))
-        except ValueError as exc:
-            raise InvalidCoreOrigin("invalid_url") from exc
+    if _ends_in_ipv4_number(hostname):
+        return _strict_ipv4(hostname)
 
     try:
-        return idna.encode(
+        ascii_host = idna.encode(
             hostname, uts46=True, transitional=False, std3_rules=True
         ).decode("ascii")
-    except (idna.IDNAError, UnicodeError, ValueError) as exc:
-        raise InvalidCoreOrigin("invalid_url") from exc
+    except (idna.IDNAError, UnicodeError, ValueError):
+        raise InvalidCoreOrigin("invalid_url") from None
+
+    _validate_ascii_hostname(ascii_host)
+    return ascii_host
 
 
 def canonicalize_core_origin(value: str) -> str:
@@ -100,8 +130,8 @@ def canonicalize_core_origin(value: str) -> str:
 
     try:
         parts = urlsplit(value)
-    except ValueError as exc:
-        raise InvalidCoreOrigin("invalid_url") from exc
+    except ValueError:
+        raise InvalidCoreOrigin("invalid_url") from None
 
     scheme = (parts.scheme or "").lower()
     if scheme not in _ALLOWED_SCHEMES:
@@ -109,6 +139,11 @@ def canonicalize_core_origin(value: str) -> str:
     if parts.username is not None or parts.password is not None:
         raise InvalidCoreOrigin("invalid_url")
     if "@" in (parts.netloc or ""):
+        raise InvalidCoreOrigin("invalid_url")
+
+    netloc = parts.netloc or ""
+    bracketed = netloc.startswith("[")
+    if bracketed and "]" not in netloc:
         raise InvalidCoreOrigin("invalid_url")
 
     hostname = parts.hostname
@@ -125,12 +160,12 @@ def canonicalize_core_origin(value: str) -> str:
 
     try:
         port = parts.port
-    except ValueError as exc:
-        raise InvalidCoreOrigin("invalid_url") from exc
+    except ValueError:
+        raise InvalidCoreOrigin("invalid_url") from None
     if port is not None and (port < 1 or port > 65535):
         raise InvalidCoreOrigin("invalid_url")
 
-    host = _normalize_hostname(hostname)
+    host = _normalize_hostname(hostname, bracketed=bracketed)
     if ":" in host:
         host_fmt = f"[{host}]"
     else:

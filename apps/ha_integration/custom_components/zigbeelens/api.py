@@ -31,8 +31,8 @@ class ZigbeeLensApiClient:
         self._session = session
         try:
             origin = canonicalize_core_origin(core_url)
-        except InvalidCoreOrigin as exc:
-            raise ZigbeeLensInvalidResponseError("Invalid ZigbeeLens Core URL") from exc
+        except InvalidCoreOrigin:
+            raise ZigbeeLensInvalidResponseError("Invalid ZigbeeLens Core URL") from None
         self._core_origin = origin
         self._verify_ssl = verify_ssl
 

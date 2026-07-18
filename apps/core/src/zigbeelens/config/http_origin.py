@@ -21,7 +21,8 @@ _IPV4_STRICT = re.compile(
     r"^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}"
     r"(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$"
 )
-_NUMERIC_HOST = re.compile(r"^(?:[0-9.]+|0[xX][0-9A-Fa-f]+|[0-9]+)$")
+# WHATWG IPv4-number-like final label: decimal digits or 0x-hex.
+_IPV4_NUMBER_LABEL = re.compile(r"^(?:[0-9]+|0[xX][0-9A-Fa-f]+)$")
 
 
 class InvalidHttpOrigin(ValueError):
@@ -38,12 +39,40 @@ def _has_forbidden_characters(value: str) -> bool:
     return contains_control_characters(value)
 
 
-def _looks_like_numeric_host(hostname: str) -> bool:
-    """True for hosts that must be strict IPv4 (never DNS fallthrough)."""
-    return _NUMERIC_HOST.fullmatch(hostname) is not None
+def _ends_in_ipv4_number(hostname: str) -> bool:
+    """True when the last label is WHATWG IPv4-number-like."""
+    if not hostname:
+        return False
+    label = hostname.rsplit(".", 1)[-1]
+    return _IPV4_NUMBER_LABEL.fullmatch(label) is not None
 
 
-def _normalize_hostname(hostname: str) -> str:
+def _strict_ipv4(hostname: str) -> str:
+    if _IPV4_STRICT.fullmatch(hostname) is None:
+        raise InvalidHttpOrigin("invalid ipv4")
+    try:
+        return str(ipaddress.IPv4Address(hostname))
+    except ValueError:
+        raise InvalidHttpOrigin("invalid ipv4") from None
+
+
+def _validate_ascii_hostname(hostname: str) -> None:
+    """Post-IDNA / ASCII host checks (trailing-dot, empty labels, IPv4 fallthrough)."""
+    if not hostname:
+        raise InvalidHttpOrigin("missing hostname")
+    if hostname.endswith(".") or hostname.startswith("."):
+        raise InvalidHttpOrigin("trailing-dot hostname")
+    if ".." in hostname:
+        raise InvalidHttpOrigin("empty label")
+    if any(ch.isspace() for ch in hostname):
+        raise InvalidHttpOrigin("whitespace hostname")
+    if any(ch in hostname for ch in ("'", '"', ";", ",", "\\")):
+        raise InvalidHttpOrigin("forbidden hostname characters")
+    if _ends_in_ipv4_number(hostname) and _IPV4_STRICT.fullmatch(hostname) is None:
+        raise InvalidHttpOrigin("invalid ipv4")
+
+
+def _normalize_hostname(hostname: str, *, bracketed: bool) -> str:
     if not hostname:
         raise InvalidHttpOrigin("missing hostname")
     if "*" in hostname:
@@ -57,29 +86,33 @@ def _normalize_hostname(hostname: str) -> str:
     if any(ch in hostname for ch in ("'", '"', ";", ",", "\\")):
         raise InvalidHttpOrigin("forbidden hostname characters")
 
-    # IPv6 literals (urlsplit returns unbracketed form).
+    # Bracketed authorities are IPv6-only (reject IPvFuture / bracketed DNS).
+    if bracketed:
+        try:
+            return ipaddress.IPv6Address(hostname).compressed
+        except ValueError:
+            raise InvalidHttpOrigin("invalid ipv6") from None
+
+    # Unbracketed host with ':' is treated as IPv6 literal.
     if ":" in hostname:
         try:
             return ipaddress.IPv6Address(hostname).compressed
-        except ValueError as exc:
-            raise InvalidHttpOrigin("invalid ipv6") from exc
+        except ValueError:
+            raise InvalidHttpOrigin("invalid ipv6") from None
 
-    # Numeric / dotted hosts: strict canonical IPv4 only — never DNS fallthrough.
-    if _looks_like_numeric_host(hostname):
-        if _IPV4_STRICT.fullmatch(hostname) is None:
-            raise InvalidHttpOrigin("invalid ipv4")
-        try:
-            return str(ipaddress.IPv4Address(hostname))
-        except ValueError as exc:
-            raise InvalidHttpOrigin("invalid ipv4") from exc
+    # Hosts ending in an IPv4-number-like label: strict dotted-decimal only.
+    if _ends_in_ipv4_number(hostname):
+        return _strict_ipv4(hostname)
 
     try:
-        # Browser-aligned IDNA 2008 / UTS 46, non-transitional, STD3 rules.
-        return idna.encode(
+        ascii_host = idna.encode(
             hostname, uts46=True, transitional=False, std3_rules=True
         ).decode("ascii")
-    except (idna.IDNAError, UnicodeError, ValueError) as exc:
-        raise InvalidHttpOrigin("invalid hostname") from exc
+    except (idna.IDNAError, UnicodeError, ValueError):
+        raise InvalidHttpOrigin("invalid hostname") from None
+
+    _validate_ascii_hostname(ascii_host)
+    return ascii_host
 
 
 def canonicalize_http_origin(value: str) -> str:
@@ -108,8 +141,8 @@ def canonicalize_http_origin(value: str) -> str:
 
     try:
         parts = urlsplit(value)
-    except ValueError as exc:
-        raise InvalidHttpOrigin("malformed") from exc
+    except ValueError:
+        raise InvalidHttpOrigin("malformed") from None
 
     scheme = (parts.scheme or "").lower()
     if scheme not in _ALLOWED_SCHEMES:
@@ -120,6 +153,11 @@ def canonicalize_http_origin(value: str) -> str:
         raise InvalidHttpOrigin("userinfo")
     if "@" in (parts.netloc or ""):
         raise InvalidHttpOrigin("userinfo")
+
+    netloc = parts.netloc or ""
+    bracketed = netloc.startswith("[")
+    if bracketed and "]" not in netloc:
+        raise InvalidHttpOrigin("invalid ipv6")
 
     hostname = parts.hostname
     if hostname is None or hostname == "":
@@ -133,19 +171,17 @@ def canonicalize_http_origin(value: str) -> str:
         raise InvalidHttpOrigin("query")
     if parts.fragment:
         raise InvalidHttpOrigin("fragment")
-    # Reject path parameters (`;…`) that urlsplit leaves inside path.
     if ";" in path:
         raise InvalidHttpOrigin("params")
 
     try:
         port = parts.port
-    except ValueError as exc:
-        raise InvalidHttpOrigin("invalid port") from exc
+    except ValueError:
+        raise InvalidHttpOrigin("invalid port") from None
     if port is not None and (port < 1 or port > 65535):
         raise InvalidHttpOrigin("invalid port")
 
-    host = _normalize_hostname(hostname)
-    # Bracket IPv6 literals for the authority form.
+    host = _normalize_hostname(hostname, bracketed=bracketed)
     if ":" in host:
         host_fmt = f"[{host}]"
     else:
@@ -156,7 +192,6 @@ def canonicalize_http_origin(value: str) -> str:
     else:
         origin = f"{scheme}://{host_fmt}:{port}"
 
-    # One whitespace-free CSP/CORS source expression.
     if any(ch.isspace() for ch in origin):
         raise InvalidHttpOrigin("whitespace origin")
     return origin

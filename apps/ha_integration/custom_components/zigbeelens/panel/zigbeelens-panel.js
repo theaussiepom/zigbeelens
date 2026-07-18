@@ -17,16 +17,23 @@ const SEVERITY = {
 
 const STRICT_IPV4 =
   /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
+const IPV4_NUMBER_LABEL = /^(?:[0-9]+|0[xX][0-9A-Fa-f]+)$/;
 
-function looksLikeNumericHost(host) {
-  return /^(?:[0-9.]+|0[xX][0-9A-Fa-f]+|[0-9]+)$/.test(host);
+function endsInIpv4Number(host) {
+  if (!host) return false;
+  const parts = host.split(".");
+  return IPV4_NUMBER_LABEL.test(parts[parts.length - 1] || "");
 }
 
 function isValidDnsAscii(host) {
-  if (!host || host.length > 253 || host.endsWith(".") || host.includes("*")) {
+  if (!host || host.length > 253 || host.endsWith(".") || host.startsWith(".") || host.includes("*")) {
     return false;
   }
+  if (host.includes("..")) return false;
   if (/[\s"'`;,\\]/.test(host) || host.includes("_")) {
+    return false;
+  }
+  if (endsInIpv4Number(host) && !STRICT_IPV4.test(host)) {
     return false;
   }
   const labels = host.split(".");
@@ -47,21 +54,24 @@ function splitRawAuthority(raw) {
     if (end < 0) return null;
     const host = authority.slice(1, end);
     const rest = authority.slice(end + 1);
-    if (rest && !/^:\d{1,5}$/.test(rest)) return null;
-    return { host, port: rest ? rest.slice(1) : "", ipv6: true };
+    // Raw port must be plain decimal digits when present (leading zeros ok).
+    if (rest && !/^:\d+$/.test(rest)) return null;
+    return { host, portText: rest ? rest.slice(1) : "", bracketed: true };
   }
   if (authority.includes("@") || /[\s"'`;,]/.test(authority)) {
     return null;
   }
   const idx = authority.lastIndexOf(":");
   if (idx >= 0) {
+    const portText = authority.slice(idx + 1);
+    if (!/^\d+$/.test(portText)) return null;
     return {
       host: authority.slice(0, idx),
-      port: authority.slice(idx + 1),
-      ipv6: false,
+      portText,
+      bracketed: false,
     };
   }
-  return { host: authority, port: "", ipv6: false };
+  return { host: authority, portText: "", bracketed: false };
 }
 
 /**
@@ -89,6 +99,12 @@ function canonicalizeCoreOrigin(coreUrl) {
     if (auth.host.includes("%")) {
       return null;
     }
+    if (auth.portText) {
+      const n = Number(auth.portText);
+      if (!Number.isInteger(n) || n < 1 || n > 65535) {
+        return null;
+      }
+    }
     // Reject relative values: do not resolve against window.location.
     const core = new URL(raw);
     if (core.protocol !== "http:" && core.protocol !== "https:") {
@@ -104,25 +120,22 @@ function canonicalizeCoreOrigin(coreUrl) {
     if (path && path !== "/") {
       return null;
     }
-    if (auth.port) {
-      const n = Number(auth.port);
-      if (!Number.isInteger(n) || n < 1 || n > 65535) {
-        return null;
-      }
-    }
 
+    const browserHost = String(core.hostname || "").replace(/^\[|\]$/g, "");
     let hostAscii;
-    if (auth.ipv6) {
+    if (auth.bracketed) {
+      // Bracketed authorities are IPv6-only.
       if (!auth.host.includes(":")) return null;
-      // URL.origin compresses IPv6; require a successful parse only.
-      hostAscii = core.hostname.replace(/^\[|\]$/g, "");
-      if (!hostAscii.includes(":")) return null;
-    } else if (looksLikeNumericHost(auth.host)) {
-      // Never accept browser-legacy IPv4 expansions (127.1, 0x7f000001, …).
-      if (!STRICT_IPV4.test(auth.host)) return null;
-      hostAscii = auth.host;
+      if (!browserHost.includes(":")) return null;
+      hostAscii = browserHost;
+    } else if (STRICT_IPV4.test(browserHost)) {
+      // Reject every browser rewrite from hex/octal/short/mixed IPv4 input.
+      if (auth.host !== browserHost) return null;
+      hostAscii = browserHost;
+    } else if (endsInIpv4Number(auth.host) || endsInIpv4Number(browserHost)) {
+      return null;
     } else {
-      hostAscii = core.hostname.replace(/^\[|\]$/g, "");
+      hostAscii = browserHost;
       if (hostAscii.includes(":") || !isValidDnsAscii(hostAscii)) {
         return null;
       }
@@ -130,12 +143,11 @@ function canonicalizeCoreOrigin(coreUrl) {
 
     const scheme = core.protocol === "https:" ? "https" : "http";
     const hostFmt = hostAscii.includes(":") ? `[${hostAscii}]` : hostAscii;
-    const defaultPort = scheme === "https" ? "443" : "80";
-    const port = auth.port && auth.port !== defaultPort ? `:${auth.port}` : "";
+    // Use browser-canonical port (strips leading zeros / default ports).
+    const port = core.port ? `:${core.port}` : "";
     const origin = `${scheme}://${hostFmt}${port}`;
     if (/\s/.test(origin)) return null;
-    // Prefer URL.origin when it agrees (handles IPv6 compression parity).
-    if (auth.ipv6) {
+    if (auth.bracketed) {
       return core.origin;
     }
     return origin;

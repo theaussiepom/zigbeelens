@@ -74,9 +74,11 @@ def _frame_ancestors(frame_origins: Iterable[str]) -> tuple[str, ...]:
     seen: set[str] = {"'self'"}
     values: list[str] = ["'self'"]
     for origin in frame_origins:
-        assert _is_single_csp_source(origin), (
-            "frame ancestor origin is not a single CSP source expression"
-        )
+        # Always-active under python -O (do not use assert). Never embed origin.
+        if not _is_single_csp_source(origin):
+            raise ValueError(
+                "frame ancestor origin is not a single CSP source expression"
+            )
         if origin in seen:
             continue
         seen.add(origin)

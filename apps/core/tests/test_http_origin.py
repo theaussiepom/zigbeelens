@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import traceback
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ VECTORS = json.loads(
         encoding="utf-8"
     )
 )
+SENTINEL_ORIGIN = "http://[credential-sentinel]"
 
 
 @pytest.mark.parametrize("case", VECTORS, ids=[c["input"][:40] for c in VECTORS])
@@ -30,11 +32,25 @@ def test_origin_vectors(case: dict) -> None:
             canonicalize_http_origin(raw)
         # Never echo credential-bearing or rejected input.
         assert raw not in str(exc_info.value) or raw in {"null", ""}
-        if "pass@" in raw or "token=" in raw:
+        if "pass@" in raw or "token=" in raw or "credential-sentinel" in raw:
             assert "pass" not in str(exc_info.value)
             assert "token" not in str(exc_info.value)
+            assert "credential-sentinel" not in str(exc_info.value)
+            assert "credential-sentinel" not in repr(exc_info.value)
     else:
         assert canonicalize_http_origin(raw) == case["canonical"]
+
+
+def test_invalid_origin_exception_chain_hides_sentinel() -> None:
+    with pytest.raises(InvalidHttpOrigin) as exc_info:
+        canonicalize_http_origin(SENTINEL_ORIGIN)
+    exc = exc_info.value
+    rendered = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    assert "credential-sentinel" not in str(exc)
+    assert "credential-sentinel" not in repr(exc)
+    assert "credential-sentinel" not in rendered
+    assert exc.__cause__ is None
+    assert exc.__suppress_context__ is True
 
 
 def test_deduplicates_canonical_origins() -> None:

@@ -87,8 +87,42 @@ def test_frame_ancestor_is_single_csp_source():
     ancestors = _frame_ancestors((HA,))
     assert ancestors == ("'self'", HA)
     assert all(" " not in item for item in ancestors if item != "'self'")
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError, match="single CSP source expression"):
         _frame_ancestors(("https://trusted.example evil.example",))
+
+
+def test_csp_source_validation_active_under_python_optimize():
+    import os
+    import subprocess
+    import sys
+    import textwrap
+
+    core_src = Path(__file__).resolve().parents[1] / "src"
+    script = textwrap.dedent(
+        """
+        from zigbeelens.security.headers import _frame_ancestors
+        try:
+            _frame_ancestors(("https://trusted.example evil.example",))
+        except ValueError as exc:
+            text = str(exc)
+            assert "single CSP source expression" in text
+            assert "trusted.example" not in text
+            assert "evil.example" not in text
+            print("OPTIMIZE_OK")
+        else:
+            raise SystemExit("expected ValueError under python -O")
+        """
+    )
+    env = {**os.environ, "PYTHONPATH": str(core_src)}
+    proc = subprocess.run(
+        [sys.executable, "-O", "-c", script],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    assert "OPTIMIZE_OK" in proc.stdout
 
 
 def test_default_html_framing_sameorigin(tmp_path, monkeypatch):

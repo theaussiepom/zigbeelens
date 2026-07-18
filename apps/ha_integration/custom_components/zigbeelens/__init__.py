@@ -42,9 +42,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entry.data[CONF_CORE_URL],
             verify_ssl=entry.data.get(CONF_VERIFY_SSL, False),
         )
-    except ZigbeeLensInvalidResponseError as exc:
+    except ZigbeeLensInvalidResponseError:
         # Fail closed without initiating HTTP or logging credential-bearing URLs.
-        raise ConfigEntryError("Invalid ZigbeeLens Core URL") from exc
+        raise ConfigEntryError("Invalid ZigbeeLens Core URL") from None
     scan_interval = int(entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
     coordinator = ZigbeeLensDataUpdateCoordinator(hass, client, scan_interval, entry)
 

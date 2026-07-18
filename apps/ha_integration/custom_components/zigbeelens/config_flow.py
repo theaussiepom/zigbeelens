@@ -53,8 +53,8 @@ def _normalize_core_url(url: str) -> str:
     """Return a canonical HTTP(S) Core origin or raise ValueError('invalid_url')."""
     try:
         return canonicalize_core_origin(url)
-    except InvalidCoreOrigin as exc:
-        raise ValueError("invalid_url") from exc
+    except InvalidCoreOrigin:
+        raise ValueError("invalid_url") from None
 
 
 async def _validate_core(hass: HomeAssistant, core_url: str, verify_ssl: bool) -> dict[str, Any]:
