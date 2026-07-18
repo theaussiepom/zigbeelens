@@ -48,8 +48,11 @@ class SecurityConfig(BaseModel):
     @model_validator(mode="after")
     def validate_mode_requirements(self) -> SecurityConfig:
         if self.mode is SecurityMode.authenticated and self.api_token is None:
+            raise ValueError("api_token is required when mode is authenticated")
+        if self.mode is SecurityMode.home_assistant_ingress and self.api_token is None:
+            # Temporary fail-closed bearer fallback until ingress identity lands.
             raise ValueError(
-                "api_token is required when mode is authenticated"
+                "api_token is required when mode is home_assistant_ingress"
             )
         return self
 

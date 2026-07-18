@@ -6,6 +6,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from zigbeelens import __version__
+from zigbeelens.api.auth import require_mutation_access, require_read_access
 from zigbeelens.api.summary import capabilities_dict, service_status_dict
 from zigbeelens.app.context import AppContext, get_context
 from zigbeelens.config.redaction import redact_mqtt_server
@@ -44,19 +45,21 @@ from zigbeelens.services.reports import (
     summary_from_row,
 )
 
-router = APIRouter()
+public_router = APIRouter()
+read_router = APIRouter(dependencies=[Depends(require_read_access)])
+mutation_router = APIRouter(dependencies=[Depends(require_mutation_access)])
 
 
 def ctx_dep() -> AppContext:
     return get_context()
 
 
-@router.get("/version")
-def version(ctx: AppContext = Depends(ctx_dep)) -> dict[str, str]:
+@public_router.get("/version")
+def version() -> dict[str, str]:
     return {"version": __version__, "name": "zigbeelens-core"}
 
 
-@router.get("/health", response_model=HealthResponse)
+@read_router.get("/health", response_model=HealthResponse)
 def health(ctx: AppContext = Depends(ctx_dep)) -> HealthResponse:
     db_ok = ctx.db.ping()
     collector = collector_status_dict(ctx)
@@ -75,17 +78,17 @@ def health(ctx: AppContext = Depends(ctx_dep)) -> HealthResponse:
     )
 
 
-@router.get("/capabilities")
+@read_router.get("/capabilities")
 def capabilities(ctx: AppContext = Depends(ctx_dep)) -> dict:
     return capabilities_dict(ctx)
 
 
-@router.get("/status")
+@read_router.get("/status")
 def status(ctx: AppContext = Depends(ctx_dep)) -> dict:
     return service_status_dict(ctx)
 
 
-@router.get("/config/status", response_model=ZigbeeLensConfigStatus)
+@read_router.get("/config/status", response_model=ZigbeeLensConfigStatus)
 def config_status(
     scenario: str | None = Query(default=None),
     ctx: AppContext = Depends(ctx_dep),
@@ -118,14 +121,14 @@ def config_status(
     )
 
 
-@router.get("/scenarios")
+@read_router.get("/scenarios")
 def scenarios() -> list[dict[str, str]]:
     from zigbeelens.services.data_service import DataService
 
     return DataService.list_scenarios()
 
 
-@router.get("/dashboard", response_model=DashboardPayload)
+@read_router.get("/dashboard", response_model=DashboardPayload)
 def dashboard(
     scenario: str | None = Query(default=None),
     ctx: AppContext = Depends(ctx_dep),
@@ -133,7 +136,7 @@ def dashboard(
     return ctx.data.dashboard(scenario)
 
 
-@router.get("/networks", response_model=PaginatedResponse)
+@read_router.get("/networks", response_model=PaginatedResponse)
 def networks(
     scenario: str | None = Query(default=None),
     ctx: AppContext = Depends(ctx_dep),
@@ -142,7 +145,7 @@ def networks(
     return PaginatedResponse(items=items, total=len(items))
 
 
-@router.get("/networks/{network_id}")
+@read_router.get("/networks/{network_id}")
 def network_detail(
     network_id: str,
     scenario: str | None = Query(default=None),
@@ -154,7 +157,7 @@ def network_detail(
     return net
 
 
-@router.get("/devices", response_model=PaginatedResponse)
+@read_router.get("/devices", response_model=PaginatedResponse)
 def devices(
     scenario: str | None = Query(default=None),
     network_id: str | None = Query(default=None),
@@ -164,7 +167,7 @@ def devices(
     return PaginatedResponse(items=items, total=len(items))
 
 
-@router.get("/devices/{network_id}/{ieee_address}", response_model=DeviceDetail)
+@read_router.get("/devices/{network_id}/{ieee_address}", response_model=DeviceDetail)
 def device_detail(
     network_id: str,
     ieee_address: str,
@@ -177,7 +180,7 @@ def device_detail(
     return device
 
 
-@router.get("/devices/{network_id}/{ieee_address}/story")
+@read_router.get("/devices/{network_id}/{ieee_address}/story")
 def device_story(
     network_id: str,
     ieee_address: str,
@@ -195,7 +198,7 @@ def device_story(
     return story.model_dump(mode="json")
 
 
-@router.get("/devices/{network_id}/{ieee_address}/coverage")
+@read_router.get("/devices/{network_id}/{ieee_address}/coverage")
 def device_coverage(network_id: str, ieee_address: str, ctx: AppContext = Depends(ctx_dep)) -> list[dict]:
     """Read-only per-device evidence coverage from stored data.
 
@@ -211,7 +214,7 @@ def device_coverage(network_id: str, ieee_address: str, ctx: AppContext = Depend
     return [item.model_dump(mode="json") for item in coverage]
 
 
-@router.get("/routers", response_model=PaginatedResponse)
+@read_router.get("/routers", response_model=PaginatedResponse)
 def routers(
     scenario: str | None = Query(default=None),
     ctx: AppContext = Depends(ctx_dep),
@@ -220,7 +223,7 @@ def routers(
     return PaginatedResponse(items=items, total=len(items))
 
 
-@router.get("/incidents", response_model=PaginatedResponse)
+@read_router.get("/incidents", response_model=PaginatedResponse)
 def incidents(
     scenario: str | None = Query(default=None),
     status: list[str] | None = Query(default=None),
@@ -259,7 +262,7 @@ def incidents(
     )
 
 
-@router.get("/incidents/{incident_id}")
+@read_router.get("/incidents/{incident_id}")
 def incident_detail(
     incident_id: str,
     scenario: str | None = Query(default=None),
@@ -271,7 +274,7 @@ def incident_detail(
     return inc
 
 
-@router.get("/timeline", response_model=PaginatedResponse)
+@read_router.get("/timeline", response_model=PaginatedResponse)
 def timeline(
     scenario: str | None = Query(default=None),
     network_id: str | None = Query(default=None),
@@ -335,7 +338,7 @@ def _report_filename(detail: ReportDetail) -> str:
     return f"{'-'.join(p for p in parts if p)}.{ext}"
 
 
-@router.get("/reports/preview", response_model=ReportDetail)
+@read_router.get("/reports/preview", response_model=ReportDetail)
 def report_preview(
     scenario: str | None = Query(default=None),
     scope: ReportScope = Query(default=ReportScope.full),
@@ -374,7 +377,7 @@ def report_preview(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@router.post("/reports", response_model=ReportSummary)
+@mutation_router.post("/reports", response_model=ReportSummary)
 def create_report(
     request: ReportRequest | None = None,
     scenario: str | None = Query(default=None),
@@ -397,12 +400,12 @@ def create_report(
     return summary_from_detail(row, detail)
 
 
-@router.get("/reports", response_model=list[ReportSummary])
+@read_router.get("/reports", response_model=list[ReportSummary])
 def list_reports(ctx: AppContext = Depends(ctx_dep)) -> list[ReportSummary]:
     return [summary_from_row(row) for row in ctx.repo.reports.list_reports()]
 
 
-@router.get("/reports/{report_id}", response_model=ReportDetail)
+@read_router.get("/reports/{report_id}", response_model=ReportDetail)
 def get_report(
     report_id: str,
     scenario: str | None = Query(default=None),
@@ -414,7 +417,7 @@ def get_report(
     return report
 
 
-@router.get("/reports/{report_id}/download")
+@read_router.get("/reports/{report_id}/download")
 def download_report(
     report_id: str,
     scenario: str | None = Query(default=None),
@@ -442,7 +445,7 @@ def download_report(
     )
 
 
-@router.delete("/reports/{report_id}")
+@mutation_router.delete("/reports/{report_id}")
 def delete_report(
     report_id: str,
     ctx: AppContext = Depends(ctx_dep),
@@ -453,7 +456,7 @@ def delete_report(
     return {"deleted": True}
 
 
-@router.get("/topology")
+@read_router.get("/topology")
 def topology_overview(ctx: AppContext = Depends(ctx_dep)) -> dict:
     return topology_status_dict(ctx)
 
@@ -467,7 +470,7 @@ def _topology_inventory_counts(ctx: AppContext, network_id: str) -> dict[str, in
     }
 
 
-@router.get("/topology/{network_id}")
+@read_router.get("/topology/{network_id}")
 def topology_network(network_id: str, ctx: AppContext = Depends(ctx_dep)) -> dict:
     network = ctx.repo.get_network(network_id)
     if network is None:
@@ -486,7 +489,7 @@ def topology_network(network_id: str, ctx: AppContext = Depends(ctx_dep)) -> dic
     }
 
 
-@router.get("/topology/{network_id}/evidence-graph")
+@read_router.get("/topology/{network_id}/evidence-graph")
 def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep)) -> dict:
     from zigbeelens.services.evidence_graph import EvidenceGraphService, NetworkNotFoundError
     from zigbeelens.services.topology_facts_composition import topology_stale_threshold_hours
@@ -500,14 +503,14 @@ def topology_evidence_graph(network_id: str, ctx: AppContext = Depends(ctx_dep))
         raise HTTPException(status_code=404, detail="Network not found") from err
 
 
-@router.get("/topology/{network_id}/snapshots")
+@read_router.get("/topology/{network_id}/snapshots")
 def topology_snapshots(network_id: str, ctx: AppContext = Depends(ctx_dep)) -> dict:
     if ctx.repo.get_network(network_id) is None:
         raise HTTPException(status_code=404, detail="Network not found")
     return {"items": ctx.repo.list_topology_snapshots(network_id)}
 
 
-@router.get("/topology/{network_id}/snapshots/compare")
+@read_router.get("/topology/{network_id}/snapshots/compare")
 def topology_snapshots_compare(
     network_id: str,
     base_snapshot_id: str | None = None,
@@ -535,7 +538,7 @@ def topology_snapshots_compare(
     )
 
 
-@router.get("/topology/{network_id}/devices/{ieee_address}/snapshot-history")
+@read_router.get("/topology/{network_id}/devices/{ieee_address}/snapshot-history")
 def topology_device_snapshot_history(
     network_id: str, ieee_address: str, ctx: AppContext = Depends(ctx_dep)
 ) -> dict:
@@ -565,7 +568,7 @@ def topology_device_snapshot_history(
     )
 
 
-@router.get("/topology/{network_id}/snapshots/{snapshot_id}")
+@read_router.get("/topology/{network_id}/snapshots/{snapshot_id}")
 def topology_snapshot_detail(
     network_id: str, snapshot_id: str, ctx: AppContext = Depends(ctx_dep)
 ) -> dict:
@@ -579,7 +582,7 @@ def topology_snapshot_detail(
     }
 
 
-@router.post("/topology/{network_id}/capture")
+@mutation_router.post("/topology/{network_id}/capture")
 def topology_capture(
     network_id: str,
     body: TopologyCaptureRequest,
@@ -606,12 +609,12 @@ def topology_capture(
         raise HTTPException(status_code=409, detail=str(err)) from err
 
 
-@router.get("/enrichment/status")
+@read_router.get("/enrichment/status")
 def enrichment_status(ctx: AppContext = Depends(ctx_dep)) -> dict:
     return enrichment_status_dict(ctx.repo)
 
 
-@router.post("/enrichment/homeassistant")
+@mutation_router.post("/enrichment/homeassistant")
 def enrichment_homeassistant(body: dict, ctx: AppContext = Depends(ctx_dep)) -> dict:
     try:
         return apply_ha_enrichment(ctx.repo, body)
@@ -619,7 +622,14 @@ def enrichment_homeassistant(body: dict, ctx: AppContext = Depends(ctx_dep)) -> 
         raise HTTPException(status_code=400, detail=str(err)) from err
 
 
-@router.delete("/enrichment/homeassistant")
+@mutation_router.delete("/enrichment/homeassistant")
 def enrichment_homeassistant_delete(ctx: AppContext = Depends(ctx_dep)) -> dict:
     clear_ha_enrichment(ctx.repo)
     return {"cleared": True}
+
+
+def include_api_routers(app, *, prefix: str) -> None:
+    """Mount public/read/mutation routers under a single API prefix."""
+    app.include_router(public_router, prefix=prefix)
+    app.include_router(read_router, prefix=prefix)
+    app.include_router(mutation_router, prefix=prefix)
