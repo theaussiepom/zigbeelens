@@ -34,13 +34,13 @@ docker run -d --name "${CONTAINER}" \
 
 BASE="http://127.0.0.1:${PORT}"
 for i in $(seq 1 60); do
-  if curl -sf "${BASE}/api/health" >/dev/null 2>&1; then
+  if curl -sf "${BASE}/healthz" >/dev/null 2>&1; then
     break
   fi
   sleep 1
 done
 
-curl -sf "${BASE}/api/health" | grep -q '"status"' || { echo "FAIL: /api/health"; exit 1; }
+curl -sf "${BASE}/healthz" | grep -q '"status"' || { echo "FAIL: /healthz"; exit 1; }
 curl -sf "${BASE}/" -o /dev/null || { echo "FAIL: /"; exit 1; }
 
 echo "OK: smoke-docker passed"

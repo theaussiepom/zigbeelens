@@ -8,8 +8,8 @@
 # - Traefik running with docker provider and a public entrypoint
 # - DNS for zigbeelens.example.com pointing at your host
 #
-# Core currently has typed security config and an optional mutation-route API-key guard;
-# read routes/SSE remain open. If Core is reachable beyond users or networks you trust,
+# Core currently has typed security config and an optional bearer authentication when an API token is configured;
+# local/no-token remains trusted-open. If Core is reachable beyond users or networks you trust,
 # access-control decisions are your responsibility (firewall rules, network isolation,
 # VPN, or an authenticated reverse proxy).
 #
@@ -36,7 +36,7 @@ services:
       - traefik.http.services.zigbeelens.loadbalancer.passhostheader=true
     networks:
       - proxy
-    # Healthcheck is defined in deploy/docker/Dockerfile (GET /api/health).
+    # Healthcheck is defined in deploy/docker/Dockerfile (GET /healthz).
 
 networks:
   proxy:

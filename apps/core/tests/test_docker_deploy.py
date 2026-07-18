@@ -81,7 +81,8 @@ def test_dockerfile_healthcheck_uses_api_health():
     # HTTP timeout of 5s lives in the healthcheck module, not the Dockerfile URL.
     module = (ROOT / "apps/core/src/zigbeelens/docker_healthcheck.py").read_text(encoding="utf-8")
     assert "timeout=5" in module
-    assert "/api/health" in module
+    assert "/healthz" in module
+    assert "/api/health" not in module
     assert "ZIGBEELENS_PORT" in module
 
 
@@ -103,7 +104,7 @@ def test_dockerfile_defaults():
     dockerfile = (DOCKER / "Dockerfile").read_text(encoding="utf-8")
     assert "EXPOSE 8377" in dockerfile
     assert "HEALTHCHECK" in dockerfile
-    assert "/api/health" in dockerfile
+    assert "healthz" in dockerfile
     assert "ZIGBEELENS_CONFIG=/config/config.yaml" in dockerfile
     assert "USER zigbeelens" in dockerfile
 

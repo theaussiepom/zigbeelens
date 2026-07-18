@@ -70,7 +70,7 @@ services:
     networks:
       underground:
       mqtt:
-    # Healthcheck is defined in deploy/docker/Dockerfile (GET /api/health).
+    # Healthcheck is defined in deploy/docker/Dockerfile (GET /healthz).
 
 networks:
   underground:

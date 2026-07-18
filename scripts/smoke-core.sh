@@ -32,14 +32,14 @@ python -m uvicorn zigbeelens.main:app --host 127.0.0.1 --port "${PORT}" &
 PID=$!
 
 for i in $(seq 1 30); do
-  if curl -sf "${BASE}/api/health" >/dev/null 2>&1; then
+  if curl -sf "${BASE}/healthz" >/dev/null 2>&1; then
     break
   fi
   sleep 0.5
 done
 
-echo "Checking /api/health..."
-curl -sf "${BASE}/api/health" | grep -q '"status"' || { echo "FAIL: /api/health"; exit 1; }
+echo "Checking /healthz..."
+curl -sf "${BASE}/healthz" | grep -q '"status"' || { echo "FAIL: /healthz"; exit 1; }
 
 echo "Checking /api/dashboard..."
 curl -sf "${BASE}/api/dashboard" | grep -q '"overall_severity"' || { echo "FAIL: /api/dashboard"; exit 1; }

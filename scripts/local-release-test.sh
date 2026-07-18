@@ -39,7 +39,7 @@ docker pull "${IMAGE}"
 
 echo "Starting ZigbeeLens (Ctrl+C to stop)..."
 echo "Dashboard: http://localhost:8377"
-echo "Verify:    curl http://localhost:8377/api/health"
+echo "Verify:    curl http://localhost:8377/healthz"
 
 docker run --rm \
   --name zigbeelens \
