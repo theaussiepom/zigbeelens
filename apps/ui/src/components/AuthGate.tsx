@@ -111,6 +111,8 @@ function LockedLoginState({
 
   const expired = reason === "expired";
   const cookieBlocked = reason === "cookie_blocked";
+  const originRejected = reason === "origin_rejected";
+  const protocolError = reason === "protocol_error";
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -136,7 +138,18 @@ function LockedLoginState({
           and check privacy / third-party cookie blocking. Credentials are never placed in URLs.
         </p>
       )}
-      <form className="space-y-4" onSubmit={handleSubmit}>
+      {originRejected && (
+        <p className="rounded-lg border border-zl-watch/40 bg-zl-watch/10 p-3 text-sm text-zl-watch" role="alert">
+          Browser origin was rejected. Configure exact cors_allowed_origins for the UI origin. This is
+          a deployment configuration issue, not an invalid token.
+        </p>
+      )}
+      {protocolError && (
+        <p className="rounded-lg border border-zl-watch/40 bg-zl-watch/10 p-3 text-sm text-zl-watch" role="alert">
+          Unexpected session response from Core. Check deployment configuration and retry.
+        </p>
+      )}
+      <form className="space-y-4" onSubmit={handleSubmit} autoComplete="off">
         <div className="space-y-2">
           <label htmlFor={inputId} className="block text-sm font-medium text-zl-text">
             API token
@@ -144,14 +157,13 @@ function LockedLoginState({
           <input
             ref={inputRef}
             id={inputId}
-            name="api-token"
             type="password"
             value={token}
             onChange={(e) => setToken(e.target.value)}
             spellCheck={false}
             autoCapitalize="none"
             autoCorrect="off"
-            autoComplete="current-password"
+            autoComplete="off"
             disabled={loginBusy}
             className="min-h-11 w-full rounded-lg border border-zl-border bg-zl-surface px-3 py-2 text-sm text-zl-text"
             required

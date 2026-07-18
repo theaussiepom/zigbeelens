@@ -118,9 +118,11 @@ export function AppShell() {
             <button
               type="button"
               onClick={() => void auth.logout()}
-              className="mt-2 min-h-11 w-full rounded-lg border border-zl-border px-3 py-2 text-left text-xs text-zl-text hover:bg-zl-surface-2"
+              disabled={auth.logoutBusy}
+              aria-busy={auth.logoutBusy}
+              className="mt-2 min-h-11 w-full rounded-lg border border-zl-border px-3 py-2 text-left text-xs text-zl-text hover:bg-zl-surface-2 disabled:opacity-50"
             >
-              Sign out
+              {auth.logoutBusy ? "Signing out…" : "Sign out"}
             </button>
           )}
           {auth.logoutError && (
@@ -153,9 +155,11 @@ export function AppShell() {
               <button
                 type="button"
                 onClick={() => void auth.logout()}
-                className="min-h-11 rounded-lg border border-zl-border px-3 py-2 text-sm hover:bg-zl-surface-2 lg:hidden"
+                disabled={auth.logoutBusy}
+                aria-busy={auth.logoutBusy}
+                className="min-h-11 rounded-lg border border-zl-border px-3 py-2 text-sm hover:bg-zl-surface-2 disabled:opacity-50 lg:hidden"
               >
-                Sign out
+                {auth.logoutBusy ? "Signing out…" : "Sign out"}
               </button>
             )}
             {scenariosEnabled() && (

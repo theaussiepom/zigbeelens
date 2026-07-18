@@ -1,4 +1,4 @@
-import { eventStreamUrl, fetchSessionStatus } from "@/lib/api";
+import { ApiError, eventStreamUrl, fetchSessionStatus } from "@/lib/api";
 import { authRuntime } from "@/lib/authRuntime";
 
 export type ConnectionState = "connecting" | "open" | "disconnected";
@@ -131,13 +131,18 @@ class LiveConnection {
     }
     this.source = source;
 
-    source.onopen = () => this.setState("open");
+    source.onopen = () => {
+      if (!this.accessEnabled || this.source !== source) return;
+      this.setState("open");
+    };
     source.onerror = () => {
+      if (!this.accessEnabled || this.source !== source) return;
       this.setState("disconnected");
       this.scheduleStatusProbe();
     };
 
     const notify = (eventName: string) => () => {
+      if (!this.accessEnabled || this.source !== source) return;
       this.setState("open");
       for (const listener of this.eventListeners) listener(eventName);
     };
@@ -145,7 +150,10 @@ class LiveConnection {
     for (const name of LIVE_EVENTS) {
       source.addEventListener(name, notify(name));
     }
-    source.addEventListener("message", () => this.setState("open"));
+    source.addEventListener("message", () => {
+      if (!this.accessEnabled || this.source !== source) return;
+      this.setState("open");
+    });
   }
 
   private scheduleStatusProbe() {
@@ -164,11 +172,31 @@ class LiveConnection {
     if (!this.accessEnabled) return;
     try {
       const status = await fetchSessionStatus();
+      if (!this.accessEnabled) return;
       if (!status.authenticated) {
         authRuntime.notifyUnauthorized();
       }
-    } catch {
-      // Network failure — keep disconnected/retry behavior; do not treat as auth loss.
+    } catch (error) {
+      if (!this.accessEnabled) return;
+      if (error instanceof ApiError) {
+        if (
+          error.detail === "incomplete_session" ||
+          error.detail === "unexpected_bearer" ||
+          error.kind === "authentication"
+        ) {
+          authRuntime.notifyUnauthorized();
+          return;
+        }
+        if (error.kind === "unreachable" || error.kind === "stale_auth_context") {
+          return;
+        }
+        // Malformed / protocol — fail closed through auth loss.
+        if (error.detail === "malformed" || error.kind === "generic") {
+          authRuntime.notifyUnauthorized();
+          return;
+        }
+      }
+      // Unknown — treat as network interruption.
     }
   }
 

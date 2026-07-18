@@ -2,23 +2,40 @@ import type { BrowserSessionStatus } from "@zigbeelens/shared";
 
 const AUTH_METHODS = new Set(["trusted_local", "bearer", "session", null]);
 
+/** Core max session TTL is 604800s (7d); allow a small clock skew. */
+const MAX_SESSION_TTL_MS = 604_800_000 + 5 * 60_000;
+const MAX_CSRF_LENGTH = 512;
+
 export type ParsedSessionStatus =
   | { ok: true; status: BrowserSessionStatus }
-  | { ok: false; reason: "malformed" | "unexpected_bearer" | "incomplete_session" };
+  | {
+      ok: false;
+      reason: "malformed" | "unexpected_bearer" | "incomplete_session";
+    };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
 function parseExpiresAt(value: unknown): string | null | undefined {
-  if (value === null || value === undefined) return value as null | undefined;
-  if (typeof value !== "string" || value.trim() === "") return undefined;
+  if (value === null) return null;
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") return undefined;
+  if (value.trim() === "") return undefined;
+  // Reject whitespace-padded values.
+  if (value !== value.trim()) return undefined;
   const ms = Date.parse(value);
   if (Number.isNaN(ms)) return undefined;
+  return value;
+}
+
+function parseCsrf(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") return undefined;
+  if (value.length === 0) return "";
+  if (value !== value.trim()) return undefined;
+  if (value.length > MAX_CSRF_LENGTH) return undefined;
   return value;
 }
 
@@ -42,12 +59,7 @@ export function parseBrowserSessionStatus(raw: unknown): ParsedSessionStatus {
   const expiresAt = parseExpiresAt(raw.expires_at);
   if (expiresAt === undefined) return { ok: false, reason: "malformed" };
 
-  const csrf =
-    raw.csrf_token === null || raw.csrf_token === undefined
-      ? null
-      : typeof raw.csrf_token === "string"
-        ? raw.csrf_token
-        : undefined;
+  const csrf = parseCsrf(raw.csrf_token);
   if (csrf === undefined) return { ok: false, reason: "malformed" };
 
   const status: BrowserSessionStatus = {
@@ -58,31 +70,43 @@ export function parseBrowserSessionStatus(raw: unknown): ParsedSessionStatus {
     csrf_token: csrf,
   };
 
+  if (!status.authenticated) {
+    if (status.auth_method !== null) return { ok: false, reason: "malformed" };
+    if (status.expires_at !== null) return { ok: false, reason: "malformed" };
+    if (status.csrf_token !== null) return { ok: false, reason: "malformed" };
+    return { ok: true, status };
+  }
+
   // Standalone UI must not treat bearer as a durable unlocked state.
-  if (status.authenticated && status.auth_method === "bearer") {
+  if (status.auth_method === "bearer") {
     return { ok: false, reason: "unexpected_bearer" };
   }
 
-  if (status.authenticated && status.auth_method === "session") {
-    if (!isNonEmptyString(status.csrf_token)) {
+  if (status.auth_method === "trusted_local") {
+    if (status.expires_at !== null) return { ok: false, reason: "malformed" };
+    if (status.csrf_token !== null) return { ok: false, reason: "malformed" };
+    return { ok: true, status };
+  }
+
+  if (status.auth_method === "session") {
+    if (!status.browser_session_enabled) {
       return { ok: false, reason: "incomplete_session" };
     }
-    if (!isNonEmptyString(status.expires_at)) {
+    if (typeof status.csrf_token !== "string" || status.csrf_token.length === 0) {
+      return { ok: false, reason: "incomplete_session" };
+    }
+    if (typeof status.expires_at !== "string" || status.expires_at.length === 0) {
       return { ok: false, reason: "incomplete_session" };
     }
     const ms = Date.parse(status.expires_at);
     if (Number.isNaN(ms) || ms <= Date.now()) {
       return { ok: false, reason: "incomplete_session" };
     }
+    if (ms - Date.now() > MAX_SESSION_TTL_MS) {
+      return { ok: false, reason: "incomplete_session" };
+    }
+    return { ok: true, status };
   }
 
-  if (status.authenticated && status.auth_method === "trusted_local") {
-    // Trusted-open: do not require CSRF or expiry.
-  }
-
-  if (status.authenticated && status.auth_method == null) {
-    return { ok: false, reason: "malformed" };
-  }
-
-  return { ok: true, status };
+  return { ok: false, reason: "malformed" };
 }

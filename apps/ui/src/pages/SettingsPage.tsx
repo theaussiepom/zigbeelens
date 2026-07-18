@@ -211,9 +211,11 @@ export function SettingsPage() {
             <button
               type="button"
               onClick={() => void auth.logout()}
-              className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2"
+              disabled={auth.logoutBusy}
+              aria-busy={auth.logoutBusy}
+              className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 disabled:opacity-50"
             >
-              Sign out
+              {auth.logoutBusy ? "Signing out…" : "Sign out"}
             </button>
             {auth.logoutError && (
               <p className="text-sm text-zl-critical" role="alert">

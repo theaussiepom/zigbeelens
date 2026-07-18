@@ -2,6 +2,7 @@
  * Narrow in-memory browser-auth transport ownership.
  *
  * Owns CSRF and auth method only. Never stores API tokens, cookies, or secrets.
+ * CSRF is held in ECMAScript #private fields and is never returned to callers.
  */
 
 export type AuthMethod = "trusted_local" | "session";
@@ -20,59 +21,99 @@ export type AuthReason =
   | "unauthorized"
   | "cookie_blocked"
   | "configuration"
-  | "network";
+  | "network"
+  | "origin_rejected"
+  | "protocol_error";
+
+export type ApplyCsrfResult = "applied" | "not_session" | "missing";
+
+export const CSRF_HEADER_NAME = "X-ZigbeeLens-CSRF-Token";
 
 type UnauthorizedListener = () => void;
 type RevalidateListener = () => void;
 type ChangeListener = () => void;
 
-class AuthRuntime {
-  private csrfToken: string | null = null;
-  private authMethod: AuthMethod | null = null;
-  private expiresAt: string | null = null;
-  private browserSessionEnabled = false;
-  private epoch = 0;
-  private unauthorizedListeners = new Set<UnauthorizedListener>();
-  private revalidateListeners = new Set<RevalidateListener>();
-  private changeListeners = new Set<ChangeListener>();
-  private unauthorizedNotifiedForEpoch = -1;
-  private revalidateNotifiedAt = 0;
+type IdentityTuple = {
+  authMethod: AuthMethod | null;
+  expiresAt: string | null;
+  csrfToken: string | null;
+  browserSessionEnabled: boolean;
+};
 
+function identityEqual(a: IdentityTuple, b: IdentityTuple): boolean {
+  return (
+    a.authMethod === b.authMethod &&
+    a.expiresAt === b.expiresAt &&
+    a.csrfToken === b.csrfToken &&
+    a.browserSessionEnabled === b.browserSessionEnabled
+  );
+}
+
+class AuthRuntime {
+  #csrfToken: string | null = null;
+  #authMethod: AuthMethod | null = null;
+  #expiresAt: string | null = null;
+  #browserSessionEnabled = false;
+  #generation = 0;
+  #unauthorizedListeners = new Set<UnauthorizedListener>();
+  #revalidateListeners = new Set<RevalidateListener>();
+  #changeListeners = new Set<ChangeListener>();
+  #unauthorizedNotifiedForGeneration = -1;
+  #revalidateNotifiedAt = 0;
+
+  /** Public alias kept for compatibility with authEpoch consumers. */
   getEpoch(): number {
-    return this.epoch;
+    return this.#generation;
   }
 
-  getCsrfToken(): string | null {
-    return this.csrfToken;
+  getGeneration(): number {
+    return this.#generation;
   }
 
   getAuthMethod(): AuthMethod | null {
-    return this.authMethod;
+    return this.#authMethod;
   }
 
   getExpiresAt(): string | null {
-    return this.expiresAt;
+    return this.#expiresAt;
   }
 
   getBrowserSessionEnabled(): boolean {
-    return this.browserSessionEnabled;
+    return this.#browserSessionEnabled;
   }
 
   isSessionAuth(): boolean {
-    return this.authMethod === "session";
+    return this.#authMethod === "session";
   }
 
   isTrustedLocal(): boolean {
-    return this.authMethod === "trusted_local";
+    return this.#authMethod === "trusted_local";
+  }
+
+  /**
+   * Apply the in-memory CSRF token to headers without exposing the value.
+   */
+  applySessionCsrf(headers: Headers): ApplyCsrfResult {
+    if (this.#authMethod !== "session") return "not_session";
+    if (!this.#csrfToken) return "missing";
+    headers.set(CSRF_HEADER_NAME, this.#csrfToken);
+    return "applied";
   }
 
   setTrustedLocal(browserSessionEnabled = false): void {
-    this.csrfToken = null;
-    this.authMethod = "trusted_local";
-    this.expiresAt = null;
-    this.browserSessionEnabled = browserSessionEnabled;
-    this.bumpEpoch();
-    this.emitChange();
+    const next: IdentityTuple = {
+      authMethod: "trusted_local",
+      expiresAt: null,
+      csrfToken: null,
+      browserSessionEnabled,
+    };
+    if (identityEqual(this.#currentIdentity(), next)) return;
+    this.#csrfToken = null;
+    this.#authMethod = "trusted_local";
+    this.#expiresAt = null;
+    this.#browserSessionEnabled = browserSessionEnabled;
+    this.#bumpGeneration();
+    this.#emitChange();
   }
 
   setSession(opts: {
@@ -80,55 +121,68 @@ class AuthRuntime {
     expiresAt: string;
     browserSessionEnabled: boolean;
   }): void {
-    this.csrfToken = opts.csrfToken;
-    this.authMethod = "session";
-    this.expiresAt = opts.expiresAt;
-    this.browserSessionEnabled = opts.browserSessionEnabled;
-    this.bumpEpoch();
-    this.emitChange();
+    const next: IdentityTuple = {
+      authMethod: "session",
+      expiresAt: opts.expiresAt,
+      csrfToken: opts.csrfToken,
+      browserSessionEnabled: opts.browserSessionEnabled,
+    };
+    if (identityEqual(this.#currentIdentity(), next)) return;
+    this.#csrfToken = opts.csrfToken;
+    this.#authMethod = "session";
+    this.#expiresAt = opts.expiresAt;
+    this.#browserSessionEnabled = opts.browserSessionEnabled;
+    this.#bumpGeneration();
+    this.#emitChange();
   }
 
-  updateCsrfToken(token: string): void {
-    if (this.authMethod !== "session") return;
-    this.csrfToken = token;
-    this.emitChange();
+  /** Update session credentials; advances generation when the identity tuple changes. */
+  updateSessionCredentials(opts: {
+    csrfToken: string;
+    expiresAt: string;
+    browserSessionEnabled: boolean;
+  }): void {
+    this.setSession(opts);
   }
 
   clear(): void {
-    this.csrfToken = null;
-    this.authMethod = null;
-    this.expiresAt = null;
-    this.browserSessionEnabled = false;
-    this.bumpEpoch();
-    this.emitChange();
+    if (this.#authMethod === null && this.#csrfToken === null && !this.#browserSessionEnabled) {
+      return;
+    }
+    this.#csrfToken = null;
+    this.#authMethod = null;
+    this.#expiresAt = null;
+    this.#browserSessionEnabled = false;
+    this.#bumpGeneration();
+    this.#emitChange();
   }
 
   onUnauthorized(listener: UnauthorizedListener): () => void {
-    this.unauthorizedListeners.add(listener);
+    this.#unauthorizedListeners.add(listener);
     return () => {
-      this.unauthorizedListeners.delete(listener);
+      this.#unauthorizedListeners.delete(listener);
     };
   }
 
   onRevalidate(listener: RevalidateListener): () => void {
-    this.revalidateListeners.add(listener);
+    this.#revalidateListeners.add(listener);
     return () => {
-      this.revalidateListeners.delete(listener);
+      this.#revalidateListeners.delete(listener);
     };
   }
 
   onChange(listener: ChangeListener): () => void {
-    this.changeListeners.add(listener);
+    this.#changeListeners.add(listener);
     return () => {
-      this.changeListeners.delete(listener);
+      this.#changeListeners.delete(listener);
     };
   }
 
-  /** One bounded notification per auth epoch for protected 401s. */
+  /** One bounded notification per auth generation for protected 401s. */
   notifyUnauthorized(): void {
-    if (this.unauthorizedNotifiedForEpoch === this.epoch) return;
-    this.unauthorizedNotifiedForEpoch = this.epoch;
-    for (const listener of [...this.unauthorizedListeners]) {
+    if (this.#unauthorizedNotifiedForGeneration === this.#generation) return;
+    this.#unauthorizedNotifiedForGeneration = this.#generation;
+    for (const listener of [...this.#unauthorizedListeners]) {
       listener();
     }
   }
@@ -136,38 +190,59 @@ class AuthRuntime {
   /** Debounced session-status refresh (CSRF miss / CSRF 403). */
   notifyRevalidate(): void {
     const now = Date.now();
-    if (now - this.revalidateNotifiedAt < 750) return;
-    this.revalidateNotifiedAt = now;
-    for (const listener of [...this.revalidateListeners]) {
+    if (now - this.#revalidateNotifiedAt < 750) return;
+    this.#revalidateNotifiedAt = now;
+    for (const listener of [...this.#revalidateListeners]) {
       listener();
     }
   }
 
   resetForTests(): void {
-    this.csrfToken = null;
-    this.authMethod = null;
-    this.expiresAt = null;
-    this.browserSessionEnabled = false;
-    this.epoch = 0;
-    this.unauthorizedNotifiedForEpoch = -1;
-    this.revalidateNotifiedAt = 0;
-    this.unauthorizedListeners.clear();
-    this.revalidateListeners.clear();
-    this.changeListeners.clear();
+    this.#csrfToken = null;
+    this.#authMethod = null;
+    this.#expiresAt = null;
+    this.#browserSessionEnabled = false;
+    this.#generation = 0;
+    this.#unauthorizedNotifiedForGeneration = -1;
+    this.#revalidateNotifiedAt = 0;
+    this.#unauthorizedListeners.clear();
+    this.#revalidateListeners.clear();
+    this.#changeListeners.clear();
   }
 
-  private bumpEpoch(): void {
-    this.epoch += 1;
-    this.unauthorizedNotifiedForEpoch = -1;
+  toJSON(): Record<string, unknown> {
+    return {
+      authMethod: this.#authMethod,
+      expiresAt: this.#expiresAt,
+      browserSessionEnabled: this.#browserSessionEnabled,
+      generation: this.#generation,
+    };
   }
 
-  private emitChange(): void {
-    for (const listener of [...this.changeListeners]) {
+  toString(): string {
+    return `AuthRuntime(method=${this.#authMethod ?? "none"}, generation=${this.#generation})`;
+  }
+
+  #currentIdentity(): IdentityTuple {
+    return {
+      authMethod: this.#authMethod,
+      expiresAt: this.#expiresAt,
+      csrfToken: this.#csrfToken,
+      browserSessionEnabled: this.#browserSessionEnabled,
+    };
+  }
+
+  #bumpGeneration(): void {
+    this.#generation += 1;
+    this.#unauthorizedNotifiedForGeneration = -1;
+    this.#revalidateNotifiedAt = 0;
+  }
+
+  #emitChange(): void {
+    for (const listener of [...this.#changeListeners]) {
       listener();
     }
   }
 }
 
 export const authRuntime = new AuthRuntime();
-
-export const CSRF_HEADER_NAME = "X-ZigbeeLens-CSRF-Token";

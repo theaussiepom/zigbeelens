@@ -7,9 +7,23 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { scenariosEnabled } from "@/lib/flags";
 import type { ZigbeeLensConfigStatus } from "@zigbeelens/shared";
+
+function swallowExpectedAuthError(error: unknown): void {
+  if (
+    error instanceof ApiError &&
+    (error.kind === "authentication" || error.kind === "stale_auth_context")
+  ) {
+    return;
+  }
+  if (error instanceof ApiError && error.kind === "unreachable") {
+    return;
+  }
+  // Unexpected failures only — never log raw response/request objects.
+  console.error("ZigbeeLens scenario request failed.");
+}
 
 interface ScenarioContextValue {
   /** Selected scenario id, or "" for Core's native (live/default) data. */
@@ -47,11 +61,11 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!scenariosEnabled()) return;
-    api.scenarios().then(setScenarios).catch(console.error);
+    api.scenarios().then(setScenarios).catch(swallowExpectedAuthError);
   }, []);
 
   useEffect(() => {
-    refreshStatus().catch(console.error);
+    refreshStatus().catch(swallowExpectedAuthError);
   }, [refreshStatus]);
 
   const dataMode = status?.data_mode ?? "mock";

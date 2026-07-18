@@ -14,7 +14,7 @@ import type {
 
 export type IncidentListQuery = IncidentCollectionQuery;
 import { resolveApiBase } from "@/lib/base";
-import { authRuntime, CSRF_HEADER_NAME } from "@/lib/authRuntime";
+import { authRuntime } from "@/lib/authRuntime";
 import { parseBrowserSessionStatus } from "@/lib/sessionStatus";
 import type { Paginated } from "@/types/api";
 import type {
@@ -37,9 +37,16 @@ export type ApiErrorKind =
   | "origin"
   | "session_unavailable"
   | "unreachable"
+  | "stale_auth_context"
   | "generic";
 
-const AUTH_DETAIL = "Authentication required.";
+/** Explicit Core request intent — replaces overloaded isSessionStatus flags. */
+export type RequestIntent =
+  | "protected"
+  | "public_session_status"
+  | "session_bootstrap"
+  | "session_logout";
+
 const CSRF_DETAIL = "CSRF validation failed.";
 const ORIGIN_DETAIL = "Browser origin validation failed.";
 
@@ -84,9 +91,24 @@ function messageFor(status: number, detail: string | null, kind: ApiErrorKind): 
       return "Browser sessions are not configured.";
     case "unreachable":
       return "ZigbeeLens Core is not reachable.";
+    case "stale_auth_context":
+      return "Authentication context changed.";
     default:
       if (detail && detail.length < 200) return detail;
       return `ZigbeeLens Core returned an error (${status}).`;
+  }
+}
+
+function staleAuthError(): ApiError {
+  return new ApiError("Authentication context changed.", 0, {
+    kind: "stale_auth_context",
+    detail: null,
+  });
+}
+
+function assertGeneration(start: number): void {
+  if (start !== authRuntime.getGeneration()) {
+    throw staleAuthError();
   }
 }
 
@@ -135,12 +157,9 @@ const RETRY_BASE_MS = 400;
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 export type CoreFetchOptions = {
-  /** Transient bearer for session bootstrap only. */
+  intent?: RequestIntent;
+  /** Transient bearer for session bootstrap only. Cleared by the caller after construction. */
   bearer?: string;
-  /** Skip CSRF (session bootstrap). */
-  skipCsrf?: boolean;
-  /** Public session status probe — never triggers protected 401 handling. */
-  isSessionStatus?: boolean;
   /** Expect no JSON body (e.g. 204). */
   allowEmpty?: boolean;
 };
@@ -162,6 +181,11 @@ function mergeHeaders(init?: RequestInit): Headers {
   return new Headers(init?.headers);
 }
 
+function resolveIntent(options: CoreFetchOptions): RequestIntent {
+  if (options.intent) return options.intent;
+  return "protected";
+}
+
 /**
  * Central credential-aware Core fetch. Every request uses credentials: "include".
  */
@@ -173,33 +197,36 @@ export async function coreFetch(
 ): Promise<Response> {
   const method = (init?.method ?? "GET").toUpperCase();
   const headers = mergeHeaders(init);
-  const epochAtStart = authRuntime.getEpoch();
+  const intent = resolveIntent(options);
+  const generationAtStart = authRuntime.getGeneration();
+  const isProtected = intent === "protected";
 
-  if (options.bearer) {
+  if (intent === "session_bootstrap" && options.bearer) {
     headers.set("Authorization", `Bearer ${options.bearer}`);
   }
 
-  if (isUnsafeMethod(method) && !options.skipCsrf && !options.bearer) {
-    if (authRuntime.isSessionAuth()) {
-      const csrf = authRuntime.getCsrfToken();
-      if (!csrf) {
-        authRuntime.notifyRevalidate();
-        throw new ApiError("Session security token is missing. Retry the action.", 403, {
-          kind: "csrf",
-          detail: CSRF_DETAIL,
-        });
-      }
-      headers.set(CSRF_HEADER_NAME, csrf);
+  if (isUnsafeMethod(method) && (intent === "protected" || intent === "session_logout")) {
+    const csrfResult = authRuntime.applySessionCsrf(headers);
+    if (csrfResult === "missing") {
+      authRuntime.notifyRevalidate();
+      throw new ApiError("Session security token is missing. Retry the action.", 403, {
+        kind: "csrf",
+        detail: CSRF_DETAIL,
+      });
     }
   }
 
-  const isAuthSessionPath = path.replace(/^\//, "").startsWith("api/auth/session");
+  const noStore =
+    intent === "public_session_status" ||
+    intent === "session_bootstrap" ||
+    intent === "session_logout";
+
   const requestInit: RequestInit = {
     ...init,
     method,
     headers,
     credentials: "include",
-    cache: options.isSessionStatus || isAuthSessionPath ? "no-store" : init?.cache,
+    cache: noStore ? "no-store" : init?.cache,
   };
 
   let res: Response;
@@ -209,45 +236,53 @@ export async function coreFetch(
     throw new ApiError("ZigbeeLens Core is not reachable.", 0, { kind: "unreachable" });
   }
 
-  if (epochAtStart !== authRuntime.getEpoch()) {
-    throw new ApiError("Authentication context changed.", 401, {
-      kind: "authentication",
-      detail: AUTH_DETAIL,
-    });
+  if (isProtected) {
+    assertGeneration(generationAtStart);
   }
 
   if (!res.ok) {
     const detail = await readErrorDetail(res);
+    if (isProtected) {
+      assertGeneration(generationAtStart);
+    }
     const kind = classifyError(res.status, detail);
-    if (
-      res.status === 401 &&
-      !options.isSessionStatus &&
-      !isAuthSessionPath
-    ) {
+    if (res.status === 401 && intent === "protected") {
       authRuntime.notifyUnauthorized();
     }
-    if (res.status === 403 && kind === "csrf" && !options.isSessionStatus) {
+    if (res.status === 403 && kind === "csrf" && (intent === "protected" || intent === "session_logout")) {
       authRuntime.notifyRevalidate();
     }
     throw new ApiError(messageFor(res.status, detail, kind), res.status, { detail, kind });
   }
 
+  // Attach starting generation for protected body consumers.
+  (res as Response & { __authGeneration?: number }).__authGeneration = generationAtStart;
   return res;
 }
 
-async function parseJsonBody<T>(res: Response, allowEmpty: boolean): Promise<T> {
+async function parseJsonBody<T>(
+  res: Response,
+  allowEmpty: boolean,
+  generationAtStart: number | null,
+): Promise<T> {
   if (res.status === 204 || allowEmpty) {
     const text = await res.text();
+    if (generationAtStart !== null) assertGeneration(generationAtStart);
     if (!text) return undefined as T;
     try {
-      return JSON.parse(text) as T;
+      const parsed = JSON.parse(text) as T;
+      if (generationAtStart !== null) assertGeneration(generationAtStart);
+      return parsed;
     } catch {
       throw new ApiError("ZigbeeLens received an unexpected response.", res.status);
     }
   }
   try {
-    return (await res.json()) as T;
-  } catch {
+    const parsed = (await res.json()) as T;
+    if (generationAtStart !== null) assertGeneration(generationAtStart);
+    return parsed;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
     throw new ApiError("ZigbeeLens received an unexpected response.", res.status);
   }
 }
@@ -258,8 +293,11 @@ async function fetchJsonOnce<T>(
   init?: RequestInit,
   options: CoreFetchOptions = {},
 ): Promise<T> {
+  const intent = resolveIntent(options);
+  const generationAtStart = authRuntime.getGeneration();
   const res = await coreFetch(path, params, init, options);
-  return parseJsonBody<T>(res, Boolean(options.allowEmpty));
+  const checkGen = intent === "protected" ? generationAtStart : null;
+  return parseJsonBody<T>(res, Boolean(options.allowEmpty), checkGen);
 }
 
 async function fetchJson<T>(
@@ -268,7 +306,10 @@ async function fetchJson<T>(
   init?: RequestInit,
   options: CoreFetchOptions = {},
 ): Promise<T> {
-  const retryable = isIdempotentRequest(init) && !options.isSessionStatus;
+  const intent = resolveIntent(options);
+  const retryable =
+    intent === "protected" &&
+    isIdempotentRequest(init);
   let lastError: ApiError | null = null;
   for (let attempt = 0; attempt <= MAX_FETCH_RETRIES; attempt += 1) {
     try {
@@ -279,6 +320,7 @@ async function fetchJson<T>(
         error instanceof ApiError &&
         RETRYABLE_STATUSES.has(error.status) &&
         error.kind !== "authentication" &&
+        error.kind !== "stale_auth_context" &&
         attempt < MAX_FETCH_RETRIES
       ) {
         lastError = error;
@@ -362,19 +404,30 @@ export type StoredReportDownload = {
   blob: Blob;
   filename: string;
   contentType: string;
+  /** Auth generation captured when the download began. */
+  authGeneration: number;
 };
 
 export async function downloadStoredReport(
   id: string,
   scenario?: string,
 ): Promise<StoredReportDownload> {
-  const res = await coreFetch(`api/reports/${id}/download`, { scenario });
+  const generationAtStart = authRuntime.getGeneration();
+  const res = await coreFetch(
+    `api/reports/${id}/download`,
+    { scenario },
+    undefined,
+    { intent: "protected" },
+  );
+  assertGeneration(generationAtStart);
   const contentType = res.headers.get("content-type") ?? "application/octet-stream";
   const blob = await res.blob();
+  assertGeneration(generationAtStart);
   // Refuse to save a typical FastAPI error JSON envelope as a report file.
   if (contentType.includes("application/json") && blob.size < 4096) {
     try {
       const text = await blob.text();
+      assertGeneration(generationAtStart);
       const parsed: unknown = JSON.parse(text);
       if (
         typeof parsed === "object" &&
@@ -385,12 +438,12 @@ export async function downloadStoredReport(
       ) {
         throw new ApiError("Report download failed.", res.status, { kind: "generic" });
       }
-      // Re-wrap text as blob when it was a real report JSON.
       const reportBlob = new Blob([text], { type: contentType });
       const filename =
         parseContentDispositionFilename(res.headers.get("Content-Disposition")) ??
         FALLBACK_REPORT_FILENAME;
-      return { blob: reportBlob, filename, contentType };
+      assertGeneration(generationAtStart);
+      return { blob: reportBlob, filename, contentType, authGeneration: generationAtStart };
     } catch (e) {
       if (e instanceof ApiError) throw e;
     }
@@ -398,12 +451,15 @@ export async function downloadStoredReport(
   const filename =
     parseContentDispositionFilename(res.headers.get("Content-Disposition")) ??
     FALLBACK_REPORT_FILENAME;
-  return { blob, filename, contentType };
+  assertGeneration(generationAtStart);
+  return { blob, filename, contentType, authGeneration: generationAtStart };
 }
 
 export async function triggerBrowserDownload(download: StoredReportDownload): Promise<void> {
+  assertGeneration(download.authGeneration);
   const objectUrl = URL.createObjectURL(download.blob);
   try {
+    assertGeneration(download.authGeneration);
     const anchor = document.createElement("a");
     anchor.href = objectUrl;
     anchor.download = download.filename;
@@ -417,10 +473,10 @@ export async function triggerBrowserDownload(download: StoredReportDownload): Pr
   }
 }
 
-/** Public session status — never sends Authorization. */
+/** Public session status — never sends Authorization; never rejected for protected generation. */
 export async function fetchSessionStatus(): Promise<BrowserSessionStatus> {
   const raw = await fetchJson<unknown>("api/auth/session", {}, undefined, {
-    isSessionStatus: true,
+    intent: "public_session_status",
   });
   const parsed = parseBrowserSessionStatus(raw);
   if (!parsed.ok) {
@@ -432,30 +488,36 @@ export async function fetchSessionStatus(): Promise<BrowserSessionStatus> {
   return parsed.status;
 }
 
-/** Bootstrap browser session with a one-shot bearer token. */
+/**
+ * Bootstrap browser session with a one-shot bearer token.
+ * Caller must not retain the token after this call begins.
+ */
 export async function createBrowserSession(apiToken: string): Promise<BrowserSessionStatus> {
+  let bearer: string | undefined = apiToken;
   const raw = await fetchJson<unknown>(
     "api/auth/session",
     {},
     { method: "POST" },
-    { bearer: apiToken, skipCsrf: true, isSessionStatus: true },
+    { intent: "session_bootstrap", bearer },
   );
+  bearer = undefined;
   const parsed = parseBrowserSessionStatus(raw);
   if (!parsed.ok) {
     throw new ApiError("Browser session bootstrap response was malformed.", 0, {
       kind: "generic",
+      detail: parsed.reason,
     });
   }
   return parsed.status;
 }
 
-/** End the browser session (session auth + CSRF). */
+/** End the browser session (session auth + CSRF). Provider owns 401 outcome. */
 export async function deleteBrowserSession(): Promise<void> {
   await fetchJson<void>(
     "api/auth/session",
     {},
     { method: "DELETE" },
-    { allowEmpty: true, isSessionStatus: true },
+    { allowEmpty: true, intent: "session_logout" },
   );
 }
 
