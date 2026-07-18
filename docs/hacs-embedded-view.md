@@ -88,15 +88,20 @@ After setup:
 3. **Try Embedded View** renders the dashboard.
 
 Core defaults to same-origin framing (`frame-ancestors 'self'`). For a HACS
-direct iframe, configure Core with your exact Home Assistant origin:
+direct iframe behind HTTPS, configure Core with the exact roles separated:
 
 ```yaml
 security:
+  cors_allowed_origins:
+    - https://zigbeelens.example      # browser-visible Origin (session/CORS)
   frame_ancestor_origins:
-    - https://homeassistant.example
+    - https://homeassistant.example   # HA page allowed to frame Core HTML
 ```
 
-That grants framing only — not CORS, not API access, and not authentication.
+`cors_allowed_origins` is required when a TLS proxy presents Core as HTTPS to
+the browser while Core itself still sees `http` + `Host` (Core does not trust
+`X-Forwarded-Proto`). `frame_ancestor_origins` grants framing only — not CORS,
+not API access, and not authentication. Do not copy one list into the other.
 Your reverse proxy must not override Core with wildcard CORS or
 `frame-ancestors *`. The Core URL stored in HACS must be a canonical absolute
 HTTP/HTTPS origin (no path, query, fragment, or userinfo).

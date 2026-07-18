@@ -15,7 +15,10 @@ mode:
 #   ZIGBEELENS_MQTT_PASSWORD / ZIGBEELENS_MQTT_PASSWORD_FILE
 security:
   mode: local
+  # Browser-visible Origin for session/CORS (e.g. https://zigbeelens.example behind TLS proxy).
+  # Independent from framing. See docs/security.md.
   cors_allowed_origins: []
+  # Exact HA origin allowed to iframe Core HTML (optional embedded view).
   frame_ancestor_origins: []
 
 mqtt:

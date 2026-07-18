@@ -13,6 +13,11 @@
 # access-control decisions are your responsibility (firewall rules, network isolation,
 # VPN, or an authenticated reverse proxy).
 #
+# Browser sessions behind this TLS proxy: Core ignores X-Forwarded-Proto. Put the
+# browser-visible origin (https://zigbeelens.example.com) in
+# security.cors_allowed_origins. For HACS iframe embedding, put the HA origin in
+# security.frame_ancestor_origins separately (see docs/security.md).
+#
 # SSE/WebSocket: enable buffering off on the Traefik service if live updates stall.
 
 services:

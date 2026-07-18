@@ -62,6 +62,7 @@ Run all automated checks:
 - [ ] Stop Core → panel shows calm disconnected state + Core unreachable repair
 - [ ] Start Core → panel recovers and repair clears
 - [ ] HACS diagnostics download is redacted (no secrets)
+- [ ] Behind TLS reverse proxy: `cors_allowed_origins` includes the browser-visible `https://…` Core origin for sessions; `frame_ancestor_origins` lists HA separately when embedding
 
 ## Manual gates — mobile polish
 
