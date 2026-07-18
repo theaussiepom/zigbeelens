@@ -31,7 +31,7 @@ Before release testing, confirm you understand:
 
 - Core may require `Authorization: Bearer` for protected API routes when an API token is configured
 - Optional browser sessions need both API token and session secret; cookie mutations need `X-ZigbeeLens-CSRF-Token`
-- Bundled UI login wiring, credentialed CORS, HACS token support, and ingress identity enforcement are not implemented yet
+- Bundled UI login wiring, HACS token support, and ingress identity enforcement are not implemented yet
 - ZigbeeLens is **read-only for Zigbee control** (no permit join, remove, reset, bind/unbind, OTA, or channel changes)
 - Some Core API routes modify **ZigbeeLens local data only** (reports, topology snapshots, HA enrichment)
 - If Core is reachable beyond users or networks you trust, **access-control decisions are your responsibility**

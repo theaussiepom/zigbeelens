@@ -35,8 +35,8 @@ When `security.api_token` is configured, Core requires authentication for
 protected reads, mutations, SSE event streams, and report downloads. Direct
 clients use `Authorization: Bearer`. When `security.session_secret` is also
 configured, same-origin browsers may create an HttpOnly session cookie; cookie
-mutations require `X-ZigbeeLens-CSRF-Token`. The former `X-ZigbeeLens-Api-Key`
-HTTP header is not accepted.
+mutations require an exact browser `Origin` and `X-ZigbeeLens-CSRF-Token`. The
+former `X-ZigbeeLens-Api-Key` HTTP header is not accepted.
 
 `security.mode=local` without a token is a deliberate trusted-open compatibility
 mode (all API routes open). `authenticated` and `home_assistant_ingress` require
@@ -53,9 +53,11 @@ ZigbeeLens is read-only with respect to Zigbee control. It does not perform devi
 
 Some API routes can modify ZigbeeLens’ own local data. If you expose Core beyond users or networks you trust, access-control decisions are your responsibility.
 
-Bundled UI login wiring, credentialed CORS, HACS token configuration, and Home
-Assistant ingress identity enforcement are not implemented yet. HTTPS may help
-with the optional embedded dashboard view, but **HTTPS is not authentication**.
+Exact CORS and frame-ancestor allowlists, Content-Security-Policy on HTML, and
+canonical HACS Core URL validation are implemented. Bundled UI login wiring,
+HACS token configuration, and Home Assistant ingress identity enforcement are
+not implemented yet. HTTPS may help with the optional embedded dashboard view,
+but **HTTPS is not authentication**.
 
 See [docs/security.md](docs/security.md).
 

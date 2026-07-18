@@ -19,6 +19,7 @@ from homeassistant.core import HomeAssistant, callback
 
 from .const import DATA_FRONTEND_REGISTERED, DOMAIN, PANEL_STATE_KEY
 from .coordinator import ZigbeeLensDataUpdateCoordinator
+from .core_origin import InvalidCoreOrigin, canonicalize_core_origin
 from .panel_data import build_panel_summary
 
 _LOGGER = logging.getLogger(__name__)
@@ -88,9 +89,22 @@ async def async_setup_frontend(hass: HomeAssistant) -> None:
     domain_data[DATA_FRONTEND_REGISTERED] = True
 
 
+def _safe_panel_core_url(core_url: str) -> str | None:
+    try:
+        return canonicalize_core_origin(core_url)
+    except InvalidCoreOrigin:
+        return None
+
+
 async def async_register_panel(hass: HomeAssistant, entry_id: str, core_url: str) -> None:
     """Register the native companion panel in the Home Assistant sidebar."""
     await async_setup_frontend(hass)
+    safe_url = _safe_panel_core_url(core_url)
+    if safe_url is None:
+        _LOGGER.error(
+            "Refusing to register ZigbeeLens panel with an invalid Core URL"
+        )
+        return
     state = hass.data.setdefault(DOMAIN, {}).setdefault(PANEL_STATE_KEY, {})
 
     panels = hass.data.get(frontend.DATA_PANELS, {})
@@ -103,18 +117,18 @@ async def async_register_panel(hass: HomeAssistant, entry_id: str, core_url: str
             state["panel_registered"] = False
         else:
             current_url = str(config.get("core_url") or "").rstrip("/")
-            new_url = core_url.rstrip("/")
+            new_url = safe_url
             if current_url != new_url:
                 frontend.async_remove_panel(hass, PANEL_URL_PATH)
                 state["panel_registered"] = False
             else:
-                async_update_panel_core_url(hass, core_url)
+                async_update_panel_core_url(hass, safe_url)
                 state["panel_registered"] = True
                 return
 
     if state.get("panel_registered"):
         if PANEL_URL_PATH in panels:
-            async_update_panel_core_url(hass, core_url)
+            async_update_panel_core_url(hass, safe_url)
             return
         state["panel_registered"] = False
 
@@ -127,19 +141,23 @@ async def async_register_panel(hass: HomeAssistant, entry_id: str, core_url: str
         module_url=PANEL_STATIC_URL,
         embed_iframe=False,
         require_admin=False,
-        config={"core_url": core_url},
+        config={"core_url": safe_url},
     )
     state["panel_registered"] = True
-    _LOGGER.debug("Registered ZigbeeLens companion panel (core_url=%s)", core_url)
+    _LOGGER.debug("Registered ZigbeeLens companion panel")
 
 
 @callback
 def async_update_panel_core_url(hass: HomeAssistant, core_url: str) -> None:
     """Update the companion panel launcher URL after Configure / options changes."""
+    safe_url = _safe_panel_core_url(core_url)
+    if safe_url is None:
+        _LOGGER.error("Refusing to update ZigbeeLens panel with an invalid Core URL")
+        return
     panels = hass.data.get(frontend.DATA_PANELS, {})
     panel = panels.get(PANEL_URL_PATH)
     if panel is not None:
-        panel["config"] = {**(panel.get("config") or {}), "core_url": core_url}
+        panel["config"] = {**(panel.get("config") or {}), "core_url": safe_url}
 
 
 async def async_unregister_panel(hass: HomeAssistant, entry_id: str) -> None:

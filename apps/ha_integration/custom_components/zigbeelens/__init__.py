@@ -7,6 +7,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZigbeeLensApiClient
@@ -20,6 +21,7 @@ from .const import (
     PLATFORMS,
 )
 from .coordinator import ZigbeeLensDataUpdateCoordinator
+from .exceptions import ZigbeeLensInvalidResponseError
 from .panel import async_register_panel, async_unregister_panel, async_update_panel_core_url
 from .repairs import async_clear_repairs, async_manage_repairs
 
@@ -34,11 +36,15 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up ZigbeeLens from a config entry."""
     session = async_get_clientsession(hass, verify_ssl=entry.data.get(CONF_VERIFY_SSL, False))
-    client = ZigbeeLensApiClient(
-        session,
-        entry.data[CONF_CORE_URL],
-        verify_ssl=entry.data.get(CONF_VERIFY_SSL, False),
-    )
+    try:
+        client = ZigbeeLensApiClient(
+            session,
+            entry.data[CONF_CORE_URL],
+            verify_ssl=entry.data.get(CONF_VERIFY_SSL, False),
+        )
+    except ZigbeeLensInvalidResponseError as exc:
+        # Fail closed without initiating HTTP or logging credential-bearing URLs.
+        raise ConfigEntryError("Invalid ZigbeeLens Core URL") from exc
     scan_interval = int(entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
     coordinator = ZigbeeLensDataUpdateCoordinator(hass, client, scan_interval, entry)
 

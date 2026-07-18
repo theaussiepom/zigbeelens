@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-from urllib.parse import urlparse
 
 import voluptuous as vol
 
@@ -25,6 +24,7 @@ from .const import (
     DEFAULT_VERIFY_SSL,
     DOMAIN,
 )
+from .core_origin import InvalidCoreOrigin, canonicalize_core_origin
 from .exceptions import ZigbeeLensApiError
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,10 +50,11 @@ OPTIONS_SCHEMA = vol.Schema(
 
 
 def _normalize_core_url(url: str) -> str:
-    parsed = urlparse(url.strip())
-    if not parsed.scheme or not parsed.netloc:
-        raise ValueError("invalid_url")
-    return f"{parsed.scheme}://{parsed.netloc}"
+    """Return a canonical HTTP(S) Core origin or raise ValueError('invalid_url')."""
+    try:
+        return canonicalize_core_origin(url)
+    except InvalidCoreOrigin as exc:
+        raise ValueError("invalid_url") from exc
 
 
 async def _validate_core(hass: HomeAssistant, core_url: str, verify_ssl: bool) -> dict[str, Any]:

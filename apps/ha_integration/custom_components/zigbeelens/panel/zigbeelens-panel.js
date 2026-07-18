@@ -14,24 +14,78 @@ const SEVERITY = {
   unknown: { label: "No signal", color: "var(--secondary-text-color, #888)" },
 };
 
-/** @returns {{ canEmbed: boolean, reason?: string }} */
-function canEmbedDashboard(haProtocol, coreUrl, baseHref) {
+/**
+ * Strict canonical Core origin for iframe/anchor use.
+ * Absolute http(s) only; no relative resolution against the HA page.
+ * @returns {string|null}
+ */
+function canonicalizeCoreOrigin(coreUrl) {
+  try {
+    if (!coreUrl || !String(coreUrl).trim()) {
+      return null;
+    }
+    const raw = String(coreUrl).trim();
+    if (raw !== String(coreUrl) || raw.toLowerCase() === "null" || raw.startsWith("//")) {
+      return null;
+    }
+    if (raw.includes("\\") || /[\u0000-\u001f\u007f]/.test(raw)) {
+      return null;
+    }
+    // Reject relative values: do not resolve against window.location.
+    const core = new URL(raw);
+    if (core.protocol !== "http:" && core.protocol !== "https:") {
+      return null;
+    }
+    if (!core.hostname) {
+      return null;
+    }
+    if (core.username || core.password) {
+      return null;
+    }
+    if (core.search || core.hash) {
+      return null;
+    }
+    const path = core.pathname || "";
+    if (path && path !== "/") {
+      return null;
+    }
+    if (core.hostname.includes("*") || core.hostname.endsWith(".")) {
+      return null;
+    }
+    const port = core.port;
+    if (port) {
+      const n = Number(port);
+      if (!Number.isInteger(n) || n < 1 || n > 65535) {
+        return null;
+      }
+    }
+    // Rebuild origin only (scheme/host/port).
+    return core.origin;
+  } catch {
+    return null;
+  }
+}
+
+/** @returns {{ canEmbed: boolean, reason?: string, origin?: string|null }} */
+function canEmbedDashboard(haProtocol, coreUrl) {
   try {
     const ha = String(haProtocol || "").toLowerCase();
     if (!ha.endsWith(":")) {
-      return { canEmbed: false, reason: "invalid_ha" };
+      return { canEmbed: false, reason: "invalid_ha", origin: null };
     }
-    if (!coreUrl || !String(coreUrl).trim()) {
-      return { canEmbed: false, reason: "missing_core_url" };
+    const origin = canonicalizeCoreOrigin(coreUrl);
+    if (!origin) {
+      return {
+        canEmbed: false,
+        reason: coreUrl && String(coreUrl).trim() ? "invalid_core_url" : "missing_core_url",
+        origin: null,
+      };
     }
-    const core = new URL(String(coreUrl).trim(), baseHref || window.location.href);
-    if (!core.protocol || !core.host) {
-      return { canEmbed: false, reason: "invalid_core_url" };
-    }
-    const isMixedContentIframe = ha === "https:" && core.protocol === "http:";
-    return { canEmbed: !isMixedContentIframe };
+    const coreProtocol = new URL(origin).protocol;
+    const isMixedContentIframe = ha === "https:" && coreProtocol === "http:";
+    return { canEmbed: !isMixedContentIframe, origin };
   } catch {
-    return { canEmbed: false, reason: "invalid_core_url" };
+    return { canEmbed: false, reason: "invalid_core_url", origin: null };
   }
 }
 
@@ -129,16 +183,13 @@ class ZigbeeLensPanel extends HTMLElement {
   }
 
   _coreUrl() {
-    return (this._summary && this._summary.core_url) || this._configCoreUrl || "";
+    const raw = (this._summary && this._summary.core_url) || this._configCoreUrl || "";
+    return canonicalizeCoreOrigin(raw) || "";
   }
 
   _maybeAutoEmbed() {
     const coreUrl = this._coreUrl();
-    const { canEmbed } = canEmbedDashboard(
-      window.location.protocol,
-      coreUrl,
-      window.location.href
-    );
+    const { canEmbed } = canEmbedDashboard(window.location.protocol, coreUrl);
     if (!canEmbed || !coreUrl) {
       if (this._view === "embedded") {
         this._view = "embed_blocked";
@@ -150,8 +201,9 @@ class ZigbeeLensPanel extends HTMLElement {
   }
 
   _openDashboardButton(coreUrl, extraClass = "") {
-    if (!coreUrl) return "";
-    return `<a class="btn primary ${extraClass}" href="${esc(coreUrl)}" target="_blank" rel="noopener noreferrer">
+    const safe = canonicalizeCoreOrigin(coreUrl);
+    if (!safe) return "";
+    return `<a class="btn primary ${extraClass}" href="${esc(safe)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">
       Open full ZigbeeLens dashboard
     </a>`;
   }
@@ -186,7 +238,7 @@ class ZigbeeLensPanel extends HTMLElement {
 
   _tryEmbeddedView() {
     const coreUrl = this._coreUrl();
-    const { canEmbed } = canEmbedDashboard(window.location.protocol, coreUrl, window.location.href);
+    const { canEmbed } = canEmbedDashboard(window.location.protocol, coreUrl);
     this._view = canEmbed ? "embedded" : "embed_blocked";
     this._render();
   }
@@ -260,12 +312,13 @@ class ZigbeeLensPanel extends HTMLElement {
   }
 
   _embeddedView(coreUrl) {
-    if (!coreUrl) {
+    const safe = canonicalizeCoreOrigin(coreUrl);
+    if (!safe) {
       return `<p class="muted embed-empty">Core URL is not configured.</p>`;
     }
     return `<iframe
       class="embed-frame"
-      src="${esc(coreUrl)}"
+      src="${esc(safe)}"
       title="ZigbeeLens full dashboard"
       loading="lazy"
       referrerpolicy="no-referrer"
@@ -855,5 +908,5 @@ if (!customElements.get("zigbeelens-panel")) {
 
 // Exported for lightweight testing in Node (see test_panel_embed.py asset checks).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { canEmbedDashboard };
+  module.exports = { canEmbedDashboard, canonicalizeCoreOrigin };
 }

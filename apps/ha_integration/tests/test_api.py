@@ -74,8 +74,11 @@ async def test_dashboard_success(core_url):
 @pytest.mark.asyncio
 async def test_url_join_handles_trailing_slash(core_url):
     async with ClientSession() as session:
-        client = ZigbeeLensApiClient(session, core_url + "/")
+        # Fixture already ends with `/`; an extra slash must not become `//`.
+        client = ZigbeeLensApiClient(session, core_url.rstrip("/") + "/")
+        assert client.core_url == core_url.rstrip("/")
         assert client.api_url("api/health").endswith("/api/health")
+        assert "://" in client.api_url("api/health").split("/", 3)[0] + "//"
 
 
 @pytest.mark.asyncio

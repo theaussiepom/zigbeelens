@@ -22,12 +22,35 @@ same-origin browsers may exchange that bearer token for a short-lived HttpOnly
 session cookie. Cookie-authenticated mutations also require:
 
 ```http
+Origin: <Core or allowed browser origin>
 X-ZigbeeLens-CSRF-Token: <csrf-token>
 ```
 
-CORS credential support, CSP/framing hardening, bundled UI login wiring, HACS
-token support, and Home Assistant ingress identity validation are **not**
-implemented yet. Browser sessions are same-origin only.
+Direct bearer clients do **not** need `Origin` or CSRF.
+
+### Browser origins, CORS, and framing
+
+Core accepts only canonical HTTP/HTTPS origins (`scheme://host[:port]`). No
+wildcards, regexes, userinfo, paths, query strings, or fragments.
+
+| Setting | Purpose |
+|---------|---------|
+| `security.cors_allowed_origins` | Exact origins allowed credentialed CORS (and session-mutation Origin) |
+| `security.frame_ancestor_origins` | Exact external origins allowed to embed Core HTML |
+
+Framing defaults to same-origin only (`frame-ancestors 'self'`). A Home
+Assistant origin needed only for iframe embedding belongs in
+`frame_ancestor_origins`; it does **not** automatically grant CORS or API
+access. CORS is not authentication.
+
+Core sends Content-Security-Policy on HTML documents, plus `nosniff`,
+`Referrer-Policy: no-referrer`, and a restrictive `Permissions-Policy`. Core
+does **not** set HSTS (TLS proxies own that). Reverse proxies must not broaden
+Core’s CORS or frame policy with wildcards.
+
+Bundled UI login wiring, HACS API-token support, and Home Assistant ingress
+identity validation are **not** implemented yet. Proxy `X-Forwarded-*` /
+`Forwarded` headers are **not** trusted for origin or identity decisions.
 
 Bearer and session authentication authenticate the HTTP request. They do **not**
 replace TLS on untrusted networks.
@@ -234,8 +257,7 @@ For broader access today, consider firewall rules, Home Assistant Ingress, netwo
 
 ## Not yet implemented
 
-- Browser sessions and CSRF
-- Bundled UI authentication
+- Bundled UI authentication / locked-state wiring
 - HACS token configuration
 - Home Assistant ingress identity validation
-- CORS/CSP/origin hardening beyond the current embed CSP note
+- Trusted reverse-proxy / forwarded-header identity

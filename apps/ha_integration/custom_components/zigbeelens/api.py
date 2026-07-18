@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-from urllib.parse import urljoin
 
 from aiohttp import ClientError, ClientSession, ClientTimeout, ContentTypeError
 from aiohttp.client_exceptions import ClientConnectorError, ClientSSLError
 
 from .const import API_TIMEOUT
+from .core_origin import InvalidCoreOrigin, canonicalize_core_origin
 from .exceptions import (
     ZigbeeLensConnectionError,
     ZigbeeLensInvalidResponseError,
@@ -29,16 +29,23 @@ class ZigbeeLensApiClient:
         verify_ssl: bool = False,
     ) -> None:
         self._session = session
-        self._core_url = core_url.rstrip("/") + "/"
+        try:
+            origin = canonicalize_core_origin(core_url)
+        except InvalidCoreOrigin as exc:
+            raise ZigbeeLensInvalidResponseError("Invalid ZigbeeLens Core URL") from exc
+        self._core_origin = origin
         self._verify_ssl = verify_ssl
 
     @property
     def core_url(self) -> str:
-        return self._core_url.rstrip("/")
+        return self._core_origin
 
     def api_url(self, path: str) -> str:
+        """Join a fixed internal path onto the canonical origin (no urljoin authority swap)."""
         normalized = path.lstrip("/")
-        return urljoin(self._core_url, normalized)
+        if not normalized or normalized.startswith("//") or "://" in normalized:
+            raise ZigbeeLensInvalidResponseError("Invalid ZigbeeLens API path")
+        return f"{self._core_origin}/{normalized}"
 
     async def _request_json(self, path: str) -> dict[str, Any]:
         url = self.api_url(path)

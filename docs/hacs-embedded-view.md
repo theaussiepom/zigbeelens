@@ -87,7 +87,19 @@ After setup:
 2. **Settings → Devices & services → ZigbeeLens → Configure** — set Core URL to that HTTPS address.
 3. **Try Embedded View** renders the dashboard.
 
-Core sends `Content-Security-Policy: frame-ancestors *`. Your reverse proxy must not override this with a stricter policy unless you allow the Home Assistant origin explicitly.
+Core defaults to same-origin framing (`frame-ancestors 'self'`). For a HACS
+direct iframe, configure Core with your exact Home Assistant origin:
+
+```yaml
+security:
+  frame_ancestor_origins:
+    - https://homeassistant.example
+```
+
+That grants framing only — not CORS, not API access, and not authentication.
+Your reverse proxy must not override Core with wildcard CORS or
+`frame-ancestors *`. The Core URL stored in HACS must be a canonical absolute
+HTTP/HTTPS origin (no path, query, fragment, or userinfo).
 
 ---
 
@@ -97,9 +109,11 @@ Browsers block embedding an HTTP dashboard inside an HTTPS Home Assistant page (
 
 For embedded view through Traefik or another proxy, also check:
 
-- `Content-Security-Policy: frame-ancestors` must allow your Home Assistant origin (not `*` at the proxy unless you intentionally mirror the MASS/Scrypted pattern)
-- `X-Frame-Options: DENY` blocks embedding
+- Configure `security.frame_ancestor_origins` on Core for the exact HA origin
+- Do not set proxy `frame-ancestors *` or wildcard CORS that broadens Core
+- `X-Frame-Options: DENY` at a proxy blocks embedding
 - SSE may need proxy buffering disabled (`flush_interval -1` on Caddy, or equivalent)
+- Third-party cookie / `SameSite=Strict` may still limit cookie auth inside an iframe; the native summary and Open Full Dashboard remain available
 
 ---
 

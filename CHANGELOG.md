@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Security:** exact `cors_allowed_origins` / `frame_ancestor_origins` allowlists (canonical HTTP/HTTPS origins only)
+- **Security:** credentialed CORS without wildcards; pre-body Origin checks for cookie-authenticated mutations
+- **Security:** Content-Security-Policy on HTML documents, default same-origin framing, and general browser-safety headers
+- **Security:** HACS Core URL validation as canonical HTTP/HTTPS origins (reject userinfo/path/query/fragment)
+- **Capabilities:** `exact_cors_allowlist`, `content_security_policy`, `frame_ancestor_allowlist`, `browser_origin_validation`
 - **Security:** HTTP Bearer authentication (`Authorization: Bearer`) for protected API reads, mutations, SSE, and report downloads
 - **Security:** signed HttpOnly browser sessions (`zigbeelens_session`) with CSRF header protection for cookie-authenticated mutations
 - **Security:** `POST/GET/DELETE /api/auth/session` (and `/api/v1`) for session login, status, and logout
