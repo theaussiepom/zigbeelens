@@ -87,7 +87,17 @@ Core’s process default bind is loopback (`127.0.0.1`). The `zigbeelens` launch
 
 ## Health check
 
-The image defines a built-in `HEALTHCHECK` (`deploy/docker/Dockerfile`) that calls `GET /api/health`. Compose files do not repeat it — Docker inherits the check from the image.
+The image defines a built-in `HEALTHCHECK` (`deploy/docker/Dockerfile`) that calls `GET /api/health` on loopback. Compose files do not repeat it — Docker inherits the check from the image.
+
+The probe uses `ZIGBEELENS_PORT` when set, otherwise **8377**. It does **not** load AppConfig or secret files. The Docker image default remains 8377; example Compose files continue to publish `8377:8377`.
+
+If you override the internal listening port with `ZIGBEELENS_PORT` (merged into typed AppConfig before Uvicorn binds), you must also align:
+
+- container-side Compose port mappings / published ports;
+- any reverse-proxy upstream target;
+- the healthcheck environment (inherited automatically when `ZIGBEELENS_PORT` is set on the service).
+
+Server status and Uvicorn always share one effective AppConfig bind.
 
 Healthy means:
 - App is running

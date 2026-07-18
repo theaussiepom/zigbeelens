@@ -180,7 +180,10 @@ def test_first_party_shell_scripts_do_not_force_host_override():
         assert "uvicorn zigbeelens.main:app --host" not in text
 
 
-def test_dockerfile_healthcheck_still_targets_loopback_api():
+def test_dockerfile_healthcheck_follows_zigbeelens_port():
     dockerfile = (REPO_ROOT / "deploy" / "docker" / "Dockerfile").read_text(encoding="utf-8")
     assert "HEALTHCHECK" in dockerfile
-    assert "http://127.0.0.1:8377/api/health" in dockerfile
+    assert "python -m zigbeelens.docker_healthcheck" in dockerfile
+    assert "ZIGBEELENS_PORT=8377" in dockerfile
+    # Literal-only :8377 health URL must not be the probe target.
+    assert "http://127.0.0.1:8377/api/health" not in dockerfile
