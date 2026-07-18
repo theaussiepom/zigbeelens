@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useAuth } from "@/context/BrowserAuthContext";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
 import { api } from "@/lib/api";
@@ -6,6 +7,7 @@ import { Badge, Card, LoadingState } from "@/components/ui";
 import { relativeTime } from "@/lib/format";
 
 export function SettingsPage() {
+  const auth = useAuth();
   const { status, refreshStatus, scenario, dataMode, isScenarioMode } = useScenario();
   const health = useLiveResource(() => api.health(), [], {
     refetchOn: ["collector_status", "collector_connected", "collector_disconnected"],
@@ -179,6 +181,52 @@ export function SettingsPage() {
             }
           />
         </dl>
+      </Card>
+
+      <Card title="Browser access">
+        <dl className="space-y-3 text-sm">
+          <Row
+            label="Auth method"
+            value={
+              auth.authMethod === "session"
+                ? "browser session"
+                : auth.authMethod === "trusted_local"
+                  ? "trusted local"
+                  : "—"
+            }
+          />
+          <Row label="Browser sessions enabled" value={auth.browserSessionEnabled ? "yes" : "no"} />
+          {auth.authMethod === "session" && auth.expiresAt && (
+            <Row
+              label="Session expires"
+              value={(() => {
+                const ms = Date.parse(auth.expiresAt);
+                return Number.isNaN(ms) ? auth.expiresAt : new Date(ms).toLocaleString();
+              })()}
+            />
+          )}
+        </dl>
+        {auth.authMethod === "session" && (
+          <div className="mt-4 space-y-2">
+            <button
+              type="button"
+              onClick={() => void auth.logout()}
+              className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2"
+            >
+              Sign out
+            </button>
+            {auth.logoutError && (
+              <p className="text-sm text-zl-critical" role="alert">
+                {auth.logoutError}
+              </p>
+            )}
+          </div>
+        )}
+        <p className="mt-3 text-xs text-zl-muted">
+          The UI exchanges an API token once for an HttpOnly browser session. The token is not stored
+          in the browser. Sign out clears this browser cookie; it does not revoke copies of a stolen
+          cookie.
+        </p>
       </Card>
 
       <Card title="Configuration">

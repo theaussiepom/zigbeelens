@@ -94,7 +94,7 @@ export function useLiveResource<T>(
         clearInterval(interval);
         interval = null;
       }
-      if (state === "disconnected") {
+      if (state === "disconnected" && liveConnection.isAccessEnabled()) {
         interval = setInterval(run, pollMs);
       }
     });

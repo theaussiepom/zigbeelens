@@ -6,7 +6,7 @@ import type {
   ReportRequest,
   ReportScope,
 } from "@zigbeelens/shared";
-import { api, downloadReportUrl } from "@/lib/api";
+import { api, downloadStoredReport, triggerBrowserDownload } from "@/lib/api";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
 import {
@@ -365,6 +365,12 @@ export function ReportsPage() {
     await api.deleteReport(id);
     setReloadKey((k) => k + 1);
     flash("Report deleted.");
+  }
+
+  async function downloadStored(id: string) {
+    const file = await downloadStoredReport(id, scen);
+    await triggerBrowserDownload(file);
+    flash("Report download started.");
   }
 
   const report = preview.data;
@@ -737,12 +743,13 @@ export function ReportsPage() {
                         {r.generated_at} · {r.scope} · {r.format.toUpperCase()} · {r.redaction_profile}
                       </p>
                     </div>
-                    <a
-                      href={downloadReportUrl(r.id, scen)}
+                    <button
+                      type="button"
+                      onClick={() => void downloadStored(r.id)}
                       className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 active:bg-zl-surface-2"
                     >
                       Download
-                    </a>
+                    </button>
                     <button
                       type="button"
                       onClick={() => copyStored(r.id)}
