@@ -9,6 +9,7 @@ from zigbeelens import __version__
 from zigbeelens.api.summary import capabilities_dict, service_status_dict
 from zigbeelens.app.context import AppContext, get_context
 from zigbeelens.config.redaction import redact_mqtt_server
+from zigbeelens.config.security_status import build_security_config_status
 from zigbeelens.enrichment.ha import (
     apply_ha_enrichment,
     clear_ha_enrichment,
@@ -113,6 +114,7 @@ def config_status(
         data_mode="mock" if ctx.config.mode.mock else "live",
         mock_mode=ctx.config.mode.mock,
         active_scenario=active_scenario,
+        security=build_security_config_status(ctx.config),
     )
 
 

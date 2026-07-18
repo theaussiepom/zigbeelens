@@ -1,10 +1,13 @@
 server:
-  host: 0.0.0.0
+  host: 127.0.0.1
   port: 8377
 
 mode:
   mock: true
   default_scenario: four_devices_same_room_unavailable
+
+security:
+  mode: local
 
 mqtt:
   server: mqtt://mosquitto:1883

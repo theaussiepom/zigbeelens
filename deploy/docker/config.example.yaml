@@ -1,9 +1,20 @@
 server:
+  # Containers typically bind all interfaces inside the network namespace.
+  # Core's process default is 127.0.0.1; keep 0.0.0.0 here for Docker.
+  # Publishing host ports is not fully authenticated yet — bind published
+  # ports to loopback or place an authenticated proxy in front.
   host: 0.0.0.0
   port: 8377
 
 mode:
   mock: false
+
+# Prefer env / *_FILE secrets over YAML. See docs/security.md.
+#   ZIGBEELENS_SECURITY_MODE
+#   ZIGBEELENS_SECURITY_API_TOKEN / ZIGBEELENS_SECURITY_API_TOKEN_FILE
+#   ZIGBEELENS_MQTT_PASSWORD / ZIGBEELENS_MQTT_PASSWORD_FILE
+security:
+  mode: local
 
 mqtt:
   server: mqtt://mosquitto:1883

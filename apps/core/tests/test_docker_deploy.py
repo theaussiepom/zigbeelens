@@ -32,6 +32,13 @@ def test_config_examples_validate():
         assert cfg.storage.path == "/data/zigbeelens.sqlite"
         assert len(cfg.networks) >= 1
         assert cfg.features.mqtt_discovery is False
+        assert cfg.server.host == "0.0.0.0"
+
+
+def test_compose_dev_config_is_explicitly_non_loopback():
+    cfg = load_config(ROOT / "deploy" / "compose" / "config.dev.yaml")
+    assert cfg.server.host == "0.0.0.0"
+    assert cfg.mode.mock is True
 
 
 def test_multi_network_config_has_stable_ids():
@@ -64,10 +71,18 @@ def test_compose_files_avoid_unsafe_patterns():
 def test_dockerfile_healthcheck_uses_api_health():
     dockerfile = (DOCKER / "Dockerfile").read_text(encoding="utf-8")
     assert "HEALTHCHECK" in dockerfile
-    assert "/api/health" in dockerfile
-    assert "timeout=5" in dockerfile
+    assert "python -m zigbeelens.docker_healthcheck" in dockerfile
+    assert "ZIGBEELENS_PORT=8377" in dockerfile
+    assert "http://127.0.0.1:8377/api/health" not in dockerfile
     assert "--interval=30s" in dockerfile
+    assert "--timeout=10s" in dockerfile
     assert "--start-period=30s" in dockerfile
+    assert "--retries=3" in dockerfile
+    # HTTP timeout of 5s lives in the healthcheck module, not the Dockerfile URL.
+    module = (ROOT / "apps/core/src/zigbeelens/docker_healthcheck.py").read_text(encoding="utf-8")
+    assert "timeout=5" in module
+    assert "/api/health" in module
+    assert "ZIGBEELENS_PORT" in module
 
 
 def test_compose_files_do_not_duplicate_healthcheck():

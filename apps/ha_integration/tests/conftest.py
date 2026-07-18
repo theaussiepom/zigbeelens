@@ -99,6 +99,13 @@ def sample_config_status():
         "features": {"mqtt_collector": True},
         "data_mode": "live",
         "mock_mode": False,
+        "security": {
+            "mode": "local",
+            "loopback_bind": True,
+            "api_token_configured": False,
+            "session_secret_configured": False,
+            "legacy_mutation_guard_enabled": False,
+        },
     }
 
 

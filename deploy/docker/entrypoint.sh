@@ -38,7 +38,12 @@ fi
 export ZIGBEELENS_STATIC_DIR="${ZIGBEELENS_STATIC_DIR:-/app/static}"
 mkdir -p /data "$(dirname "${ZIGBEELENS_CONFIG}")"
 
-port="${ZIGBEELENS_PORT:-8377}"
-echo "ZigbeeLens starting (config=${ZIGBEELENS_CONFIG}, port=${port})"
+# Optional compatibility override resolved into AppConfig by the zigbeelens launcher.
+# Do not pass a separate --host/--port that can disagree with typed config.
+if [[ -n "${ZIGBEELENS_PORT:-}" ]]; then
+  echo "ZigbeeLens starting (config=${ZIGBEELENS_CONFIG}, ZIGBEELENS_PORT=${ZIGBEELENS_PORT})"
+else
+  echo "ZigbeeLens starting (config=${ZIGBEELENS_CONFIG})"
+fi
 
-exec uvicorn zigbeelens.main:app --host 0.0.0.0 --port "${port}"
+exec zigbeelens

@@ -7,7 +7,8 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from zigbeelens.config import AppConfig, ConfigError, load_config
+from zigbeelens.config import AppConfig, ConfigError, load_effective_config
+from zigbeelens.config.security_status import log_security_posture
 from zigbeelens.db.connection import Database
 from zigbeelens.diagnostics.coordinator import EvaluationCoordinator, PeriodicEvaluationScheduler
 from zigbeelens.diagnostics.incidents.service import IncidentDiagnosticService
@@ -90,11 +91,11 @@ def _on_incident_update(ctx: AppContext, event_type: str) -> None:
 def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -> AppContext:
     global _context
     if config is None:
-        cfg = load_config(config_path)
+        cfg = load_effective_config(config_path)
         path = str(config_path) if config_path else None
     else:
         cfg = config
-        path = None
+        path = str(config_path) if config_path else None
 
     db = Database(cfg.storage.path)
     migration_version = db.migrate()
@@ -144,12 +145,7 @@ def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -
         cfg.storage.path,
         migration_version,
     )
-    if not cfg.mode.mock:
-        logger.info(
-            "Security notice: ZigbeeLens Core has no built-in authentication by default. "
-            "Set ZIGBEELENS_API_KEY to protect mutating routes when Core is exposed beyond "
-            "trusted networks."
-        )
+    log_security_posture(cfg)
     return ctx
 
 

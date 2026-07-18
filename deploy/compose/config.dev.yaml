@@ -1,21 +1,13 @@
+# Docker Compose development config.
+# Explicit container-reachable bind; source/default configs remain loopback.
 server:
-  # Core defaults to 127.0.0.1 when omitted. Use 0.0.0.0 only for containers
-  # or other intentionally remote-capable binds.
-  host: 127.0.0.1
+  host: 0.0.0.0
   port: 8377
 
 mode:
   mock: true
   default_scenario: four_devices_same_room_unavailable
 
-# Prefer environment or *_FILE injection for secrets instead of YAML.
-# Canonical variables:
-#   ZIGBEELENS_SECURITY_MODE
-#   ZIGBEELENS_SECURITY_API_TOKEN / ZIGBEELENS_SECURITY_API_TOKEN_FILE
-#   ZIGBEELENS_SECURITY_SESSION_SECRET / ZIGBEELENS_SECURITY_SESSION_SECRET_FILE
-#   ZIGBEELENS_MQTT_USERNAME
-#   ZIGBEELENS_MQTT_PASSWORD / ZIGBEELENS_MQTT_PASSWORD_FILE
-# Temporary alias: ZIGBEELENS_API_KEY (conflicts with canonical API-token vars).
 security:
   mode: local
 
@@ -38,7 +30,7 @@ networks:
     base_topic: zigbee2mqtt-home2
 
 storage:
-  path: ./data/zigbeelens.sqlite
+  path: /app/data/zigbeelens.sqlite
   retention_days: 7
 
 diagnostics:

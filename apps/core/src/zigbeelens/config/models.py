@@ -2,13 +2,60 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
+from zigbeelens.config.secret_validation import contains_control_characters
+from zigbeelens.config.security_types import SecurityMode
 from zigbeelens.mock.fixtures import DEFAULT_SCENARIO
+
+MIN_SECURITY_SECRET_LENGTH = 32
+
+
+def _reject_invalid_secret(value: object) -> SecretStr:
+    """Validate an optional secret without echoing the rejected value."""
+    if isinstance(value, SecretStr):
+        raw = value.get_secret_value()
+    elif isinstance(value, str):
+        raw = value
+    else:
+        raise ValueError("must be a string")
+
+    if raw == "":
+        raise ValueError("must not be empty")
+    if raw != raw.strip():
+        raise ValueError("must not have leading or trailing whitespace")
+    if contains_control_characters(raw):
+        raise ValueError("must not contain control characters")
+    if len(raw) < MIN_SECURITY_SECRET_LENGTH:
+        raise ValueError(f"must be at least {MIN_SECURITY_SECRET_LENGTH} characters")
+    return SecretStr(raw)
+
+
+class SecurityConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: SecurityMode = SecurityMode.local
+    api_token: SecretStr | None = None
+    session_secret: SecretStr | None = None
+
+    @field_validator("api_token", "session_secret", mode="before")
+    @classmethod
+    def validate_optional_secret(cls, value: object) -> SecretStr | None:
+        if value is None:
+            return None
+        return _reject_invalid_secret(value)
+
+    @model_validator(mode="after")
+    def validate_mode_requirements(self) -> SecurityConfig:
+        if self.mode is SecurityMode.authenticated and self.api_token is None:
+            raise ValueError(
+                "api_token is required when mode is authenticated"
+            )
+        return self
 
 
 class ServerConfig(BaseModel):
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = Field(default=8377, ge=1, le=65535)
 
 
@@ -25,9 +72,22 @@ class MqttTlsConfig(BaseModel):
 class MqttConfig(BaseModel):
     server: str = "mqtt://mosquitto:1883"
     username: str = ""
-    password: str = ""
+    password: SecretStr = SecretStr("")
     client_id: str = "zigbeelens"
     tls: MqttTlsConfig = Field(default_factory=MqttTlsConfig)
+
+    @field_validator("password", mode="before")
+    @classmethod
+    def coerce_password(cls, value: object) -> SecretStr | str:
+        """Accept plain strings/SecretStr; empty passwords remain valid."""
+        if value is None:
+            return ""
+        if isinstance(value, SecretStr):
+            return value
+        if isinstance(value, str):
+            return value
+        raise ValueError("must be a string")
+
 
 
 class NetworkConfig(BaseModel):
@@ -122,6 +182,7 @@ class AppConfig(BaseModel):
     mqtt_discovery: MqttDiscoveryConfig = Field(default_factory=MqttDiscoveryConfig)
     topology: TopologyConfig = Field(default_factory=TopologyConfig)
     reporting: ReportingConfig = Field(default_factory=ReportingConfig)
+    security: SecurityConfig = Field(default_factory=SecurityConfig)
 
     @field_validator("networks")
     @classmethod

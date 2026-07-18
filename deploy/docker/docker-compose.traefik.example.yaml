@@ -8,9 +8,10 @@
 # - Traefik running with docker provider and a public entrypoint
 # - DNS for zigbeelens.example.com pointing at your host
 #
-# ZigbeeLens has no built-in authentication in v0.1.0. If Core is reachable beyond users or
-# networks you trust, access-control decisions are your responsibility (firewall rules,
-# network isolation, VPN, or an authenticated reverse proxy).
+# Core currently has typed security config and an optional mutation-route API-key guard;
+# read routes/SSE remain open. If Core is reachable beyond users or networks you trust,
+# access-control decisions are your responsibility (firewall rules, network isolation,
+# VPN, or an authenticated reverse proxy).
 #
 # SSE/WebSocket: enable buffering off on the Traefik service if live updates stall.
 

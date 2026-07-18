@@ -53,9 +53,10 @@ LABEL org.opencontainers.image.title="ZigbeeLens" \
 
 EXPOSE 8377
 
-# GET /api/health — collector disconnect does not fail the check (see docs/docker.md).
+# GET /api/health — uses ZIGBEELENS_PORT (default 8377). Collector disconnect does
+# not fail the check (see docs/docker.md). Does not load AppConfig or secrets.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8377/api/health', timeout=5)"
+  CMD python -m zigbeelens.docker_healthcheck
 
 USER zigbeelens
 VOLUME ["/config", "/data"]

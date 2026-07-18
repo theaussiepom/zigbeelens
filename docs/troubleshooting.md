@@ -185,6 +185,20 @@ See [topology.md](topology.md).
 - Duplicate friendly names reduce match quality
 - HACS auto-push is not wired in v0.1.0 — manual API or future integration update
 
+## Security configuration errors
+
+| Symptom / log | Likely cause | Fix |
+|---------------|--------------|-----|
+| `Conflicting secret sources: both … and …_FILE` | Direct env var and `*_FILE` both set | Keep only one source |
+| `Conflicting API token sources` | `ZIGBEELENS_API_KEY` combined with canonical token vars | Use either the legacy alias **or** `ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` |
+| `Secret file not found` / `not a regular readable file` | Missing path, directory, or permission issue | Point `*_FILE` at a readable regular file |
+| `Secret file is empty` | File contains only newlines/whitespace after CR/LF strip | Put a non-empty secret in the file |
+| `must be at least 32 characters` | Token/session secret too short | Generate a longer secret (`openssl rand -base64 48`) |
+| `api_token is required when mode is authenticated` | `security.mode=authenticated` without token | Set `ZIGBEELENS_SECURITY_API_TOKEN` or `_FILE` |
+| Warning: non-loopback bind with `mode=local` and no API token | Remotely reachable Core without mutation guard | Bind loopback, restrict network access, or configure an API token |
+
+Config validation errors intentionally omit rejected secret values. See [security.md](security.md).
+
 ## Still stuck?
 
 1. Generate a `public_safe` report from the Reports page

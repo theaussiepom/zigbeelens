@@ -7,11 +7,16 @@
 # - device identity is always network_id + ieee_address
 
 server:
+  # Explicit container bind. Core's process default is loopback (127.0.0.1).
   host: 0.0.0.0
   port: 8377
 
 mode:
   mock: false
+
+# Prefer env / *_FILE secrets. See docs/security.md.
+security:
+  mode: local
 
 mqtt:
   # Single broker serving all Zigbee2MQTT instances (typical).

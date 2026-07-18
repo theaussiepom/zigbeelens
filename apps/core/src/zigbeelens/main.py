@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import logging
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +16,7 @@ from zigbeelens import __version__
 from zigbeelens.api.auth import OptionalApiKeyMiddleware
 from zigbeelens.api.routes import router
 from zigbeelens.app.context import bootstrap, get_context, reset_context
+from zigbeelens.config import AppConfig, load_effective_config, resolve_config_path
 from zigbeelens.logging_config import configure_logging
 from zigbeelens.static import mount_static_ui
 
@@ -20,23 +24,33 @@ logger = logging.getLogger(__name__)
 
 
 def _openapi_enabled() -> bool:
-    import os
-
     value = os.environ.get("ZIGBEELENS_OPENAPI_ENABLED", "").strip().lower()
     return value in {"1", "true", "yes", "on"}
 
 
-def create_app(config_path: str | None = None) -> FastAPI:
-    import os
+def create_app(
+    config_path: str | None = None,
+    *,
+    resolved_config: AppConfig | None = None,
+) -> FastAPI:
+    """Build the FastAPI application.
 
+    When *resolved_config* is provided (production launcher), lifespan bootstraps
+    from that instance and does not reread secret files. TestClient and ASGI
+    callers may omit it and load from *config_path* / ``ZIGBEELENS_CONFIG``.
+    """
     resolved_config_path = config_path or os.environ.get("ZIGBEELENS_CONFIG")
     openapi_enabled = _openapi_enabled()
+    preloaded = resolved_config
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         configure_logging()
         reset_context()
-        ctx = bootstrap(config_path=resolved_config_path)
+        if preloaded is not None:
+            ctx = bootstrap(config=preloaded, config_path=resolved_config_path)
+        else:
+            ctx = bootstrap(config_path=resolved_config_path)
         ctx.broadcaster.set_loop(asyncio.get_running_loop())
         app.state.ctx = ctx
         yield
@@ -131,23 +145,62 @@ def create_app(config_path: str | None = None) -> FastAPI:
 app = create_app()
 
 
-def main() -> None:
-    import os
-
+def run_server(
+    config_path: str | Path | None = None,
+    *,
+    reload: bool = False,
+) -> None:
+    """Canonical first-party launcher: one effective AppConfig owns the bind."""
     import uvicorn
 
-    from zigbeelens.config import load_config
+    path = Path(config_path) if config_path else resolve_config_path()
+    os.environ["ZIGBEELENS_CONFIG"] = str(path)
+    cfg = load_effective_config(path)
 
-    config_path = os.environ.get("ZIGBEELENS_CONFIG")
-    cfg = load_config(config_path)
+    logger.info(
+        "Starting ZigbeeLens (host=%s port=%s reload=%s config=%s)",
+        cfg.server.host,
+        cfg.server.port,
+        reload,
+        path,
+    )
+
+    if reload:
+        # Local development only. The listening host/port still come from the
+        # effective AppConfig; the reloader may reread config for app code.
+        uvicorn.run(
+            "zigbeelens.main:app",
+            host=cfg.server.host,
+            port=cfg.server.port,
+            reload=True,
+            factory=False,
+        )
+        return
+
+    application = create_app(config_path=str(path), resolved_config=cfg)
     uvicorn.run(
-        "zigbeelens.main:app",
+        application,
         host=cfg.server.host,
         port=cfg.server.port,
-        reload=True,
-        factory=False,
-        app_dir="src",
+        reload=False,
     )
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="zigbeelens", description="ZigbeeLens Core")
+    parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Enable Uvicorn reload (local development only)",
+    )
+    parser.add_argument(
+        "--config",
+        dest="config_path",
+        default=None,
+        help="Path to config YAML (default: ZIGBEELENS_CONFIG or config/config.yaml)",
+    )
+    args = parser.parse_args(argv)
+    run_server(config_path=args.config_path, reload=args.reload)
 
 
 if __name__ == "__main__":

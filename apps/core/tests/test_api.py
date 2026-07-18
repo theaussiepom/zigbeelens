@@ -117,6 +117,14 @@ def test_config_status_redacts_secrets(mock_client: TestClient):
     assert "***" in body["mqtt_server"]
     assert body["mock_mode"] is True
     assert body["diagnostics"]["flapping_threshold"] == 3
+    security = body["security"]
+    assert security["mode"] == "local"
+    assert security["loopback_bind"] is True
+    assert security["api_token_configured"] is False
+    assert security["session_secret_configured"] is False
+    assert security["legacy_mutation_guard_enabled"] is False
+    assert "api_token" not in security
+    assert "session_secret" not in security
 
 
 def test_live_empty_dashboard(live_client: TestClient):

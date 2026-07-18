@@ -17,7 +17,6 @@ export OPTIONS_FILE CONFIG_FILE
 python3 - <<'PY'
 import json
 import os
-import sys
 from pathlib import Path
 
 from zigbeelens.config.addon import options_to_yaml, safe_startup_log_lines
@@ -33,4 +32,5 @@ PY
 export ZIGBEELENS_CONFIG="$CONFIG_FILE"
 export ZIGBEELENS_STATIC_DIR="${ZIGBEELENS_STATIC_DIR:-/app/static}"
 
-exec uvicorn zigbeelens.main:app --host 0.0.0.0 --port 8377
+# Bind comes from the generated AppConfig (explicit 0.0.0.0), not a shell override.
+exec zigbeelens

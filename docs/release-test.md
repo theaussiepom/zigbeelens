@@ -25,17 +25,54 @@ Before you start, confirm:
 - [ ] Home Assistant can reach the Docker host IP on port 8377 (for HACS test)
 - [ ] HACS is installed in Home Assistant
 
-## Security acknowledgement (v0.1.0)
+## Security acknowledgement
 
 Before release testing, confirm you understand:
 
-- ZigbeeLens Core has **no built-in authentication** in v0.1.0
+- Core has typed security configuration and may use an optional `X-ZigbeeLens-Api-Key` **mutation-route** guard
+- Read routes, report downloads, and SSE remain open; bearer/session/ingress auth are not implemented yet
 - ZigbeeLens is **read-only for Zigbee control** (no permit join, remove, reset, bind/unbind, OTA, or channel changes)
 - Some Core API routes modify **ZigbeeLens local data only** (reports, topology snapshots, HA enrichment)
 - If Core is reachable beyond users or networks you trust, **access-control decisions are your responsibility**
 - **HTTPS is not authentication** — it may be needed for optional HACS embedded view only
 
 See [security.md](security.md).
+
+Choose **one** release-test mode before `docker run`. Host environment variables are **not** inherited by the container unless you pass `-e` (or mount a token file).
+
+### A. Token-enabled release test (mutation guard on)
+
+Generate a fresh token on the host (do **not** commit it):
+
+```bash
+export ZIGBEELENS_TEST_API_TOKEN="$(openssl rand -base64 48)"
+```
+
+Pass it into the container with `-e ZIGBEELENS_SECURITY_API_TOKEN=...` (see §2). After the container is up, verify the mutation guard:
+
+```bash
+# Expect HTTP 401 without the header
+code=$(curl -s -o /tmp/zl-report-noauth.json -w '%{http_code}' -X POST http://localhost:8377/api/reports \
+  -H "Content-Type: application/json" \
+  -d '{"scope":"full","format":"json","redaction":{"profile":"public_safe"}}')
+echo "without key: HTTP $code"
+test "$code" = "401"
+
+# Expect success with the header
+code=$(curl -s -o /tmp/zl-report-auth.json -w '%{http_code}' -X POST http://localhost:8377/api/reports \
+  -H "Content-Type: application/json" \
+  -H "X-ZigbeeLens-Api-Key: $ZIGBEELENS_TEST_API_TOKEN" \
+  -d '{"scope":"full","format":"json","redaction":{"profile":"public_safe"}}')
+echo "with key: HTTP $code"
+test "$code" = "200"
+python3 -m json.tool < /tmp/zl-report-auth.json | head -40
+```
+
+(`*_FILE` alternative: write the token to a host file, mount it read-only, set `ZIGBEELENS_SECURITY_API_TOKEN_FILE` to the **container** path, and still use the host token value in the curl header.)
+
+### B. No-token release test (mutating routes intentionally open)
+
+Omit `ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` from `docker run`. In that configuration, mutating routes remain open — use only on a trusted local host.
 
 Optional helper (creates dirs, copies template, refuses placeholder config):
 
@@ -116,7 +153,23 @@ EOF
 
 ```bash
 docker pull ghcr.io/theaussiepom/zigbeelens:edge
+```
 
+**A. Token-enabled** (requires `ZIGBEELENS_TEST_API_TOKEN` from the security section above):
+
+```bash
+docker run --rm \
+  --name zigbeelens \
+  -p 8377:8377 \
+  -e ZIGBEELENS_SECURITY_API_TOKEN="$ZIGBEELENS_TEST_API_TOKEN" \
+  -v "$PWD/local/zigbeelens-test/config:/config:ro" \
+  -v "$PWD/local/zigbeelens-test/data:/data" \
+  ghcr.io/theaussiepom/zigbeelens:edge
+```
+
+**B. No-token** (mutating routes intentionally open):
+
+```bash
 docker run --rm \
   --name zigbeelens \
   -p 8377:8377 \
@@ -138,7 +191,19 @@ curl -s http://localhost:8377/api/dashboard | python3 -m json.tool | head -40
 curl -s http://localhost:8377/api/networks | python3 -m json.tool
 ```
 
-Generate a redacted report (JSON):
+Generate a redacted report (JSON).
+
+**A. Token-enabled** — include the header (and run the 401 / success checks from the security section):
+
+```bash
+curl -s -X POST http://localhost:8377/api/reports \
+  -H "Content-Type: application/json" \
+  -H "X-ZigbeeLens-Api-Key: $ZIGBEELENS_TEST_API_TOKEN" \
+  -d '{"scope":"full","format":"json","redaction":{"profile":"public_safe"}}' \
+  | python3 -m json.tool
+```
+
+**B. No-token** — mutating routes remain open:
 
 ```bash
 curl -s -X POST http://localhost:8377/api/reports \

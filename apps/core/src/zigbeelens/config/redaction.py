@@ -2,11 +2,122 @@
 
 from __future__ import annotations
 
-import re
+from collections.abc import Mapping
 from typing import Any
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import ParseResult, parse_qsl, urlencode, urlparse, urlunparse
+
+from pydantic import SecretStr
 
 REDACTED = "***"
+
+_EXACT_SECRET_KEYS = frozenset(
+    {
+        "password",
+        "passwd",
+        "passphrase",
+        "secret",
+        "session_secret",
+        "client_secret",
+        "token",
+        "api_token",
+        "access_token",
+        "refresh_token",
+        "api_key",
+        "authorization",
+        "private_key",
+        "network_key",
+        "install_code",
+    }
+)
+
+_SECRET_SUFFIXES = (
+    "_password",
+    "_secret",
+    "_token",
+    "_api_key",
+    "_private_key",
+)
+
+
+def is_secret_key(key: str) -> bool:
+    """Return True for conventional secret field names, not safe metadata."""
+    # Normalise hyphenated URL/config keys (api-key → api_key).
+    lower = key.lower().replace("-", "_")
+    if lower.endswith("_configured") or lower.endswith("_count"):
+        return False
+    if lower in {"token_source", "secret_source"}:
+        return False
+    if lower in _EXACT_SECRET_KEYS:
+        return True
+    return any(lower.endswith(suffix) for suffix in _SECRET_SUFFIXES)
+
+
+def _redact_param_string(value: str) -> str:
+    """Redact secret-bearing query/fragment parameters using is_secret_key()."""
+    if not value:
+        return ""
+    # parse_qsl URL-decodes keys/values and preserves order.
+    pairs = parse_qsl(value, keep_blank_values=True)
+    redacted_pairs: list[tuple[str, str]] = []
+    for key, item in pairs:
+        if is_secret_key(key):
+            redacted_pairs.append((key, REDACTED))
+        else:
+            redacted_pairs.append((key, item))
+    # Keep REDACTED ("***") literal; preserve practical ordering from parse_qsl.
+    return urlencode(redacted_pairs, doseq=True, safe="*")
+
+
+def _param_string_has_secret(value: str) -> bool:
+    if not value:
+        return False
+    return any(is_secret_key(key) for key, _ in parse_qsl(value, keep_blank_values=True))
+
+
+def _format_host(hostname: str) -> str:
+    """Bracket IPv6 hostnames for a valid URI authority."""
+    if ":" in hostname and not hostname.startswith("["):
+        return f"[{hostname}]"
+    return hostname
+
+
+def _redacted_netloc(
+    parsed: ParseResult,
+    *,
+    username_override: str | None = None,
+) -> str | None:
+    """Build a safe authority from parsed URL facts.
+
+    Returns None when the caller should fail closed to REDACTED (malformed port,
+    or password-bearing / non-empty authority without a usable hostname).
+    """
+    try:
+        port_number = parsed.port
+    except ValueError:
+        return None
+
+    host = parsed.hostname or ""
+    if not host:
+        if parsed.password is not None or parsed.netloc:
+            return None
+        return ""
+
+    host_fmt = _format_host(host)
+    port = f":{port_number}" if port_number else ""
+
+    if username_override:
+        # MQTT status path: config username is known; never echo a password.
+        return f"{username_override}:{REDACTED}@{host_fmt}{port}"
+
+    if parsed.password is not None:
+        # Empty username + password must still redact (mqtt://:secret@host).
+        user = parsed.username if parsed.username is not None else ""
+        return f"{user}:{REDACTED}@{host_fmt}{port}"
+
+    if parsed.username:
+        return f"{parsed.username}@{host_fmt}{port}"
+
+    return f"{host_fmt}{port}"
 
 
 def redact_mqtt_server(server: str, username: str = "") -> str:
@@ -18,28 +129,121 @@ def redact_mqtt_server(server: str, username: str = "") -> str:
     except ValueError:
         return REDACTED
 
-    host = parsed.hostname or ""
-    port = f":{parsed.port}" if parsed.port else ""
-    user_part = f"{username}:{REDACTED}@" if username else ""
-    netloc = f"{user_part}{host}{port}" if host else parsed.netloc
-    return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+    netloc = _redacted_netloc(parsed, username_override=username or None)
+    if netloc is None:
+        # Fail closed for hostless/malformed authorities (e.g. mqtt://user:pass@).
+        return REDACTED
 
-
-def redact_dict_secrets(data: dict[str, Any]) -> dict[str, Any]:
-    """Deep-copy a dict with common secret keys redacted."""
-    secret_keys = {"password", "secret", "token", "api_key", "network_key", "install_code"}
-    out: dict[str, Any] = {}
-    for key, value in data.items():
-        lower = key.lower()
-        if lower in secret_keys:
-            out[key] = REDACTED
-        elif isinstance(value, dict):
-            out[key] = redact_dict_secrets(value)
-        else:
-            out[key] = value
-    return out
+    query = _redact_param_string(parsed.query)
+    fragment = _redact_param_string(parsed.fragment)
+    return urlunparse(
+        (parsed.scheme, netloc, parsed.path, parsed.params, query, fragment)
+    )
 
 
 def redact_connection_string(value: str) -> str:
-    """Redact credentials embedded in connection strings."""
-    return re.sub(r"://([^:@/]+):([^@/]+)@", r"://\1:***@", value)
+    """Redact credentials embedded in connection strings and query/fragment text."""
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return REDACTED
+
+    netloc = _redacted_netloc(parsed)
+    if netloc is None:
+        return REDACTED
+
+    query = _redact_param_string(parsed.query)
+    fragment = _redact_param_string(parsed.fragment)
+    return urlunparse(
+        (parsed.scheme, netloc, parsed.path, parsed.params, query, fragment)
+    )
+
+
+def _raw_authority(value: str) -> str | None:
+    """Return the raw authority between :// and the first /, ?, or #."""
+    if "://" not in value:
+        return None
+    rest = value.split("://", 1)[1]
+    for sep in ("/", "?", "#"):
+        idx = rest.find(sep)
+        if idx != -1:
+            rest = rest[:idx]
+            break
+    return rest
+
+
+def _raw_authority_is_credential_bearing(authority: str) -> bool:
+    """True when userinfo before the final @ contains a password separator."""
+    if "@" not in authority:
+        return False
+    userinfo, _, _host = authority.rpartition("@")
+    # Includes empty usernames (`:password@host`) and non-empty (`user:pass@host`).
+    return ":" in userinfo
+
+
+def _raw_query_fragment_has_secret(value: str) -> bool:
+    """Conservatively detect secret query/fragment keys without full URL parse."""
+    query = ""
+    fragment = ""
+    if "?" in value:
+        after_q = value.split("?", 1)[1]
+        if "#" in after_q:
+            query, fragment = after_q.split("#", 1)
+        else:
+            query = after_q
+    elif "#" in value:
+        fragment = value.split("#", 1)[1]
+    return _param_string_has_secret(query) or _param_string_has_secret(fragment)
+
+
+def _looks_like_credential_uri(value: str) -> bool:
+    if "://" not in value:
+        return False
+
+    authority = _raw_authority(value) or ""
+    raw_credential_authority = _raw_authority_is_credential_bearing(authority)
+
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        # Fail closed: unparseable credential-like URIs must still be redacted.
+        return raw_credential_authority or _raw_query_fragment_has_secret(value)
+
+    if parsed.password is not None or raw_credential_authority:
+        return True
+    return _param_string_has_secret(parsed.query) or _param_string_has_secret(
+        parsed.fragment
+    )
+
+
+def _redact_any(value: Any) -> Any:
+    if isinstance(value, SecretStr):
+        return REDACTED
+    if isinstance(value, Mapping):
+        return {
+            key: (REDACTED if is_secret_key(str(key)) else _redact_any(item))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_any(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_any(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        # Sets cannot contain unhashable nested structures after redaction of
+        # dicts; convert members individually and preserve set-ness when safe.
+        redacted_items = [_redact_any(item) for item in value]
+        try:
+            return type(value)(redacted_items)
+        except TypeError:
+            return redacted_items
+    if isinstance(value, str) and _looks_like_credential_uri(value):
+        return redact_connection_string(value)
+    return value
+
+
+def redact_dict_secrets(data: Mapping[str, Any] | dict[str, Any]) -> dict[str, Any]:
+    """Deep-copy mapping-like data with conventional secret keys redacted."""
+    redacted = _redact_any(data)
+    if not isinstance(redacted, dict):
+        return dict(redacted)
+    return redacted

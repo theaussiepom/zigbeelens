@@ -68,7 +68,8 @@ class PahoMqttClient(MqttClientBase):
         conn = parse_mqtt_server(config.server)
         self._client = mqtt.Client(client_id=config.client_id, protocol=mqtt.MQTTv311)
         if config.username:
-            self._client.username_pw_set(config.username, config.password or None)
+            password_value = config.password.get_secret_value()
+            self._client.username_pw_set(config.username, password_value or None)
         if conn.use_tls or config.tls.enabled:
             self._client.tls_set(cert_reqs=ssl.CERT_REQUIRED if config.tls.reject_unauthorized else ssl.CERT_NONE)
         self._client.on_connect = self._on_connect
