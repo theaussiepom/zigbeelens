@@ -40,7 +40,7 @@ class AppContext:
     health: HealthDiagnosticService
     incidents: IncidentDiagnosticService
     broadcaster: EventBroadcaster
-    session_manager: BrowserSessionManager
+    session_manager: BrowserSessionManager = field(repr=False)
     evaluation: EvaluationCoordinator | None = None
     evaluation_scheduler: PeriodicEvaluationScheduler | None = None
     collector: MqttCollector | None = None

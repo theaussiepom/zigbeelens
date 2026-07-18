@@ -7,11 +7,11 @@ import hmac
 import secrets
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from itsdangerous import BadSignature, URLSafeSerializer
+from itsdangerous import BadData, URLSafeSerializer
 from pydantic import SecretStr
 
 from zigbeelens.config.models import AppConfig
@@ -23,14 +23,20 @@ CSRF_PAYLOAD_VERSION = 1
 SESSION_SIGNING_SALT = "zigbeelens-browser-session-v1"
 CSRF_SIGNING_SALT = "zigbeelens-csrf-token-v1"
 MAX_SESSION_COOKIE_BYTES = 4096
+MAX_CSRF_TOKEN_BYTES = 4096
 MAX_FUTURE_CLOCK_SKEW_SECONDS = 60
 SESSION_ID_BYTES = 16
 
+SIGNER_KWARGS = {
+    "key_derivation": "hmac",
+    "digest_method": hashlib.sha256,
+}
+
 Clock = Callable[[], float]
 
-# Re-export for callers that import from this module.
 __all__ = [
     "SESSION_COOKIE_NAME",
+    "SIGNER_KWARGS",
     "BrowserSessionManager",
     "SessionClaims",
     "browser_sessions_enabled",
@@ -55,6 +61,28 @@ def _api_credential_binding(api_token: str, session_secret: str) -> str:
         api_token.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
+
+
+def _is_strict_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _valid_session_id(value: str) -> bool:
+    if len(value) != SESSION_ID_BYTES * 2:
+        return False
+    try:
+        bytes.fromhex(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _safe_signed_load(serializer: URLSafeSerializer, value: str) -> Any:
+    """Load signed data; translate every BadData failure to a safe ValueError."""
+    try:
+        return serializer.loads(value)
+    except BadData:
+        raise ValueError("invalid signed data") from None
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,13 +119,13 @@ class SessionClaims:
         issued_at = payload["issued_at"]
         expires_at = payload["expires_at"]
         binding = payload["api_credential_binding"]
-        if version != SESSION_PAYLOAD_VERSION:
+        if not _is_strict_int(version) or version != SESSION_PAYLOAD_VERSION:
             raise ValueError("invalid session payload")
         if not isinstance(session_id, str) or not _valid_session_id(session_id):
             raise ValueError("invalid session payload")
-        if not isinstance(issued_at, int) or isinstance(issued_at, bool):
+        if not _is_strict_int(issued_at):
             raise ValueError("invalid session payload")
-        if not isinstance(expires_at, int) or isinstance(expires_at, bool):
+        if not _is_strict_int(expires_at):
             raise ValueError("invalid session payload")
         if not isinstance(binding, str) or len(binding) != 64:
             raise ValueError("invalid session payload")
@@ -114,16 +142,6 @@ class SessionClaims:
         )
 
 
-def _valid_session_id(value: str) -> bool:
-    if len(value) != SESSION_ID_BYTES * 2:
-        return False
-    try:
-        bytes.fromhex(value)
-    except ValueError:
-        return False
-    return True
-
-
 @dataclass(frozen=True, slots=True)
 class BrowserSessionManager:
     """Process-local signed session/CSRF service built from effective AppConfig."""
@@ -131,11 +149,18 @@ class BrowserSessionManager:
     enabled: bool
     ttl_seconds: int
     cookie_secure: bool
-    _session_serializer: URLSafeSerializer | None
-    _csrf_serializer: URLSafeSerializer | None
-    _api_token: str | None
-    _session_secret: str | None
-    _clock: Clock
+    _session_serializer: URLSafeSerializer | None = field(repr=False)
+    _csrf_serializer: URLSafeSerializer | None = field(repr=False)
+    _api_credential_binding: str | None = field(repr=False)
+    _clock: Clock = field(repr=False)
+
+    def __repr__(self) -> str:
+        return (
+            "BrowserSessionManager("
+            f"enabled={self.enabled!r}, "
+            f"ttl_seconds={self.ttl_seconds!r}, "
+            f"cookie_secure={self.cookie_secure!r})"
+        )
 
     @classmethod
     def from_config(
@@ -157,23 +182,26 @@ class BrowserSessionManager:
         )
         session_serializer = None
         csrf_serializer = None
-        if enabled and session_secret is not None:
+        binding = None
+        if enabled and session_secret is not None and api_token is not None:
             session_serializer = URLSafeSerializer(
                 session_secret,
                 salt=SESSION_SIGNING_SALT,
+                signer_kwargs=SIGNER_KWARGS,
             )
             csrf_serializer = URLSafeSerializer(
                 session_secret,
                 salt=CSRF_SIGNING_SALT,
+                signer_kwargs=SIGNER_KWARGS,
             )
+            binding = _api_credential_binding(api_token, session_secret)
         return cls(
             enabled=enabled,
             ttl_seconds=config.security.session_ttl_seconds,
             cookie_secure=resolve_session_cookie_secure(config),
             _session_serializer=session_serializer,
             _csrf_serializer=csrf_serializer,
-            _api_token=api_token,
-            _session_secret=session_secret,
+            _api_credential_binding=binding,
             _clock=clock or time.time,
         )
 
@@ -185,9 +213,12 @@ class BrowserSessionManager:
 
     def issue_session(self) -> tuple[SessionClaims, str, str]:
         """Return claims, signed cookie value, and signed CSRF token."""
-        if not self.enabled or self._session_serializer is None or self._csrf_serializer is None:
-            raise RuntimeError("browser sessions are not configured")
-        if self._api_token is None or self._session_secret is None:
+        if (
+            not self.enabled
+            or self._session_serializer is None
+            or self._csrf_serializer is None
+            or self._api_credential_binding is None
+        ):
             raise RuntimeError("browser sessions are not configured")
 
         issued_at = self.now_ts()
@@ -197,10 +228,7 @@ class BrowserSessionManager:
             session_id=secrets.token_hex(SESSION_ID_BYTES),
             issued_at=issued_at,
             expires_at=expires_at,
-            api_credential_binding=_api_credential_binding(
-                self._api_token,
-                self._session_secret,
-            ),
+            api_credential_binding=self._api_credential_binding,
         )
         cookie_value = self._session_serializer.dumps(claims.to_payload())
         if len(cookie_value.encode("utf-8")) > MAX_SESSION_COOKIE_BYTES:
@@ -211,26 +239,33 @@ class BrowserSessionManager:
     def issue_csrf_token(self, session_id: str) -> str:
         if self._csrf_serializer is None:
             raise RuntimeError("browser sessions are not configured")
-        return self._csrf_serializer.dumps(
+        if not _valid_session_id(session_id):
+            raise RuntimeError("browser sessions are not configured")
+        token = self._csrf_serializer.dumps(
             {"version": CSRF_PAYLOAD_VERSION, "session_id": session_id}
         )
+        if len(token.encode("utf-8")) > MAX_CSRF_TOKEN_BYTES:
+            raise RuntimeError("csrf token exceeded maximum size")
+        return token
 
     def load_session_cookie(self, cookie_value: str) -> SessionClaims:
         """Validate and return claims, or raise ValueError without echoing input."""
         if not self.enabled or self._session_serializer is None:
             raise ValueError("invalid session")
+        if cookie_value != cookie_value.strip():
+            raise ValueError("invalid session")
         if len(cookie_value.encode("utf-8")) > MAX_SESSION_COOKIE_BYTES:
             raise ValueError("invalid session")
         try:
-            payload = self._session_serializer.loads(cookie_value)
-        except BadSignature:
+            payload = _safe_signed_load(self._session_serializer, cookie_value)
+            claims = SessionClaims.from_payload(payload)
+            self._validate_claims(claims)
+        except ValueError:
             raise ValueError("invalid session") from None
-        claims = SessionClaims.from_payload(payload)
-        self._validate_claims(claims)
         return claims
 
     def _validate_claims(self, claims: SessionClaims) -> None:
-        if self._api_token is None or self._session_secret is None:
+        if self._api_credential_binding is None:
             raise ValueError("invalid session")
         now = self.now_ts()
         if claims.issued_at > now + MAX_FUTURE_CLOCK_SKEW_SECONDS:
@@ -241,25 +276,36 @@ class BrowserSessionManager:
             raise ValueError("invalid session")
         if claims.expires_at <= now:
             raise ValueError("invalid session")
-        expected_binding = _api_credential_binding(self._api_token, self._session_secret)
-        if not hmac.compare_digest(claims.api_credential_binding, expected_binding):
+        if not hmac.compare_digest(
+            claims.api_credential_binding,
+            self._api_credential_binding,
+        ):
             raise ValueError("invalid session")
 
     def validate_csrf_token(self, token: str, *, session_id: str) -> None:
         if not self.enabled or self._csrf_serializer is None:
             raise ValueError("invalid csrf")
+        if token != token.strip():
+            raise ValueError("invalid csrf")
+        if len(token.encode("utf-8")) > MAX_CSRF_TOKEN_BYTES:
+            raise ValueError("invalid csrf")
+        if not _valid_session_id(session_id):
+            raise ValueError("invalid csrf")
         try:
-            payload = self._csrf_serializer.loads(token)
-        except BadSignature:
+            payload = _safe_signed_load(self._csrf_serializer, token)
+        except ValueError:
             raise ValueError("invalid csrf") from None
         if not isinstance(payload, dict):
             raise ValueError("invalid csrf")
         if set(payload) != {"version", "session_id"}:
             raise ValueError("invalid csrf")
-        if payload.get("version") != CSRF_PAYLOAD_VERSION:
+        version = payload.get("version")
+        if not _is_strict_int(version) or version != CSRF_PAYLOAD_VERSION:
             raise ValueError("invalid csrf")
         sid = payload.get("session_id")
-        if not isinstance(sid, str) or not hmac.compare_digest(sid, session_id):
+        if not isinstance(sid, str) or not _valid_session_id(sid):
+            raise ValueError("invalid csrf")
+        if not hmac.compare_digest(sid, session_id):
             raise ValueError("invalid csrf")
 
     def expires_at_iso(self, claims: SessionClaims) -> str:

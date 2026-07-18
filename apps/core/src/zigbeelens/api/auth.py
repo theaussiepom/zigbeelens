@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hmac
 import logging
-import re
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
@@ -16,6 +15,7 @@ from fastapi.security import APIKeyCookie, APIKeyHeader, HTTPAuthorizationCreden
 from zigbeelens.app.context import get_context
 from zigbeelens.config.api_token import parse_bearer_authorization_header
 from zigbeelens.security.browser_sessions import (
+    MAX_SESSION_COOKIE_BYTES,
     SESSION_COOKIE_NAME,
     BrowserSessionManager,
     SessionClaims,
@@ -39,10 +39,6 @@ browser_session_scheme = APIKeyCookie(name=SESSION_COOKIE_NAME, auto_error=False
 csrf_header_scheme = APIKeyHeader(name=CSRF_HEADER_NAME, auto_error=False)
 
 AuthMethod = Literal["bearer", "session", "trusted_local"]
-
-_COOKIE_PAIR_RE = re.compile(
-    r"(?:^|;\s*)([^=;\s]+)\s*=\s*([^;]*)",
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,13 +93,36 @@ def _extract_bearer_token(request: Request) -> str | None:
 
 
 def extract_session_cookie_value(request: Request) -> str | None:
-    """Return the session cookie value or None; raise ValueError on duplicates."""
+    """Return the session cookie value or None.
+
+    Fail closed on duplicate/malformed ``zigbeelens_session`` occurrences.
+    Unrelated well-formed or malformed cookies are ignored. Does not use
+    ``request.cookies`` (which can silently overwrite duplicates).
+    """
     values: list[str] = []
     for header in request.headers.getlist("cookie"):
-        for match in _COOKIE_PAIR_RE.finditer(header):
-            name = match.group(1)
-            if name == SESSION_COOKIE_NAME:
-                values.append(match.group(2))
+        if not header:
+            continue
+        for part in header.split(";"):
+            segment = part.strip()
+            if not segment:
+                continue
+            if "=" not in segment:
+                if segment == SESSION_COOKIE_NAME:
+                    raise ValueError("invalid session cookie")
+                continue
+            name, _, value = segment.partition("=")
+            name = name.strip()
+            if name != SESSION_COOKIE_NAME:
+                continue
+            # Reject whitespace around the signed value and quoted forms.
+            if value != value.strip() or not value:
+                raise ValueError("invalid session cookie")
+            if value.startswith('"') or value.endswith('"'):
+                raise ValueError("invalid session cookie")
+            if len(value.encode("utf-8")) > MAX_SESSION_COOKIE_BYTES:
+                raise ValueError("invalid session cookie")
+            values.append(value)
     if len(values) > 1:
         raise ValueError("duplicate session cookie")
     if not values:
