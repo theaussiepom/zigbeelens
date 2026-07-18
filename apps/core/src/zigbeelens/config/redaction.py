@@ -159,14 +159,57 @@ def redact_connection_string(value: str) -> str:
     )
 
 
+def _raw_authority(value: str) -> str | None:
+    """Return the raw authority between :// and the first /, ?, or #."""
+    if "://" not in value:
+        return None
+    rest = value.split("://", 1)[1]
+    for sep in ("/", "?", "#"):
+        idx = rest.find(sep)
+        if idx != -1:
+            rest = rest[:idx]
+            break
+    return rest
+
+
+def _raw_authority_is_credential_bearing(authority: str) -> bool:
+    """True when userinfo before the final @ contains a password separator."""
+    if "@" not in authority:
+        return False
+    userinfo, _, _host = authority.rpartition("@")
+    # Includes empty usernames (`:password@host`) and non-empty (`user:pass@host`).
+    return ":" in userinfo
+
+
+def _raw_query_fragment_has_secret(value: str) -> bool:
+    """Conservatively detect secret query/fragment keys without full URL parse."""
+    query = ""
+    fragment = ""
+    if "?" in value:
+        after_q = value.split("?", 1)[1]
+        if "#" in after_q:
+            query, fragment = after_q.split("#", 1)
+        else:
+            query = after_q
+    elif "#" in value:
+        fragment = value.split("#", 1)[1]
+    return _param_string_has_secret(query) or _param_string_has_secret(fragment)
+
+
 def _looks_like_credential_uri(value: str) -> bool:
     if "://" not in value:
         return False
+
+    authority = _raw_authority(value) or ""
+    raw_credential_authority = _raw_authority_is_credential_bearing(authority)
+
     try:
         parsed = urlparse(value)
     except ValueError:
-        return False
-    if parsed.password is not None:
+        # Fail closed: unparseable credential-like URIs must still be redacted.
+        return raw_credential_authority or _raw_query_fragment_has_secret(value)
+
+    if parsed.password is not None or raw_credential_authority:
         return True
     return _param_string_has_secret(parsed.query) or _param_string_has_secret(
         parsed.fragment

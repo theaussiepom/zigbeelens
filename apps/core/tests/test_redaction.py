@@ -233,6 +233,57 @@ def test_redact_connection_string_ipv6_host_remains_bracketed():
     assert "user:***@" in redacted
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "mqtt://user:credential-sentinel@[broken",
+        "mqtt://:credential-sentinel@[broken",
+    ],
+)
+def test_redact_dict_secrets_malformed_credential_authority_fail_closed(value: str):
+    sentinel = "credential-sentinel"
+    assert sentinel in value
+    assert redact_connection_string(value) == REDACTED
+    redacted = redact_dict_secrets({"server": value})
+    assert redacted["server"] == REDACTED
+    assert sentinel not in redacted["server"]
+
+
+def test_redact_dict_secrets_malformed_credential_uri_nested_structures():
+    sentinel = "credential-sentinel"
+    malformed = f"mqtt://user:{sentinel}@[broken"
+    payload = {
+        "items": [malformed],
+        "nested": {"mqtt_server": malformed, "ok": True},
+        "tuple_like": (malformed,),
+        "connection": f"mqtt://:{sentinel}@[broken",
+        "endpoint": malformed,
+    }
+    redacted = redact_dict_secrets(payload)
+    blob = str(redacted)
+    assert sentinel not in blob
+    assert redacted["items"][0] == REDACTED
+    assert redacted["nested"]["mqtt_server"] == REDACTED
+    assert redacted["nested"]["ok"] is True
+    assert redacted["tuple_like"][0] == REDACTED
+    assert redacted["connection"] == REDACTED
+    assert redacted["endpoint"] == REDACTED
+
+
+def test_redact_dict_secrets_valid_password_uri_remains_useful():
+    redacted = redact_dict_secrets({"server": "mqtt://user:password@broker:1883"})
+    assert redacted["server"] == "mqtt://user:***@broker:1883"
+    assert "password" not in redacted["server"].split("@", 1)[0]
+    assert "broker" in redacted["server"]
+    assert "1883" in redacted["server"]
+
+
+def test_redact_dict_secrets_safe_uri_without_credentials_unchanged():
+    value = "mqtt://broker:1883/path?client_id=safe&token_count=2"
+    redacted = redact_dict_secrets({"server": value})
+    assert redacted["server"] == value
+
+
 def test_appconfig_dump_redaction_masks_security_and_mqtt():
     token = "e" * 32
     config = AppConfig(
