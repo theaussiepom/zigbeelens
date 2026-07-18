@@ -6,6 +6,10 @@ The HACS sidebar provides a ZigbeeLens companion entry with a native summary and
 
 The Core dashboard is **canonical**. HACS does not collect MQTT or replace the dashboard.
 
+HACS does not yet send an API token. When Core requires authentication, use the
+native companion summary and **Open Full Dashboard** (or the standalone UI login
+when cookie policy permits). HACS bearer-token support is later work.
+
 ## Install via HACS (recommended)
 
 1. Run ZigbeeLens Core (Docker or add-on) — see [release-test.md](release-test.md) for pre-release `:edge` testing.

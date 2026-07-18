@@ -193,7 +193,7 @@ Details: [docs/reports.md](docs/reports.md) · [docs/redaction.md](docs/redactio
 
 ## Security model
 
-ZigbeeLens Core includes typed security configuration and secret loading (environment / `*_FILE`). When an API token is configured, protected API routes (reads, mutations, SSE, downloads) require `Authorization: Bearer <token>`. With `session_secret` also configured, browsers can create an HttpOnly session cookie (exact `Origin` + CSRF required for cookie mutations). Exact `cors_allowed_origins` / `frame_ancestor_origins` allowlists and HTML Content-Security-Policy are supported. `local` mode without a token remains deliberately trusted-open. Bundled UI login wiring, HACS token support, and Home Assistant ingress identity enforcement are **not** implemented yet.
+ZigbeeLens Core includes typed security configuration and secret loading (environment / `*_FILE`). When an API token is configured, protected API routes (reads, mutations, SSE, downloads) require `Authorization: Bearer <token>`. With `session_secret` also configured, browsers can create an HttpOnly session cookie (exact `Origin` + CSRF required for cookie mutations). The bundled standalone UI checks session status first, exchanges an API token once for that cookie (never persists the token), and uses credentialed fetch/SSE for protected data. Exact `cors_allowed_origins` / `frame_ancestor_origins` allowlists and HTML Content-Security-Policy are supported. `local` mode without a token remains deliberately trusted-open. HACS token support and Home Assistant ingress identity enforcement are **not** implemented yet.
 
 ZigbeeLens is read-only with respect to Zigbee control. It does not perform device-control actions such as permit join, remove, reset, bind/unbind, OTA, or channel changes.
 

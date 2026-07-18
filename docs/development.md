@@ -82,6 +82,17 @@ pnpm --filter @zigbeelens/ui dev
 - UI: http://localhost:5173 (proxies API to localhost:8377)
 - API docs: http://localhost:8377/docs (enable with `ZIGBEELENS_OPENAPI_ENABLED=true`)
 
+The Vite `/api` proxy is the preferred local workflow: browser requests stay
+same-origin with the UI, which keeps HttpOnly session cookies and
+`SameSite=Strict` working without cross-origin CORS setup.
+
+To exercise the standalone login screen locally, configure both
+`security.api_token` and `security.session_secret` (or their
+`ZIGBEELENS_SECURITY_*` / `*_FILE` equivalents) and restart Core. Do **not** put
+the API token in `VITE_*` variables or bake it into frontend assets — the UI
+accepts the token only in the password-style unlock field and exchanges it once
+for a browser session.
+
 Do not pass a separate `--host`/`--port` that can disagree with `server.host` / `server.port` in config. Optional port compatibility override: `ZIGBEELENS_PORT` (resolved into typed AppConfig).
 
 ## Docker dev

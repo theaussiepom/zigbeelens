@@ -118,7 +118,7 @@ For embedded view through Traefik or another proxy, also check:
 - Do not set proxy `frame-ancestors *` or wildcard CORS that broadens Core
 - `X-Frame-Options: DENY` at a proxy blocks embedding
 - SSE may need proxy buffering disabled (`flush_interval -1` on Caddy, or equivalent)
-- Third-party cookie / `SameSite=Strict` may still limit cookie auth inside an iframe; the native summary and Open Full Dashboard remain available
+- Third-party cookie / `SameSite=Strict` may still limit standalone UI login inside an iframe; the native summary and Open Full Dashboard remain the fallback when cookie policy blocks the session
 
 ---
 
@@ -265,7 +265,7 @@ For a domain with public DNS:
 2. Map `443:443` on the host.
 3. HACS Core URL: `https://zigbeelens.example.com` (no port).
 
-**Security:** Core may require `Authorization: Bearer` when an API token is configured; the HACS integration does not yet attach bearer credentials. HTTPS adds TLS, not authentication. If Core is reachable beyond users or networks you trust, consider firewall rules, network isolation, VPN, or authentication at the proxy (Authelia, OAuth2 proxy, Authentik, etc.).
+**Security:** Core may require `Authorization: Bearer` when an API token is configured; the HACS integration does not yet attach bearer credentials. The standalone UI can still log in via browser session when `session_secret` is set and cookie policy allows it. HTTPS adds TLS, not authentication. If Core is reachable beyond users or networks you trust, consider firewall rules, network isolation, VPN, or authentication at the proxy (Authelia, OAuth2 proxy, Authentik, etc.).
 
 ---
 
