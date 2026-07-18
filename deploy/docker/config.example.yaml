@@ -15,6 +15,8 @@ mode:
 #   ZIGBEELENS_MQTT_PASSWORD / ZIGBEELENS_MQTT_PASSWORD_FILE
 security:
   mode: local
+  cors_allowed_origins: []
+  frame_ancestor_origins: []
 
 mqtt:
   server: mqtt://mosquitto:1883
