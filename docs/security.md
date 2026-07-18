@@ -49,8 +49,15 @@ does **not** set HSTS (TLS proxies own that). Reverse proxies must not broaden
 Core’s CORS or frame policy with wildcards.
 
 Bundled UI login wiring, HACS API-token support, and Home Assistant ingress
-identity validation are **not** implemented yet. Proxy `X-Forwarded-*` /
-`Forwarded` headers are **not** trusted for origin or identity decisions.
+identity validation are **not** implemented yet.
+
+The canonical first-party Core launcher runs Uvicorn with forwarding-header
+trust disabled (`proxy_headers=False`). `X-Forwarded-Proto`,
+`X-Forwarded-For`, and `Forwarded` do **not** rewrite the ASGI request scheme,
+client, or Host used for Origin validation. External ASGI runners must likewise
+disable forwarding-header rewriting unless they intentionally own a reviewed
+proxy-trust policy. Trusted reverse-proxy networks and Home Assistant ingress
+identity remain deferred.
 
 Bearer and session authentication authenticate the HTTP request. They do **not**
 replace TLS on untrusted networks.
@@ -161,12 +168,13 @@ Authenticated read with the cookie jar (SSE/downloads work the same way):
 curl -s -b cookies.txt http://127.0.0.1:8377/api/dashboard | python3 -m json.tool
 ```
 
-Cookie-authenticated mutation (CSRF from login/status JSON):
+Cookie-authenticated mutation (exact Origin + CSRF from login/status JSON):
 
 ```bash
 CSRF=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["csrf_token"])' \
   < <(curl -s -b cookies.txt http://127.0.0.1:8377/api/auth/session))
 curl -s -b cookies.txt -X POST http://127.0.0.1:8377/api/reports \
+  -H "Origin: http://127.0.0.1:8377" \
   -H "Content-Type: application/json" \
   -H "X-ZigbeeLens-CSRF-Token: $CSRF" \
   -d '{"scope":"full","format":"json","redaction":{"profile":"public_safe"}}' \

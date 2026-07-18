@@ -2,7 +2,7 @@
 
 Home Assistant bridge to **ZigbeeLens Core** — summary entities, a native companion panel, diagnostics, and repairs.
 
-The HACS sidebar provides a ZigbeeLens companion entry with an **Open Full Dashboard** button. When Home Assistant and Core share the same protocol, the sidebar may auto-embed the full Core dashboard. Mixed-content setups keep the native companion summary instead.
+The HACS sidebar provides a ZigbeeLens companion entry with a native summary and an **Open Full Dashboard** button. Embedded Core view is opt-in via **Try Embedded View** when schemes match; mixed-content or invalid URLs stay on the native summary / blocked fallback.
 
 The Core dashboard is **canonical**. HACS does not collect MQTT or replace the dashboard.
 
@@ -169,13 +169,14 @@ Unknown must never be rendered as Compatible. Decision mode requires explicit
 
 ### Presentation paths
 
-1. **Same-protocol auto-embed:** when HA and Core share a scheme, the sidebar may load the
-   full Core dashboard (canonical Decision Engine UI).
-2. **Native companion summary:** used when embedding is blocked (for example HTTPS HA + HTTP
-   Core). Contract-gated priorities apply only on this path.
+1. **Native companion summary (default):** status/launcher surface with Open Full Dashboard
+   and optional Try Embedded View. Contract-gated priorities apply only on this path.
+2. **Opt-in embedded Core:** Try Embedded View enters iframe mode when schemes match;
+   Back to Summary returns to the native panel even if CSP blocks the iframe.
+3. **Blocked / mixed-content fallback:** HTTPS HA + HTTP Core (and invalid URLs) stay on
+   the friendly blocked view without trapping the panel.
 
-There is no “Back to Summary” control. **Open Full ZigbeeLens dashboard** remains the
-route into the full evidence UI.
+**Open Full ZigbeeLens dashboard** remains the reliable route into the full evidence UI.
 
 Diagnostics include safe factual fields:
 
