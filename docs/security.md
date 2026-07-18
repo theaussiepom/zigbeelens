@@ -10,33 +10,71 @@ ZigbeeLens is read-only with respect to Zigbee control. It does not perform devi
 
 Some API routes can modify ZigbeeLens’ own local data, such as creating/deleting reports, requesting a topology snapshot, or storing Home Assistant enrichment metadata.
 
-**Important limitation in this release:** Core configuration now includes typed security settings and secret loading, but the only built-in HTTP protection that is active is the **legacy mutation-route API-key guard**. Read-only GET routes, report downloads, and SSE event streams remain open. Bearer authentication, browser sessions/CSRF, CORS/CSP hardening, and Home Assistant ingress identity validation are **not** enforced yet.
+When an API token is configured, Core requires:
 
-Do not treat `security.mode: authenticated` or `home_assistant_ingress` as fully enforced access control in this build.
+```http
+Authorization: Bearer <token>
+```
+
+for protected reads, mutations, SSE, and report downloads. Browser sessions/CSRF, CORS/CSP hardening, bundled UI login, HACS token support, and Home Assistant ingress identity validation are **not** implemented yet.
+
+Bearer authentication authenticates the HTTP request. It does **not** replace TLS on untrusted networks.
 
 ## Security modes
 
 Configured under `security.mode` (or `ZIGBEELENS_SECURITY_MODE`):
 
-| Mode | Meaning in configuration | What this build enforces |
-|------|--------------------------|--------------------------|
-| `local` | Default local/trusted operation | Optional mutation-route API-key guard when an API token is configured |
-| `authenticated` | Credentials are required in config (`api_token`) | Same mutation-route guard only; read routes/SSE remain open |
-| `home_assistant_ingress` | Declares intended HA ingress deployment | Ingress identity validation is **not** active yet |
+| Mode | Meaning | What this build enforces |
+|------|---------|--------------------------|
+| `local` without `api_token` | Trusted-open compatibility | All API routes open (public + protected). Strong warning when bound non-loopback. |
+| `local` with `api_token` | Local deploy with a shared secret | Bearer required for all protected API routes |
+| `authenticated` | Credentials required in config | Bearer required for all protected API routes (`api_token` mandatory) |
+| `home_assistant_ingress` | Intended HA ingress deploy | Temporary bearer fallback (`api_token` mandatory). Ingress identity headers are **not** trusted yet. |
 
 Missing required credentials fail closed at config load. Core does **not** auto-generate secrets at startup and does not persist generated secrets into SQLite or YAML.
 
-## Optional mutation-route API key
+## Public HTTP surface
 
-When `security.api_token` is configured, mutating routes require header `X-ZigbeeLens-Api-Key`:
+When bearer authentication is active, only these endpoints are unauthenticated:
 
-- `POST` / `DELETE` `/api/reports*`
-- `POST` `/api/topology/{network_id}/capture`
-- `POST` / `DELETE` `/api/enrichment/homeassistant`
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /healthz` | Minimal readiness (`{"status":"ok"}` or degraded `503`) |
+| `GET /api/version` | Product name/version |
+| `GET /api/v1/version` | Same as `/api/version` |
+| Static UI shell / `/assets/*` | Bundled dashboard assets |
+| CORS preflight | Handled by existing middleware |
 
-(` /api/v1/...` aliases share the same policy.)
+Everything else under `/api` and `/api/v1` requires Bearer when a token is configured — including detailed `/api/health`, `/api/config/status`, Dashboard, SSE, reports, and downloads.
 
-GET/HEAD/OPTIONS, SSE (`/api/events/stream`), and report downloads remain open.
+## Bearer authentication
+
+Accepted header:
+
+```http
+Authorization: Bearer <exact-token>
+```
+
+Rules:
+
+- Scheme comparison is case-insensitive (`Bearer` / `bearer`)
+- Token comparison is constant-time
+- Tokens are not accepted from query strings, cookies, URL fragments, or form bodies
+- The former `X-ZigbeeLens-Api-Key` HTTP header is **not** accepted
+- Missing and invalid credentials return the same `401` with `WWW-Authenticate: Bearer`
+
+Generate a token safely:
+
+```bash
+openssl rand -base64 48
+```
+
+Example:
+
+```bash
+curl -s http://127.0.0.1:8377/api/dashboard \
+  -H "Authorization: Bearer $ZIGBEELENS_TEST_API_TOKEN"
+```
 
 ## Canonical secret environment variables
 
@@ -55,9 +93,11 @@ Prefer environment or file injection over YAML:
 
 ### Temporary compatibility alias
 
-`ZIGBEELENS_API_KEY` remains a temporary alias for `security.api_token`.
+`ZIGBEELENS_API_KEY` remains a temporary **configuration-source** alias for `security.api_token`.
 
-It **must not** be combined with `ZIGBEELENS_SECURITY_API_TOKEN` or `ZIGBEELENS_SECURITY_API_TOKEN_FILE`. Conflicting sources raise a configuration error instead of guessing precedence.
+It does **not** restore the removed `X-ZigbeeLens-Api-Key` HTTP header. Clients must send `Authorization: Bearer`.
+
+It **must not** be combined with `ZIGBEELENS_SECURITY_API_TOKEN` or `ZIGBEELENS_SECURITY_API_TOKEN_FILE`.
 
 ### `*_FILE` rules
 
@@ -67,10 +107,6 @@ It **must not** be combined with `ZIGBEELENS_SECURITY_API_TOKEN` or `ZIGBEELENS_
 - Only trailing CR/LF characters are stripped
 - Empty content, missing files, unreadable paths, invalid UTF-8, and control characters fail closed
 - Error messages may mention the path, never the secret contents
-
-A direct environment value and its matching `*_FILE` variable must not both be set.
-
-Environment/file values override YAML. YAML may still contain `security.api_token` / `security.session_secret`, but that is discouraged.
 
 ## Token validation
 
@@ -82,97 +118,45 @@ Environment/file values override YAML. YAML may still contain `security.api_toke
 - require at least 32 characters
 - never echo rejected values in validation errors or logs
 
-### Generating a secret safely
-
-Example:
-
-```bash
-openssl rand -base64 48
-```
-
-Store the result in an environment variable or a root-restricted file referenced by `*_FILE`. Do not commit tokens to git.
-
 ## Bind address defaults
 
 - Process default `server.host` is `127.0.0.1`
 - Explicit `0.0.0.0` / `::` remains valid for containers and add-ons
-- Add-on generated config continues to bind `0.0.0.0`
-- Docker example configs keep an explicit container bind and document host exposure separately
+- Docker/add-on example configs keep an explicit container bind
 
-`/api/config/status` exposes secret-free posture metadata (`security.mode`, loopback bind, whether tokens are configured, whether the mutation guard is enabled). It never returns token values, secret lengths, fingerprints, or secret file paths.
+`/api/config/status` exposes secret-free posture metadata (`mode`, loopback bind, bearer flags, trusted-local-open). It never returns token values, lengths, fingerprints, or secret file paths.
+
+## Client compatibility notes
+
+| Client | `local` without token | Token configured / `authenticated` |
+|--------|------------------------|------------------------------------|
+| Direct API (`curl`, scripts) | Open | Use `Authorization: Bearer` |
+| Bundled UI | Works | Login/token attachment not implemented yet |
+| HACS integration | Works | Token configuration not implemented yet |
+
+Do not weaken bearer protection to preserve unauthenticated clients in authenticated mode.
+
+## Health probes
+
+| Endpoint | Auth | Contents |
+|----------|------|----------|
+| `GET /healthz` | Always public | Minimal `status` only — used by Docker HEALTHCHECK |
+| `GET /api/health` | Protected when bearer required | Detailed collector/topology/enrichment status |
 
 ## Network exposure
 
 | Install | Exposure |
 |---------|----------|
-| HAOS add-on | Via Home Assistant Ingress — inherits HA access controls; Core ingress-identity enforcement is not active yet in this build |
-| Docker standalone | Port 8377 when published — bind to loopback or place a trusted authenticated reverse proxy in front until broader Core auth lands |
+| HAOS add-on | Via Home Assistant Ingress — inherits HA access controls; Core ingress-identity enforcement is not active yet |
+| Docker standalone | Port 8377 when published — prefer loopback publish or a trusted authenticated reverse proxy |
 | Dev | Loopback by default |
 
-For broader access today, consider firewall rules, Home Assistant Ingress, network isolation, or an authenticated reverse proxy such as Authentik, Cloudflare Access, Authelia, or basic auth. HTTPS may help with embedding, but **HTTPS is not authentication**.
+For broader access today, consider firewall rules, Home Assistant Ingress, network isolation, or an authenticated reverse proxy. HTTPS may help with embedding, but **HTTPS is not authentication**.
 
-## Secrets handling
+## Not yet implemented
 
-- Prefer env / `*_FILE` injection for MQTT and security secrets
-- Secrets are not written to application logs
-- Config validation errors omit rejected input values
-- Reports are redacted before storage and download
-- Use `public_safe` redaction when sharing reports publicly
-
-See [redaction.md](redaction.md).
-
-## MQTT safety
-
-| Component | Publish behaviour |
-|-----------|-------------------|
-| Collector | **None** — subscribe only |
-| MQTT Discovery | `homeassistant/` and `zigbeelens/` only |
-| Topology | Single allowlisted `{base_topic}/bridge/request/networkmap` when explicitly enabled and confirmed |
-
-ZigbeeLens does not publish device commands, permit join, remove, reset, bind, unbind, or OTA topics.
-
-Audit: [safety-audit.md](safety-audit.md)
-
-## Core API — local data only
-
-These routes change ZigbeeLens’ own stored data, not Zigbee devices:
-
-- `POST` / `DELETE` `/api/reports*`
-- `POST` `/api/topology/{network_id}/capture` (allowlisted network-map request only, confirmation-gated)
-- `POST` / `DELETE` `/api/enrichment/homeassistant`
-
-Read-only observability endpoints (`/api/dashboard`, `/api/devices`, etc.) do not mutate Zigbee2MQTT or devices.
-
-## Data at rest
-
-- SQLite database at `storage.path` (default `/data/zigbeelens.sqlite` in containers)
-- Stored reports are already redacted
-- Back up `/data` and `/config` — see [backups.md](backups.md)
-
-Ensure `/data` permissions are correct (UID 1000 in Docker).
-
-## Home Assistant integration
-
-- Read-only HTTP to Core for polling health and dashboard data
-- The HACS integration is **not** an authentication layer for Core
-- Diagnostics platform returns redacted data
-- Does not mutate Zigbee or Zigbee2MQTT
-
-HACS token configuration and add-on ingress trust options are separate follow-up work and are not configured here.
-
-## Reverse proxy notes
-
-When proxying ZigbeeLens:
-
-- Preserve SSE (`/api/events/stream`) or rely on UI polling fallback
-- Terminate TLS at the proxy — TLS is not authentication
-- Add authentication at the proxy if Core is reachable beyond users or networks you trust
-
-## Related
-
-- [docker.md](docker.md)
-- [troubleshooting.md](troubleshooting.md)
-- [hacs.md](hacs.md)
-- [hacs-embedded-view.md](hacs-embedded-view.md)
-- [addon-dev.md](addon-dev.md)
-- [redaction.md](redaction.md)
+- Browser sessions and CSRF
+- Bundled UI authentication
+- HACS token configuration
+- Home Assistant ingress identity validation
+- CORS/CSP/origin hardening beyond the current embed CSP note

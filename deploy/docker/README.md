@@ -66,7 +66,7 @@ Both run the same ZigbeeLens product.
 
 ## Security
 
-ZigbeeLens Core currently configures typed security settings and an optional mutation-route API-key guard; read routes, downloads, and SSE remain open. Publishing `8377:8377` exposes Core on the Docker host — convenient for local or trusted-network use. If Core is reachable beyond users or networks you trust, access-control decisions are your responsibility. HTTPS (optional, for embedded view) is not authentication. See [docs/security.md](../../docs/security.md).
+ZigbeeLens Core currently configures typed security settings and an optional bearer authentication when an API token is configured; local/no-token remains trusted-open. Publishing `8377:8377` exposes Core on the Docker host — convenient for local or trusted-network use. If Core is reachable beyond users or networks you trust, access-control decisions are your responsibility. HTTPS (optional, for embedded view) is not authentication. See [docs/security.md](../../docs/security.md).
 
 ## Validation
 

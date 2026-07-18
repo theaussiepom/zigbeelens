@@ -19,6 +19,10 @@ def _write_config(path: Path, body: str) -> None:
     path.write_text(body.strip() + "\n", encoding="utf-8")
 
 
+def _bearer(token: str = VALID_TOKEN) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
 def test_security_status_booleans_only():
     config = AppConfig(
         server=ServerConfig(host="0.0.0.0"),
@@ -35,9 +39,23 @@ def test_security_status_booleans_only():
         "loopback_bind": False,
         "api_token_configured": True,
         "session_secret_configured": True,
-        "legacy_mutation_guard_enabled": True,
+        "bearer_auth_enabled": True,
+        "read_routes_require_bearer": True,
+        "mutation_routes_require_bearer": True,
+        "ingress_identity_enforced": False,
+        "trusted_local_open": False,
+        "legacy_mutation_guard_enabled": False,
     }
     assert VALID_TOKEN not in status.model_dump_json()
+
+
+def test_security_status_trusted_local_open():
+    status = build_security_config_status(AppConfig())
+    assert status.trusted_local_open is True
+    assert status.bearer_auth_enabled is False
+    assert status.read_routes_require_bearer is False
+    assert status.mutation_routes_require_bearer is False
+    assert status.legacy_mutation_guard_enabled is False
 
 
 def test_config_status_api_and_v1_parity(tmp_path, monkeypatch):
@@ -60,24 +78,27 @@ security:
     monkeypatch.setenv("ZIGBEELENS_CONFIG", str(config_path))
     app = create_app(str(config_path))
     with TestClient(app) as client:
-        legacy = client.get("/api/config/status")
-        v1 = client.get("/api/v1/config/status")
+        assert client.get("/api/config/status").status_code == 401
+        legacy = client.get("/api/config/status", headers=_bearer())
+        v1 = client.get("/api/v1/config/status", headers=_bearer())
         assert legacy.status_code == 200
         assert v1.status_code == 200
         assert legacy.json() == v1.json()
         body = legacy.json()
         assert body["security"]["api_token_configured"] is True
-        assert body["security"]["legacy_mutation_guard_enabled"] is True
+        assert body["security"]["bearer_auth_enabled"] is True
+        assert body["security"]["trusted_local_open"] is False
+        assert body["security"]["legacy_mutation_guard_enabled"] is False
         assert VALID_TOKEN not in legacy.text
         assert "token.txt" not in legacy.text
 
 
-def test_startup_posture_local_loopback_no_remote_warning(caplog):
+def test_startup_posture_local_loopback_trusted_open(caplog):
     config = AppConfig(server=ServerConfig(host="127.0.0.1"))
     with caplog.at_level(logging.INFO):
         log_security_posture(config)
     assert "non-loopback" not in caplog.text
-    assert "mutation-route API-key guard" in caplog.text
+    assert "trusted-open" in caplog.text
 
 
 def test_startup_posture_local_non_loopback_warns(caplog):
@@ -86,9 +107,10 @@ def test_startup_posture_local_non_loopback_warns(caplog):
         log_security_posture(config)
     assert "non-loopback address" in caplog.text
     assert "0.0.0.0" in caplog.text
+    assert "All API routes are open" in caplog.text
 
 
-def test_startup_posture_local_non_loopback_with_token_logs_guard(caplog):
+def test_startup_posture_local_with_token_logs_bearer(caplog):
     config = AppConfig(
         server=ServerConfig(host="0.0.0.0"),
         security=SecurityConfig(api_token=VALID_TOKEN),
@@ -96,27 +118,35 @@ def test_startup_posture_local_non_loopback_with_token_logs_guard(caplog):
     with caplog.at_level(logging.INFO):
         log_security_posture(config)
     assert "api_token_configured=True" in caplog.text
-    assert "mutation_guard=enabled" in caplog.text
+    assert "bearer_auth_enabled=True" in caplog.text
+    assert "Bearer authentication is enabled" in caplog.text
     assert VALID_TOKEN not in caplog.text
     assert "non-loopback address" not in caplog.text
 
 
-def test_startup_posture_authenticated_partial_enforcement_warning(caplog):
+def test_startup_posture_authenticated_bearer_enforced(caplog):
     config = AppConfig(
         security=SecurityConfig(mode=SecurityMode.authenticated, api_token=VALID_TOKEN)
     )
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.INFO):
         log_security_posture(config)
     assert "security.mode=authenticated" in caplog.text
-    assert "legacy mutation-route API-key guard" in caplog.text
+    assert "require Authorization: Bearer" in caplog.text
+    assert "legacy mutation-route" not in caplog.text
     assert VALID_TOKEN not in caplog.text
 
 
-def test_startup_posture_ingress_non_enforcement_warning(caplog):
-    config = AppConfig(security=SecurityConfig(mode=SecurityMode.home_assistant_ingress))
+def test_startup_posture_ingress_bearer_fallback_warning(caplog):
+    config = AppConfig(
+        security=SecurityConfig(
+            mode=SecurityMode.home_assistant_ingress,
+            api_token=VALID_TOKEN,
+        )
+    )
     with caplog.at_level(logging.WARNING):
         log_security_posture(config)
-    assert "ingress identity enforcement is not active" in caplog.text
+    assert "temporary bearer authentication" in caplog.text
+    assert "ingress identity validation is not" in caplog.text
 
 
 def test_bootstrap_logs_posture_without_secrets(tmp_path, monkeypatch, caplog):
@@ -141,4 +171,5 @@ security:
         bootstrap(config_path=str(config_path))
     assert VALID_TOKEN not in caplog.text
     assert "api_token_configured=True" in caplog.text
+    assert "bearer_auth_enabled=True" in caplog.text
     reset_context()
