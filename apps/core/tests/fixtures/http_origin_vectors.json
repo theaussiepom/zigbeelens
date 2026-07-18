@@ -8,6 +8,9 @@
   {"input": "http://core.local", "canonical": "http://core.local"},
   {"input": "http://zigbeelens.home.arpa:8377", "canonical": "http://zigbeelens.home.arpa:8377"},
   {"input": "http://bücher.example", "canonical": "http://xn--bcher-kva.example"},
+  {"input": "http://faß.example", "canonical": "http://xn--fa-hia.example"},
+  {"input": "http://straße.example", "canonical": "http://xn--strae-oqa.example"},
+  {"input": "http://xn--bcher-kva.example", "canonical": "http://xn--bcher-kva.example"},
   {"input": "https://user:pass@example.com", "reject": true},
   {"input": "https://example.com/path", "reject": true},
   {"input": "https://example.com?token=x", "reject": true},
@@ -24,5 +27,6 @@
   {"input": "javascript://host", "reject": true},
   {"input": "http://example.com:0", "reject": true},
   {"input": "http://example.com:65536", "reject": true},
-  {"input": "http://exam\\ple.com", "reject": true}
+  {"input": "http://exam\\ple.com", "reject": true},
+  {"input": "http://exampl\u0001e.com", "reject": true}
 ]

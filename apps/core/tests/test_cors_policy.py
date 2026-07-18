@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from zigbeelens.api.auth import AUTH_DETAIL, CSRF_DETAIL, CSRF_HEADER_NAME
 from zigbeelens.app.context import get_context
 from zigbeelens.main import create_app
+from zigbeelens.security.headers import GENERAL_HEADERS
 
 VALID_TOKEN = "b" * 32
 SESSION_SECRET = "s" * 32
@@ -85,6 +86,11 @@ def test_allowed_origin_preflight_and_credentials(tmp_path, monkeypatch):
         assert pre.headers.get("access-control-allow-origin") == ALLOWED
         assert pre.headers.get("access-control-allow-credentials") == "true"
         assert "origin" in (pre.headers.get("vary") or "").lower()
+        for key, value in GENERAL_HEADERS.items():
+            assert pre.headers.get(key.lower()) == value
+        assert pre.headers.get("content-security-policy") is None
+        assert pre.headers.get("x-frame-options") is None
+        assert pre.headers.get("strict-transport-security") is None
         methods = (pre.headers.get("access-control-allow-methods") or "").upper()
         for m in ("GET", "HEAD", "OPTIONS", "POST", "DELETE"):
             assert m in methods
@@ -137,10 +143,10 @@ def test_disallowed_origin_no_allow_header_zero_work(tmp_path, monkeypatch):
                 "Access-Control-Request-Method": "GET",
             },
         )
-        # Starlette may emit Allow-Credentials on rejected preflights; without
-        # Allow-Origin the browser still treats the request as a CORS failure.
         assert pre.headers.get("access-control-allow-origin") is None
-        assert "*" not in (pre.headers.get("access-control-allow-origin") or "")
+        assert pre.headers.get("access-control-allow-credentials") is None
+        for key, value in GENERAL_HEADERS.items():
+            assert pre.headers.get(key.lower()) == value
         assert counter.stats.execute_count == before.execute_count
 
         # Near-match denials
@@ -154,7 +160,7 @@ def test_disallowed_origin_no_allow_header_zero_work(tmp_path, monkeypatch):
         ):
             res = client.get("/api/dashboard", headers={"Origin": origin})
             assert res.headers.get("access-control-allow-origin") is None
-            assert "*" not in (res.headers.get("access-control-allow-origin") or "")
+            assert res.headers.get("access-control-allow-credentials") is None
 
 
 def test_cors_on_401_and_403_for_allowed_origin(tmp_path, monkeypatch):

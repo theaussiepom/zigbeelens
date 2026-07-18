@@ -6,6 +6,7 @@ from collections.abc import Iterable, MutableMapping
 from typing import Any
 
 from starlette.datastructures import MutableHeaders
+from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from zigbeelens.config.models import AppConfig
@@ -166,3 +167,32 @@ def cors_middleware_kwargs(config: AppConfig) -> dict[str, Any]:
         "expose_headers": ["Content-Disposition"],
         "max_age": 600,
     }
+
+
+class ExactCORSMiddleware(CORSMiddleware):
+    """CORSMiddleware with exact rejected-CORS header hygiene.
+
+    Starlette may emit ``Access-Control-Allow-Credentials`` on rejected
+    preflights without an allow-origin. Strip credentials unless an exact
+    allow-origin is present. Never introduces wildcards or origin reflection.
+    """
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await super().__call__(scope, receive, send)
+            return
+
+        async def send_wrapper(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                allow_origin = headers.get("access-control-allow-origin")
+                if not allow_origin or allow_origin == "*":
+                    if "access-control-allow-credentials" in headers:
+                        del headers["access-control-allow-credentials"]
+                    if allow_origin == "*":
+                        del headers["access-control-allow-origin"]
+                await send(message)
+            else:
+                await send(message)
+
+        await super().__call__(scope, receive, send_wrapper)

@@ -75,6 +75,44 @@ def test_same_origin_and_cors_origin_succeed(tmp_path, monkeypatch):
             assert res.status_code == 200, origin
 
 
+def test_malformed_host_rejects_before_csrf_and_body(tmp_path, monkeypatch):
+    import zigbeelens.api.routes as routes_mod
+    from performance.query_instrumentation import install_counter
+    from starlette.requests import Request as StarletteRequest
+
+    with _client(tmp_path, monkeypatch) as client:
+        _login(client)
+        ctx = get_context()
+        counter = install_counter(ctx.repo)
+        monkeypatch.setattr(
+            routes_mod,
+            "generate_report",
+            MagicMock(side_effect=AssertionError("create")),
+        )
+        body_reads = {"n": 0}
+        original = StarletteRequest.body
+
+        async def counting_body(self):
+            body_reads["n"] += 1
+            return await original(self)
+
+        monkeypatch.setattr(StarletteRequest, "body", counting_body)
+        before = counter.stats.copy()
+        res = client.post(
+            "/api/reports",
+            json={"format": "json", "redaction": {"profile": "standard"}},
+            headers={
+                CSRF_HEADER_NAME: "definitely-wrong-csrf",
+                "Origin": SAME,
+                "Host": "example.com:notaport",
+            },
+        )
+        _assert_origin_403(res)
+        assert res.json()["detail"] != CSRF_DETAIL
+        assert body_reads["n"] == 0
+        assert counter.stats.execute_count == before.execute_count
+
+
 def test_origin_rejection_matrix_zero_work(tmp_path, monkeypatch):
     from performance.query_instrumentation import install_counter
     import zigbeelens.api.routes as routes_mod

@@ -43,6 +43,27 @@ def test_deduplicates_canonical_origins() -> None:
     ) == ("http://localhost", "https://a.example")
 
 
+def test_idna_non_transitional_matches_javascript_url_origin() -> None:
+    """Non-transitional UTS 46 output agrees with browser/Node URL.origin."""
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not available for URL.origin parity")
+    cases = [
+        ("http://faß.example", "http://xn--fa-hia.example"),
+        ("http://straße.example", "http://xn--strae-oqa.example"),
+    ]
+    for raw, expected in cases:
+        assert canonicalize_http_origin(raw) == expected
+        js = subprocess.check_output(
+            [node, "-e", f"process.stdout.write(new URL({raw!r}).origin)"],
+            text=True,
+        )
+        assert js == expected
+
+
 def test_security_config_origin_lists() -> None:
     cfg = SecurityConfig(
         cors_allowed_origins=["HTTPS://UI.Example:443/"],

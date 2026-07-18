@@ -5,6 +5,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 from urllib.parse import urlsplit
 
+import idna
+
+from zigbeelens.config.secret_validation import contains_control_characters
+
 MAX_ORIGIN_LENGTH = 2048
 
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
@@ -22,11 +26,7 @@ class InvalidHttpOrigin(ValueError):
 def _has_forbidden_characters(value: str) -> bool:
     if "\\" in value:
         return True
-    for ch in value:
-        code = ord(ch)
-        if code < 32 or code == 127:
-            return True
-    return False
+    return contains_control_characters(value)
 
 
 def _normalize_hostname(hostname: str) -> str:
@@ -39,11 +39,16 @@ def _normalize_hostname(hostname: str) -> str:
     # Reject IPv6 zone identifiers (not required by current deployments).
     if "%" in hostname:
         raise InvalidHttpOrigin("zone identifier")
-    lower = hostname.lower()
+    # ASCII hosts (including IPv4/IPv6 literals) stay lowercase without IDNA.
     try:
-        # Deterministic IDNA for internationalized labels; ASCII hosts unchanged.
-        return lower.encode("idna").decode("ascii")
-    except (UnicodeError, ValueError) as exc:
+        hostname.encode("ascii")
+        return hostname.lower()
+    except UnicodeEncodeError:
+        pass
+    try:
+        # Browser-aligned IDNA 2008 / UTS 46, non-transitional.
+        return idna.encode(hostname, uts46=True, transitional=False).decode("ascii")
+    except (idna.IDNAError, UnicodeError, ValueError) as exc:
         raise InvalidHttpOrigin("invalid hostname") from exc
 
 

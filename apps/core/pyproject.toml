@@ -13,6 +13,7 @@ dependencies = [
   "sse-starlette>=2.2.0",
   "paho-mqtt>=2.1.0",
   "itsdangerous>=2.2.0",
+  "idna>=3.4",
 ]
 
 [project.optional-dependencies]

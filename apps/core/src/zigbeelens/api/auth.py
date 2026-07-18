@@ -15,6 +15,7 @@ from fastapi.security import APIKeyCookie, APIKeyHeader, HTTPAuthorizationCreden
 from zigbeelens.app.context import get_context
 from zigbeelens.config.api_token import parse_bearer_authorization_header
 from zigbeelens.config.http_origin import InvalidHttpOrigin, canonicalize_http_origin
+from zigbeelens.config.secret_validation import contains_control_characters
 from zigbeelens.security.browser_sessions import (
     MAX_SESSION_COOKIE_BYTES,
     SESSION_COOKIE_NAME,
@@ -253,21 +254,53 @@ def require_bearer_bootstrap(request: Request) -> AuthIdentity:
 
 
 def request_same_origin(request: Request) -> str:
-    """Return the request's effective same-origin from ASGI scope (no proxy trust)."""
-    url = request.url
-    scheme = (url.scheme or "http").lower()
-    host = url.hostname
-    if not host:
-        raise InvalidHttpOrigin("missing hostname")
-    # Starlette returns bare IPv6 hostnames; origins require brackets.
-    if ":" in host and not host.startswith("["):
-        host = f"[{host}]"
-    port = url.port
-    if port is not None:
-        candidate = f"{scheme}://{host}:{port}"
-    else:
-        candidate = f"{scheme}://{host}"
-    return canonicalize_http_origin(candidate)
+    """Return the request's effective same-origin from ASGI scope (no proxy trust).
+
+    Every malformed Host/URL condition becomes InvalidHttpOrigin without
+    embedding rejected Host text. Forwarding headers are never consulted.
+
+    When a Host header is present it is authoritative: Starlette may silently
+    fall back to the ASGI server address for malformed Host values, which must
+    not be treated as a successful origin.
+    """
+    try:
+        host_values = request.headers.getlist("host")
+        if len(host_values) > 1:
+            raise InvalidHttpOrigin("duplicate host")
+
+        try:
+            scheme = (request.url.scheme or "http").lower()
+        except Exception:
+            raise InvalidHttpOrigin("malformed request origin") from None
+
+        if host_values:
+            raw_host = host_values[0]
+            if not raw_host or contains_control_characters(raw_host) or "@" in raw_host:
+                raise InvalidHttpOrigin("invalid host")
+            # Validate the presented authority; do not accept server fallback.
+            return canonicalize_http_origin(f"{scheme}://{raw_host}")
+
+        url = request.url
+        host = url.hostname
+        if not host:
+            raise InvalidHttpOrigin("missing hostname")
+        # Starlette returns bare IPv6 hostnames; origins require brackets.
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        try:
+            port = url.port
+        except ValueError as exc:
+            raise InvalidHttpOrigin("invalid port") from exc
+        if port is not None:
+            candidate = f"{scheme}://{host}:{port}"
+        else:
+            candidate = f"{scheme}://{host}"
+        return canonicalize_http_origin(candidate)
+    except InvalidHttpOrigin:
+        raise
+    except Exception:
+        # Fail closed without chaining request/Host text into logs or responses.
+        raise InvalidHttpOrigin("malformed request origin") from None
 
 
 def _extract_single_origin_header(request: Request) -> str | None:

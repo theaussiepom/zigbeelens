@@ -9,7 +9,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
@@ -22,10 +21,20 @@ from zigbeelens.api.routes import include_api_routers
 from zigbeelens.app.context import bootstrap, get_context, reset_context
 from zigbeelens.config import AppConfig, load_effective_config, resolve_config_path
 from zigbeelens.logging_config import configure_logging
-from zigbeelens.security.headers import SecurityHeadersMiddleware, cors_middleware_kwargs
+from zigbeelens.security.headers import (
+    ExactCORSMiddleware,
+    SecurityHeadersMiddleware,
+    cors_middleware_kwargs,
+)
 from zigbeelens.static import mount_static_ui
 
 logger = logging.getLogger(__name__)
+
+# Canonical first-party Uvicorn: never rewrite ASGI scope from forwarding headers.
+_UVICORN_NO_PROXY_TRUST = {
+    "proxy_headers": False,
+    "forwarded_allow_ips": "",
+}
 
 
 def _openapi_enabled() -> bool:
@@ -39,13 +48,15 @@ def _resolve_app_config(
     resolved_config: AppConfig | None,
 ) -> tuple[AppConfig, str | None]:
     """Resolve one immutable AppConfig for middleware and lifespan bootstrap."""
-    path = config_path or os.environ.get("ZIGBEELENS_CONFIG")
     if resolved_config is not None:
+        path = config_path or os.environ.get("ZIGBEELENS_CONFIG")
+        if path is None:
+            path = str(resolve_config_path())
         return resolved_config, path
-    if path:
-        return load_effective_config(path), path
-    # Module-level / reload entry with no config: safe empty-origin defaults.
-    return AppConfig(), path
+    path = config_path or os.environ.get("ZIGBEELENS_CONFIG")
+    if not path:
+        path = str(resolve_config_path())
+    return load_effective_config(path), path
 
 
 def create_app(
@@ -84,10 +95,11 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
     )
-    # Last added = outermost. CORS wraps security headers and routes so 401/403
-    # responses still carry CORS for allowed origins.
+    # Last added = outermost. Security headers wrap CORS so OPTIONS preflight
+    # also receives nosniff/referrer/permissions. CORS still annotates allowed
+    # auth/CSRF/error responses before the outer header pass.
+    app.add_middleware(ExactCORSMiddleware, **cors_middleware_kwargs(cfg))
     app.add_middleware(SecurityHeadersMiddleware, config=cfg)
-    app.add_middleware(CORSMiddleware, **cors_middleware_kwargs(cfg))
 
     @app.get("/healthz", include_in_schema=True, response_model=None)
     def healthz():
@@ -214,6 +226,7 @@ def run_server(
             port=cfg.server.port,
             reload=True,
             factory=False,
+            **_UVICORN_NO_PROXY_TRUST,
         )
         return
 
@@ -223,6 +236,7 @@ def run_server(
         host=cfg.server.host,
         port=cfg.server.port,
         reload=False,
+        **_UVICORN_NO_PROXY_TRUST,
     )
 
 
