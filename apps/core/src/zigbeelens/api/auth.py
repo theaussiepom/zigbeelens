@@ -1,50 +1,51 @@
-"""Explicit bearer authentication and route access dependencies."""
+"""Multi-method authentication and pre-body CSRF enforcement."""
 
 from __future__ import annotations
 
 import hmac
 import logging
 from collections.abc import Callable, Coroutine
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal
 
 from fastapi import Depends, HTTPException, Request, Response
 from fastapi.routing import APIRoute
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import APIKeyCookie, APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 
 from zigbeelens.app.context import get_context
 from zigbeelens.config.api_token import parse_bearer_authorization_header
+from zigbeelens.security.browser_sessions import (
+    MAX_SESSION_COOKIE_BYTES,
+    SESSION_COOKIE_NAME,
+    BrowserSessionManager,
+    SessionClaims,
+)
 
 logger = logging.getLogger(__name__)
 
 AUTH_DETAIL = "Authentication required."
+CSRF_DETAIL = "CSRF validation failed."
+SESSION_UNAVAILABLE_DETAIL = "Browser sessions are not configured."
 SERVICE_UNAVAILABLE_DETAIL = "Service unavailable."
+CSRF_HEADER_NAME = "X-ZigbeeLens-CSRF-Token"
 
-# Request-local cache for AuthIdentity only (never tokens or Authorization).
+# Request-local cache for AuthIdentity only (never tokens, cookies, or CSRF).
 _AUTH_IDENTITY_STATE_ATTR = "_zigbeelens_auth_identity"
+_MUTATION_AUTHORIZED_ATTR = "_zigbeelens_mutation_authorized"
 
-# Declared for OpenAPI HTTP Bearer advertising; parsing is custom (stricter).
+# OpenAPI advertising helpers (custom parsing remains authoritative).
 bearer_scheme = HTTPBearer(auto_error=False)
+browser_session_scheme = APIKeyCookie(name=SESSION_COOKIE_NAME, auto_error=False)
+csrf_header_scheme = APIKeyHeader(name=CSRF_HEADER_NAME, auto_error=False)
 
-AuthMethod = Literal["bearer", "trusted_local"]
+AuthMethod = Literal["bearer", "session", "trusted_local"]
 
 
 @dataclass(frozen=True, slots=True)
 class AuthIdentity:
     auth_method: AuthMethod
-
-
-class BearerPreflightRoute(APIRoute):
-    """Authenticate before FastAPI reads or JSON-decodes the request body."""
-
-    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
-        original = super().get_route_handler()
-
-        async def protected_route_handler(request: Request) -> Response:
-            authenticate_bearer(request)
-            return await original(request)
-
-        return protected_route_handler
+    session_id: str | None = field(default=None, repr=False)
+    session_expires_at: int | None = field(default=None, repr=False)
 
 
 def _unauthorized() -> HTTPException:
@@ -58,23 +59,78 @@ def _unauthorized() -> HTTPException:
     )
 
 
+def _csrf_failed() -> HTTPException:
+    return HTTPException(
+        status_code=403,
+        detail=CSRF_DETAIL,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+def _sessions_unavailable() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail=SESSION_UNAVAILABLE_DETAIL,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 def _token_matches(provided: str, expected: str) -> bool:
-    # Both sides are ASCII after shared api_token validation / header parsing.
     return hmac.compare_digest(provided.encode("ascii"), expected.encode("ascii"))
 
 
 def _extract_bearer_token(request: Request) -> str | None:
-    """Return the Bearer credential, None if absent, or raise uniform 401."""
+    """Return Bearer credential, None if absent, or raise uniform 401."""
     values = request.headers.getlist("authorization")
     if len(values) > 1:
         raise _unauthorized()
     if not values:
         return None
-
     try:
         return parse_bearer_authorization_header(values[0])
     except ValueError:
         raise _unauthorized() from None
+
+
+def extract_session_cookie_value(request: Request) -> str | None:
+    """Return the session cookie value or None.
+
+    Fail closed on duplicate/malformed ``zigbeelens_session`` occurrences.
+    The authentication-cookie name must match exactly (no surrounding
+    whitespace). Unrelated well-formed or malformed cookies are ignored.
+    Does not use ``request.cookies`` (which can silently overwrite duplicates).
+    """
+    values: list[str] = []
+    for header in request.headers.getlist("cookie"):
+        if not header:
+            continue
+        for part in header.split(";"):
+            segment = part.strip()
+            if not segment:
+                continue
+            if "=" not in segment:
+                if segment == SESSION_COOKIE_NAME:
+                    raise ValueError("invalid session cookie")
+                continue
+            raw_name, _, value = segment.partition("=")
+            # Exact Core-issued name grammar — do not silently canonicalise.
+            if raw_name.strip() == SESSION_COOKIE_NAME and raw_name != SESSION_COOKIE_NAME:
+                raise ValueError("invalid session cookie")
+            if raw_name != SESSION_COOKIE_NAME:
+                continue
+            # Reject whitespace around the signed value and quoted forms.
+            if value != value.strip() or not value:
+                raise ValueError("invalid session cookie")
+            if value.startswith('"') or value.endswith('"'):
+                raise ValueError("invalid session cookie")
+            if len(value.encode("utf-8")) > MAX_SESSION_COOKIE_BYTES:
+                raise ValueError("invalid session cookie")
+            values.append(value)
+    if len(values) > 1:
+        raise ValueError("duplicate session cookie")
+    if not values:
+        return None
+    return values[0]
 
 
 def _cached_auth_identity(request: Request) -> AuthIdentity | None:
@@ -89,38 +145,167 @@ def _store_auth_identity(request: Request, identity: AuthIdentity) -> AuthIdenti
     return identity
 
 
-def authenticate_bearer(request: Request) -> AuthIdentity:
-    """Resolve trusted-local open mode or require a matching Bearer token.
+def _session_manager() -> BrowserSessionManager:
+    try:
+        ctx = get_context()
+    except RuntimeError:
+        logger.error("Authenticator invoked before application context was ready")
+        raise HTTPException(
+            status_code=503,
+            detail=SERVICE_UNAVAILABLE_DETAIL,
+        ) from None
+    manager = ctx.session_manager
+    if manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail=SERVICE_UNAVAILABLE_DETAIL,
+        )
+    return manager
 
-    The first successful resolution for a request is cached on ``request.state``
-    as an :class:`AuthIdentity` so preflight and FastAPI dependencies share one
-    comparison. Tokens and Authorization header values are never stored.
+
+def authenticate_request(request: Request) -> AuthIdentity:
+    """Resolve bearer, session, or trusted-local identity for a protected route.
+
+    Precedence:
+    1. Authorization header present → bearer only (no cookie fallback).
+    2. Else session cookie when browser sessions are enabled.
+    3. Else trusted-local when no API token, otherwise 401.
     """
     cached = _cached_auth_identity(request)
     if cached is not None:
         return cached
 
-    try:
-        ctx = get_context()
-    except RuntimeError:
-        logger.error("Bearer authenticator invoked before application context was ready")
-        raise HTTPException(
-            status_code=503,
-            detail=SERVICE_UNAVAILABLE_DETAIL,
-        ) from None
-
+    manager = _session_manager()
+    ctx = get_context()
     expected = ctx.config.security.api_token
+
+    auth_values = request.headers.getlist("authorization")
+    if auth_values:
+        provided = _extract_bearer_token(request)
+        assert provided is not None
+        if expected is None or not _token_matches(provided, expected.get_secret_value()):
+            raise _unauthorized()
+        return _store_auth_identity(request, AuthIdentity("bearer"))
+
     if expected is None:
         return _store_auth_identity(request, AuthIdentity("trusted_local"))
+
+    if manager.enabled:
+        try:
+            cookie_value = extract_session_cookie_value(request)
+        except ValueError:
+            raise _unauthorized() from None
+        if cookie_value is not None:
+            try:
+                claims = manager.load_session_cookie(cookie_value)
+            except ValueError:
+                raise _unauthorized() from None
+            return _store_auth_identity(
+                request,
+                AuthIdentity(
+                    "session",
+                    session_id=claims.session_id,
+                    session_expires_at=claims.expires_at,
+                ),
+            )
+
+    raise _unauthorized()
+
+
+def authenticate_bearer(request: Request) -> AuthIdentity:
+    """Backward-compatible alias used by existing call sites and Track 4B tests."""
+    return authenticate_request(request)
+
+
+def require_bearer_bootstrap(request: Request) -> AuthIdentity:
+    """Require the static API token; never accept a browser session as bootstrap."""
+    cached = _cached_auth_identity(request)
+    if cached is not None and cached.auth_method == "bearer":
+        return cached
+
+    manager = _session_manager()
+    ctx = get_context()
+    expected = ctx.config.security.api_token
+    if expected is None:
+        raise _unauthorized()
 
     provided = _extract_bearer_token(request)
     if provided is None:
         raise _unauthorized()
-
     if not _token_matches(provided, expected.get_secret_value()):
         raise _unauthorized()
 
+    # Valid bearer presented — session support availability is a separate 409.
+    _ = manager
     return _store_auth_identity(request, AuthIdentity("bearer"))
+
+
+def enforce_mutation_csrf(request: Request, identity: AuthIdentity) -> None:
+    """Require CSRF for session-authenticated mutations before body decoding."""
+    if getattr(request.state, _MUTATION_AUTHORIZED_ATTR, False):
+        return
+    if identity.auth_method != "session":
+        setattr(request.state, _MUTATION_AUTHORIZED_ATTR, True)
+        return
+
+    manager = _session_manager()
+    values = request.headers.getlist(CSRF_HEADER_NAME)
+    if len(values) != 1:
+        raise _csrf_failed()
+    token = values[0]
+    if not token or "," in token:
+        raise _csrf_failed()
+    if identity.session_id is None:
+        raise _csrf_failed()
+    try:
+        manager.validate_csrf_token(token, session_id=identity.session_id)
+    except ValueError:
+        raise _csrf_failed() from None
+    setattr(request.state, _MUTATION_AUTHORIZED_ATTR, True)
+
+
+class ReadAccessPreflightRoute(APIRoute):
+    """Authenticate before FastAPI reads or JSON-decodes the request body."""
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        original = super().get_route_handler()
+
+        async def protected_route_handler(request: Request) -> Response:
+            authenticate_request(request)
+            return await original(request)
+
+        return protected_route_handler
+
+
+class MutationAccessPreflightRoute(APIRoute):
+    """Authenticate and enforce CSRF before FastAPI body decoding."""
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        original = super().get_route_handler()
+
+        async def protected_route_handler(request: Request) -> Response:
+            identity = authenticate_request(request)
+            enforce_mutation_csrf(request, identity)
+            return await original(request)
+
+        return protected_route_handler
+
+
+class BearerBootstrapPreflightRoute(APIRoute):
+    """Require static bearer bootstrap before FastAPI body decoding."""
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        original = super().get_route_handler()
+
+        async def protected_route_handler(request: Request) -> Response:
+            require_bearer_bootstrap(request)
+            return await original(request)
+
+        return protected_route_handler
+
+
+# Compatibility alias for older imports/tests.
+BearerPreflightRoute = ReadAccessPreflightRoute
 
 
 async def require_read_access(
@@ -128,9 +313,10 @@ async def require_read_access(
     _credentials: Annotated[
         HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
     ] = None,
+    _session: Annotated[str | None, Depends(browser_session_scheme)] = None,
 ) -> AuthIdentity:
-    """Require bearer when a token is configured (protected reads / SSE / downloads)."""
-    return authenticate_bearer(request)
+    """Require bearer or browser session when authentication is configured."""
+    return authenticate_request(request)
 
 
 async def require_mutation_access(
@@ -138,6 +324,41 @@ async def require_mutation_access(
     _credentials: Annotated[
         HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
     ] = None,
+    _session: Annotated[str | None, Depends(browser_session_scheme)] = None,
+    _csrf: Annotated[str | None, Depends(csrf_header_scheme)] = None,
 ) -> AuthIdentity:
-    """Require bearer when a token is configured (mutations; CSRF seam for later)."""
-    return authenticate_bearer(request)
+    """Require bearer, or session plus CSRF, for mutations."""
+    identity = authenticate_request(request)
+    enforce_mutation_csrf(request, identity)
+    return identity
+
+
+async def require_bearer_bootstrap_access(
+    request: Request,
+    _credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
+    ] = None,
+) -> AuthIdentity:
+    """Require static bearer for session login; OpenAPI advertises Bearer only."""
+    return require_bearer_bootstrap(request)
+
+
+def try_load_session_claims(request: Request) -> SessionClaims | None:
+    """Best-effort session load for public status (invalid → None)."""
+    manager = _session_manager()
+    if not manager.enabled:
+        return None
+    try:
+        cookie_value = extract_session_cookie_value(request)
+    except ValueError:
+        return None
+    if cookie_value is None:
+        return None
+    try:
+        return manager.load_session_cookie(cookie_value)
+    except ValueError:
+        return None
+
+
+def sessions_unavailable_error() -> HTTPException:
+    return _sessions_unavailable()

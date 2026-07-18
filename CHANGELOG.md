@@ -10,12 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Security:** HTTP Bearer authentication (`Authorization: Bearer`) for protected API reads, mutations, SSE, and report downloads
+- **Security:** signed HttpOnly browser sessions (`zigbeelens_session`) with CSRF header protection for cookie-authenticated mutations
+- **Security:** `POST/GET/DELETE /api/auth/session` (and `/api/v1`) for session login, status, and logout
+- **Security:** `security.session_ttl_seconds` and `security.session_cookie_secure` with automatic Secure-cookie resolution
 - **Security:** explicit public/read/mutation route dependencies (no path-prefix middleware)
 - **Security:** public `GET /healthz` minimal readiness probe; Docker HEALTHCHECK uses `/healthz`
 - **Security:** typed `security.mode` (`local` / `authenticated` / `home_assistant_ingress`) and `SecurityConfig` with `SecretStr` API token and session secret
 - **Security:** allowlisted environment and `*_FILE` resolution for security and MQTT secrets (plus temporary `ZIGBEELENS_API_KEY` config-source alias)
 - **Security:** secret-free `security` block on `/api/config/status` and startup posture logging
-- **Capabilities:** `bearer_authentication`, `browser_session_authentication`, `home_assistant_ingress_identity` advertisement flags
+- **Capabilities:** `bearer_authentication`, `browser_session_authentication`, `csrf_protection`, `home_assistant_ingress_identity` advertisement flags
 - **HACS companion:** exact decision contract v1 negotiation and native panel decision display (Phase 5E)
 - **Capabilities:** `shared_decisions`, `companion_decision_summary`, and decision-surface advertisement for companion consumers
 - **Reports:** Lens-family aligned sections on stored report detail (`executive_summary`, `health_summary`, `active_incidents`, `collector_status`, `limitations`, `domain_details`, `events_or_timeline`); legacy fields retained

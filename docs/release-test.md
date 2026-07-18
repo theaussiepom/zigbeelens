@@ -30,7 +30,8 @@ Before you start, confirm:
 Before release testing, confirm you understand:
 
 - Core may require `Authorization: Bearer` for protected API routes when an API token is configured
-- Browser sessions, bundled UI login, HACS token support, and ingress identity enforcement are not implemented yet
+- Optional browser sessions need both API token and session secret; cookie mutations need `X-ZigbeeLens-CSRF-Token`
+- Bundled UI login wiring, credentialed CORS, HACS token support, and ingress identity enforcement are not implemented yet
 - ZigbeeLens is **read-only for Zigbee control** (no permit join, remove, reset, bind/unbind, OTA, or channel changes)
 - Some Core API routes modify **ZigbeeLens local data only** (reports, topology snapshots, HA enrichment)
 - If Core is reachable beyond users or networks you trust, **access-control decisions are your responsibility**
@@ -72,6 +73,19 @@ python3 -m json.tool < /tmp/zl-report-auth.json | head -40
 ```
 
 (`*_FILE` alternative: write the token to a host file, mount it read-only, set `ZIGBEELENS_SECURITY_API_TOKEN_FILE` to the **container** path, and still use the host token value in the curl header.)
+
+Optional browser-session check (requires `ZIGBEELENS_SECURITY_SESSION_SECRET` in the container as well):
+
+```bash
+curl -s -c /tmp/zl-cookies.txt -X POST http://localhost:8377/api/auth/session \
+  -H "Authorization: Bearer $ZIGBEELENS_TEST_API_TOKEN" \
+  | python3 -m json.tool
+curl -s -b /tmp/zl-cookies.txt http://localhost:8377/api/dashboard | python3 -c 'import json,sys; json.load(sys.stdin); print("session cookie ok")'
+CSRF=$(curl -s -b /tmp/zl-cookies.txt http://localhost:8377/api/auth/session | python3 -c 'import json,sys; print(json.load(sys.stdin)["csrf_token"])')
+curl -s -b /tmp/zl-cookies.txt -X DELETE http://localhost:8377/api/auth/session \
+  -H "X-ZigbeeLens-CSRF-Token: $CSRF" -w 'logout HTTP %{http_code}\n' -o /dev/null
+```
+
 
 ### B. No-token release test (trusted-open; API routes intentionally open)
 

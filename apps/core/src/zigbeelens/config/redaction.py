@@ -8,6 +8,8 @@ from urllib.parse import ParseResult, parse_qsl, unquote_plus, urlencode, urlpar
 
 from pydantic import SecretStr
 
+from zigbeelens.config.security_types import SESSION_COOKIE_NAME
+
 REDACTED = "***"
 
 _EXACT_SECRET_KEYS = frozenset(
@@ -27,6 +29,8 @@ _EXACT_SECRET_KEYS = frozenset(
         "private_key",
         "network_key",
         "install_code",
+        # Fixed browser-session authentication cookie / query key.
+        SESSION_COOKIE_NAME,
     }
 )
 

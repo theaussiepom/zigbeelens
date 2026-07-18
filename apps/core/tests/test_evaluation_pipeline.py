@@ -536,14 +536,18 @@ def test_context_close_stops_all_repository_producers_before_db_close(tmp_path: 
         def stop(self, *, wait=True):
             calls.append(f"discovery_service:{wait}")
 
+    from zigbeelens.security.browser_sessions import BrowserSessionManager
+
+    cfg = _config(tmp_path / "close.sqlite")
     ctx = AppContext(
-        config=_config(tmp_path / "close.sqlite"),
+        config=cfg,
         db=DB(),
         repo=object(),
         data=object(),
         health=object(),
         incidents=object(),
         broadcaster=EventBroadcaster(),
+        session_manager=BrowserSessionManager.from_config(cfg),
         evaluation_scheduler=Scheduler(),
         dashboard_scheduler=Dashboard(),
         discovery=Discovery(),

@@ -38,7 +38,8 @@ def capabilities_dict(ctx: AppContext) -> dict[str, Any]:
             "companion_decision_summary": True,
             # Auth surface support (not whether a token is currently configured).
             "bearer_authentication": True,
-            "browser_session_authentication": False,
+            "browser_session_authentication": True,
+            "csrf_protection": True,
             "home_assistant_ingress_identity": False,
         },
         "decision_surfaces": {

@@ -5,6 +5,10 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
+# Fixed browser-session authentication cookie / query-parameter name.
+# Kept here so redaction and session code share one constant without cycles.
+SESSION_COOKIE_NAME = "zigbeelens_session"
+
 
 class SecurityMode(str, Enum):
     local = "local"
@@ -19,6 +23,12 @@ def _security_block(config: Any) -> Any:
 def bearer_auth_enabled(config: Any) -> bool:
     """True when a configured api_token opts the protected API into bearer auth."""
     return _security_block(config).api_token is not None
+
+
+def browser_sessions_enabled(config: Any) -> bool:
+    """True when api_token and session_secret are both configured."""
+    security = _security_block(config)
+    return security.api_token is not None and security.session_secret is not None
 
 
 def trusted_local_open(config: Any) -> bool:

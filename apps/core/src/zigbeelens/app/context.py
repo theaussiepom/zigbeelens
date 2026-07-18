@@ -21,6 +21,8 @@ from zigbeelens.services.data_service import DataService
 from zigbeelens.storage.repository import Repository
 from zigbeelens.storage.retention import enforce_storage_retention
 
+from zigbeelens.security.browser_sessions import BrowserSessionManager
+
 if TYPE_CHECKING:
     from zigbeelens.mqtt.collector import MqttCollector
     from zigbeelens.mqtt.dashboard_scheduler import DashboardPublishScheduler
@@ -38,6 +40,7 @@ class AppContext:
     health: HealthDiagnosticService
     incidents: IncidentDiagnosticService
     broadcaster: EventBroadcaster
+    session_manager: BrowserSessionManager = field(repr=False)
     evaluation: EvaluationCoordinator | None = None
     evaluation_scheduler: PeriodicEvaluationScheduler | None = None
     collector: MqttCollector | None = None
@@ -112,6 +115,7 @@ def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -
         health=None,  # type: ignore[arg-type]
         incidents=None,  # type: ignore[arg-type]
         broadcaster=broadcaster,
+        session_manager=BrowserSessionManager.from_config(cfg),
         config_path=path,
         migration_version=migration_version,
     )

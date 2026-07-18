@@ -3,13 +3,24 @@ from __future__ import annotations
 import json
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from zigbeelens import __version__
 from zigbeelens.api.auth import (
-    BearerPreflightRoute,
+    BearerBootstrapPreflightRoute,
+    MutationAccessPreflightRoute,
+    ReadAccessPreflightRoute,
+    extract_session_cookie_value,
+    require_bearer_bootstrap_access,
     require_mutation_access,
     require_read_access,
+    sessions_unavailable_error,
+    try_load_session_claims,
+)
+from zigbeelens.api.session_cookies import (
+    apply_no_store,
+    clear_session_cookie,
+    set_session_cookie,
 )
 from zigbeelens.api.summary import capabilities_dict, service_status_dict
 from zigbeelens.app.context import AppContext, get_context
@@ -25,6 +36,7 @@ from zigbeelens.mqtt_discovery import discovery_status_dict
 from zigbeelens.topology.service import get_topology_service, topology_status_dict
 from zigbeelens.topology.topics import CAPTURE_WARNING
 from zigbeelens.schemas import (
+    BrowserSessionStatus,
     DashboardPayload,
     DeviceDetail,
     HealthResponse,
@@ -52,11 +64,15 @@ from zigbeelens.services.reports import (
 public_router = APIRouter()
 read_router = APIRouter(
     dependencies=[Depends(require_read_access)],
-    route_class=BearerPreflightRoute,
+    route_class=ReadAccessPreflightRoute,
 )
 mutation_router = APIRouter(
     dependencies=[Depends(require_mutation_access)],
-    route_class=BearerPreflightRoute,
+    route_class=MutationAccessPreflightRoute,
+)
+session_bootstrap_router = APIRouter(
+    dependencies=[Depends(require_bearer_bootstrap_access)],
+    route_class=BearerBootstrapPreflightRoute,
 )
 
 
@@ -67,6 +83,116 @@ def ctx_dep() -> AppContext:
 @public_router.get("/version")
 def version() -> dict[str, str]:
     return {"version": __version__, "name": "zigbeelens-core"}
+
+
+def _session_status_body(
+    *,
+    authenticated: bool,
+    auth_method: str | None,
+    browser_session_enabled: bool,
+    expires_at: str | None = None,
+    csrf_token: str | None = None,
+) -> BrowserSessionStatus:
+    return BrowserSessionStatus(
+        authenticated=authenticated,
+        auth_method=auth_method,  # type: ignore[arg-type]
+        browser_session_enabled=browser_session_enabled,
+        expires_at=expires_at,
+        csrf_token=csrf_token,
+    )
+
+
+@public_router.get("/auth/session", response_model=BrowserSessionStatus)
+def get_auth_session(request: Request, response: Response) -> BrowserSessionStatus:
+    """Public session status — never requires bearer merely to inspect state."""
+    from zigbeelens.api.auth import _extract_bearer_token, _token_matches, _unauthorized
+    from zigbeelens.config.security_types import browser_sessions_enabled, trusted_local_open
+
+    ctx = get_context()
+    manager = ctx.session_manager
+    enabled = browser_sessions_enabled(ctx.config)
+    apply_no_store(response)
+
+    # Malformed/wrong Authorization still fails closed with uniform 401.
+    if request.headers.getlist("authorization"):
+        token = _extract_bearer_token(request)
+        expected = ctx.config.security.api_token
+        if expected is None or token is None:
+            raise _unauthorized()
+        if not _token_matches(token, expected.get_secret_value()):
+            raise _unauthorized()
+        return _session_status_body(
+            authenticated=True,
+            auth_method="bearer",
+            browser_session_enabled=enabled,
+        )
+
+    if trusted_local_open(ctx.config):
+        return _session_status_body(
+            authenticated=True,
+            auth_method="trusted_local",
+            browser_session_enabled=False,
+        )
+
+    try:
+        had_cookie = extract_session_cookie_value(request) is not None
+    except ValueError:
+        clear_session_cookie(response, manager)
+        return _session_status_body(
+            authenticated=False,
+            auth_method=None,
+            browser_session_enabled=enabled,
+        )
+
+    claims = try_load_session_claims(request)
+    if claims is None:
+        if had_cookie:
+            clear_session_cookie(response, manager)
+        return _session_status_body(
+            authenticated=False,
+            auth_method=None,
+            browser_session_enabled=enabled,
+        )
+
+    return _session_status_body(
+        authenticated=True,
+        auth_method="session",
+        browser_session_enabled=enabled,
+        expires_at=manager.expires_at_iso(claims),
+        csrf_token=manager.issue_csrf_token(claims.session_id),
+    )
+
+
+@session_bootstrap_router.post("/auth/session", response_model=BrowserSessionStatus)
+def create_auth_session(response: Response) -> BrowserSessionStatus:
+    """Exchange a valid API bearer token for an HttpOnly browser session."""
+    from zigbeelens.config.security_types import browser_sessions_enabled
+
+    ctx = get_context()
+    manager = ctx.session_manager
+    if not browser_sessions_enabled(ctx.config):
+        raise sessions_unavailable_error()
+
+    claims, cookie_value, csrf_token = manager.issue_session()
+    set_session_cookie(
+        response,
+        manager,
+        cookie_value,
+        expires_at=claims.expires_at,
+    )
+    return _session_status_body(
+        authenticated=True,
+        auth_method="session",
+        browser_session_enabled=True,
+        expires_at=manager.expires_at_iso(claims),
+        csrf_token=csrf_token,
+    )
+
+
+@mutation_router.delete("/auth/session", status_code=204)
+def delete_auth_session(response: Response) -> None:
+    """Clear the browser session cookie (stateless; does not revoke stolen copies)."""
+    clear_session_cookie(response, get_context().session_manager)
 
 
 @read_router.get("/health", response_model=HealthResponse)
@@ -639,7 +765,8 @@ def enrichment_homeassistant_delete(ctx: AppContext = Depends(ctx_dep)) -> dict:
 
 
 def include_api_routers(app, *, prefix: str) -> None:
-    """Mount public/read/mutation routers under a single API prefix."""
+    """Mount public/read/mutation/session-bootstrap routers under a single API prefix."""
     app.include_router(public_router, prefix=prefix)
+    app.include_router(session_bootstrap_router, prefix=prefix)
     app.include_router(read_router, prefix=prefix)
     app.include_router(mutation_router, prefix=prefix)

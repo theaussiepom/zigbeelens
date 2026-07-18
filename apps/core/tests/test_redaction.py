@@ -8,7 +8,10 @@ from zigbeelens.config.redaction import (
     redact_connection_string,
     redact_dict_secrets,
     redact_mqtt_server,
+    redact_request_target,
 )
+from zigbeelens.config.security_types import SESSION_COOKIE_NAME
+from zigbeelens.security.browser_sessions import SESSION_COOKIE_NAME as EXPORTED_SESSION_COOKIE_NAME
 
 _EXACT_URI_SECRET_KEYS = (
     "password",
@@ -54,6 +57,18 @@ def test_redact_mqtt_server_query_and_fragment_credentials():
     assert "client_id=safe" in redacted
     assert "broker" in redacted
 
+
+
+def test_session_cookie_name_is_secret_key_and_shared():
+    assert SESSION_COOKIE_NAME == EXPORTED_SESSION_COOKIE_NAME == "zigbeelens_session"
+    assert is_secret_key(SESSION_COOKIE_NAME)
+    payload = {SESSION_COOKIE_NAME: "<signed-cookie>", "client_id": "safe"}
+    redacted = redact_dict_secrets(payload)
+    assert redacted[SESSION_COOKIE_NAME] == REDACTED
+    assert redacted["client_id"] == "safe"
+    assert "<signed-cookie>" not in redact_request_target(
+        f"/api/dashboard?{SESSION_COOKIE_NAME}=<signed-cookie>&client_id=safe"
+    )
 
 
 def test_redact_dict_secrets():

@@ -31,27 +31,31 @@ We aim to acknowledge reports within a reasonable timeframe and will coordinate 
 
 ZigbeeLens Core includes typed security configuration (`security.mode`, API token, session secret) with environment and `*_FILE` secret loading for API, session, and MQTT credentials.
 
-When `security.api_token` is configured, Core requires:
+When `security.api_token` is configured, Core requires authentication for
+protected reads, mutations, SSE event streams, and report downloads. Direct
+clients use `Authorization: Bearer`. When `security.session_secret` is also
+configured, same-origin browsers may create an HttpOnly session cookie; cookie
+mutations require `X-ZigbeeLens-CSRF-Token`. The former `X-ZigbeeLens-Api-Key`
+HTTP header is not accepted.
 
-```http
-Authorization: Bearer <token>
-```
-
-for protected reads, mutations, SSE event streams, and report downloads. The former `X-ZigbeeLens-Api-Key` HTTP header is not accepted.
-
-`security.mode=local` without a token is a deliberate trusted-open compatibility mode (all API routes open). `authenticated` and `home_assistant_ingress` require an API token; ingress identity headers are not trusted yet.
+`security.mode=local` without a token is a deliberate trusted-open compatibility
+mode (all API routes open). `authenticated` and `home_assistant_ingress` require
+an API token; ingress identity headers are not trusted yet.
 
 Public without a token:
 
 - `GET /healthz`
 - `GET /api/version` and `GET /api/v1/version`
+- `GET /api/auth/session` and `GET /api/v1/auth/session`
 - Static UI assets
 
 ZigbeeLens is read-only with respect to Zigbee control. It does not perform device-control actions such as permit join, remove, reset, bind/unbind, OTA, or channel changes.
 
 Some API routes can modify ZigbeeLens’ own local data. If you expose Core beyond users or networks you trust, access-control decisions are your responsibility.
 
-Browser sessions/CSRF, bundled UI login, HACS token configuration, and Home Assistant ingress identity enforcement are not implemented yet. HTTPS may help with the optional embedded dashboard view, but **HTTPS is not authentication**.
+Bundled UI login wiring, credentialed CORS, HACS token configuration, and Home
+Assistant ingress identity enforcement are not implemented yet. HTTPS may help
+with the optional embedded dashboard view, but **HTTPS is not authentication**.
 
 See [docs/security.md](docs/security.md).
 

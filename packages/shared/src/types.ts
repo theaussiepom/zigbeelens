@@ -481,13 +481,35 @@ export interface ReportRedactionStatus {
 /** Secret-free security posture from Core config/status */
 export type SecurityMode = "local" | "authenticated" | "home_assistant_ingress";
 
+/** Public browser-session status from GET/POST /api/auth/session */
+export interface BrowserSessionStatus {
+  authenticated: boolean;
+  auth_method: "trusted_local" | "bearer" | "session" | null;
+  browser_session_enabled: boolean;
+  expires_at: string | null;
+  csrf_token: string | null;
+}
+
 export interface SecurityConfigStatus {
   mode: SecurityMode;
   loopback_bind: boolean;
   api_token_configured: boolean;
   session_secret_configured: boolean;
   bearer_auth_enabled: boolean;
+  browser_session_enabled: boolean;
+  csrf_protection_enabled: boolean;
+  session_cookie_secure: boolean;
+  read_routes_require_authentication: boolean;
+  mutation_routes_require_authentication: boolean;
+  /**
+   * @deprecated True only when authentication is required and browser sessions
+   * are not enabled. Prefer read_routes_require_authentication.
+   */
   read_routes_require_bearer: boolean;
+  /**
+   * @deprecated True only when authentication is required and browser sessions
+   * are not enabled. Prefer mutation_routes_require_authentication.
+   */
   mutation_routes_require_bearer: boolean;
   ingress_identity_enforced: boolean;
   trusted_local_open: boolean;
