@@ -1,10 +1,11 @@
 /**
  * ZigbeeLens panel inside Home Assistant.
  *
- * When HA and Core share the same scheme (HTTP+HTTP or HTTPS+HTTPS), loads the
- * full Core dashboard in an iframe. Mixed content falls back to the native summary
- * plus Open Full Dashboard. Uses Home Assistant's built-in ha-menu-button in the
- * panel header (same pattern as HACS and Scrypted) to reopen the main sidebar.
+ * Native companion summary is the default. Try Embedded View optionally loads
+ * the full Core dashboard in an iframe when schemes match; mixed content and
+ * invalid URLs stay on the native/blocked fallback. Back to Summary always
+ * returns to the native panel. Uses Home Assistant's built-in ha-menu-button
+ * in the panel header (same pattern as HACS and Scrypted) to reopen the sidebar.
  */
 
 const SEVERITY = {
@@ -136,7 +137,8 @@ class ZigbeeLensPanel extends HTMLElement {
 
   set panel(panel) {
     this._configCoreUrl = (panel && panel.config && panel.config.core_url) || "";
-    if (this._maybeAutoEmbed() && this.shadowRoot) {
+    // Native summary remains the default; never auto-enter iframe mode.
+    if (this.shadowRoot && this.shadowRoot.childNodes.length) {
       this._render();
     }
   }
@@ -178,7 +180,6 @@ class ZigbeeLensPanel extends HTMLElement {
     }
     this._loading = false;
     this._loaded = true;
-    this._maybeAutoEmbed();
     this._render();
   }
 
@@ -187,17 +188,9 @@ class ZigbeeLensPanel extends HTMLElement {
     return canonicalizeCoreOrigin(raw) || "";
   }
 
-  _maybeAutoEmbed() {
-    const coreUrl = this._coreUrl();
-    const { canEmbed } = canEmbedDashboard(window.location.protocol, coreUrl);
-    if (!canEmbed || !coreUrl) {
-      if (this._view === "embedded") {
-        this._view = "embed_blocked";
-      }
-      return false;
-    }
-    this._view = "embedded";
-    return true;
+  _backToSummary() {
+    this._view = "summary";
+    this._render();
   }
 
   _openDashboardButton(coreUrl, extraClass = "") {
@@ -210,6 +203,10 @@ class ZigbeeLensPanel extends HTMLElement {
 
   _tryEmbedButton() {
     return `<button type="button" class="btn secondary" id="try-embed">Try Embedded View</button>`;
+  }
+
+  _backToSummaryButton() {
+    return `<button type="button" class="btn secondary" id="back-summary">Back to Summary</button>`;
   }
 
   _ctaRow(coreUrl, { includeEmbed = true } = {}) {
@@ -251,6 +248,10 @@ class ZigbeeLensPanel extends HTMLElement {
         <style>${ZigbeeLensPanel.styles}</style>
         <div class="embed-layout">
           ${this._panelHeader({ title: "ZigbeeLens" })}
+          <div class="embed-toolbar">
+            ${this._backToSummaryButton()}
+            ${this._openDashboardButton(coreUrl)}
+          </div>
           <div class="embed-body">
             ${this._embeddedView(coreUrl)}
           </div>
@@ -293,8 +294,9 @@ class ZigbeeLensPanel extends HTMLElement {
         ${!this._loading && connected ? this._networksCard(s) : ""}
         ${!this._loading ? this._integrationCard(s, coreUrl, connected) : ""}
         <p class="note">
-          The full dashboard opens here automatically when Home Assistant and Core use
-          the same protocol. Use the menu button above to reopen Home Assistant navigation
+          The native summary is the default view. Use Try Embedded View when you want the
+          full Core dashboard in this panel (requires matching Core frame-ancestor
+          configuration). Use the menu button above to reopen Home Assistant navigation
           when the sidebar is hidden.
         </p>
       </div>
@@ -341,6 +343,7 @@ class ZigbeeLensPanel extends HTMLElement {
           This is optional and not required for normal use.
         </p>
         <div class="actions">
+          ${this._backToSummaryButton()}
           ${this._openDashboardButton(coreUrl)}
         </div>
       </section>
@@ -609,6 +612,9 @@ class ZigbeeLensPanel extends HTMLElement {
     const tryEmbed = this.shadowRoot.getElementById("try-embed");
     if (tryEmbed) tryEmbed.addEventListener("click", () => this._tryEmbeddedView());
 
+    const backSummary = this.shadowRoot.getElementById("back-summary");
+    if (backSummary) backSummary.addEventListener("click", () => this._backToSummary());
+
     const reload = this.shadowRoot.getElementById("reload");
     if (reload) reload.addEventListener("click", () => this._loadSummary());
 
@@ -649,6 +655,16 @@ ZigbeeLensPanel.styles = `
     flex: 1;
     min-height: 0;
     height: 100%;
+  }
+  .embed-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--divider-color, #ddd);
+    background: var(--card-background-color, #fff);
+    flex: 0 0 auto;
   }
   .embed-body {
     flex: 1;

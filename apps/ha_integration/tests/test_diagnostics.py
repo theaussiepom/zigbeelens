@@ -41,7 +41,8 @@ async def test_diagnostics_redacts_secrets(hass_with_coordinator):
     hass, entry = hass_with_coordinator
     payload = await async_get_config_entry_diagnostics(hass, entry)
     assert "secret" not in str(payload)
-    assert "[redacted]" in payload["core_url"]
+    assert "user:secret" not in str(payload)
+    assert payload["core_url"] == "[invalid]"
     assert payload["core_version"] == "0.1.0"
     assert payload["entity_count"] == 2
     assert "devices" not in payload
@@ -50,6 +51,50 @@ async def test_diagnostics_redacts_secrets(hass_with_coordinator):
     assert "core_version_compatible" in payload
     assert "capabilities" not in payload
     assert "investigation_priorities" not in payload
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "http://user:password@localhost:8377",
+        "https://host.example?token=leak-token",
+        "https://host.example?api_key=leak-key",
+        "https://host.example#access_token=leak-frag",
+        "http://[::1",
+        "https://host.example/path",
+        "http://host\x01.example",
+    ],
+)
+async def test_diagnostics_invalid_core_url_fail_closed(raw):
+    hass = MagicMock()
+    entry = MagicMock()
+    entry.entry_id = "entry1"
+    entry.version = 1
+    entry.data = {"core_url": raw}
+    coordinator = MagicMock(spec=ZigbeeLensDataUpdateCoordinator)
+    coordinator.data = None
+    coordinator.last_update_success = False
+    coordinator.last_exception = None
+    hass.data = {"zigbeelens": {"entry1": {"coordinator": coordinator}}}
+    with patch("zigbeelens.diagnostics.er.async_get") as mock_er_get:
+        mock_er_get.return_value = MagicMock()
+        with patch(
+            "zigbeelens.diagnostics.er.async_entries_for_config_entry",
+            return_value=[],
+        ):
+            payload = await async_get_config_entry_diagnostics(hass, entry)
+    assert payload["core_url"] == "[invalid]"
+    blob = str(payload)
+    for sentinel in (
+        "password",
+        "leak-token",
+        "leak-key",
+        "leak-frag",
+        "user:",
+        "/path",
+    ):
+        assert sentinel not in blob
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from urllib.parse import urlsplit
 
+import idna
+
 MAX_ORIGIN_LENGTH = 2048
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 _DEFAULT_PORTS = {"http": 80, "https": 443}
@@ -20,11 +22,10 @@ class InvalidCoreOrigin(ValueError):
 def _has_forbidden_characters(value: str) -> bool:
     if "\\" in value:
         return True
-    for ch in value:
-        code = ord(ch)
-        if code < 32 or code == 127:
-            return True
-    return False
+    # Full Unicode Cc category (matches Core secret_validation predicate).
+    import unicodedata
+
+    return any(unicodedata.category(ch) == "Cc" for ch in value)
 
 
 def _normalize_hostname(hostname: str) -> str:
@@ -36,10 +37,14 @@ def _normalize_hostname(hostname: str) -> str:
         raise InvalidCoreOrigin("invalid_url")
     if "%" in hostname:
         raise InvalidCoreOrigin("invalid_url")
-    lower = hostname.lower()
     try:
-        return lower.encode("idna").decode("ascii")
-    except (UnicodeError, ValueError) as exc:
+        hostname.encode("ascii")
+        return hostname.lower()
+    except UnicodeEncodeError:
+        pass
+    try:
+        return idna.encode(hostname, uts46=True, transitional=False).decode("ascii")
+    except (idna.IDNAError, UnicodeError, ValueError) as exc:
         raise InvalidCoreOrigin("invalid_url") from exc
 
 
