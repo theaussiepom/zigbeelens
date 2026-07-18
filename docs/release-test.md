@@ -185,15 +185,22 @@ If you used `zigbeelens-test/` at repo root instead of `local/zigbeelens-test/`,
 
 ### Verify API
 
+`healthz` and version are public. In token-enabled mode, all other API reads below need Bearer. Never put the token in the URL.
+
 ```bash
+AUTH_ARGS=()
+if [[ -n "${ZIGBEELENS_TEST_API_TOKEN:-}" ]]; then
+  AUTH_ARGS=(-H "Authorization: Bearer $ZIGBEELENS_TEST_API_TOKEN")
+fi
+
 curl -s http://localhost:8377/healthz | python3 -m json.tool
-# Token-enabled mode: add -H "Authorization: Bearer $ZIGBEELENS_TEST_API_TOKEN" to the calls below.
-curl -s http://localhost:8377/api/health | python3 -m json.tool
-curl -s http://localhost:8377/api/capabilities | python3 -m json.tool
-curl -s http://localhost:8377/api/dashboard | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d.get("investigation_priorities"), list); assert isinstance(d.get("data_coverage_warnings"), list); print("dashboard decision surfaces ok")'
-curl -s http://localhost:8377/api/config/status | python3 -m json.tool
-curl -s http://localhost:8377/api/dashboard | python3 -m json.tool | head -40
-curl -s http://localhost:8377/api/networks | python3 -m json.tool
+curl -s http://localhost:8377/api/version | python3 -m json.tool
+curl -s "${AUTH_ARGS[@]}" http://localhost:8377/api/health | python3 -m json.tool
+curl -s "${AUTH_ARGS[@]}" http://localhost:8377/api/capabilities | python3 -m json.tool
+curl -s "${AUTH_ARGS[@]}" http://localhost:8377/api/dashboard | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d.get("investigation_priorities"), list); assert isinstance(d.get("data_coverage_warnings"), list); print("dashboard decision surfaces ok")'
+curl -s "${AUTH_ARGS[@]}" http://localhost:8377/api/config/status | python3 -m json.tool
+curl -s "${AUTH_ARGS[@]}" http://localhost:8377/api/dashboard | python3 -m json.tool | head -40
+curl -s "${AUTH_ARGS[@]}" http://localhost:8377/api/networks | python3 -m json.tool
 ```
 
 Generate a redacted report (JSON).
@@ -219,8 +226,22 @@ curl -s -X POST http://localhost:8377/api/reports \
 
 Download the stored report (replace `<report-id>`):
 
+**A. Token-enabled:**
+
 ```bash
-curl -s "http://localhost:8377/api/reports/<report-id>/download" -o report.json
+curl -s \
+  -H "Authorization: Bearer $ZIGBEELENS_TEST_API_TOKEN" \
+  "http://localhost:8377/api/reports/<report-id>/download" \
+  -o report.json
+grep -iE 'password|network_key|secret' report.json || echo "No obvious secret keys in report"
+```
+
+**B. No-token trusted-open:**
+
+```bash
+curl -s \
+  "http://localhost:8377/api/reports/<report-id>/download" \
+  -o report.json
 grep -iE 'password|network_key|secret' report.json || echo "No obvious secret keys in report"
 ```
 

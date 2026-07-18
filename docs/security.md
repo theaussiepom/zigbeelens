@@ -69,6 +69,11 @@ Generate a token safely:
 openssl rand -base64 48
 ```
 
+API tokens must be ASCII bearer-compatible (`token68`: letters, digits, and
+`-._~+/`, with optional `=` padding only at the end), 32–4096 characters, with
+no spaces, commas, or control characters. Prefer `openssl rand -base64 48` or a
+URL-safe random string.
+
 Example:
 
 ```bash

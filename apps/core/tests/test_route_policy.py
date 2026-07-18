@@ -15,6 +15,21 @@ PUBLIC_API_PATHS = {
 
 MUTATION_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
+# methods + suffix that must exist under both /api and /api/v1
+REQUIRED_ALIASED_KEYS = {
+    "GET /version",
+    "GET /health",
+    "GET /config/status",
+    "GET /dashboard",
+    "GET /events/stream",
+    "GET /reports/{report_id}/download",
+    "POST /reports",
+    "DELETE /reports/{report_id}",
+    "POST /topology/{network_id}/capture",
+    "POST /enrichment/homeassistant",
+    "DELETE /enrichment/homeassistant",
+}
+
 
 def _dependency_calls(dependant) -> set[object]:
     calls: set[object] = set()
@@ -85,35 +100,40 @@ def test_api_routes_have_explicit_access_policy(mock_client: TestClient):
 
     assert classified
 
-    # Alias parity: strip /api/v1 -> /api and compare policies.
-    by_suffix: dict[str, set[str]] = {}
-    for key, policy in classified.items():
-        methods, path = key.split(" ", 1)
-        suffix = path.removeprefix("/api/v1").removeprefix("/api")
-        by_suffix.setdefault(f"{methods} {suffix}", set()).add(policy)
-    for suffix, policies in by_suffix.items():
-        assert len(policies) == 1, f"alias policy mismatch for {suffix}: {policies}"
+    public_paths = {
+        key.split(" ", 1)[1]
+        for key, policy in classified.items()
+        if policy == "public"
+    }
+    assert public_paths == PUBLIC_API_PATHS
 
-    assert any(
-        path.endswith("/events/stream") and policy == "read"
-        for key, policy in classified.items()
-        for path in [key.split(" ", 1)[1]]
-    )
-    assert any(
-        path.endswith("/download") and policy == "read"
-        for key, policy in classified.items()
-        for path in [key.split(" ", 1)[1]]
-    )
-    assert any(
-        path.endswith("/health") and policy == "read"
-        for key, policy in classified.items()
-        for path in [key.split(" ", 1)[1]]
-    )
-    assert any(
-        path.endswith("/config/status") and policy == "read"
-        for key, policy in classified.items()
-        for path in [key.split(" ", 1)[1]]
-    )
+    # methods + suffix -> { "/api": policy, "/api/v1": policy }
+    by_alias_key: dict[str, dict[str, str]] = {}
+    for key, policy in classified.items():
+        methods_s, path = key.split(" ", 1)
+        if path.startswith("/api/v1"):
+            prefix = "/api/v1"
+            suffix = path[len("/api/v1") :]
+        elif path.startswith("/api"):
+            prefix = "/api"
+            suffix = path[len("/api") :]
+        else:
+            raise AssertionError(path)
+        alias_key = f"{methods_s} {suffix}"
+        by_alias_key.setdefault(alias_key, {})[prefix] = policy
+
+    for alias_key, aliases in by_alias_key.items():
+        assert set(aliases) == {"/api", "/api/v1"}, (
+            f"alias set incomplete for {alias_key}: {sorted(aliases)}"
+        )
+        assert len(set(aliases.values())) == 1, (
+            f"alias policy mismatch for {alias_key}: {aliases}"
+        )
+
+    for required in REQUIRED_ALIASED_KEYS:
+        assert required in by_alias_key, f"missing required aliased route {required}"
+        assert set(by_alias_key[required]) == {"/api", "/api/v1"}
+
     for key, policy in classified.items():
         methods, _path = key.split(" ", 1)
         method_set = set(methods.split(","))

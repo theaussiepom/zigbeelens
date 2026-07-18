@@ -155,15 +155,8 @@ def create_app(
 
         @app.get("/")
         def root() -> dict[str, str]:
-            ctx = get_context()
-            payload = {
-                "name": "ZigbeeLens Core",
-                "version": __version__,
-                "data_mode": "mock" if ctx.config.mode.mock else "live",
-            }
-            if openapi_enabled:
-                payload["docs"] = "/docs"
-            return payload
+            # Public product-shell identity only — no operational or auth state.
+            return {"name": "ZigbeeLens Core", "version": __version__}
 
     return app
 

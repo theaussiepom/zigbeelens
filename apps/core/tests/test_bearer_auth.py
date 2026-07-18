@@ -334,6 +334,54 @@ def test_openapi_protected_when_enabled(tmp_path, monkeypatch):
         assert client.get("/docs", headers=_bearer()).status_code == 200
 
 
+def _operation_security(schema: dict, path: str, method: str) -> list | None:
+    ops = schema["paths"][path][method]
+    return ops.get("security")
+
+
+def test_openapi_security_contract(tmp_path, monkeypatch):
+    monkeypatch.setenv("ZIGBEELENS_OPENAPI_ENABLED", "true")
+    with _client(
+        tmp_path,
+        monkeypatch,
+        security=f"security:\n  api_token: {VALID_TOKEN}\n",
+    ) as client:
+        schema = client.get("/openapi.json", headers=_bearer()).json()
+        schemes = schema["components"]["securitySchemes"]
+        assert len(schemes) == 1
+        _name, scheme = next(iter(schemes.items()))
+        assert scheme["type"] == "http"
+        assert scheme["scheme"].lower() == "bearer"
+
+        for path in (
+            "/api/dashboard",
+            "/api/events/stream",
+            "/api/reports/{report_id}/download",
+        ):
+            security = _operation_security(schema, path, "get")
+            assert security, path
+        assert _operation_security(schema, "/api/reports", "post")
+
+        for path in ("/api/version", "/api/v1/version", "/healthz"):
+            op = schema["paths"][path]["get"]
+            assert not op.get("security"), path
+
+        assert VALID_TOKEN not in client.get("/openapi.json", headers=_bearer()).text
+
+
+def test_openapi_disabled_and_trusted_open_docs(tmp_path, monkeypatch):
+    monkeypatch.delenv("ZIGBEELENS_OPENAPI_ENABLED", raising=False)
+    with _client(tmp_path, monkeypatch) as client:
+        assert client.get("/openapi.json").status_code == 404
+        assert client.get("/docs").status_code == 404
+        assert client.get("/redoc").status_code == 404
+
+    monkeypatch.setenv("ZIGBEELENS_OPENAPI_ENABLED", "true")
+    with _client(tmp_path, monkeypatch) as client:
+        assert client.get("/openapi.json").status_code == 200
+        assert client.get("/docs").status_code == 200
+
+
 def test_healthz_minimal_and_public(tmp_path, monkeypatch):
     with _client(
         tmp_path,
@@ -349,3 +397,99 @@ def test_healthz_minimal_and_public(tmp_path, monkeypatch):
         ok = client.get("/api/health", headers=_bearer())
         assert ok.status_code == 200
         assert "collector" in ok.json()
+
+
+def test_public_root_fallback_is_minimal(tmp_path, monkeypatch):
+    monkeypatch.setenv("ZIGBEELENS_OPENAPI_ENABLED", "true")
+    monkeypatch.setattr("zigbeelens.main.mount_static_ui", lambda _app: False)
+    with _client(
+        tmp_path,
+        monkeypatch,
+        security=f"security:\n  api_token: {VALID_TOKEN}\n",
+    ) as client:
+        res = client.get("/")
+        assert res.status_code == 200
+        assert res.json() == {
+            "name": "ZigbeeLens Core",
+            "version": res.json()["version"],
+        }
+        assert set(res.json()) == {"name", "version"}
+        assert "data_mode" not in res.json()
+        assert "docs" not in res.json()
+        assert "security" not in res.json()
+        assert "mock_mode" not in res.json()
+
+    with _client(tmp_path, monkeypatch) as client:
+        res = client.get("/")
+        assert res.status_code == 200
+        assert set(res.json()) == {"name", "version"}
+        assert client.get("/api/version").status_code == 200
+        assert client.get("/api/v1/version").status_code == 200
+
+
+def test_unauthorized_endpoints_do_zero_work(tmp_path, monkeypatch):
+    from performance.query_instrumentation import install_counter
+
+    with _client(
+        tmp_path,
+        monkeypatch,
+        security=f"security:\n  api_token: {VALID_TOKEN}\n",
+    ) as client:
+        from zigbeelens.app import context as ctx_mod
+        import zigbeelens.api.routes as routes_mod
+        import zigbeelens.main as main_mod
+
+        ctx = ctx_mod.get_context()
+        counter = install_counter(ctx.repo)
+
+        ctx.data.dashboard = MagicMock(side_effect=AssertionError("dashboard"))
+        ctx.data.report_preview = MagicMock(side_effect=AssertionError("preview"))
+        ctx.data.get_stored_report = MagicMock(side_effect=AssertionError("download"))
+        monkeypatch.setattr(
+            routes_mod,
+            "generate_report",
+            MagicMock(side_effect=AssertionError("create")),
+        )
+        monkeypatch.setattr(
+            routes_mod,
+            "get_topology_service",
+            MagicMock(side_effect=AssertionError("capture")),
+        )
+        monkeypatch.setattr(
+            routes_mod,
+            "apply_ha_enrichment",
+            MagicMock(side_effect=AssertionError("enrich")),
+        )
+        monkeypatch.setattr(
+            routes_mod,
+            "clear_ha_enrichment",
+            MagicMock(side_effect=AssertionError("clear")),
+        )
+        monkeypatch.setattr(
+            main_mod,
+            "EventSourceResponse",
+            MagicMock(side_effect=AssertionError("sse")),
+        )
+
+        before = counter.stats.copy()
+        for call in (
+            lambda: client.get("/api/dashboard"),
+            lambda: client.get("/api/reports/preview"),
+            lambda: client.post("/api/reports", json={"format": "json"}),
+            lambda: client.get("/api/reports/missing/download"),
+            lambda: client.post(
+                "/api/topology/home/capture",
+                json={"confirmed": True},
+            ),
+            lambda: client.post("/api/enrichment/homeassistant", json={}),
+            lambda: client.delete("/api/enrichment/homeassistant"),
+            lambda: client.get("/api/events/stream"),
+        ):
+            _assert_uniform_401(call())
+
+        after = counter.stats
+        assert after.execute_count == before.execute_count
+        assert after.executemany_count == before.executemany_count
+        assert after.commit_count == before.commit_count
+        assert after.rollback_count == before.rollback_count
+
