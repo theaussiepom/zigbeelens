@@ -5,32 +5,93 @@ import asyncio
 import json
 import logging
 import os
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from zigbeelens import __version__
-from fastapi.openapi.utils import get_openapi
-
 from zigbeelens.api.auth import require_read_access
 from zigbeelens.api.openapi_security import apply_openapi_security
 from zigbeelens.api.routes import include_api_routers
 from zigbeelens.app.context import bootstrap, get_context, reset_context
 from zigbeelens.config import AppConfig, load_effective_config, resolve_config_path
 from zigbeelens.logging_config import configure_logging
+from zigbeelens.security.headers import (
+    ExactCORSMiddleware,
+    SecurityHeadersMiddleware,
+    cors_middleware_kwargs,
+)
 from zigbeelens.static import mount_static_ui
 
 logger = logging.getLogger(__name__)
+
+# Canonical first-party Uvicorn: never rewrite ASGI scope from forwarding headers.
+_UVICORN_NO_PROXY_TRUST = {
+    "proxy_headers": False,
+    "forwarded_allow_ips": "",
+}
+
+
+class LazyASGIApp:
+    """Import-safe ASGI entry that builds one concrete FastAPI app on first use.
+
+    Importing ``zigbeelens.main`` performs no YAML or secret I/O. External runners
+    (``uvicorn zigbeelens.main:app``) trigger a single ``create_app()`` at first
+    ASGI startup. Production ``run_server`` bypasses this wrapper and passes a
+    concrete app built from an already-resolved ``AppConfig``.
+    """
+
+    __slots__ = ("_lock", "_app")
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._app: FastAPI | None = None
+
+    def __repr__(self) -> str:
+        # Never expose config paths or secret material.
+        return "LazyASGIApp(resolved)" if self._app is not None else "LazyASGIApp()"
+
+    def _ensure(self) -> FastAPI:
+        app = self._app
+        if app is not None:
+            return app
+        with self._lock:
+            if self._app is None:
+                self._app = create_app()
+            return self._app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        app: ASGIApp = self._ensure()
+        await app(scope, receive, send)
 
 
 def _openapi_enabled() -> bool:
     value = os.environ.get("ZIGBEELENS_OPENAPI_ENABLED", "").strip().lower()
     return value in {"1", "true", "yes", "on"}
+
+
+def _resolve_app_config(
+    config_path: str | None,
+    *,
+    resolved_config: AppConfig | None,
+) -> tuple[AppConfig, str | None]:
+    """Resolve one immutable AppConfig for middleware and lifespan bootstrap."""
+    if resolved_config is not None:
+        path = config_path or os.environ.get("ZIGBEELENS_CONFIG")
+        if path is None:
+            path = str(resolve_config_path())
+        return resolved_config, path
+    path = config_path or os.environ.get("ZIGBEELENS_CONFIG")
+    if not path:
+        path = str(resolve_config_path())
+    return load_effective_config(path), path
 
 
 def create_app(
@@ -40,22 +101,21 @@ def create_app(
 ) -> FastAPI:
     """Build the FastAPI application.
 
-    When *resolved_config* is provided (production launcher), lifespan bootstraps
-    from that instance and does not reread secret files. TestClient and ASGI
-    callers may omit it and load from *config_path* / ``ZIGBEELENS_CONFIG``.
+    Resolves one effective AppConfig for CORS/CSP middleware and lifespan
+    bootstrap. When *resolved_config* is provided (production launcher), secret
+    files are not reread. TestClient and ASGI callers may omit it and load from
+    *config_path* / ``ZIGBEELENS_CONFIG``.
     """
-    resolved_config_path = config_path or os.environ.get("ZIGBEELENS_CONFIG")
+    cfg, resolved_config_path = _resolve_app_config(
+        config_path, resolved_config=resolved_config
+    )
     openapi_enabled = _openapi_enabled()
-    preloaded = resolved_config
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         configure_logging()
         reset_context()
-        if preloaded is not None:
-            ctx = bootstrap(config=preloaded, config_path=resolved_config_path)
-        else:
-            ctx = bootstrap(config_path=resolved_config_path)
+        ctx = bootstrap(config=cfg, config_path=resolved_config_path)
         ctx.broadcaster.set_loop(asyncio.get_running_loop())
         app.state.ctx = ctx
         yield
@@ -70,20 +130,11 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
     )
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    @app.middleware("http")
-    async def allow_embedded_ui(request, call_next):
-        response = await call_next(request)
-        if request.url.path == "/" or request.url.path.startswith("/assets"):
-            response.headers["Content-Security-Policy"] = "frame-ancestors *"
-        return response
+    # Last added = outermost. Security headers wrap CORS so OPTIONS preflight
+    # also receives nosniff/referrer/permissions. CORS still annotates allowed
+    # auth/CSRF/error responses before the outer header pass.
+    app.add_middleware(ExactCORSMiddleware, **cors_middleware_kwargs(cfg))
+    app.add_middleware(SecurityHeadersMiddleware, config=cfg)
 
     @app.get("/healthz", include_in_schema=True, response_model=None)
     def healthz():
@@ -178,7 +229,8 @@ def create_app(
     return app
 
 
-app = create_app()
+# External ASGI: ``uvicorn zigbeelens.main:app``. Lazily loads one AppConfig.
+app = LazyASGIApp()
 
 
 def run_server(
@@ -210,6 +262,7 @@ def run_server(
             port=cfg.server.port,
             reload=True,
             factory=False,
+            **_UVICORN_NO_PROXY_TRUST,
         )
         return
 
@@ -219,6 +272,7 @@ def run_server(
         host=cfg.server.host,
         port=cfg.server.port,
         reload=False,
+        **_UVICORN_NO_PROXY_TRUST,
     )
 
 

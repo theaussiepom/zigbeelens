@@ -319,6 +319,10 @@ def test_capabilities_advertise_auth_support_not_token_state(mock_client: TestCl
     assert caps["bearer_authentication"] is True
     assert caps["browser_session_authentication"] is True
     assert caps["csrf_protection"] is True
+    assert caps["exact_cors_allowlist"] is True
+    assert caps["content_security_policy"] is True
+    assert caps["frame_ancestor_allowlist"] is True
+    assert caps["browser_origin_validation"] is True
     assert caps["home_assistant_ingress_identity"] is False
 
 

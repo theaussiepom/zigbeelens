@@ -14,6 +14,8 @@ from fastapi.security import APIKeyCookie, APIKeyHeader, HTTPAuthorizationCreden
 
 from zigbeelens.app.context import get_context
 from zigbeelens.config.api_token import parse_bearer_authorization_header
+from zigbeelens.config.http_origin import InvalidHttpOrigin, canonicalize_http_origin
+from zigbeelens.config.secret_validation import contains_control_characters
 from zigbeelens.security.browser_sessions import (
     MAX_SESSION_COOKIE_BYTES,
     SESSION_COOKIE_NAME,
@@ -25,13 +27,16 @@ logger = logging.getLogger(__name__)
 
 AUTH_DETAIL = "Authentication required."
 CSRF_DETAIL = "CSRF validation failed."
+ORIGIN_DETAIL = "Browser origin validation failed."
 SESSION_UNAVAILABLE_DETAIL = "Browser sessions are not configured."
 SERVICE_UNAVAILABLE_DETAIL = "Service unavailable."
 CSRF_HEADER_NAME = "X-ZigbeeLens-CSRF-Token"
+_UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 # Request-local cache for AuthIdentity only (never tokens, cookies, or CSRF).
 _AUTH_IDENTITY_STATE_ATTR = "_zigbeelens_auth_identity"
 _MUTATION_AUTHORIZED_ATTR = "_zigbeelens_mutation_authorized"
+_ORIGIN_AUTHORIZED_ATTR = "_zigbeelens_origin_authorized"
 
 # OpenAPI advertising helpers (custom parsing remains authoritative).
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -63,6 +68,14 @@ def _csrf_failed() -> HTTPException:
     return HTTPException(
         status_code=403,
         detail=CSRF_DETAIL,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+def _origin_failed() -> HTTPException:
+    return HTTPException(
+        status_code=403,
+        detail=ORIGIN_DETAIL,
         headers={"Cache-Control": "no-store"},
     )
 
@@ -240,6 +253,104 @@ def require_bearer_bootstrap(request: Request) -> AuthIdentity:
     return _store_auth_identity(request, AuthIdentity("bearer"))
 
 
+def request_same_origin(request: Request) -> str:
+    """Return the request's effective same-origin from ASGI scope (no proxy trust).
+
+    Every malformed Host/URL condition becomes InvalidHttpOrigin without
+    embedding rejected Host text. Forwarding headers are never consulted.
+
+    When a Host header is present it is authoritative: Starlette may silently
+    fall back to the ASGI server address for malformed Host values, which must
+    not be treated as a successful origin.
+    """
+    try:
+        host_values = request.headers.getlist("host")
+        if len(host_values) > 1:
+            raise InvalidHttpOrigin("duplicate host")
+
+        try:
+            scheme = (request.url.scheme or "http").lower()
+        except Exception:
+            raise InvalidHttpOrigin("malformed request origin") from None
+
+        if host_values:
+            raw_host = host_values[0]
+            if not raw_host or contains_control_characters(raw_host) or "@" in raw_host:
+                raise InvalidHttpOrigin("invalid host")
+            # Validate the presented authority; do not accept server fallback.
+            return canonicalize_http_origin(f"{scheme}://{raw_host}")
+
+        url = request.url
+        host = url.hostname
+        if not host:
+            raise InvalidHttpOrigin("missing hostname")
+        # Starlette returns bare IPv6 hostnames; origins require brackets.
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        try:
+            port = url.port
+        except ValueError as exc:
+            raise InvalidHttpOrigin("invalid port") from exc
+        if port is not None:
+            candidate = f"{scheme}://{host}:{port}"
+        else:
+            candidate = f"{scheme}://{host}"
+        return canonicalize_http_origin(candidate)
+    except InvalidHttpOrigin:
+        raise
+    except Exception:
+        # Fail closed without chaining request/Host text into logs or responses.
+        raise InvalidHttpOrigin("malformed request origin") from None
+
+
+def _extract_single_origin_header(request: Request) -> str | None:
+    """Return one Origin header value, or raise on duplicates/combined forms."""
+    values = request.headers.getlist("origin")
+    if not values:
+        return None
+    if len(values) > 1:
+        raise _origin_failed()
+    raw = values[0]
+    if not raw or "," in raw:
+        raise _origin_failed()
+    return raw
+
+
+def origin_is_allowed_for_browser(request: Request, origin_header: str) -> bool:
+    """True when Origin matches same-origin or an exact cors_allowed_origins entry."""
+    try:
+        presented = canonicalize_http_origin(origin_header)
+        same = request_same_origin(request)
+    except InvalidHttpOrigin:
+        return False
+    if presented == same:
+        return True
+    allowed = get_context().config.security.cors_allowed_origins
+    return presented in allowed
+
+
+def enforce_session_mutation_origin(request: Request, identity: AuthIdentity) -> None:
+    """Require an exact browser Origin for session-authenticated unsafe methods."""
+    if getattr(request.state, _ORIGIN_AUTHORIZED_ATTR, False):
+        return
+    if identity.auth_method != "session":
+        setattr(request.state, _ORIGIN_AUTHORIZED_ATTR, True)
+        return
+    if request.method.upper() not in _UNSAFE_METHODS:
+        setattr(request.state, _ORIGIN_AUTHORIZED_ATTR, True)
+        return
+
+    try:
+        raw = _extract_single_origin_header(request)
+    except HTTPException:
+        raise
+    if raw is None:
+        raise _origin_failed()
+    if not origin_is_allowed_for_browser(request, raw):
+        raise _origin_failed()
+    setattr(request.state, _ORIGIN_AUTHORIZED_ATTR, True)
+
+
 def enforce_mutation_csrf(request: Request, identity: AuthIdentity) -> None:
     """Require CSRF for session-authenticated mutations before body decoding."""
     if getattr(request.state, _MUTATION_AUTHORIZED_ATTR, False):
@@ -264,6 +375,24 @@ def enforce_mutation_csrf(request: Request, identity: AuthIdentity) -> None:
     setattr(request.state, _MUTATION_AUTHORIZED_ATTR, True)
 
 
+def enforce_mutation_browser_policy(request: Request, identity: AuthIdentity) -> None:
+    """Session mutations: Origin then CSRF, both before body decoding."""
+    enforce_session_mutation_origin(request, identity)
+    enforce_mutation_csrf(request, identity)
+
+
+def enforce_session_bootstrap_origin(request: Request) -> None:
+    """When Origin is present on bearer session login, require an allowed origin."""
+    try:
+        raw = _extract_single_origin_header(request)
+    except HTTPException:
+        raise
+    if raw is None:
+        return
+    if not origin_is_allowed_for_browser(request, raw):
+        raise _origin_failed()
+
+
 class ReadAccessPreflightRoute(APIRoute):
     """Authenticate before FastAPI reads or JSON-decodes the request body."""
 
@@ -278,14 +407,14 @@ class ReadAccessPreflightRoute(APIRoute):
 
 
 class MutationAccessPreflightRoute(APIRoute):
-    """Authenticate and enforce CSRF before FastAPI body decoding."""
+    """Authenticate and enforce Origin+CSRF before FastAPI body decoding."""
 
     def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
         original = super().get_route_handler()
 
         async def protected_route_handler(request: Request) -> Response:
             identity = authenticate_request(request)
-            enforce_mutation_csrf(request, identity)
+            enforce_mutation_browser_policy(request, identity)
             return await original(request)
 
         return protected_route_handler
@@ -299,6 +428,7 @@ class BearerBootstrapPreflightRoute(APIRoute):
 
         async def protected_route_handler(request: Request) -> Response:
             require_bearer_bootstrap(request)
+            enforce_session_bootstrap_origin(request)
             return await original(request)
 
         return protected_route_handler
@@ -327,9 +457,9 @@ async def require_mutation_access(
     _session: Annotated[str | None, Depends(browser_session_scheme)] = None,
     _csrf: Annotated[str | None, Depends(csrf_header_scheme)] = None,
 ) -> AuthIdentity:
-    """Require bearer, or session plus CSRF, for mutations."""
+    """Require bearer, or session plus Origin and CSRF, for mutations."""
     identity = authenticate_request(request)
-    enforce_mutation_csrf(request, identity)
+    enforce_mutation_browser_policy(request, identity)
     return identity
 
 
@@ -340,7 +470,9 @@ async def require_bearer_bootstrap_access(
     ] = None,
 ) -> AuthIdentity:
     """Require static bearer for session login; OpenAPI advertises Bearer only."""
-    return require_bearer_bootstrap(request)
+    identity = require_bearer_bootstrap(request)
+    enforce_session_bootstrap_origin(request)
+    return identity
 
 
 def try_load_session_claims(request: Request) -> SessionClaims | None:

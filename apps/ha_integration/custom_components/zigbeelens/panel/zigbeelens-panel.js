@@ -1,10 +1,11 @@
 /**
  * ZigbeeLens panel inside Home Assistant.
  *
- * When HA and Core share the same scheme (HTTP+HTTP or HTTPS+HTTPS), loads the
- * full Core dashboard in an iframe. Mixed content falls back to the native summary
- * plus Open Full Dashboard. Uses Home Assistant's built-in ha-menu-button in the
- * panel header (same pattern as HACS and Scrypted) to reopen the main sidebar.
+ * Native companion summary is the default. Try Embedded View optionally loads
+ * the full Core dashboard in an iframe when schemes match; mixed content and
+ * invalid URLs stay on the native/blocked fallback. Back to Summary always
+ * returns to the native panel. Uses Home Assistant's built-in ha-menu-button
+ * in the panel header (same pattern as HACS and Scrypted) to reopen the sidebar.
  */
 
 const SEVERITY = {
@@ -14,24 +15,167 @@ const SEVERITY = {
   unknown: { label: "No signal", color: "var(--secondary-text-color, #888)" },
 };
 
-/** @returns {{ canEmbed: boolean, reason?: string }} */
-function canEmbedDashboard(haProtocol, coreUrl, baseHref) {
+const STRICT_IPV4 =
+  /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
+const IPV4_NUMBER_LABEL = /^(?:[0-9]+|0[xX][0-9A-Fa-f]+)$/;
+
+function endsInIpv4Number(host) {
+  if (!host) return false;
+  const parts = host.split(".");
+  return IPV4_NUMBER_LABEL.test(parts[parts.length - 1] || "");
+}
+
+function isValidDnsAscii(host) {
+  if (!host || host.length > 253 || host.endsWith(".") || host.startsWith(".") || host.includes("*")) {
+    return false;
+  }
+  if (host.includes("..")) return false;
+  if (/[\s"'`;,\\]/.test(host) || host.includes("_")) {
+    return false;
+  }
+  if (endsInIpv4Number(host) && !STRICT_IPV4.test(host)) {
+    return false;
+  }
+  const labels = host.split(".");
+  for (const label of labels) {
+    if (!label || label.length > 63) return false;
+    if (label.startsWith("-") || label.endsWith("-")) return false;
+    if (!/^[a-z0-9-]+$/i.test(label)) return false;
+  }
+  return true;
+}
+
+function splitRawAuthority(raw) {
+  const m = /^https?:\/\/(\[[^\]]+\]|[^/?#]+)/i.exec(raw);
+  if (!m) return null;
+  const authority = m[1];
+  if (authority.startsWith("[")) {
+    const end = authority.indexOf("]");
+    if (end < 0) return null;
+    const host = authority.slice(1, end);
+    const rest = authority.slice(end + 1);
+    // Raw port must be plain decimal digits when present (leading zeros ok).
+    if (rest && !/^:\d+$/.test(rest)) return null;
+    return { host, portText: rest ? rest.slice(1) : "", bracketed: true };
+  }
+  if (authority.includes("@") || /[\s"'`;,]/.test(authority)) {
+    return null;
+  }
+  const idx = authority.lastIndexOf(":");
+  if (idx >= 0) {
+    const portText = authority.slice(idx + 1);
+    if (!/^\d+$/.test(portText)) return null;
+    return {
+      host: authority.slice(0, idx),
+      portText,
+      bracketed: false,
+    };
+  }
+  return { host: authority, portText: "", bracketed: false };
+}
+
+/**
+ * Strict canonical Core origin for iframe/anchor use.
+ * Absolute http(s) only; no relative resolution against the HA page.
+ * Matches Core/HACS CSP-safe host grammar (strict IPv4/IPv6 or IDNA DNS).
+ * @returns {string|null}
+ */
+function canonicalizeCoreOrigin(coreUrl) {
+  try {
+    if (!coreUrl || !String(coreUrl).trim()) {
+      return null;
+    }
+    const raw = String(coreUrl).trim();
+    if (raw !== String(coreUrl) || raw.toLowerCase() === "null" || raw.startsWith("//")) {
+      return null;
+    }
+    if (raw.includes("\\") || /[\u0000-\u001f\u007f]/.test(raw) || /\s/.test(raw)) {
+      return null;
+    }
+    const auth = splitRawAuthority(raw);
+    if (!auth || !auth.host) {
+      return null;
+    }
+    if (auth.host.includes("%")) {
+      return null;
+    }
+    if (auth.portText) {
+      const n = Number(auth.portText);
+      if (!Number.isInteger(n) || n < 1 || n > 65535) {
+        return null;
+      }
+    }
+    // Reject relative values: do not resolve against window.location.
+    const core = new URL(raw);
+    if (core.protocol !== "http:" && core.protocol !== "https:") {
+      return null;
+    }
+    if (core.username || core.password) {
+      return null;
+    }
+    if (core.search || core.hash) {
+      return null;
+    }
+    const path = core.pathname || "";
+    if (path && path !== "/") {
+      return null;
+    }
+
+    const browserHost = String(core.hostname || "").replace(/^\[|\]$/g, "");
+    let hostAscii;
+    if (auth.bracketed) {
+      // Bracketed authorities are IPv6-only.
+      if (!auth.host.includes(":")) return null;
+      if (!browserHost.includes(":")) return null;
+      hostAscii = browserHost;
+    } else if (STRICT_IPV4.test(browserHost)) {
+      // Reject every browser rewrite from hex/octal/short/mixed IPv4 input.
+      if (auth.host !== browserHost) return null;
+      hostAscii = browserHost;
+    } else if (endsInIpv4Number(auth.host) || endsInIpv4Number(browserHost)) {
+      return null;
+    } else {
+      hostAscii = browserHost;
+      if (hostAscii.includes(":") || !isValidDnsAscii(hostAscii)) {
+        return null;
+      }
+    }
+
+    const scheme = core.protocol === "https:" ? "https" : "http";
+    const hostFmt = hostAscii.includes(":") ? `[${hostAscii}]` : hostAscii;
+    // Use browser-canonical port (strips leading zeros / default ports).
+    const port = core.port ? `:${core.port}` : "";
+    const origin = `${scheme}://${hostFmt}${port}`;
+    if (/\s/.test(origin)) return null;
+    if (auth.bracketed) {
+      return core.origin;
+    }
+    return origin;
+  } catch {
+    return null;
+  }
+}
+
+/** @returns {{ canEmbed: boolean, reason?: string, origin?: string|null }} */
+function canEmbedDashboard(haProtocol, coreUrl) {
   try {
     const ha = String(haProtocol || "").toLowerCase();
     if (!ha.endsWith(":")) {
-      return { canEmbed: false, reason: "invalid_ha" };
+      return { canEmbed: false, reason: "invalid_ha", origin: null };
     }
-    if (!coreUrl || !String(coreUrl).trim()) {
-      return { canEmbed: false, reason: "missing_core_url" };
+    const origin = canonicalizeCoreOrigin(coreUrl);
+    if (!origin) {
+      return {
+        canEmbed: false,
+        reason: coreUrl && String(coreUrl).trim() ? "invalid_core_url" : "missing_core_url",
+        origin: null,
+      };
     }
-    const core = new URL(String(coreUrl).trim(), baseHref || window.location.href);
-    if (!core.protocol || !core.host) {
-      return { canEmbed: false, reason: "invalid_core_url" };
-    }
-    const isMixedContentIframe = ha === "https:" && core.protocol === "http:";
-    return { canEmbed: !isMixedContentIframe };
+    const coreProtocol = new URL(origin).protocol;
+    const isMixedContentIframe = ha === "https:" && coreProtocol === "http:";
+    return { canEmbed: !isMixedContentIframe, origin };
   } catch {
-    return { canEmbed: false, reason: "invalid_core_url" };
+    return { canEmbed: false, reason: "invalid_core_url", origin: null };
   }
 }
 
@@ -82,7 +226,8 @@ class ZigbeeLensPanel extends HTMLElement {
 
   set panel(panel) {
     this._configCoreUrl = (panel && panel.config && panel.config.core_url) || "";
-    if (this._maybeAutoEmbed() && this.shadowRoot) {
+    // Native summary remains the default; never auto-enter iframe mode.
+    if (this.shadowRoot && this.shadowRoot.childNodes.length) {
       this._render();
     }
   }
@@ -124,40 +269,33 @@ class ZigbeeLensPanel extends HTMLElement {
     }
     this._loading = false;
     this._loaded = true;
-    this._maybeAutoEmbed();
     this._render();
   }
 
   _coreUrl() {
-    return (this._summary && this._summary.core_url) || this._configCoreUrl || "";
+    const raw = (this._summary && this._summary.core_url) || this._configCoreUrl || "";
+    return canonicalizeCoreOrigin(raw) || "";
   }
 
-  _maybeAutoEmbed() {
-    const coreUrl = this._coreUrl();
-    const { canEmbed } = canEmbedDashboard(
-      window.location.protocol,
-      coreUrl,
-      window.location.href
-    );
-    if (!canEmbed || !coreUrl) {
-      if (this._view === "embedded") {
-        this._view = "embed_blocked";
-      }
-      return false;
-    }
-    this._view = "embedded";
-    return true;
+  _backToSummary() {
+    this._view = "summary";
+    this._render();
   }
 
   _openDashboardButton(coreUrl, extraClass = "") {
-    if (!coreUrl) return "";
-    return `<a class="btn primary ${extraClass}" href="${esc(coreUrl)}" target="_blank" rel="noopener noreferrer">
+    const safe = canonicalizeCoreOrigin(coreUrl);
+    if (!safe) return "";
+    return `<a class="btn primary ${extraClass}" href="${esc(safe)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">
       Open full ZigbeeLens dashboard
     </a>`;
   }
 
   _tryEmbedButton() {
     return `<button type="button" class="btn secondary" id="try-embed">Try Embedded View</button>`;
+  }
+
+  _backToSummaryButton() {
+    return `<button type="button" class="btn secondary" id="back-summary">Back to Summary</button>`;
   }
 
   _ctaRow(coreUrl, { includeEmbed = true } = {}) {
@@ -186,7 +324,7 @@ class ZigbeeLensPanel extends HTMLElement {
 
   _tryEmbeddedView() {
     const coreUrl = this._coreUrl();
-    const { canEmbed } = canEmbedDashboard(window.location.protocol, coreUrl, window.location.href);
+    const { canEmbed } = canEmbedDashboard(window.location.protocol, coreUrl);
     this._view = canEmbed ? "embedded" : "embed_blocked";
     this._render();
   }
@@ -199,6 +337,10 @@ class ZigbeeLensPanel extends HTMLElement {
         <style>${ZigbeeLensPanel.styles}</style>
         <div class="embed-layout">
           ${this._panelHeader({ title: "ZigbeeLens" })}
+          <div class="embed-toolbar">
+            ${this._backToSummaryButton()}
+            ${this._openDashboardButton(coreUrl)}
+          </div>
           <div class="embed-body">
             ${this._embeddedView(coreUrl)}
           </div>
@@ -241,8 +383,9 @@ class ZigbeeLensPanel extends HTMLElement {
         ${!this._loading && connected ? this._networksCard(s) : ""}
         ${!this._loading ? this._integrationCard(s, coreUrl, connected) : ""}
         <p class="note">
-          The full dashboard opens here automatically when Home Assistant and Core use
-          the same protocol. Use the menu button above to reopen Home Assistant navigation
+          The native summary is the default view. Use Try Embedded View when you want the
+          full Core dashboard in this panel (requires matching Core frame-ancestor
+          configuration). Use the menu button above to reopen Home Assistant navigation
           when the sidebar is hidden.
         </p>
       </div>
@@ -260,12 +403,13 @@ class ZigbeeLensPanel extends HTMLElement {
   }
 
   _embeddedView(coreUrl) {
-    if (!coreUrl) {
+    const safe = canonicalizeCoreOrigin(coreUrl);
+    if (!safe) {
       return `<p class="muted embed-empty">Core URL is not configured.</p>`;
     }
     return `<iframe
       class="embed-frame"
-      src="${esc(coreUrl)}"
+      src="${esc(safe)}"
       title="ZigbeeLens full dashboard"
       loading="lazy"
       referrerpolicy="no-referrer"
@@ -288,6 +432,7 @@ class ZigbeeLensPanel extends HTMLElement {
           This is optional and not required for normal use.
         </p>
         <div class="actions">
+          ${this._backToSummaryButton()}
           ${this._openDashboardButton(coreUrl)}
         </div>
       </section>
@@ -556,6 +701,9 @@ class ZigbeeLensPanel extends HTMLElement {
     const tryEmbed = this.shadowRoot.getElementById("try-embed");
     if (tryEmbed) tryEmbed.addEventListener("click", () => this._tryEmbeddedView());
 
+    const backSummary = this.shadowRoot.getElementById("back-summary");
+    if (backSummary) backSummary.addEventListener("click", () => this._backToSummary());
+
     const reload = this.shadowRoot.getElementById("reload");
     if (reload) reload.addEventListener("click", () => this._loadSummary());
 
@@ -596,6 +744,16 @@ ZigbeeLensPanel.styles = `
     flex: 1;
     min-height: 0;
     height: 100%;
+  }
+  .embed-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--divider-color, #ddd);
+    background: var(--card-background-color, #fff);
+    flex: 0 0 auto;
   }
   .embed-body {
     flex: 1;
@@ -855,5 +1013,5 @@ if (!customElements.get("zigbeelens-panel")) {
 
 // Exported for lightweight testing in Node (see test_panel_embed.py asset checks).
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { canEmbedDashboard };
+  module.exports = { canEmbedDashboard, canonicalizeCoreOrigin };
 }

@@ -18,6 +18,13 @@ mode:
 # Temporary alias: ZIGBEELENS_API_KEY (conflicts with canonical API-token vars).
 security:
   mode: local
+  # Exact credentialed CORS origins (canonical http/https only). Empty = no CORS.
+  cors_allowed_origins: []
+  # Exact external frame ancestors for iframe embeds. 'self' is always allowed.
+  # Example for a Home Assistant iframe (does not grant API/CORS access):
+  # frame_ancestor_origins:
+  #   - https://homeassistant.example
+  frame_ancestor_origins: []
 
 mqtt:
   server: mqtt://mosquitto:1883

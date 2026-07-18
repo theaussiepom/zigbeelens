@@ -1,40 +1,32 @@
-# Traefik dynamic middleware — ZigbeeLens Core UI + optional HA iframe embedding.
+# Traefik dynamic middleware — TLS/proxy transport for ZigbeeLens Core.
 #
-# Copy to your Traefik file provider directory, e.g. on Beast:
+# Copy to your Traefik file provider directory, e.g.:
 #   /mnt/nas/docker/network/traefik/conf.d/middlewares/security-headers-zigbeelens.yaml
 #
 # Reference from ZigbeeLens router labels:
 #   traefik.http.routers.zigbeelens.middlewares: local@file,authentik@file,securityHeadersZigbeeLens@file
 #
-# Replace the Home Assistant origin below with your real URL, for example:
-#   https://hass.theaussiepom.me
+# Core owns CORS, CSP, frame ancestors, nosniff, and referrer policy.
+# Do not configure Traefik to broaden those with wildcards or a looser CSP.
 #
-# Do not use securityHeadersUnsafe@file for ZigbeeLens — its CSP blocks Google Fonts
-# (style-src/font-src 'self' only) and breaks dashboard styling.
+# Configure exact Home Assistant framing in Core YAML instead:
+#   security:
+#     frame_ancestor_origins:
+#       - https://homeassistant.example
+#
+# This middleware may continue to own TLS-related HSTS and proxy transport.
 
 http:
   middlewares:
     securityHeadersZigbeeLens:
       headers:
         frameDeny: false
+        # Leave framing and CSP to Core (exact allowlists).
         customresponseheaders:
           Server: '{{env "DOMAIN"}}'
           X-Powered-By: '{{env "DOMAIN"}}'
-          X-Frame-Options: ""
-        accesscontrolallowmethods: GET,POST
-        accesscontrolmaxage: 100
-        accesscontrolalloworiginlist: "*"
-        addvaryheader: true
-        contentSecurityPolicy: >-
-          default-src 'self';
-          script-src 'self' 'unsafe-inline';
-          style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-          font-src 'self' https://fonts.gstatic.com data:;
-          img-src 'self' data:;
-          connect-src 'self';
-          frame-ancestors 'self' https://hass.theaussiepom.me;
         contenttypenosniff: true
-        referrerpolicy: origin-when-cross-origin
+        referrerpolicy: no-referrer
         sslredirect: true
         stsSeconds: 63072000
         stsIncludeSubdomains: true

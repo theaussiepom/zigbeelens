@@ -21,7 +21,7 @@ All other public routes under `/api/` are also mounted at `/api/v1/` (devices, i
 
 ## Authentication
 
-When an API token is configured, protected routes under `/api` and `/api/v1` require `Authorization: Bearer <token>` and/or a valid browser session cookie. Public endpoints are `GET /healthz`, `GET /api/version`, `GET /api/v1/version`, and `GET /api/auth/session` (plus `/api/v1` aliases and static UI assets). Session login is `POST /api/auth/session` (bearer bootstrap). Cookie-authenticated mutations require `X-ZigbeeLens-CSRF-Token`. See [security.md](security.md).
+When an API token is configured, protected routes under `/api` and `/api/v1` require `Authorization: Bearer <token>` and/or a valid browser session cookie. Public endpoints are `GET /healthz`, `GET /api/version`, `GET /api/v1/version`, and `GET /api/auth/session` (plus `/api/v1` aliases and static UI assets). Session login is `POST /api/auth/session` (bearer bootstrap). Cookie-authenticated mutations require an exact browser `Origin` and `X-ZigbeeLens-CSRF-Token`. See [security.md](security.md).
 
 ## Core endpoints
 

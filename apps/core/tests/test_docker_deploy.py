@@ -126,8 +126,11 @@ def test_beast_traefik_example_documents_embedded_view():
     assert "zigbeelens.${DOMAIN}" in compose
     assert "8377:8377" in compose
     assert "underground" in compose
-    assert "frame-ancestors" in headers
-    assert "hass.theaussiepom.me" in headers
+    # Core owns CSP/framing/CORS; Traefik example must not broaden with wildcards.
+    assert "accesscontrolalloworiginlist" not in headers.lower()
+    assert "frame-ancestors *" not in headers
+    assert "Core owns CORS" in headers
+    assert "frame_ancestor_origins" in headers
 
 
 def test_hacs_embedded_view_doc_exists():

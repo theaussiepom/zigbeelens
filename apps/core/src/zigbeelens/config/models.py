@@ -8,6 +8,10 @@ from zigbeelens.config.api_token import (
     API_TOKEN_MIN_LENGTH,
     reject_invalid_api_token,
 )
+from zigbeelens.config.http_origin import (
+    InvalidHttpOrigin,
+    canonicalize_http_origins,
+)
 from zigbeelens.config.secret_validation import contains_control_characters
 from zigbeelens.config.security_types import SecurityMode
 from zigbeelens.mock.fixtures import DEFAULT_SCENARIO
@@ -43,6 +47,10 @@ class SecurityConfig(BaseModel):
     session_secret: SecretStr | None = None
     session_ttl_seconds: int = Field(default=43200, ge=300, le=604800)
     session_cookie_secure: bool | None = None
+    # Exact credentialed CORS origins (canonical HTTP/HTTPS). Empty = no CORS.
+    cors_allowed_origins: tuple[str, ...] = ()
+    # Exact external frame ancestors. 'self' is always implied separately.
+    frame_ancestor_origins: tuple[str, ...] = ()
 
     @field_validator("api_token", mode="before")
     @classmethod
@@ -57,6 +65,20 @@ class SecurityConfig(BaseModel):
         if value is None:
             return None
         return _reject_invalid_session_secret(value)
+
+    @field_validator("cors_allowed_origins", "frame_ancestor_origins", mode="before")
+    @classmethod
+    def validate_origin_lists(cls, value: object) -> tuple[str, ...]:
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            raise ValueError("must be a list of origin strings")
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("must be a list of origin strings")
+        try:
+            return canonicalize_http_origins(str(item) for item in value)
+        except InvalidHttpOrigin as exc:
+            raise ValueError(str(exc)) from None
 
     @model_validator(mode="after")
     def validate_mode_requirements(self) -> SecurityConfig:

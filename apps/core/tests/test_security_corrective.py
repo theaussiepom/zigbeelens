@@ -142,10 +142,10 @@ security:
 """,
     )
     monkeypatch.setenv("ZIGBEELENS_CONFIG", str(cfg))
-    app = create_app(str(cfg))
+    # create_app resolves one AppConfig for middleware + lifespan; invalid
+    # config fails closed at construction without echoing the rejected secret.
     with caplog.at_level(logging.DEBUG), pytest.raises(ConfigError) as exc_info:
-        with TestClient(app):
-            pass
+        create_app(str(cfg))
     _assert_secret_absent(exc_info.value, SHORT_TOKEN)
     assert SHORT_TOKEN not in caplog.text
 

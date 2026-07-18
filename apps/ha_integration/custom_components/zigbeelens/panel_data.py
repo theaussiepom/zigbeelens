@@ -15,8 +15,16 @@ from __future__ import annotations
 from typing import Any
 
 from .coordinator import ZigbeeLensCoordinatorData
+from .core_origin import InvalidCoreOrigin, canonicalize_core_origin
 
 MAX_COMPANION_INVESTIGATION_PRIORITIES = 3
+
+
+def _safe_core_url(core_url: str) -> str:
+    try:
+        return canonicalize_core_origin(core_url)
+    except InvalidCoreOrigin:
+        return ""
 
 
 def _severity_label(value: Any) -> str:
@@ -128,7 +136,7 @@ def build_panel_summary(
     """Return a redacted summary dict for the companion panel frontend."""
     summary: dict[str, Any] = {
         "connected": bool(connected and data is not None),
-        "core_url": core_url,
+        "core_url": _safe_core_url(core_url),
         "core_version": None,
         "overall_health": "unknown",
         "overall_severity": "unknown",

@@ -16,6 +16,7 @@ from zigbeelens.api.auth import (
     AUTH_DETAIL,
     CSRF_DETAIL,
     CSRF_HEADER_NAME,
+    ORIGIN_DETAIL,
     AuthIdentity,
     extract_session_cookie_value,
 )
@@ -37,6 +38,7 @@ from zigbeelens.security.browser_sessions import (
     _new_serializer,
 )
 
+SAME_ORIGIN = "http://testserver"
 VALID_TOKEN = "b" * 32
 SESSION_SECRET = "s" * 32
 OTHER_TOKEN = "e" * 32
@@ -585,12 +587,17 @@ def test_csrf_variants_and_cross_session(tmp_path, monkeypatch):
                 },
             )
 
+        # Missing Origin fails closed before CSRF / body work.
+        res = post_with_session(cookie_b)
+        assert res.status_code == 403
+        assert res.json() == {"detail": ORIGIN_DETAIL}
+
         cases = [
-            {},
-            {CSRF_HEADER_NAME: ""},
-            {CSRF_HEADER_NAME: "tampered"},
-            {CSRF_HEADER_NAME: csrf_a},
-            {CSRF_HEADER_NAME: "a,b"},
+            {"Origin": SAME_ORIGIN},
+            {"Origin": SAME_ORIGIN, CSRF_HEADER_NAME: ""},
+            {"Origin": SAME_ORIGIN, CSRF_HEADER_NAME: "tampered"},
+            {"Origin": SAME_ORIGIN, CSRF_HEADER_NAME: csrf_a},
+            {"Origin": SAME_ORIGIN, CSRF_HEADER_NAME: "a,b"},
         ]
         for headers in cases:
             res = post_with_session(cookie_b, **headers)
@@ -603,6 +610,7 @@ def test_csrf_variants_and_cross_session(tmp_path, monkeypatch):
             headers={
                 "Content-Type": "application/json",
                 "Cookie": f"{SESSION_COOKIE_NAME}={cookie_b}",
+                "Origin": SAME_ORIGIN,
             },
         )
         assert res.status_code == 403
@@ -613,11 +621,14 @@ def test_csrf_variants_and_cross_session(tmp_path, monkeypatch):
             headers={
                 "Content-Type": "application/json",
                 "Cookie": f"{SESSION_COOKIE_NAME}={cookie_b}",
+                "Origin": SAME_ORIGIN,
             },
         )
         assert res.status_code == 403
 
-        res = post_with_session(cookie_a, **{CSRF_HEADER_NAME: csrf_b})
+        res = post_with_session(
+            cookie_a, **{"Origin": SAME_ORIGIN, CSRF_HEADER_NAME: csrf_b}
+        )
         assert res.status_code == 403
 
         assert body_reads["n"] == 0
@@ -634,6 +645,7 @@ def test_csrf_variants_and_cross_session(tmp_path, monkeypatch):
                 json={"format": "json", "redaction": {"profile": "standard"}},
                 headers={
                     CSRF_HEADER_NAME: csrf,
+                    "Origin": SAME_ORIGIN,
                     "Cookie": f"{SESSION_COOKIE_NAME}={cookie_b}",
                 },
             )
@@ -730,7 +742,8 @@ def test_logout_does_not_claim_server_revocation(tmp_path, monkeypatch):
         csrf = _login(client)
         stolen = client.cookies.get(SESSION_COOKIE_NAME)
         assert client.delete(
-            "/api/auth/session", headers={CSRF_HEADER_NAME: csrf}
+            "/api/auth/session",
+            headers={CSRF_HEADER_NAME: csrf, "Origin": SAME_ORIGIN},
         ).status_code == 204
         # Browser jar cleared; a retained copy still verifies at the manager layer.
         mgr = get_context().session_manager

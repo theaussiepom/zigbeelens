@@ -22,12 +22,79 @@ same-origin browsers may exchange that bearer token for a short-lived HttpOnly
 session cookie. Cookie-authenticated mutations also require:
 
 ```http
+Origin: <Core or allowed browser origin>
 X-ZigbeeLens-CSRF-Token: <csrf-token>
 ```
 
-CORS credential support, CSP/framing hardening, bundled UI login wiring, HACS
-token support, and Home Assistant ingress identity validation are **not**
-implemented yet. Browser sessions are same-origin only.
+Direct bearer clients do **not** need `Origin` or CSRF.
+
+### Browser origins, CORS, and framing
+
+Core accepts only canonical HTTP/HTTPS origins (`scheme://host[:port]`). No
+wildcards, regexes, userinfo, paths, query strings, or fragments.
+
+| Setting | Purpose |
+|---------|---------|
+| `security.cors_allowed_origins` | Exact browser-visible origins allowed for credentialed CORS and session-mutation `Origin` checks |
+| `security.frame_ancestor_origins` | Exact external origins (for example Home Assistant) allowed to embed Core HTML |
+
+These lists are independent. Configuring one never copies entries into the other.
+
+Framing defaults to same-origin only (`frame-ancestors 'self'`). A Home
+Assistant origin needed only for iframe embedding belongs in
+`frame_ancestor_origins`; it does **not** automatically grant CORS or API
+access. CORS is not authentication.
+
+### TLS-terminating reverse proxies
+
+The canonical first-party Core launcher runs Uvicorn with forwarding-header
+trust disabled (`proxy_headers=False`). `X-Forwarded-Proto`,
+`X-Forwarded-For`, and `Forwarded` do **not** rewrite the ASGI request scheme,
+client, or Host used for Origin validation. External ASGI runners must likewise
+disable forwarding-header rewriting unless they intentionally own a reviewed
+proxy-trust policy. Trusted reverse-proxy networks and Home Assistant ingress
+identity remain deferred.
+
+Behind a TLS-terminating proxy, Core commonly sees:
+
+```text
+scheme=http
+Host=zigbeelens.example
+```
+
+while the browser-visible `Origin` is:
+
+```text
+https://zigbeelens.example
+```
+
+For browser sessions, operators must explicitly allow that browser-visible
+origin (this does **not** trust the proxy and does **not** grant framing):
+
+```yaml
+security:
+  cors_allowed_origins:
+    - https://zigbeelens.example
+```
+
+A common reverse-proxy plus HACS iframe deployment uses both lists for different
+jobs:
+
+```yaml
+security:
+  cors_allowed_origins:
+    - https://zigbeelens.example   # browser Origin for session/CORS
+  frame_ancestor_origins:
+    - https://homeassistant.example  # HA page allowed to frame Core HTML
+```
+
+Core sends Content-Security-Policy on HTML documents, plus `nosniff`,
+`Referrer-Policy: no-referrer`, and a restrictive `Permissions-Policy`. Core
+does **not** set HSTS (TLS proxies own that). Reverse proxies must not broaden
+Core’s CORS or frame policy with wildcards.
+
+Bundled UI login wiring, HACS API-token support, and Home Assistant ingress
+identity validation are **not** implemented yet.
 
 Bearer and session authentication authenticate the HTTP request. They do **not**
 replace TLS on untrusted networks.
@@ -138,12 +205,13 @@ Authenticated read with the cookie jar (SSE/downloads work the same way):
 curl -s -b cookies.txt http://127.0.0.1:8377/api/dashboard | python3 -m json.tool
 ```
 
-Cookie-authenticated mutation (CSRF from login/status JSON):
+Cookie-authenticated mutation (exact Origin + CSRF from login/status JSON):
 
 ```bash
 CSRF=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["csrf_token"])' \
   < <(curl -s -b cookies.txt http://127.0.0.1:8377/api/auth/session))
 curl -s -b cookies.txt -X POST http://127.0.0.1:8377/api/reports \
+  -H "Origin: http://127.0.0.1:8377" \
   -H "Content-Type: application/json" \
   -H "X-ZigbeeLens-CSRF-Token: $CSRF" \
   -d '{"scope":"full","format":"json","redaction":{"profile":"public_safe"}}' \
@@ -234,8 +302,7 @@ For broader access today, consider firewall rules, Home Assistant Ingress, netwo
 
 ## Not yet implemented
 
-- Browser sessions and CSRF
-- Bundled UI authentication
+- Bundled UI authentication / locked-state wiring
 - HACS token configuration
 - Home Assistant ingress identity validation
-- CORS/CSP/origin hardening beyond the current embed CSP note
+- Trusted reverse-proxy / forwarded-header identity

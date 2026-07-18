@@ -53,14 +53,16 @@ Run all automated checks:
 - [ ] Config flow accepts Core URL reachable from Home Assistant
 - [ ] Native companion panel loads (cards, not raw JSON)
 - [ ] **Open Full Dashboard** opens Core in a new tab (e.g. `http://192.168.100.5:8377`)
-- [ ] When HA and Core share the same protocol, full Core dashboard auto-embeds in the sidebar panel
-- [ ] When HA is HTTPS and Core is HTTP, panel stays on native summary (mixed content blocked)
+- [ ] Native companion summary is the default; Try Embedded View opts into iframe mode when schemes match
+- [ ] When HA is HTTPS and Core is HTTP, panel stays on native summary / blocked view (mixed content blocked)
+- [ ] Back to Summary returns from embedded or blocked view to the native panel
 - [ ] Configure flow can change Core URL without delete/re-add; panel picks up new URL after reload
 - [ ] Copy Core URL works
 - [ ] HACS entities appear (overall health, active incident, device counts, per-network)
 - [ ] Stop Core → panel shows calm disconnected state + Core unreachable repair
 - [ ] Start Core → panel recovers and repair clears
 - [ ] HACS diagnostics download is redacted (no secrets)
+- [ ] Behind TLS reverse proxy: `cors_allowed_origins` includes the browser-visible `https://…` Core origin for sessions; `frame_ancestor_origins` lists HA separately when embedding
 
 ## Manual gates — mobile polish
 

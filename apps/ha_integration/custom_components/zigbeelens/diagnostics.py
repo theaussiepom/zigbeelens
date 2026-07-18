@@ -10,9 +10,11 @@ from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN
 from .coordinator import ZigbeeLensDataUpdateCoordinator
+from .core_origin import InvalidCoreOrigin, canonicalize_core_origin
 
 
 def _redact_url(url: str) -> str:
+    """Redact userinfo from MQTT/broker URLs (not used for Core URL projection)."""
     if "@" not in url:
         return url
     scheme, _, rest = url.partition("://")
@@ -20,6 +22,16 @@ def _redact_url(url: str) -> str:
         _, _, hostpart = rest.rpartition("@")
         return f"{scheme}://[redacted]@{hostpart}"
     return url
+
+
+def _diagnostic_core_url(raw: object) -> str:
+    """Project Core URL for diagnostics: canonical origin or fixed invalid marker."""
+    if not isinstance(raw, str) or not raw:
+        return "[invalid]"
+    try:
+        return canonicalize_core_origin(raw)
+    except InvalidCoreOrigin:
+        return "[invalid]"
 
 
 async def async_get_config_entry_diagnostics(
@@ -44,7 +56,7 @@ async def async_get_config_entry_diagnostics(
 
     return {
         "integration_version": entry.version,
-        "core_url": _redact_url(entry.data.get("core_url", "")),
+        "core_url": _diagnostic_core_url(entry.data.get("core_url", "")),
         "core_reachable": bool(coordinator and coordinator.last_update_success),
         "core_version": data.core_version if data else None,
         "decision_contract_version": data.decision_contract_version if data else 0,

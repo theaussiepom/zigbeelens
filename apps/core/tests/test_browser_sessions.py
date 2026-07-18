@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
-from zigbeelens.api.auth import AUTH_DETAIL, CSRF_DETAIL, CSRF_HEADER_NAME
+from zigbeelens.api.auth import AUTH_DETAIL, CSRF_DETAIL, CSRF_HEADER_NAME, ORIGIN_DETAIL
 from zigbeelens.app.context import get_context
 from zigbeelens.config.models import AppConfig, SecurityConfig, SecurityMode, ServerConfig
 from zigbeelens.config.security_status import build_security_config_status
@@ -20,6 +20,7 @@ from zigbeelens.security.browser_sessions import (
     resolve_session_cookie_secure,
 )
 
+SAME_ORIGIN = "http://testserver"
 VALID_TOKEN = "b" * 32
 SESSION_SECRET = "s" * 32
 OTHER_TOKEN = "e" * 32
@@ -109,6 +110,18 @@ def _assert_csrf_403(res) -> None:
     assert res.json() == {"detail": CSRF_DETAIL}
     assert "no-store" in (res.headers.get("cache-control") or "").lower()
     assert res.headers.get("www-authenticate") is None
+
+
+def _assert_origin_403(res) -> None:
+    assert res.status_code == 403
+    assert res.json() == {"detail": ORIGIN_DETAIL}
+    assert "no-store" in (res.headers.get("cache-control") or "").lower()
+    assert res.headers.get("www-authenticate") is None
+
+
+def _mutation_headers(csrf: str, *, origin: str = SAME_ORIGIN) -> dict[str, str]:
+    """Cookie-authenticated mutations require Origin and CSRF."""
+    return {CSRF_HEADER_NAME: csrf, "Origin": origin}
 
 
 def _login(client: TestClient) -> tuple[str, dict]:
@@ -278,7 +291,7 @@ def test_session_authenticates_reads_sse_download(tmp_path, monkeypatch):
         created = client.post(
             "/api/reports",
             json={"format": "json", "redaction": {"profile": "standard"}},
-            headers={CSRF_HEADER_NAME: csrf},
+            headers=_mutation_headers(csrf),
         )
         assert created.status_code == 200
         report_id = created.json()["id"]
@@ -363,19 +376,22 @@ def test_session_mutations_require_csrf(tmp_path, monkeypatch, path):
             else:
                 kwargs["json"] = {"devices": []}
 
-        _assert_csrf_403(method(path, **kwargs))
-        _assert_csrf_403(method(path, headers={CSRF_HEADER_NAME: "bad"}, **kwargs))
+        _assert_origin_403(method(path, **kwargs))
+        _assert_csrf_403(method(path, headers={"Origin": SAME_ORIGIN}, **kwargs))
+        _assert_csrf_403(method(path, headers=_mutation_headers("bad"), **kwargs))
         # query CSRF rejected
-        _assert_csrf_403(method(f"{path}?csrf_token={csrf}", **kwargs))
-        ok_headers = {CSRF_HEADER_NAME: csrf}
+        _assert_csrf_403(
+            method(f"{path}?csrf_token={csrf}", headers={"Origin": SAME_ORIGIN}, **kwargs)
+        )
+        ok_headers = _mutation_headers(csrf)
         if path == "/api/auth/session":
             res = client.delete(path, headers=ok_headers)
             assert res.status_code == 204
         else:
             res = client.post(path, headers=ok_headers, **kwargs)
-            # Endpoint business rules may still 400/403 after CSRF succeeds.
+            # Endpoint business rules may still 400/403 after Origin+CSRF succeed.
             assert res.status_code in {200, 400, 403}, res.text
-            assert res.json().get("detail") != CSRF_DETAIL
+            assert res.json().get("detail") not in {CSRF_DETAIL, ORIGIN_DETAIL}
 
 
 def test_bearer_mutation_no_csrf(tmp_path, monkeypatch):
@@ -416,7 +432,10 @@ def test_csrf_before_body_and_zero_sql(tmp_path, monkeypatch):
             client.post(
                 "/api/reports",
                 content="{",
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": SAME_ORIGIN,
+                },
             )
         )
         assert body_reads["n"] == 0
@@ -428,9 +447,10 @@ def test_csrf_before_body_and_zero_sql(tmp_path, monkeypatch):
 def test_logout_session_csrf_and_bearer(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch, security=_session_security()) as client:
         csrf, _ = _login(client)
-        _assert_csrf_403(client.delete("/api/auth/session"))
+        _assert_origin_403(client.delete("/api/auth/session"))
+        _assert_csrf_403(client.delete("/api/auth/session", headers={"Origin": SAME_ORIGIN}))
         assert client.cookies.get(SESSION_COOKIE_NAME)
-        res = client.delete("/api/auth/session", headers={CSRF_HEADER_NAME: csrf})
+        res = client.delete("/api/auth/session", headers=_mutation_headers(csrf))
         assert res.status_code == 204
         assert "no-store" in (res.headers.get("cache-control") or "").lower()
 

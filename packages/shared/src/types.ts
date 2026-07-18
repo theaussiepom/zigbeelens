@@ -515,6 +515,12 @@ export interface SecurityConfigStatus {
   trusted_local_open: boolean;
   /** @deprecated Always false under bearer policy; retained for compatibility. */
   legacy_mutation_guard_enabled: boolean;
+  cors_allowed_origins_count: number;
+  credentialed_cors_enabled: boolean;
+  frame_ancestor_origins_count: number;
+  external_framing_enabled: boolean;
+  content_security_policy_enabled: boolean;
+  session_origin_validation_enabled: boolean;
 }
 
 /** Config / connection status */

@@ -10,7 +10,7 @@ The HACS sidebar panel is a polished **native companion panel** — a status and
 - Adds summary sensors and binary sensors for automations
 - Registers a native companion panel that can show Core decision priorities when contract v1 is available
 - Provides an obvious **Open Full ZigbeeLens dashboard** button (opens Core in a new tab)
-- May auto-embed the full Core dashboard when Home Assistant and Core share the same protocol
+- Offers optional **Try Embedded View** for the full Core dashboard when schemes match (native summary remains the default)
 - Exposes redacted diagnostics (including decision-contract availability)
 - Creates repairs for Core/collector/configuration issues
 
@@ -111,15 +111,9 @@ Detailed diagnostics remain in the ZigbeeLens Core dashboard.
 
 When enabled, **ZigbeeLens** appears in the Home Assistant sidebar. There are two presentation paths:
 
-### Same-protocol auto-embed
+### Native companion summary (default)
 
-When Home Assistant and Core use the same protocol (both HTTP or both HTTPS), the **full Core dashboard** may load automatically in the sidebar. That embedded UI is the **canonical Decision Engine surface**. Use the **menu button** (☰) to reopen Home Assistant navigation. HACS does not reinterpret Core decisions in this path.
-
-### Native companion summary
-
-When embedding is unavailable — typically HTTPS Home Assistant with an HTTP Core URL (mixed content) — the sidebar shows the **native companion panel**.
-
-On that path, HACS negotiates an exact companion decision contract (`decision_contract_version = 1`). When supported and the Dashboard decision payload is valid:
+The sidebar opens on the **native companion panel**. HACS negotiates an exact companion decision contract (`decision_contract_version = 1`). When supported and the Dashboard decision payload is valid:
 
 - **What needs attention now** shows up to three Core investigation priorities
 - Core priority labels, titles, and summaries are passed through unchanged
@@ -127,7 +121,11 @@ On that path, HACS negotiates an exact companion decision contract (`decision_co
 - Per-network rows show bridge state, device counts, unavailable counts, and priority counts
 - Integration health shows Shared decisions / Decision contract / Core compatibility (Compatible, Incompatible, or Unknown)
 
-There is **no** “Back to Summary” control. Decision mode does **not** use the legacy Current finding card or Health badge as decision authority.
+Decision mode does **not** use the legacy Current finding card or Health badge as decision authority.
+
+### Optional embedded Core view
+
+When Home Assistant and Core use the same protocol, **Try Embedded View** can load the full Core dashboard in the sidebar (Core must allow the Home Assistant origin in `frame_ancestor_origins`). Use **Back to Summary** to leave the iframe, or **Open Full ZigbeeLens dashboard** for a new tab. Mixed-content and invalid Core URLs never become iframe sources.
 
 When the contract is missing, unsupported, or the Dashboard surfaces are malformed, the panel falls back to a factual connection/network/incident summary without inventing diagnoses. Disconnected Core shows compatibility **Unknown**, not Compatible.
 

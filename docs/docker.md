@@ -128,7 +128,7 @@ Validate examples:
 
 **Recommended:** subdomain (`zigbeelens.example.com` → container `:8377`).
 
-ZigbeeLens Core supports typed security configuration, bearer authentication, and optional same-origin browser sessions when an API token and session secret are configured. Bundled UI login wiring, credentialed CORS, HACS token support, and ingress identity enforcement have not landed. If Core is reachable beyond users or networks you trust, access-control decisions are your responsibility — for example firewall rules, network isolation, Home Assistant Ingress, or an authenticated reverse proxy / VPN.
+ZigbeeLens Core supports typed security configuration, bearer authentication, optional browser sessions, exact CORS/frame-ancestor allowlists, and HTML Content-Security-Policy. First-party Core ignores `X-Forwarded-*` / `Forwarded` headers: behind a TLS-terminating proxy the browser-visible Origin is typically `https://…` while Core sees `http` + `Host`. Put that browser-visible origin in `security.cors_allowed_origins` for session/CORS (this does not trust the proxy). Configure framing for a Home Assistant iframe separately with `security.frame_ancestor_origins` (canonical `https://homeassistant.example` style origins only). Proxies should not broaden Core CORS/CSP with wildcards; TLS/HSTS remain proxy responsibilities. Bundled UI login wiring, HACS token support, and ingress identity enforcement have not landed. If Core is reachable beyond users or networks you trust, access-control decisions are your responsibility — for example firewall rules, network isolation, Home Assistant Ingress, or an authenticated reverse proxy / VPN.
 
 ### Beast / Authentik split routing
 

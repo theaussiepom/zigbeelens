@@ -30,8 +30,8 @@ Before you start, confirm:
 Before release testing, confirm you understand:
 
 - Core may require `Authorization: Bearer` for protected API routes when an API token is configured
-- Optional browser sessions need both API token and session secret; cookie mutations need `X-ZigbeeLens-CSRF-Token`
-- Bundled UI login wiring, credentialed CORS, HACS token support, and ingress identity enforcement are not implemented yet
+- Optional browser sessions need both API token and session secret; cookie mutations need exact `Origin` and `X-ZigbeeLens-CSRF-Token`
+- Bundled UI login wiring, HACS token support, and ingress identity enforcement are not implemented yet
 - ZigbeeLens is **read-only for Zigbee control** (no permit join, remove, reset, bind/unbind, OTA, or channel changes)
 - Some Core API routes modify **ZigbeeLens local data only** (reports, topology snapshots, HA enrichment)
 - If Core is reachable beyond users or networks you trust, **access-control decisions are your responsibility**
@@ -83,6 +83,7 @@ curl -s -c /tmp/zl-cookies.txt -X POST http://localhost:8377/api/auth/session \
 curl -s -b /tmp/zl-cookies.txt http://localhost:8377/api/dashboard | python3 -c 'import json,sys; json.load(sys.stdin); print("session cookie ok")'
 CSRF=$(curl -s -b /tmp/zl-cookies.txt http://localhost:8377/api/auth/session | python3 -c 'import json,sys; print(json.load(sys.stdin)["csrf_token"])')
 curl -s -b /tmp/zl-cookies.txt -X DELETE http://localhost:8377/api/auth/session \
+  -H "Origin: http://localhost:8377" \
   -H "X-ZigbeeLens-CSRF-Token: $CSRF" -w 'logout HTTP %{http_code}\n' -o /dev/null
 ```
 
@@ -331,9 +332,9 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 - [ ] Existing entity unique IDs remain stable
 - [ ] No mutation controls/services appear
 - [ ] Sidebar **ZigbeeLens** entry appears
-- [ ] Same-scheme HA/Core may auto-embed the full Core dashboard
-- [ ] Mixed-content (HTTPS HA + HTTP Core) uses the native companion summary
-- [ ] Do **not** expect a Back to Summary control
+- [ ] Same-scheme HA/Core stays on native summary until Try Embedded View
+- [ ] Mixed-content (HTTPS HA + HTTP Core) uses the native companion summary / blocked view
+- [ ] Back to Summary returns from embedded or blocked view to native summary
 - [ ] Diagnostics show `decision_contract_version`, `shared_decisions_available`, `core_version_compatible`
 - [ ] Contract v1 activates decision mode when Dashboard surfaces are valid lists
 - [ ] Panel priority label/title/summary match Core Dashboard exactly
@@ -366,18 +367,18 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 2. In Home Assistant: **Settings → Devices & services → ZigbeeLens → Configure**.
 3. Change Core URL to the HTTPS address (for example `https://zigbeelens.theaussiepom.me`).
 4. Confirm validation succeeds (`GET /api/health`).
-5. Open the ZigbeeLens sidebar — same-scheme setup may auto-embed Core; otherwise use native summary / Try Embedded View.
+5. Open the ZigbeeLens sidebar — native summary is the default; use **Try Embedded View** to enter iframe mode.
 6. **Open Full Dashboard** opens the HTTPS URL in a new tab.
 7. **Try Embedded View** — full dashboard renders inside Home Assistant when embedding is allowed.
-8. There is no separate Back to Summary control; reload the sidebar / HA navigation as needed.
+8. **Back to Summary** returns to the native companion panel (usable even if CSP blocks the iframe).
 
 ### Companion panel notes
 
 - The **Core dashboard is canonical** — HACS does not build a second dashboard or drill-down pages.
 - The companion panel is a **status/launcher surface**: it renders a redacted summary supplied by the integration over the HA websocket, so the browser never fetches Core directly for the summary.
-- Same-scheme HA/Core may auto-embed the full Core dashboard; mixed content cannot.
+- Native summary is the default; same-scheme setups can opt into embedded Core via Try Embedded View; mixed content cannot embed.
 - **Open Full Dashboard** opens Core in a new tab and remains the reliable investigation route.
-- **Try Embedded View** is optional and only works when browser security allows embedding.
+- **Try Embedded View** is optional and only works when browser security allows embedding; **Back to Summary** exits iframe mode.
 - Decision mode (contract v1) applies only on the native summary path.
 - Optional HTTPS reverse proxy for embedded view: [hacs-embedded-view.md](hacs-embedded-view.md)
 
