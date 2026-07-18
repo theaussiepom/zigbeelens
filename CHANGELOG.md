@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Security:** typed `security.mode` (`local` / `authenticated` / `home_assistant_ingress`) and `SecurityConfig` with `SecretStr` API token and session secret
+- **Security:** allowlisted environment and `*_FILE` resolution for security and MQTT secrets (plus temporary `ZIGBEELENS_API_KEY` alias)
+- **Security:** secret-free `security` block on `/api/config/status` and startup posture logging
 - **HACS companion:** exact decision contract v1 negotiation and native panel decision display (Phase 5E)
 - **Capabilities:** `shared_decisions`, `companion_decision_summary`, and decision-surface advertisement for companion consumers
 - **Reports:** Lens-family aligned sections on stored report detail (`executive_summary`, `health_summary`, `active_incidents`, `collector_status`, `limitations`, `domain_details`, `events_or_timeline`); legacy fields retained
@@ -16,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Security:** source/default `server.host` is loopback (`127.0.0.1`); Docker/add-on configs keep explicit `0.0.0.0`
+- **Security:** canonical `zigbeelens` launcher owns the Uvicorn bind from one effective AppConfig (including `ZIGBEELENS_PORT`)
+- **Security:** optional mutation-route API-key guard reads the resolved config token (no request-time environment reread)
+- **Docker:** HEALTHCHECK probes `ZIGBEELENS_PORT` (default 8377) without loading AppConfig or secrets
+- **Redaction:** MQTT/connection URI query and fragment parameters use the same `is_secret_key()` policy as nested secret keys
 - **HACS:** companion decision mode uses Core Dashboard priorities with soft fallback for missing/unsupported/malformed contracts; Core compatibility is Compatible / Incompatible / Unknown
 - **Topology:** enabled by default with a single startup network map scan after MQTT collector and bridge readiness (`startup_stable_delay_seconds`, default 60); passive MQTT updates thereafter; periodic active scans disabled unless `refresh_interval_seconds` > 0
 - **Docs:** deployment live-state and alignment status refreshed; BenBeast uses rolling `:edge`, not pinned semver; HACS/add-on/release-test docs updated for Decision Engine companion behaviour

@@ -25,17 +25,28 @@ Before you start, confirm:
 - [ ] Home Assistant can reach the Docker host IP on port 8377 (for HACS test)
 - [ ] HACS is installed in Home Assistant
 
-## Security acknowledgement (v0.1.0)
+## Security acknowledgement
 
 Before release testing, confirm you understand:
 
-- ZigbeeLens Core has **no built-in authentication** in v0.1.0
+- Core has typed security configuration and may use an optional `X-ZigbeeLens-Api-Key` **mutation-route** guard
+- Read routes, report downloads, and SSE remain open; bearer/session/ingress auth are not implemented yet
 - ZigbeeLens is **read-only for Zigbee control** (no permit join, remove, reset, bind/unbind, OTA, or channel changes)
 - Some Core API routes modify **ZigbeeLens local data only** (reports, topology snapshots, HA enrichment)
 - If Core is reachable beyond users or networks you trust, **access-control decisions are your responsibility**
 - **HTTPS is not authentication** — it may be needed for optional HACS embedded view only
 
 See [security.md](security.md).
+
+Optional mutation-token test (do **not** commit real tokens). Example using a file:
+
+```bash
+openssl rand -base64 48 > /tmp/zigbeelens-api.token
+export ZIGBEELENS_SECURITY_API_TOKEN_FILE=/tmp/zigbeelens-api.token
+# Or: export ZIGBEELENS_SECURITY_API_TOKEN="$(openssl rand -base64 48)"
+```
+
+If your local test config leaves the API token unset, mutating routes remain open in that configuration.
 
 Optional helper (creates dirs, copies template, refuses placeholder config):
 

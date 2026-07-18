@@ -23,12 +23,16 @@ Run all automated checks:
 - [ ] Version alignment check passes (`./scripts/check-version-alignment.sh`)
 - [ ] Storage retention enforcement runs on startup (`storage.retention_days`)
 
-## Security acknowledgement (v0.1.0)
+## Security acknowledgement
 
-- [ ] I understand ZigbeeLens Core has no built-in authentication in v0.1.0.
+- [ ] I have set the intended `security.mode` (and know what this build actually enforces).
+- [ ] I understand the process bind (`server.host`) — loopback vs non-loopback — and that status/Uvicorn share one AppConfig.
+- [ ] I have decided whether to configure a mutation-route API token (`ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` or legacy `ZIGBEELENS_API_KEY`).
+- [ ] I understand read routes, report downloads, and SSE remain open even when a mutation token is set.
+- [ ] I have checked logs/config status for accidental secret leakage.
+- [ ] If Core is reachable beyond users/networks I trust, I have intentionally added a trusted proxy/firewall (or accepted the risk).
 - [ ] I understand ZigbeeLens is read-only for Zigbee control and does not perform permit join, remove, reset, bind/unbind, OTA, or channel changes.
 - [ ] I understand some API routes can modify ZigbeeLens local data, such as reports, topology snapshots, and Home Assistant enrichment metadata.
-- [ ] If Core is reachable beyond users/networks I trust, I have intentionally added suitable access control or accepted the risk.
 - [ ] If using an FQDN/HTTPS route, I understand HTTPS is not authentication.
 - [ ] If using a tablet/no-auth route, I have intentionally scoped it to trusted/local access or accepted the risk.
 

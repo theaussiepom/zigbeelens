@@ -193,7 +193,7 @@ Details: [docs/reports.md](docs/reports.md) · [docs/redaction.md](docs/redactio
 
 ## Security model
 
-ZigbeeLens Core does **not** include built-in authentication in v0.1.0.
+ZigbeeLens Core includes typed security configuration and secret loading (environment / `*_FILE`). An optional `X-ZigbeeLens-Api-Key` guard can protect **mutating** routes. Read routes, report downloads, and SSE remain open. Bearer authentication, browser sessions/CSRF, and Home Assistant ingress identity enforcement are **not** implemented yet.
 
 ZigbeeLens is read-only with respect to Zigbee control. It does not perform device-control actions such as permit join, remove, reset, bind/unbind, OTA, or channel changes.
 
