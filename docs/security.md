@@ -57,11 +57,17 @@ Authorization: Bearer <exact-token>
 
 Rules:
 
+- `Authorization: Bearer` is the only accepted bearer channel
 - Scheme comparison is case-insensitive (`Bearer` / `bearer`)
 - Token comparison is constant-time
-- Tokens are not accepted from query strings, cookies, URL fragments, or form bodies
+- Query-string, cookie, and legacy-header credentials are rejected
 - The former `X-ZigbeeLens-Api-Key` HTTP header is **not** accepted
 - Missing and invalid credentials return the same `401` with `WWW-Authenticate: Bearer`
+
+Core redacts recognised secret query parameter values from its own Uvicorn
+access logs (for example `token`, `api_key`, `access_token`). That does **not**
+sanitize reverse-proxy or load-balancer logs, which may record request URLs
+before Core sees them. Credentials must never be placed in URLs.
 
 Generate a token safely:
 
