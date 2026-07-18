@@ -99,7 +99,12 @@ describe("credential-aware Core fetch", () => {
       expiresAt: futureExpiry(),
       browserSessionEnabled: true,
     });
-    authRuntime.updateCsrfToken("");
+    // Empty CSRF keeps session method but cannot be applied to headers.
+    authRuntime.setSession({
+      csrfToken: "",
+      expiresAt: futureExpiry(),
+      browserSessionEnabled: true,
+    });
 
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -140,7 +145,7 @@ describe("credential-aware Core fetch", () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ detail: "Authentication required." }, 401));
     vi.stubGlobal("fetch", fetchMock);
     await expect(
-      coreFetch("api/auth/session", {}, undefined, { isSessionStatus: true }),
+      coreFetch("api/auth/session", {}, undefined, { intent: "public_session_status" }),
     ).rejects.toBeInstanceOf(ApiError);
     expect(listener).not.toHaveBeenCalled();
   });
@@ -255,6 +260,8 @@ describe("report download helpers", () => {
   });
 
   it("creates object URL, clicks anchor, and revokes", async () => {
+    authRuntime.setTrustedLocal(false);
+    const generation = authRuntime.getGeneration();
     const createObjectURL = vi.fn(() => "blob:test-url");
     const revokeObjectURL = vi.fn();
     vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
@@ -271,6 +278,7 @@ describe("report download helpers", () => {
       blob: new Blob(["x"]),
       filename: "r.json",
       contentType: "application/json",
+      authGeneration: generation,
     });
 
     expect(createObjectURL).toHaveBeenCalled();
@@ -278,5 +286,52 @@ describe("report download helpers", () => {
     expect(remove).toHaveBeenCalled();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:test-url");
     appendChild.mockRestore();
+  });
+
+  it("rejects download trigger after auth generation change", async () => {
+    authRuntime.setSession({
+      csrfToken: "csrf-dl",
+      expiresAt: futureExpiry(),
+      browserSessionEnabled: true,
+    });
+    const generation = authRuntime.getGeneration();
+    const createObjectURL = vi.fn(() => "blob:test-url");
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL: vi.fn() });
+    authRuntime.clear();
+    await expect(
+      triggerBrowserDownload({
+        blob: new Blob(["x"]),
+        filename: "r.json",
+        contentType: "application/json",
+        authGeneration: generation,
+      }),
+    ).rejects.toMatchObject({ kind: "stale_auth_context" });
+    expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("marks protected JSON stale after logout during body read", async () => {
+    authRuntime.setSession({
+      csrfToken: "csrf-stale",
+      expiresAt: futureExpiry(),
+      browserSessionEnabled: true,
+    });
+    let resolveBody: ((value: string) => void) | null = null;
+    const bodyPromise = new Promise<string>((resolve) => {
+      resolveBody = resolve;
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: () => bodyPromise.then((text) => JSON.parse(text)),
+      text: () => bodyPromise,
+      blob: async () => new Blob(),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = api.health();
+    authRuntime.clear();
+    resolveBody?.(JSON.stringify({ status: "ok" }));
+    await expect(pending).rejects.toMatchObject({ kind: "stale_auth_context" });
   });
 });

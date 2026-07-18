@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseBrowserSessionStatus } from "./sessionStatus";
 
 describe("parseBrowserSessionStatus", () => {
-  it("accepts trusted_local", () => {
+  it("accepts trusted_local with null expiry and csrf", () => {
     const parsed = parseBrowserSessionStatus({
       authenticated: true,
       auth_method: "trusted_local",
@@ -11,6 +11,17 @@ describe("parseBrowserSessionStatus", () => {
       csrf_token: null,
     });
     expect(parsed.ok).toBe(true);
+  });
+
+  it("rejects trusted_local with csrf", () => {
+    const parsed = parseBrowserSessionStatus({
+      authenticated: true,
+      auth_method: "trusted_local",
+      browser_session_enabled: false,
+      expires_at: null,
+      csrf_token: "x",
+    });
+    expect(parsed).toEqual({ ok: false, reason: "malformed" });
   });
 
   it("accepts valid session", () => {
@@ -46,6 +57,17 @@ describe("parseBrowserSessionStatus", () => {
     expect(parsed).toEqual({ ok: false, reason: "incomplete_session" });
   });
 
+  it("rejects session csrf with surrounding whitespace", () => {
+    const parsed = parseBrowserSessionStatus({
+      authenticated: true,
+      auth_method: "session",
+      browser_session_enabled: true,
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      csrf_token: "  csrf-abc  ",
+    });
+    expect(parsed).toEqual({ ok: false, reason: "malformed" });
+  });
+
   it("rejects expired session", () => {
     const parsed = parseBrowserSessionStatus({
       authenticated: true,
@@ -55,6 +77,49 @@ describe("parseBrowserSessionStatus", () => {
       csrf_token: "csrf-abc",
     });
     expect(parsed).toEqual({ ok: false, reason: "incomplete_session" });
+  });
+
+  it("rejects session expiry beyond Core max TTL", () => {
+    const parsed = parseBrowserSessionStatus({
+      authenticated: true,
+      auth_method: "session",
+      browser_session_enabled: true,
+      expires_at: new Date(Date.now() + 8 * 24 * 60 * 60_000).toISOString(),
+      csrf_token: "csrf-abc",
+    });
+    expect(parsed).toEqual({ ok: false, reason: "incomplete_session" });
+  });
+
+  it("rejects unauthenticated with non-null method/csrf/expiry", () => {
+    expect(
+      parseBrowserSessionStatus({
+        authenticated: false,
+        auth_method: "session",
+        browser_session_enabled: true,
+        expires_at: null,
+        csrf_token: null,
+      }),
+    ).toEqual({ ok: false, reason: "malformed" });
+    expect(
+      parseBrowserSessionStatus({
+        authenticated: false,
+        auth_method: null,
+        browser_session_enabled: true,
+        expires_at: new Date().toISOString(),
+        csrf_token: null,
+      }),
+    ).toEqual({ ok: false, reason: "malformed" });
+  });
+
+  it("accepts unauthenticated null credentials", () => {
+    const parsed = parseBrowserSessionStatus({
+      authenticated: false,
+      auth_method: null,
+      browser_session_enabled: true,
+      expires_at: null,
+      csrf_token: null,
+    });
+    expect(parsed.ok).toBe(true);
   });
 
   it("rejects malformed booleans", () => {

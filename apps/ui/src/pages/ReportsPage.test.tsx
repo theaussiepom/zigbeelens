@@ -61,6 +61,7 @@ vi.mock("@/lib/api", () => ({
     blob: new Blob(["{}"], { type: "application/json" }),
     filename: "report.json",
     contentType: "application/json",
+    authGeneration: 1,
   })),
   triggerBrowserDownload: vi.fn(async () => {}),
   ApiError: class ApiError extends Error {},

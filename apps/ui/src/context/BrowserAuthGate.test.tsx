@@ -104,7 +104,8 @@ describe("BrowserAuthGate", () => {
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("authenticated"));
     expect(screen.getByTestId("method")).toHaveTextContent("trusted_local");
     expect(screen.getByTestId("protected-data")).toBeInTheDocument();
-    expect(authRuntime.getCsrfToken()).toBeNull();
+    const headers = new Headers();
+    expect(authRuntime.applySessionCsrf(headers)).toBe("not_session");
   });
 
   it("valid session unlocks and retains CSRF in memory only", async () => {
@@ -130,8 +131,11 @@ describe("BrowserAuthGate", () => {
       </>,
     );
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("authenticated"));
-    expect(authRuntime.getCsrfToken()).toBe("csrf-mem");
+    const headers = new Headers();
+    expect(authRuntime.applySessionCsrf(headers)).toBe("applied");
+    expect(headers.get("X-ZigbeeLens-CSRF-Token")).toBe("csrf-mem");
     expect(screen.queryByText("csrf-mem")).not.toBeInTheDocument();
+    expect(JSON.stringify(authRuntime)).not.toContain("csrf-mem");
   });
 
   it("unauthenticated with sessions enabled shows login and no protected data", async () => {
@@ -145,6 +149,9 @@ describe("BrowserAuthGate", () => {
     expect(screen.queryByLabelText("Main navigation")).not.toBeInTheDocument();
     const input = screen.getByLabelText(/API token/i);
     expect(input).toHaveAttribute("type", "password");
+    expect(input).toHaveAttribute("autocomplete", "off");
+    expect(input).not.toHaveAttribute("name");
+    expect(input.getAttribute("autocomplete")).not.toMatch(/password/i);
   });
 
   it("sessions disabled shows setup without token input", async () => {
@@ -260,7 +267,10 @@ describe("BrowserAuthGate", () => {
     for (const key of Object.keys(localStorage)) {
       expect(localStorage.getItem(key)).not.toContain(SENTINEL_TOKEN);
     }
-    expect(authRuntime.getCsrfToken()).toBe("csrf-after-login");
+    const csrfHeaders = new Headers();
+    expect(authRuntime.applySessionCsrf(csrfHeaders)).toBe("applied");
+    expect(csrfHeaders.get("X-ZigbeeLens-CSRF-Token")).toBe("csrf-after-login");
+    expect(document.body.textContent).not.toContain("csrf-after-login");
   });
 
   it("POST 200 without cookie round-trip stays locked", async () => {
@@ -346,6 +356,15 @@ describe("BrowserAuthGate", () => {
           active_scenario: null,
         });
       }
+      if (url.includes("scenarios") || url.includes("health")) {
+        if (url.includes("health") && !sessionAuthenticated) {
+          return jsonResponse({ detail: "Authentication required." }, 401);
+        }
+        if (url.includes("scenarios")) {
+          return jsonResponse([]);
+        }
+        return jsonResponse({ status: "ok", collector: {} });
+      }
       return jsonResponse({ detail: "Authentication required." }, 401);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -373,7 +392,7 @@ describe("BrowserAuthGate", () => {
     );
 
     await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
-    expect(authRuntime.getCsrfToken()).toBe("csrf-live");
+    expect(authRuntime.applySessionCsrf(new Headers())).toBe("applied");
 
     await act(async () => {
       screen.getByRole("button", { name: /Trigger 401/i }).click();
@@ -381,7 +400,7 @@ describe("BrowserAuthGate", () => {
 
     await waitFor(() => expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument());
     expect(screen.queryByLabelText("Main navigation")).not.toBeInTheDocument();
-    expect(authRuntime.getCsrfToken()).toBeNull();
+    expect(authRuntime.applySessionCsrf(new Headers())).toBe("not_session");
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: /locked/i })).toBeInTheDocument(),
     );
@@ -496,7 +515,33 @@ describe("BrowserAuthGate", () => {
       expect(String(call[0])).not.toContain(SENTINEL_TOKEN);
       expect(String(call[1])).not.toContain(SENTINEL_TOKEN);
     }
-    expect(String(console.error)).not.toContain(SENTINEL_TOKEN);
+    for (const spy of [console.error, console.warn, console.log] as const) {
+      for (const args of (spy as unknown as { mock: { calls: unknown[][] } }).mock.calls) {
+        expect(JSON.stringify(args)).not.toContain(SENTINEL_TOKEN);
+      }
+    }
+  });
+
+  it("same-session status refresh leaves authEpoch unchanged", async () => {
+    const expiry = futureExpiry();
+    const status = sessionStatus({
+      authenticated: true,
+      auth_method: "session",
+      browser_session_enabled: true,
+      expires_at: expiry,
+      csrf_token: "csrf-stable",
+    });
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(status));
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithAuth(<AuthProbe />);
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("authenticated"));
+    const epochBefore = Number(screen.getByTestId("epoch").textContent);
+    const callsBefore = fetchMock.mock.calls.length;
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(callsBefore));
+    expect(Number(screen.getByTestId("epoch").textContent)).toBe(epochBefore);
   });
 
   it("ScenarioProvider does not mount while locked", async () => {
@@ -555,5 +600,104 @@ describe("SSE access gate", () => {
 
     liveConnection.setAccessEnabled(false);
     expect(eventSourceTestState.closeCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("incomplete session status on EventSource error locks via unauthorized", async () => {
+    const listener = vi.fn();
+    authRuntime.onUnauthorized(listener);
+    liveConnection.setAccessEnabled(true);
+    liveConnection.subscribeEvents(() => {});
+    const source = eventSourceTestState.instances.at(-1);
+    expect(source).toBeTruthy();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          authenticated: true,
+          auth_method: "session",
+          browser_session_enabled: true,
+          expires_at: new Date(Date.now() - 1000).toISOString(),
+          csrf_token: "csrf-x",
+        }),
+      ),
+    );
+
+    await act(async () => {
+      source?.onerror?.();
+      await vi.waitFor(() => expect(listener).toHaveBeenCalled(), { timeout: 2000 });
+    });
+  });
+});
+
+describe("bfcache and expiry lifecycle", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    authRuntime.resetForTests();
+    liveConnection.resetForTests();
+  });
+
+  it("persisted pagehide moves to checking before restore", async () => {
+    const expiry = futureExpiry(120_000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          sessionStatus({
+            authenticated: true,
+            auth_method: "session",
+            browser_session_enabled: true,
+            expires_at: expiry,
+            csrf_token: "csrf-bf",
+          }),
+        ),
+      ),
+    );
+    renderWithAuth(<ProtectedMarker />);
+    await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
+
+    await act(async () => {
+      const event = new Event("pagehide") as PageTransitionEvent;
+      Object.defineProperty(event, "persisted", { value: true });
+      window.dispatchEvent(event);
+    });
+    expect(screen.getByRole("heading", { name: /Checking access/i })).toBeInTheDocument();
+    expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
+  });
+
+  it("detects hidden-tab expiry immediately on visibility restore", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const start = Date.now();
+    vi.setSystemTime(start);
+    const expiry = new Date(start + 5_000).toISOString();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          sessionStatus({
+            authenticated: true,
+            auth_method: "session",
+            browser_session_enabled: true,
+            expires_at: expiry,
+            csrf_token: "csrf-vis",
+          }),
+        ),
+      ),
+    );
+    renderWithAuth(<ProtectedMarker />);
+    await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
+
+    await act(async () => {
+      vi.setSystemTime(start + 10_000);
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "visible",
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
+    vi.useRealTimers();
   });
 });
