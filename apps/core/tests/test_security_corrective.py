@@ -290,9 +290,15 @@ def test_redact_mqtt_server_valid_userinfo_still_useful():
 
 def test_config_status_redacts_uri_query_secrets(tmp_path: Path, monkeypatch):
     cfg = tmp_path / "config.yaml"
+    client_secret = "status-client-secret"
+    authorization = "status-authorization"
+    network_key = "status-network-key"
+    install_code = "status-install-code"
     server = (
         f"mqtt://u:userinfo-pass@broker:1883/path"
         f"?password={QUERY_SECRET}&token={TOKEN_QUERY}&client_id=safe"
+        f"&client_secret={client_secret}&authorization={authorization}"
+        f"&network_key={network_key}&install_code={install_code}&token_count=4"
         f"#api_key={FRAGMENT_SECRET}"
     )
     _write_config(
@@ -326,7 +332,13 @@ mqtt:
         assert FRAGMENT_SECRET not in text
         assert MQTT_SENTINEL not in text
         assert "userinfo-pass" not in text
-        assert "client_id=safe" in legacy.json()["mqtt_server"]
+        assert client_secret not in text
+        assert authorization not in text
+        assert network_key not in text
+        assert install_code not in text
+        mqtt_server = legacy.json()["mqtt_server"]
+        assert "client_id=safe" in mqtt_server
+        assert "token_count=4" in mqtt_server
 
 
 def test_config_status_malformed_port_does_not_500(tmp_path: Path, monkeypatch):

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from pydantic import SecretStr
 
@@ -14,6 +14,7 @@ REDACTED = "***"
 _EXACT_SECRET_KEYS = frozenset(
     {
         "password",
+        "passwd",
         "passphrase",
         "secret",
         "session_secret",
@@ -38,14 +39,11 @@ _SECRET_SUFFIXES = (
     "_private_key",
 )
 
-_CONNECTION_QUERY_SECRET = re.compile(
-    r"(?i)([?&#](?:password|passwd|passphrase|secret|token|api[_-]?key|access_token|refresh_token)=)([^&#]*)"
-)
-
 
 def is_secret_key(key: str) -> bool:
     """Return True for conventional secret field names, not safe metadata."""
-    lower = key.lower()
+    # Normalise hyphenated URL/config keys (api-key → api_key).
+    lower = key.lower().replace("-", "_")
     if lower.endswith("_configured") or lower.endswith("_count"):
         return False
     if lower in {"token_source", "secret_source"}:
@@ -55,13 +53,26 @@ def is_secret_key(key: str) -> bool:
     return any(lower.endswith(suffix) for suffix in _SECRET_SUFFIXES)
 
 
-def _redact_credential_params(value: str, *, lead: str) -> str:
+def _redact_param_string(value: str) -> str:
+    """Redact secret-bearing query/fragment parameters using is_secret_key()."""
     if not value:
         return ""
-    redacted = _CONNECTION_QUERY_SECRET.sub(r"\1***", f"{lead}{value}")
-    if redacted.startswith(lead):
-        return redacted[len(lead) :]
-    return redacted
+    # parse_qsl URL-decodes keys/values and preserves order.
+    pairs = parse_qsl(value, keep_blank_values=True)
+    redacted_pairs: list[tuple[str, str]] = []
+    for key, item in pairs:
+        if is_secret_key(key):
+            redacted_pairs.append((key, REDACTED))
+        else:
+            redacted_pairs.append((key, item))
+    # Keep REDACTED ("***") literal; preserve practical ordering from parse_qsl.
+    return urlencode(redacted_pairs, doseq=True, safe="*")
+
+
+def _param_string_has_secret(value: str) -> bool:
+    if not value:
+        return False
+    return any(is_secret_key(key) for key, _ in parse_qsl(value, keep_blank_values=True))
 
 
 def redact_mqtt_server(server: str, username: str = "") -> str:
@@ -90,8 +101,8 @@ def redact_mqtt_server(server: str, username: str = "") -> str:
     else:
         netloc = f"{user_part}{host}{port}"
 
-    query = _redact_credential_params(parsed.query, lead="?")
-    fragment = _redact_credential_params(parsed.fragment, lead="#")
+    query = _redact_param_string(parsed.query)
+    fragment = _redact_param_string(parsed.fragment)
     return urlunparse(
         (parsed.scheme, netloc, parsed.path, parsed.params, query, fragment)
     )
@@ -100,7 +111,15 @@ def redact_mqtt_server(server: str, username: str = "") -> str:
 def redact_connection_string(value: str) -> str:
     """Redact credentials embedded in connection strings and query/fragment text."""
     redacted = re.sub(r"://([^:@/]+):([^@/]+)@", r"://\1:***@", value)
-    return _CONNECTION_QUERY_SECRET.sub(r"\1***", redacted)
+    try:
+        parsed = urlparse(redacted)
+    except ValueError:
+        return REDACTED
+    query = _redact_param_string(parsed.query)
+    fragment = _redact_param_string(parsed.fragment)
+    return urlunparse(
+        (parsed.scheme, parsed.netloc, parsed.path, parsed.params, query, fragment)
+    )
 
 
 def _looks_like_credential_uri(value: str) -> bool:
@@ -108,7 +127,13 @@ def _looks_like_credential_uri(value: str) -> bool:
         return False
     if re.search(r"://[^:/@]+:[^@/]+@", value):
         return True
-    return bool(_CONNECTION_QUERY_SECRET.search(value))
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return False
+    return _param_string_has_secret(parsed.query) or _param_string_has_secret(
+        parsed.fragment
+    )
 
 
 def _redact_any(value: Any) -> Any:
