@@ -36,6 +36,10 @@ def capabilities_dict(ctx: AppContext) -> dict[str, Any]:
             "shared_decisions": True,
             # Companion may consume Overview-aligned decision summaries when True.
             "companion_decision_summary": True,
+            # Auth surface support (not whether a token is currently configured).
+            "bearer_authentication": True,
+            "browser_session_authentication": False,
+            "home_assistant_ingress_identity": False,
         },
         "decision_surfaces": {
             "dashboard_investigation_priorities": True,

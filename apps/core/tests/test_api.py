@@ -122,6 +122,8 @@ def test_config_status_redacts_secrets(mock_client: TestClient):
     assert security["loopback_bind"] is True
     assert security["api_token_configured"] is False
     assert security["session_secret_configured"] is False
+    assert security["trusted_local_open"] is True
+    assert security["bearer_auth_enabled"] is False
     assert security["legacy_mutation_guard_enabled"] is False
     assert "api_token" not in security
     assert "session_secret" not in security

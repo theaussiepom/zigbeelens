@@ -56,10 +56,10 @@ else
   fail "Dockerfile missing HEALTHCHECK"
 fi
 
-if grep -q '/api/health' "${DOCKER}/Dockerfile"; then
-  ok "healthcheck uses /api/health"
+if grep -q 'healthz' "${DOCKER}/Dockerfile" && grep -q 'docker_healthcheck' "${DOCKER}/Dockerfile"; then
+  ok "healthcheck uses /healthz via docker_healthcheck module"
 else
-  fail "healthcheck should call /api/health"
+  fail "healthcheck should call /healthz via docker_healthcheck module"
 fi
 
 if grep -q 'ZIGBEELENS_CONFIG=/config/config.yaml' "${DOCKER}/Dockerfile"; then

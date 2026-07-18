@@ -532,7 +532,13 @@ class SecurityConfigStatus(BaseModel):
     loopback_bind: bool
     api_token_configured: bool
     session_secret_configured: bool
-    legacy_mutation_guard_enabled: bool
+    bearer_auth_enabled: bool
+    read_routes_require_bearer: bool
+    mutation_routes_require_bearer: bool
+    ingress_identity_enforced: bool = False
+    trusted_local_open: bool
+    # Deprecated: Track 4A mutation-only guard. Always false under bearer policy.
+    legacy_mutation_guard_enabled: bool = False
 
 
 class ZigbeeLensConfigStatus(BaseModel):

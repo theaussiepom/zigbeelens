@@ -31,20 +31,27 @@ We aim to acknowledge reports within a reasonable timeframe and will coordinate 
 
 ZigbeeLens Core includes typed security configuration (`security.mode`, API token, session secret) with environment and `*_FILE` secret loading for API, session, and MQTT credentials.
 
-An optional `X-ZigbeeLens-Api-Key` guard can require a configured API token on **mutating** routes (reports, topology capture, HA enrichment). This is **not** full authentication:
+When `security.api_token` is configured, Core requires:
 
-- Read routes remain open
-- Report downloads remain open
-- SSE event streams remain open
-- Bearer authentication is not implemented
-- Browser sessions and CSRF are not implemented
-- Home Assistant ingress identity enforcement is not implemented
+```http
+Authorization: Bearer <token>
+```
+
+for protected reads, mutations, SSE event streams, and report downloads. The former `X-ZigbeeLens-Api-Key` HTTP header is not accepted.
+
+`security.mode=local` without a token is a deliberate trusted-open compatibility mode (all API routes open). `authenticated` and `home_assistant_ingress` require an API token; ingress identity headers are not trusted yet.
+
+Public without a token:
+
+- `GET /healthz`
+- `GET /api/version` and `GET /api/v1/version`
+- Static UI assets
 
 ZigbeeLens is read-only with respect to Zigbee control. It does not perform device-control actions such as permit join, remove, reset, bind/unbind, OTA, or channel changes.
 
-Some API routes can modify ZigbeeLens’ own local data, such as creating/deleting reports, requesting a topology snapshot, or storing Home Assistant enrichment metadata. If you expose Core beyond users or networks you trust, access-control decisions are your responsibility.
+Some API routes can modify ZigbeeLens’ own local data. If you expose Core beyond users or networks you trust, access-control decisions are your responsibility.
 
-For broader access, consider firewall rules, Home Assistant Ingress, network isolation, or an authenticated reverse proxy such as Authentik, Cloudflare Access, Authelia, or basic auth. HTTPS may help with the optional embedded dashboard view in Home Assistant, but **HTTPS is not authentication**.
+Browser sessions/CSRF, bundled UI login, HACS token configuration, and Home Assistant ingress identity enforcement are not implemented yet. HTTPS may help with the optional embedded dashboard view, but **HTTPS is not authentication**.
 
 See [docs/security.md](docs/security.md).
 
@@ -76,7 +83,3 @@ See [docs/redaction.md](docs/redaction.md) and [docs/security.md](docs/security.
 | HACS integration | Not an authentication layer for Core; HTTPS Core URLs are for embedded-view browser compatibility, not auth |
 
 If Core is reachable by users or networks you do not trust, consider firewall rules, network isolation, Home Assistant Ingress, or an authenticated reverse proxy.
-
-## Not yet implemented
-
-Full bearer authentication, browser sessions/CSRF, and Home Assistant ingress identity validation have not landed. Operators should treat the mutation-route API-key guard as a limited control and choose how to expose Core accordingly.

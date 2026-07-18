@@ -52,10 +52,10 @@ def test_default_security_mode_and_host():
     ],
 )
 def test_security_modes_parse(value: str, expected: SecurityMode):
-    if expected is SecurityMode.authenticated:
-        cfg = SecurityConfig(mode=value, api_token=VALID_TOKEN)
-    else:
+    if expected is SecurityMode.local:
         cfg = SecurityConfig(mode=value)
+    else:
+        cfg = SecurityConfig(mode=value, api_token=VALID_TOKEN)
     assert cfg.mode is expected
 
 
@@ -69,6 +69,11 @@ def test_invalid_security_mode_fails_safely():
 def test_authenticated_mode_requires_token():
     with pytest.raises(ValidationError, match="api_token is required"):
         SecurityConfig(mode=SecurityMode.authenticated)
+
+
+def test_home_assistant_ingress_mode_requires_token():
+    with pytest.raises(ValidationError, match="api_token is required"):
+        SecurityConfig(mode=SecurityMode.home_assistant_ingress)
 
 
 def test_valid_token_accepted_and_masked():
@@ -277,14 +282,26 @@ def test_security_mode_environment_override(tmp_path: Path, monkeypatch):
     cfg_file = tmp_path / "config.yaml"
     _write_base_config(cfg_file)
     monkeypatch.setenv("ZIGBEELENS_SECURITY_MODE", "home_assistant_ingress")
+    monkeypatch.setenv("ZIGBEELENS_SECURITY_API_TOKEN", VALID_TOKEN)
     config = load_config(cfg_file)
     assert config.security.mode is SecurityMode.home_assistant_ingress
+    assert config.security.api_token is not None
 
 
 def test_authenticated_mode_env_without_token_fails(tmp_path: Path, monkeypatch):
     cfg_file = tmp_path / "config.yaml"
     _write_base_config(cfg_file)
     monkeypatch.setenv("ZIGBEELENS_SECURITY_MODE", "authenticated")
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(cfg_file)
+    assert "api_token" in str(exc_info.value)
+    assert VALID_TOKEN not in str(exc_info.value)
+
+
+def test_ingress_mode_env_without_token_fails(tmp_path: Path, monkeypatch):
+    cfg_file = tmp_path / "config.yaml"
+    _write_base_config(cfg_file)
+    monkeypatch.setenv("ZIGBEELENS_SECURITY_MODE", "home_assistant_ingress")
     with pytest.raises(ConfigError) as exc_info:
         load_config(cfg_file)
     assert "api_token" in str(exc_info.value)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import ParseResult, parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import ParseResult, parse_qsl, unquote_plus, urlencode, urlparse, urlunparse
 
 from pydantic import SecretStr
 
@@ -72,6 +72,53 @@ def _param_string_has_secret(value: str) -> bool:
     if not value:
         return False
     return any(is_secret_key(key) for key, _ in parse_qsl(value, keep_blank_values=True))
+
+
+def _raw_query_mentions_secret_key(query: str) -> bool:
+    """Best-effort detection of secret-like keys in possibly malformed query text."""
+    if not query:
+        return False
+    try:
+        if _param_string_has_secret(query):
+            return True
+    except Exception:
+        pass
+    for part in query.split("&"):
+        if not part:
+            continue
+        key = part.split("=", 1)[0]
+        try:
+            decoded = unquote_plus(key)
+        except Exception:
+            decoded = key
+        if is_secret_key(decoded):
+            return True
+    return False
+
+
+def redact_request_target(target: str) -> str:
+    """Redact secret query values from an HTTP request target for access logs.
+
+    Preserves the path and practical query ordering. Fragments are dropped
+    because they are not part of HTTP request targets. Malformed query data
+    fails closed to a fully redacted query when a secret-like key is present.
+    """
+    if not target:
+        return target
+    # Fragments are never part of the HTTP request target Uvicorn logs.
+    target = target.split("#", 1)[0]
+    if "?" not in target:
+        return target
+    path, query = target.split("?", 1)
+    try:
+        redacted_query = _redact_param_string(query)
+    except Exception:
+        if _raw_query_mentions_secret_key(query):
+            return f"{path}?{REDACTED}"
+        return path
+    if not query and not redacted_query:
+        return path
+    return f"{path}?{redacted_query}"
 
 
 def _format_host(hostname: str) -> str:

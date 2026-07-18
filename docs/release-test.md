@@ -29,8 +29,8 @@ Before you start, confirm:
 
 Before release testing, confirm you understand:
 
-- Core has typed security configuration and may use an optional `X-ZigbeeLens-Api-Key` **mutation-route** guard
-- Read routes, report downloads, and SSE remain open; bearer/session/ingress auth are not implemented yet
+- Core may require `Authorization: Bearer` for protected API routes when an API token is configured
+- Browser sessions, bundled UI login, HACS token support, and ingress identity enforcement are not implemented yet
 - ZigbeeLens is **read-only for Zigbee control** (no permit join, remove, reset, bind/unbind, OTA, or channel changes)
 - Some Core API routes modify **ZigbeeLens local data only** (reports, topology snapshots, HA enrichment)
 - If Core is reachable beyond users or networks you trust, **access-control decisions are your responsibility**
@@ -40,7 +40,7 @@ See [security.md](security.md).
 
 Choose **one** release-test mode before `docker run`. Host environment variables are **not** inherited by the container unless you pass `-e` (or mount a token file).
 
-### A. Token-enabled release test (mutation guard on)
+### A. Token-enabled release test (bearer auth on)
 
 Generate a fresh token on the host (do **not** commit it):
 
@@ -48,31 +48,34 @@ Generate a fresh token on the host (do **not** commit it):
 export ZIGBEELENS_TEST_API_TOKEN="$(openssl rand -base64 48)"
 ```
 
-Pass it into the container with `-e ZIGBEELENS_SECURITY_API_TOKEN=...` (see §2). After the container is up, verify the mutation guard:
+Pass it into the container with `-e ZIGBEELENS_SECURITY_API_TOKEN=...` (see §2). Host environment variables are **not** inherited unless you pass `-e`. After the container is up:
 
 ```bash
-# Expect HTTP 401 without the header
+# Public readiness remains open
+curl -s http://localhost:8377/healthz | python3 -m json.tool
+
+# Expect HTTP 401 without Authorization
 code=$(curl -s -o /tmp/zl-report-noauth.json -w '%{http_code}' -X POST http://localhost:8377/api/reports \
   -H "Content-Type: application/json" \
   -d '{"scope":"full","format":"json","redaction":{"profile":"public_safe"}}')
-echo "without key: HTTP $code"
+echo "without bearer: HTTP $code"
 test "$code" = "401"
 
-# Expect success with the header
+# Expect success with Bearer
 code=$(curl -s -o /tmp/zl-report-auth.json -w '%{http_code}' -X POST http://localhost:8377/api/reports \
   -H "Content-Type: application/json" \
-  -H "X-ZigbeeLens-Api-Key: $ZIGBEELENS_TEST_API_TOKEN" \
+  -H "Authorization: Bearer $ZIGBEELENS_TEST_API_TOKEN" \
   -d '{"scope":"full","format":"json","redaction":{"profile":"public_safe"}}')
-echo "with key: HTTP $code"
+echo "with bearer: HTTP $code"
 test "$code" = "200"
 python3 -m json.tool < /tmp/zl-report-auth.json | head -40
 ```
 
 (`*_FILE` alternative: write the token to a host file, mount it read-only, set `ZIGBEELENS_SECURITY_API_TOKEN_FILE` to the **container** path, and still use the host token value in the curl header.)
 
-### B. No-token release test (mutating routes intentionally open)
+### B. No-token release test (trusted-open; API routes intentionally open)
 
-Omit `ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` from `docker run`. In that configuration, mutating routes remain open — use only on a trusted local host.
+Omit `ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` from `docker run`. In that configuration, protected API routes remain open — use only on a trusted local host. Note: the bundled UI and HACS integration do not yet attach bearer credentials, so token-enabled mode will block those clients until later UI/HACS work lands.
 
 Optional helper (creates dirs, copies template, refuses placeholder config):
 
@@ -182,28 +185,37 @@ If you used `zigbeelens-test/` at repo root instead of `local/zigbeelens-test/`,
 
 ### Verify API
 
+`healthz` and version are public. In token-enabled mode, all other API reads below need Bearer. Never put the token in the URL.
+
 ```bash
-curl -s http://localhost:8377/api/health | python3 -m json.tool
-curl -s http://localhost:8377/api/capabilities | python3 -m json.tool
-curl -s http://localhost:8377/api/dashboard | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d.get("investigation_priorities"), list); assert isinstance(d.get("data_coverage_warnings"), list); print("dashboard decision surfaces ok")'
-curl -s http://localhost:8377/api/config/status | python3 -m json.tool
-curl -s http://localhost:8377/api/dashboard | python3 -m json.tool | head -40
-curl -s http://localhost:8377/api/networks | python3 -m json.tool
+AUTH_ARGS=()
+if [[ -n "${ZIGBEELENS_TEST_API_TOKEN:-}" ]]; then
+  AUTH_ARGS=(-H "Authorization: Bearer $ZIGBEELENS_TEST_API_TOKEN")
+fi
+
+curl -s http://localhost:8377/healthz | python3 -m json.tool
+curl -s http://localhost:8377/api/version | python3 -m json.tool
+curl -s "${AUTH_ARGS[@]}" http://localhost:8377/api/health | python3 -m json.tool
+curl -s "${AUTH_ARGS[@]}" http://localhost:8377/api/capabilities | python3 -m json.tool
+curl -s "${AUTH_ARGS[@]}" http://localhost:8377/api/dashboard | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d.get("investigation_priorities"), list); assert isinstance(d.get("data_coverage_warnings"), list); print("dashboard decision surfaces ok")'
+curl -s "${AUTH_ARGS[@]}" http://localhost:8377/api/config/status | python3 -m json.tool
+curl -s "${AUTH_ARGS[@]}" http://localhost:8377/api/dashboard | python3 -m json.tool | head -40
+curl -s "${AUTH_ARGS[@]}" http://localhost:8377/api/networks | python3 -m json.tool
 ```
 
 Generate a redacted report (JSON).
 
-**A. Token-enabled** — include the header (and run the 401 / success checks from the security section):
+**A. Token-enabled** — include Bearer (and run the 401 / success checks from the security section):
 
 ```bash
 curl -s -X POST http://localhost:8377/api/reports \
   -H "Content-Type: application/json" \
-  -H "X-ZigbeeLens-Api-Key: $ZIGBEELENS_TEST_API_TOKEN" \
+  -H "Authorization: Bearer $ZIGBEELENS_TEST_API_TOKEN" \
   -d '{"scope":"full","format":"json","redaction":{"profile":"public_safe"}}' \
   | python3 -m json.tool
 ```
 
-**B. No-token** — mutating routes remain open:
+**B. No-token** — API routes intentionally remain open:
 
 ```bash
 curl -s -X POST http://localhost:8377/api/reports \
@@ -214,8 +226,22 @@ curl -s -X POST http://localhost:8377/api/reports \
 
 Download the stored report (replace `<report-id>`):
 
+**A. Token-enabled:**
+
 ```bash
-curl -s "http://localhost:8377/api/reports/<report-id>/download" -o report.json
+curl -s \
+  -H "Authorization: Bearer $ZIGBEELENS_TEST_API_TOKEN" \
+  "http://localhost:8377/api/reports/<report-id>/download" \
+  -o report.json
+grep -iE 'password|network_key|secret' report.json || echo "No obvious secret keys in report"
+```
+
+**B. No-token trusted-open:**
+
+```bash
+curl -s \
+  "http://localhost:8377/api/reports/<report-id>/download" \
+  -o report.json
 grep -iE 'password|network_key|secret' report.json || echo "No obvious secret keys in report"
 ```
 

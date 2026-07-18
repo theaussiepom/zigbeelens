@@ -8,13 +8,15 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
 from zigbeelens import __version__
-from zigbeelens.api.auth import OptionalApiKeyMiddleware
-from zigbeelens.api.routes import router
+from zigbeelens.api.auth import require_read_access
+from zigbeelens.api.routes import include_api_routers
 from zigbeelens.app.context import bootstrap, get_context, reset_context
 from zigbeelens.config import AppConfig, load_effective_config, resolve_config_path
 from zigbeelens.logging_config import configure_logging
@@ -61,9 +63,9 @@ def create_app(
         description="Read-only observability console for Zigbee2MQTT networks",
         version=__version__,
         lifespan=lifespan,
-        docs_url="/docs" if openapi_enabled else None,
-        redoc_url="/redoc" if openapi_enabled else None,
-        openapi_url="/openapi.json" if openapi_enabled else None,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
     app.add_middleware(
         CORSMiddleware,
@@ -72,7 +74,6 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.add_middleware(OptionalApiKeyMiddleware)
 
     @app.middleware("http")
     async def allow_embedded_ui(request, call_next):
@@ -81,8 +82,19 @@ def create_app(
             response.headers["Content-Security-Policy"] = "frame-ancestors *"
         return response
 
-    app.include_router(router, prefix="/api")
-    app.include_router(router, prefix="/api/v1")
+    @app.get("/healthz", include_in_schema=True, response_model=None)
+    def healthz():
+        """Minimal public readiness probe — no security or inventory details."""
+        try:
+            ctx = get_context()
+        except RuntimeError:
+            return JSONResponse({"status": "degraded"}, status_code=503)
+        if not ctx.config_loaded or not ctx.db.ping():
+            return JSONResponse({"status": "degraded"}, status_code=503)
+        return {"status": "ok"}
+
+    include_api_routers(app, prefix="/api")
+    include_api_routers(app, prefix="/api/v1")
 
     # NOTE: SSE routes must be registered BEFORE mount_static_ui(), whose
     # catch-all `/{full_path:path}` would otherwise shadow them and 404 the
@@ -117,27 +129,34 @@ def create_app(
 
         return EventSourceResponse(generator())
 
-    @app.get("/api/events/stream")
+    @app.get("/api/events/stream", dependencies=[Depends(require_read_access)])
     async def events_stream() -> EventSourceResponse:
         return await _events_stream()
 
-    @app.get("/api/v1/events/stream")
+    @app.get("/api/v1/events/stream", dependencies=[Depends(require_read_access)])
     async def events_stream_v1() -> EventSourceResponse:
         return await _events_stream()
+
+    if openapi_enabled:
+
+        @app.get("/openapi.json", include_in_schema=False, dependencies=[Depends(require_read_access)])
+        def openapi_json() -> dict:
+            return app.openapi()
+
+        @app.get("/docs", include_in_schema=False, dependencies=[Depends(require_read_access)])
+        def swagger_ui():
+            return get_swagger_ui_html(openapi_url="/openapi.json", title=app.title)
+
+        @app.get("/redoc", include_in_schema=False, dependencies=[Depends(require_read_access)])
+        def redoc_ui():
+            return get_redoc_html(openapi_url="/openapi.json", title=app.title)
 
     if not mount_static_ui(app):
 
         @app.get("/")
         def root() -> dict[str, str]:
-            ctx = get_context()
-            payload = {
-                "name": "ZigbeeLens Core",
-                "version": __version__,
-                "data_mode": "mock" if ctx.config.mode.mock else "live",
-            }
-            if openapi_enabled:
-                payload["docs"] = "/docs"
-            return payload
+            # Public product-shell identity only — no operational or auth state.
+            return {"name": "ZigbeeLens Core", "version": __version__}
 
     return app
 

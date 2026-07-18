@@ -246,7 +246,7 @@ For a domain with public DNS:
 2. Map `443:443` on the host.
 3. HACS Core URL: `https://zigbeelens.example.com` (no port).
 
-**Security:** Core currently offers typed security configuration and an optional mutation-route API-key guard; read routes/SSE remain open. HTTPS adds TLS, not authentication. If Core is reachable beyond users or networks you trust, consider firewall rules, network isolation, VPN, or authentication at the proxy (Authelia, OAuth2 proxy, Authentik, etc.).
+**Security:** Core may require `Authorization: Bearer` when an API token is configured; the HACS integration does not yet attach bearer credentials. HTTPS adds TLS, not authentication. If Core is reachable beyond users or networks you trust, consider firewall rules, network isolation, VPN, or authentication at the proxy (Authelia, OAuth2 proxy, Authentik, etc.).
 
 ---
 

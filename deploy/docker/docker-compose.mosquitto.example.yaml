@@ -24,7 +24,7 @@ services:
     depends_on:
       mosquitto:
         condition: service_started
-    # Healthcheck is defined in deploy/docker/Dockerfile (GET /api/health).
+    # Healthcheck is defined in deploy/docker/Dockerfile (GET /healthz).
 
   mosquitto:
     image: eclipse-mosquitto:2

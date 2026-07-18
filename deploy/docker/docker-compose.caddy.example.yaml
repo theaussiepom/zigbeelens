@@ -18,8 +18,8 @@
 #
 # See docs/hacs-embedded-view.md for full setup, certificate trust, and security notes.
 #
-# Core currently has typed security config and an optional mutation-route API-key guard;
-# read routes/SSE remain open. HTTPS below helps embedded view; it is not authentication.
+# Core currently has typed security config and an optional bearer authentication when an API token is configured;
+# local/no-token remains trusted-open. HTTPS below helps embedded view; it is not authentication.
 # If Core is reachable beyond users or networks you trust, consider firewall rules,
 # network isolation, VPN, or auth at the proxy. Do not expose HTTPS publicly without auth.
 
@@ -39,7 +39,7 @@ services:
       - ./data:/data
     networks:
       - zigbeelens
-    # Healthcheck is defined in deploy/docker/Dockerfile (GET /api/health).
+    # Healthcheck is defined in deploy/docker/Dockerfile (GET /healthz).
 
   caddy:
     image: caddy:2-alpine

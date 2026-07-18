@@ -25,7 +25,7 @@ def resolve_healthcheck_port(environ: dict[str, str] | None = None) -> int:
 
 def healthcheck_url(environ: dict[str, str] | None = None) -> str:
     port = resolve_healthcheck_port(environ)
-    return f"http://127.0.0.1:{port}/api/health"
+    return f"http://127.0.0.1:{port}/healthz"
 
 
 def main(argv: list[str] | None = None) -> int:  # noqa: ARG001

@@ -7,7 +7,7 @@
 #
 # Port 8377 is published on the Docker host for convenient local/trusted-network access.
 # Core binds from AppConfig (Docker examples use server.host=0.0.0.0). Only the optional
-# mutation-route API-key guard is available today; read routes/SSE remain open. If Core
+# bearer authentication when an API token is configured is available today; local/no-token remains trusted-open. If Core
 # is reachable beyond users or networks you trust, access-control decisions are yours.
 #
 # Image: replace ghcr.io/theaussiepom/zigbeelens with your registry path.
@@ -26,4 +26,4 @@ services:
     volumes:
       - ./config:/config:ro
       - ./data:/data
-    # Healthcheck is defined in deploy/docker/Dockerfile (GET /api/health).
+    # Healthcheck is defined in deploy/docker/Dockerfile (GET /healthz).

@@ -486,6 +486,12 @@ export interface SecurityConfigStatus {
   loopback_bind: boolean;
   api_token_configured: boolean;
   session_secret_configured: boolean;
+  bearer_auth_enabled: boolean;
+  read_routes_require_bearer: boolean;
+  mutation_routes_require_bearer: boolean;
+  ingress_identity_enforced: boolean;
+  trusted_local_open: boolean;
+  /** @deprecated Always false under bearer policy; retained for compatibility. */
   legacy_mutation_guard_enabled: boolean;
 }
 

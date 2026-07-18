@@ -21,7 +21,7 @@ All other public routes under `/api/` are also mounted at `/api/v1/` (devices, i
 
 ## Authentication
 
-ZigbeeLens Core currently enforces only an optional mutation-route API-key guard. Read routes and SSE remain open. Run on a trusted network or place access control in front of the HTTP service until broader auth lands. See [security.md](security.md).
+When an API token is configured, protected routes under `/api` and `/api/v1` require `Authorization: Bearer <token>`. Public endpoints are `GET /healthz`, `GET /api/version`, and `GET /api/v1/version` (plus static UI assets). See [security.md](security.md).
 
 ## Core endpoints
 

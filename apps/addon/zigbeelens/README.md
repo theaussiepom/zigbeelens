@@ -175,7 +175,7 @@ If Zigbee2MQTT has just started, wait for telemetry to arrive. An empty network 
 
 ## Security
 
-The add-on dashboard is served through Home Assistant **Ingress**, which inherits your Home Assistant access controls. Core may enforce an optional mutation-route API-key guard; read routes, downloads, and SSE remain open, and ingress identity enforcement is not active yet. If you expose Core directly on port 8377 outside Ingress, access-control decisions are your responsibility. See [docs/security.md](../../../docs/security.md).
+The add-on dashboard is served through Home Assistant **Ingress**, which inherits your Home Assistant access controls. Core may require bearer authentication when an API token is configured; ingress identity enforcement is not active yet. If you expose Core directly on port 8377 outside Ingress, access-control decisions are your responsibility. See [docs/security.md](../../../docs/security.md).
 
 ## Support
 

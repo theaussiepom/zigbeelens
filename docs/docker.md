@@ -87,9 +87,9 @@ Core’s process default bind is loopback (`127.0.0.1`). The `zigbeelens` launch
 
 ## Health check
 
-The image defines a built-in `HEALTHCHECK` (`deploy/docker/Dockerfile`) that calls `GET /api/health` on loopback. Compose files do not repeat it — Docker inherits the check from the image.
+The image defines a built-in `HEALTHCHECK` (`deploy/docker/Dockerfile`) that calls public `GET /healthz` on loopback. Compose files do not repeat it — Docker inherits the check from the image.
 
-The probe uses `ZIGBEELENS_PORT` when set, otherwise **8377**. It does **not** load AppConfig or secret files. The Docker image default remains 8377; example Compose files continue to publish `8377:8377`.
+The probe uses `ZIGBEELENS_PORT` when set, otherwise **8377**. It does **not** load AppConfig or secret files and does **not** send a bearer token. The Docker image default remains 8377; example Compose files continue to publish `8377:8377`. Detailed `GET /api/health` remains available for diagnostics and is bearer-protected when an API token is configured.
 
 If you override the internal listening port with `ZIGBEELENS_PORT` (merged into typed AppConfig before Uvicorn binds), you must also align:
 
@@ -127,7 +127,7 @@ Validate examples:
 
 **Recommended:** subdomain (`zigbeelens.example.com` → container `:8377`).
 
-ZigbeeLens Core currently offers typed security configuration and an optional mutation-route API-key guard; read routes, downloads, and SSE remain open. Full bearer/session/ingress protection has not landed. If Core is reachable beyond users or networks you trust, access-control decisions are your responsibility — for example firewall rules, network isolation, Home Assistant Ingress, or an authenticated reverse proxy / VPN.
+ZigbeeLens Core supports typed security configuration and bearer authentication when an API token is configured. Browser sessions, bundled UI login, HACS token support, and ingress identity enforcement have not landed. If Core is reachable beyond users or networks you trust, access-control decisions are your responsibility — for example firewall rules, network isolation, Home Assistant Ingress, or an authenticated reverse proxy / VPN.
 
 ### Beast / Authentik split routing
 
@@ -161,7 +161,7 @@ Full setup, certificate trust, and security notes: **[HACS embedded view — opt
 
 ## Security
 
-ZigbeeLens Core currently configures typed security settings and may enforce an optional mutation-route API-key guard. Read routes, report downloads, and SSE remain open until broader authentication lands. See [security.md](security.md).
+ZigbeeLens Core may require `Authorization: Bearer` for protected API routes when an API token is configured. See [security.md](security.md).
 
 - ZigbeeLens is **read-only** toward Zigbee2MQTT — no device commands, permit join, remove, reset, bind/unbind, or OTA
 - Some API routes modify **ZigbeeLens local data only** (reports, topology snapshots, HA enrichment metadata)
