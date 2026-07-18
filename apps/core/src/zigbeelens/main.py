@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from zigbeelens import __version__
 from zigbeelens.api.auth import require_read_access
@@ -35,6 +37,39 @@ _UVICORN_NO_PROXY_TRUST = {
     "proxy_headers": False,
     "forwarded_allow_ips": "",
 }
+
+
+class LazyASGIApp:
+    """Import-safe ASGI entry that builds one concrete FastAPI app on first use.
+
+    Importing ``zigbeelens.main`` performs no YAML or secret I/O. External runners
+    (``uvicorn zigbeelens.main:app``) trigger a single ``create_app()`` at first
+    ASGI startup. Production ``run_server`` bypasses this wrapper and passes a
+    concrete app built from an already-resolved ``AppConfig``.
+    """
+
+    __slots__ = ("_lock", "_app")
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._app: FastAPI | None = None
+
+    def __repr__(self) -> str:
+        # Never expose config paths or secret material.
+        return "LazyASGIApp(resolved)" if self._app is not None else "LazyASGIApp()"
+
+    def _ensure(self) -> FastAPI:
+        app = self._app
+        if app is not None:
+            return app
+        with self._lock:
+            if self._app is None:
+                self._app = create_app()
+            return self._app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        app: ASGIApp = self._ensure()
+        await app(scope, receive, send)
 
 
 def _openapi_enabled() -> bool:
@@ -194,7 +229,8 @@ def create_app(
     return app
 
 
-app = create_app()
+# External ASGI: ``uvicorn zigbeelens.main:app``. Lazily loads one AppConfig.
+app = LazyASGIApp()
 
 
 def run_server(
