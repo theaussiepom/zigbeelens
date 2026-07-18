@@ -21,6 +21,12 @@ def bearer_auth_enabled(config: Any) -> bool:
     return _security_block(config).api_token is not None
 
 
+def browser_sessions_enabled(config: Any) -> bool:
+    """True when api_token and session_secret are both configured."""
+    security = _security_block(config)
+    return security.api_token is not None and security.session_secret is not None
+
+
 def trusted_local_open(config: Any) -> bool:
     security = _security_block(config)
     return security.mode is SecurityMode.local and security.api_token is None

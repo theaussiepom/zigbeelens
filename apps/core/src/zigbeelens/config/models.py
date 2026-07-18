@@ -41,6 +41,8 @@ class SecurityConfig(BaseModel):
     mode: SecurityMode = SecurityMode.local
     api_token: SecretStr | None = None
     session_secret: SecretStr | None = None
+    session_ttl_seconds: int = Field(default=43200, ge=300, le=604800)
+    session_cookie_secure: bool | None = None
 
     @field_validator("api_token", mode="before")
     @classmethod
