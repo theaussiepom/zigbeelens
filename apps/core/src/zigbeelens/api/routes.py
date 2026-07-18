@@ -6,7 +6,11 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from zigbeelens import __version__
-from zigbeelens.api.auth import require_mutation_access, require_read_access
+from zigbeelens.api.auth import (
+    BearerPreflightRoute,
+    require_mutation_access,
+    require_read_access,
+)
 from zigbeelens.api.summary import capabilities_dict, service_status_dict
 from zigbeelens.app.context import AppContext, get_context
 from zigbeelens.config.redaction import redact_mqtt_server
@@ -46,8 +50,14 @@ from zigbeelens.services.reports import (
 )
 
 public_router = APIRouter()
-read_router = APIRouter(dependencies=[Depends(require_read_access)])
-mutation_router = APIRouter(dependencies=[Depends(require_mutation_access)])
+read_router = APIRouter(
+    dependencies=[Depends(require_read_access)],
+    route_class=BearerPreflightRoute,
+)
+mutation_router = APIRouter(
+    dependencies=[Depends(require_mutation_access)],
+    route_class=BearerPreflightRoute,
+)
 
 
 def ctx_dep() -> AppContext:

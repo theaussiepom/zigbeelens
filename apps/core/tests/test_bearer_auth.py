@@ -493,3 +493,117 @@ def test_unauthorized_endpoints_do_zero_work(tmp_path, monkeypatch):
         assert after.commit_count == before.commit_count
         assert after.rollback_count == before.rollback_count
 
+
+_MALFORMED_JSON_MUTATIONS = (
+    "/api/reports",
+    "/api/v1/reports",
+    "/api/topology/home/capture",
+    "/api/v1/topology/home/capture",
+    "/api/enrichment/homeassistant",
+    "/api/v1/enrichment/homeassistant",
+)
+
+
+def test_malformed_json_rejected_before_body_decode(tmp_path, monkeypatch):
+    from performance.query_instrumentation import install_counter
+    from starlette.requests import Request
+
+    import zigbeelens.api.auth as auth_mod
+    import zigbeelens.api.routes as routes_mod
+
+    body_reads = {"n": 0}
+    original_body = Request.body
+
+    async def counting_body(self):
+        body_reads["n"] += 1
+        return await original_body(self)
+
+    monkeypatch.setattr(Request, "body", counting_body)
+    compare_calls = {"n": 0}
+    original_compare = auth_mod._token_matches
+
+    def counting_compare(provided: str, expected: str) -> bool:
+        compare_calls["n"] += 1
+        return original_compare(provided, expected)
+
+    monkeypatch.setattr(auth_mod, "_token_matches", counting_compare)
+
+    with _client(
+        tmp_path,
+        monkeypatch,
+        security=f"security:\n  api_token: {VALID_TOKEN}\n",
+    ) as client:
+        from zigbeelens.app import context as ctx_mod
+
+        ctx = ctx_mod.get_context()
+        counter = install_counter(ctx.repo)
+        generate_report = MagicMock(side_effect=AssertionError("create"))
+        get_topology = MagicMock(side_effect=AssertionError("capture"))
+        apply_enrichment = MagicMock(side_effect=AssertionError("enrich"))
+        monkeypatch.setattr(routes_mod, "generate_report", generate_report)
+        monkeypatch.setattr(routes_mod, "get_topology_service", get_topology)
+        monkeypatch.setattr(routes_mod, "apply_ha_enrichment", apply_enrichment)
+
+        headers_json = {"Content-Type": "application/json"}
+        unauthorized_headers = (
+            {},
+            {"Authorization": f"Bearer {OTHER_TOKEN}"},
+            {"X-ZigbeeLens-Api-Key": VALID_TOKEN},
+            {},  # query token below
+        )
+
+        before = counter.stats.copy()
+        body_reads["n"] = 0
+        for path in _MALFORMED_JSON_MUTATIONS:
+            for headers in unauthorized_headers[:3]:
+                res = client.post(
+                    path,
+                    content="{",
+                    headers={**headers_json, **headers},
+                )
+                _assert_uniform_401(res)
+            res = client.post(
+                f"{path}?token={VALID_TOKEN}",
+                content="{",
+                headers=headers_json,
+            )
+            _assert_uniform_401(res)
+
+        assert body_reads["n"] == 0
+        assert generate_report.call_count == 0
+        assert get_topology.call_count == 0
+        assert apply_enrichment.call_count == 0
+        after = counter.stats
+        assert after.execute_count == before.execute_count
+        assert after.commit_count == before.commit_count
+        assert after.rollback_count == before.rollback_count
+
+        # Correct bearer: auth succeeds, then FastAPI returns JSON validation error.
+        compare_calls["n"] = 0
+        body_reads["n"] = 0
+        for path in _MALFORMED_JSON_MUTATIONS:
+            res = client.post(
+                path,
+                content="{",
+                headers={**headers_json, **_bearer()},
+            )
+            assert res.status_code == 422, path
+            assert "json" in res.text.lower() or "decode" in res.text.lower()
+        assert body_reads["n"] >= 1
+        # One comparison per request (preflight); dependency reuses cached identity.
+        assert compare_calls["n"] == len(_MALFORMED_JSON_MUTATIONS)
+        assert generate_report.call_count == 0
+        assert get_topology.call_count == 0
+        assert apply_enrichment.call_count == 0
+
+
+def test_malformed_json_trusted_open_keeps_validation(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch) as client:
+        for path in _MALFORMED_JSON_MUTATIONS:
+            res = client.post(
+                path,
+                content="{",
+                headers={"Content-Type": "application/json"},
+            )
+            assert res.status_code == 422, path
+
