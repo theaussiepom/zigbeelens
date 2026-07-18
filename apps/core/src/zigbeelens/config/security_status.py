@@ -25,6 +25,8 @@ def build_security_config_status(config: AppConfig) -> SecurityConfigStatus:
     auth_required = bearer_enabled
     # Deprecated fields: bearer-only when sessions are not an alternative.
     bearer_only_required = auth_required and not sessions_enabled
+    cors_count = len(config.security.cors_allowed_origins)
+    frame_count = len(config.security.frame_ancestor_origins)
     return SecurityConfigStatus(
         mode=config.security.mode,
         loopback_bind=is_loopback_bind(config.server.host),
@@ -41,6 +43,12 @@ def build_security_config_status(config: AppConfig) -> SecurityConfigStatus:
         ingress_identity_enforced=False,
         trusted_local_open=trusted_local_open(config),
         legacy_mutation_guard_enabled=False,
+        cors_allowed_origins_count=cors_count,
+        credentialed_cors_enabled=cors_count > 0,
+        frame_ancestor_origins_count=frame_count,
+        external_framing_enabled=frame_count > 0,
+        content_security_policy_enabled=True,
+        session_origin_validation_enabled=sessions_enabled,
     )
 
 
@@ -52,7 +60,10 @@ def log_security_posture(config: AppConfig) -> None:
         "session_secret_configured=%s bearer_auth_enabled=%s "
         "browser_session_enabled=%s csrf_protection_enabled=%s "
         "session_cookie_secure=%s session_ttl_seconds=%s trusted_local_open=%s "
-        "ingress_identity_enforced=%s",
+        "ingress_identity_enforced=%s cors_allowed_origins_count=%s "
+        "credentialed_cors_enabled=%s frame_ancestor_origins_count=%s "
+        "external_framing_enabled=%s content_security_policy_enabled=%s "
+        "session_origin_validation_enabled=%s",
         status.mode.value,
         status.loopback_bind,
         status.api_token_configured,
@@ -64,6 +75,12 @@ def log_security_posture(config: AppConfig) -> None:
         config.security.session_ttl_seconds,
         status.trusted_local_open,
         status.ingress_identity_enforced,
+        status.cors_allowed_origins_count,
+        status.credentialed_cors_enabled,
+        status.frame_ancestor_origins_count,
+        status.external_framing_enabled,
+        status.content_security_policy_enabled,
+        status.session_origin_validation_enabled,
     )
 
     if status.session_secret_configured and not status.api_token_configured:
@@ -98,11 +115,36 @@ def log_security_posture(config: AppConfig) -> None:
             )
         return
 
+    if status.external_framing_enabled:
+        logger.info(
+            "External framing is enabled for exact configured frame ancestors only "
+            "(count=%s). Framing permission is not authentication.",
+            status.frame_ancestor_origins_count,
+        )
+
+    if (
+        status.browser_session_enabled
+        and status.credentialed_cors_enabled
+        and not status.loopback_bind
+    ):
+        has_http_cors = any(
+            origin.startswith("http://")
+            for origin in config.security.cors_allowed_origins
+        )
+        if has_http_cors:
+            logger.warning(
+                "Browser sessions are enabled with non-loopback bind and HTTP "
+                "CORS origins (count=%s); cookie transport may be unsuitable "
+                "without TLS. Origin values are not logged.",
+                status.cors_allowed_origins_count,
+            )
+
     if status.browser_session_enabled:
         logger.info(
             "Bearer and same-origin browser sessions are accepted for protected "
-            "reads, SSE, and downloads. Cookie-authenticated mutations require the "
-            "CSRF header. session_cookie_secure=%s session_ttl_seconds=%s.",
+            "reads, SSE, and downloads. Cookie-authenticated mutations require an "
+            "exact browser Origin and the CSRF header. "
+            "session_cookie_secure=%s session_ttl_seconds=%s.",
             status.session_cookie_secure,
             config.security.session_ttl_seconds,
         )

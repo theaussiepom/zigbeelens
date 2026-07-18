@@ -558,6 +558,12 @@ class SecurityConfigStatus(BaseModel):
     trusted_local_open: bool
     # Deprecated: Track 4A mutation-only guard. Always false under bearer policy.
     legacy_mutation_guard_enabled: bool = False
+    cors_allowed_origins_count: int = 0
+    credentialed_cors_enabled: bool = False
+    frame_ancestor_origins_count: int = 0
+    external_framing_enabled: bool = False
+    content_security_policy_enabled: bool = True
+    session_origin_validation_enabled: bool = False
 
 
 class ZigbeeLensConfigStatus(BaseModel):

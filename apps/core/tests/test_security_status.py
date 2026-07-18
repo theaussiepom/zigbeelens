@@ -50,6 +50,12 @@ def test_security_status_booleans_only():
         "ingress_identity_enforced": False,
         "trusted_local_open": False,
         "legacy_mutation_guard_enabled": False,
+        "cors_allowed_origins_count": 0,
+        "credentialed_cors_enabled": False,
+        "frame_ancestor_origins_count": 0,
+        "external_framing_enabled": False,
+        "content_security_policy_enabled": True,
+        "session_origin_validation_enabled": True,
     }
     assert VALID_TOKEN not in status.model_dump_json()
     assert "h" * 32 not in status.model_dump_json()

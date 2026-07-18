@@ -40,6 +40,10 @@ def capabilities_dict(ctx: AppContext) -> dict[str, Any]:
             "bearer_authentication": True,
             "browser_session_authentication": True,
             "csrf_protection": True,
+            "exact_cors_allowlist": True,
+            "content_security_policy": True,
+            "frame_ancestor_allowlist": True,
+            "browser_origin_validation": True,
             "home_assistant_ingress_identity": False,
         },
         "decision_surfaces": {
