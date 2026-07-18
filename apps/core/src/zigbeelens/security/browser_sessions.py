@@ -6,18 +6,21 @@ import hashlib
 import hmac
 import secrets
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Any
 
 from itsdangerous import BadData, URLSafeSerializer
 from pydantic import SecretStr
 
 from zigbeelens.config.models import AppConfig
-from zigbeelens.config.security_types import browser_sessions_enabled, is_loopback_bind
-
-SESSION_COOKIE_NAME = "zigbeelens_session"
+from zigbeelens.config.security_types import (
+    SESSION_COOKIE_NAME,
+    browser_sessions_enabled,
+    is_loopback_bind,
+)
 SESSION_PAYLOAD_VERSION = 1
 CSRF_PAYLOAD_VERSION = 1
 SESSION_SIGNING_SALT = "zigbeelens-browser-session-v1"
@@ -27,21 +30,31 @@ MAX_CSRF_TOKEN_BYTES = 4096
 MAX_FUTURE_CLOCK_SKEW_SECONDS = 60
 SESSION_ID_BYTES = 16
 
-SIGNER_KWARGS = {
-    "key_derivation": "hmac",
-    "digest_method": hashlib.sha256,
-}
+_SIGNER_KWARGS: Mapping[str, Any] = MappingProxyType(
+    {
+        "key_derivation": "hmac",
+        "digest_method": hashlib.sha256,
+    }
+)
 
 Clock = Callable[[], float]
 
 __all__ = [
     "SESSION_COOKIE_NAME",
-    "SIGNER_KWARGS",
     "BrowserSessionManager",
     "SessionClaims",
     "browser_sessions_enabled",
     "resolve_session_cookie_secure",
 ]
+
+
+def _new_serializer(secret: str, *, salt: str) -> URLSafeSerializer:
+    """Build a URLSafeSerializer with the frozen HMAC-SHA256 signer policy."""
+    return URLSafeSerializer(
+        secret,
+        salt=salt,
+        signer_kwargs=_SIGNER_KWARGS,
+    )
 
 
 def resolve_session_cookie_secure(config: AppConfig) -> bool:
@@ -88,10 +101,10 @@ def _safe_signed_load(serializer: URLSafeSerializer, value: str) -> Any:
 @dataclass(frozen=True, slots=True)
 class SessionClaims:
     version: int
-    session_id: str
+    session_id: str = field(repr=False)
     issued_at: int
     expires_at: int
-    api_credential_binding: str
+    api_credential_binding: str = field(repr=False)
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -184,15 +197,13 @@ class BrowserSessionManager:
         csrf_serializer = None
         binding = None
         if enabled and session_secret is not None and api_token is not None:
-            session_serializer = URLSafeSerializer(
+            session_serializer = _new_serializer(
                 session_secret,
                 salt=SESSION_SIGNING_SALT,
-                signer_kwargs=SIGNER_KWARGS,
             )
-            csrf_serializer = URLSafeSerializer(
+            csrf_serializer = _new_serializer(
                 session_secret,
                 salt=CSRF_SIGNING_SALT,
-                signer_kwargs=SIGNER_KWARGS,
             )
             binding = _api_credential_binding(api_token, session_secret)
         return cls(

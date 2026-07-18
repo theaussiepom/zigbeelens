@@ -5,11 +5,13 @@ from __future__ import annotations
 import logging
 
 from zigbeelens.config.redaction import REDACTED, redact_request_target
+from zigbeelens.config.security_types import SESSION_COOKIE_NAME
 from zigbeelens.logging_config import (
     UvicornAccessSecretRedactionFilter,
     configure_logging,
     install_uvicorn_access_redaction_filter,
 )
+from zigbeelens.security.browser_sessions import SESSION_COOKIE_NAME as SESSION_COOKIE_NAME_EXPORT
 
 
 def _access_record(full_path: str, *, status: int = 401) -> logging.LogRecord:
@@ -32,6 +34,76 @@ def test_redact_request_target_examples():
         )
         == f"/api/dashboard?token={REDACTED}&client_id=safe&token_count=2"
     )
+
+
+def test_session_cookie_name_constant_matches_redaction_policy():
+    """Prevent drift between the fixed cookie name and secret-key redaction."""
+    assert SESSION_COOKIE_NAME == "zigbeelens_session"
+    assert SESSION_COOKIE_NAME_EXPORT == SESSION_COOKIE_NAME
+    assert (
+        redact_request_target(
+            f"/api/dashboard?{SESSION_COOKIE_NAME}=signed-cookie&client_id=safe"
+        )
+        == f"/api/dashboard?{SESSION_COOKIE_NAME}={REDACTED}&client_id=safe"
+    )
+
+
+def test_redact_request_target_session_cookie_query_key():
+    signed = "eyJ.signed.cookie.value"
+    target = (
+        f"/api/dashboard?{SESSION_COOKIE_NAME}={signed}&client_id=safe"
+        f"&{SESSION_COOKIE_NAME}=again&token_count=2"
+    )
+    redacted = redact_request_target(target)
+    assert signed not in redacted
+    assert "again" not in redacted
+    assert f"{SESSION_COOKIE_NAME}={REDACTED}" in redacted
+    assert "client_id=safe" in redacted
+    assert "token_count=2" in redacted
+    assert redacted.startswith("/api/dashboard?")
+    # Percent-encoded cookie-name key (%7A... for 'z')
+    encoded_key = "%7Aigbeelens_session"
+    enc_redacted = redact_request_target(
+        f"/api/dashboard?{encoded_key}={signed}&client_id=safe"
+    )
+    assert signed not in enc_redacted
+    assert "client_id=safe" in enc_redacted
+    assert REDACTED in enc_redacted
+
+
+def test_uvicorn_access_filter_redacts_session_cookie_query():
+    filt = UvicornAccessSecretRedactionFilter()
+    signed = "prod-style-session-cookie"
+    record = _access_record(
+        f"/api/dashboard?{SESSION_COOKIE_NAME}={signed}&client_id=safe&token_count=2",
+        status=200,
+    )
+    assert filt.filter(record) is True
+    path = record.args[2]
+    assert signed not in path
+    assert f"{SESSION_COOKIE_NAME}={REDACTED}" in path
+    assert "client_id=safe" in path
+    assert "token_count=2" in path
+    assert record.args[4] == 200
+    rendered = record.getMessage()
+    assert signed not in rendered
+    assert "/api/dashboard" in rendered
+    assert "200" in rendered
+
+
+def test_uvicorn_access_filter_still_suppresses_unknown_shapes_with_session_key():
+    filt = UvicornAccessSecretRedactionFilter()
+    bad = logging.LogRecord(
+        name="uvicorn.access",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="unexpected %s",
+        args=(f"/api/dashboard?{SESSION_COOKIE_NAME}=leaked",),
+        exc_info=None,
+    )
+    assert filt.filter(bad) is False
+    assert "leaked" in bad.args[0]
 
 
 def test_redact_request_target_secret_keys_and_safe_params():

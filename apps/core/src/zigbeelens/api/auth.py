@@ -5,7 +5,7 @@ from __future__ import annotations
 import hmac
 import logging
 from collections.abc import Callable, Coroutine
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal
 
 from fastapi import Depends, HTTPException, Request, Response
@@ -44,8 +44,8 @@ AuthMethod = Literal["bearer", "session", "trusted_local"]
 @dataclass(frozen=True, slots=True)
 class AuthIdentity:
     auth_method: AuthMethod
-    session_id: str | None = None
-    session_expires_at: int | None = None
+    session_id: str | None = field(default=None, repr=False)
+    session_expires_at: int | None = field(default=None, repr=False)
 
 
 def _unauthorized() -> HTTPException:
@@ -96,8 +96,9 @@ def extract_session_cookie_value(request: Request) -> str | None:
     """Return the session cookie value or None.
 
     Fail closed on duplicate/malformed ``zigbeelens_session`` occurrences.
-    Unrelated well-formed or malformed cookies are ignored. Does not use
-    ``request.cookies`` (which can silently overwrite duplicates).
+    The authentication-cookie name must match exactly (no surrounding
+    whitespace). Unrelated well-formed or malformed cookies are ignored.
+    Does not use ``request.cookies`` (which can silently overwrite duplicates).
     """
     values: list[str] = []
     for header in request.headers.getlist("cookie"):
@@ -111,9 +112,11 @@ def extract_session_cookie_value(request: Request) -> str | None:
                 if segment == SESSION_COOKIE_NAME:
                     raise ValueError("invalid session cookie")
                 continue
-            name, _, value = segment.partition("=")
-            name = name.strip()
-            if name != SESSION_COOKIE_NAME:
+            raw_name, _, value = segment.partition("=")
+            # Exact Core-issued name grammar — do not silently canonicalise.
+            if raw_name.strip() == SESSION_COOKIE_NAME and raw_name != SESSION_COOKIE_NAME:
+                raise ValueError("invalid session cookie")
+            if raw_name != SESSION_COOKIE_NAME:
                 continue
             # Reject whitespace around the signed value and quoted forms.
             if value != value.strip() or not value:

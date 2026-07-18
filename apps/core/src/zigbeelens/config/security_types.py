@@ -5,6 +5,10 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
+# Fixed browser-session authentication cookie / query-parameter name.
+# Kept here so redaction and session code share one constant without cycles.
+SESSION_COOKIE_NAME = "zigbeelens_session"
+
 
 class SecurityMode(str, Enum):
     local = "local"

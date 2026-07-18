@@ -82,9 +82,10 @@ Rules:
 - Missing and invalid credentials return the same `401` with `WWW-Authenticate: Bearer`
 
 Core redacts recognised secret query parameter values from its own Uvicorn
-access logs (for example `token`, `api_key`, `access_token`). That does **not**
-sanitize reverse-proxy or load-balancer logs, which may record request URLs
-before Core sees them. Credentials must never be placed in URLs.
+access logs (for example `token`, `api_key`, `access_token`, and the fixed
+`zigbeelens_session` cookie name if it appears as a query key). That does
+**not** sanitize reverse-proxy or load-balancer logs, which may record request
+URLs before Core sees them. Credentials must never be placed in URLs.
 
 Generate a token safely:
 

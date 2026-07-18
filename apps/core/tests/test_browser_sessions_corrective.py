@@ -16,11 +16,14 @@ from zigbeelens.api.auth import (
     AUTH_DETAIL,
     CSRF_DETAIL,
     CSRF_HEADER_NAME,
+    AuthIdentity,
     extract_session_cookie_value,
 )
 from zigbeelens.app.context import get_context
 from zigbeelens.config.models import AppConfig, SecurityConfig, SecurityMode
 from zigbeelens.main import create_app
+from zigbeelens.schemas import BrowserSessionStatus
+from zigbeelens.security import browser_sessions as browser_sessions_mod
 from zigbeelens.security.browser_sessions import (
     CSRF_PAYLOAD_VERSION,
     CSRF_SIGNING_SALT,
@@ -28,9 +31,10 @@ from zigbeelens.security.browser_sessions import (
     MAX_SESSION_COOKIE_BYTES,
     SESSION_COOKIE_NAME,
     SESSION_SIGNING_SALT,
-    SIGNER_KWARGS,
     BrowserSessionManager,
     SessionClaims,
+    _SIGNER_KWARGS,
+    _new_serializer,
 )
 
 VALID_TOKEN = "b" * 32
@@ -111,8 +115,60 @@ def test_serializers_use_hmac_sha256():
     assert csrf_signer.digest_method is hashlib.sha256
     assert session_signer.key_derivation == "hmac"
     assert csrf_signer.key_derivation == "hmac"
-    assert SIGNER_KWARGS["digest_method"] is hashlib.sha256
-    assert SIGNER_KWARGS["key_derivation"] == "hmac"
+    assert _SIGNER_KWARGS["digest_method"] is hashlib.sha256
+    assert _SIGNER_KWARGS["key_derivation"] == "hmac"
+    assert "SIGNER_KWARGS" not in browser_sessions_mod.__all__
+    assert not hasattr(browser_sessions_mod, "SIGNER_KWARGS")
+
+
+def test_signer_policy_is_immutable_and_isolated():
+    """Shared signer policy cannot mutate existing or later serializers."""
+    with pytest.raises(TypeError):
+        _SIGNER_KWARGS["key_derivation"] = "django-concat"  # type: ignore[index]
+    with pytest.raises(TypeError):
+        _SIGNER_KWARGS["digest_method"] = hashlib.sha1  # type: ignore[index]
+
+    before = _manager()
+    assert before._session_serializer is not None
+    assert before._csrf_serializer is not None
+    session_ser = before._session_serializer
+    csrf_ser = before._csrf_serializer
+
+    # ItsDangerous retains signer_kwargs by reference; MappingProxyType blocks writes.
+    with pytest.raises(TypeError):
+        session_ser.signer_kwargs["digest_method"] = hashlib.sha1
+    with pytest.raises(TypeError):
+        csrf_ser.signer_kwargs["digest_method"] = hashlib.sha1
+    with pytest.raises(TypeError):
+        session_ser.signer_kwargs["key_derivation"] = "django-concat"
+
+    # Session serializer mutation path cannot change CSRF configuration.
+    assert session_ser.signer_kwargs is _SIGNER_KWARGS
+    assert csrf_ser.signer_kwargs is _SIGNER_KWARGS
+    assert session_ser.salt == SESSION_SIGNING_SALT.encode("utf-8")
+    assert csrf_ser.salt == CSRF_SIGNING_SALT.encode("utf-8")
+
+    after = _manager()
+    for mgr in (before, after):
+        assert mgr._session_serializer is not None
+        assert mgr._csrf_serializer is not None
+        session_signer = mgr._session_serializer.make_signer(salt=SESSION_SIGNING_SALT)
+        csrf_signer = mgr._csrf_serializer.make_signer(salt=CSRF_SIGNING_SALT)
+        assert session_signer.digest_method is hashlib.sha256
+        assert csrf_signer.digest_method is hashlib.sha256
+        assert session_signer.key_derivation == "hmac"
+        assert csrf_signer.key_derivation == "hmac"
+
+    # Factory still builds HMAC-SHA256 serializers after the mutation attempts.
+    factory = _new_serializer(SESSION_SECRET, salt=SESSION_SIGNING_SALT)
+    signer = factory.make_signer(salt=SESSION_SIGNING_SALT)
+    assert signer.digest_method is hashlib.sha256
+    assert signer.key_derivation == "hmac"
+
+    claims, cookie, csrf = before.issue_session()
+    loaded = before.load_session_cookie(cookie)
+    assert loaded.session_id == claims.session_id
+    before.validate_csrf_token(csrf, session_id=claims.session_id)
 
 
 def test_default_sha1_session_and_csrf_rejected():
@@ -375,6 +431,99 @@ def test_cookie_parser_fail_closed(tmp_path, monkeypatch):
             extract_session_cookie_value(
                 _request_with_cookies([f"{SESSION_COOKIE_NAME}= {good}"])
             )
+        # Exact cookie-name grammar — reject whitespace/tabs around the name or '='.
+        for malformed in (
+            f"{SESSION_COOKIE_NAME} ={good}",
+            f"{SESSION_COOKIE_NAME}\t={good}",
+            f"{SESSION_COOKIE_NAME}= {good}",
+            f"{SESSION_COOKIE_NAME} = {good}",
+        ):
+            with pytest.raises(ValueError, match="invalid session cookie"):
+                extract_session_cookie_value(_request_with_cookies([malformed]))
+        # Leading/trailing segment whitespace is ordinary Cookie-header spacing.
+        assert (
+            extract_session_cookie_value(
+                _request_with_cookies([f"  {SESSION_COOKIE_NAME}={good}  "])
+            )
+            == good
+        )
+
+
+def test_exact_cookie_name_rejected_on_protected_route(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch) as client:
+        _login(client)
+        good = client.cookies.get(SESSION_COOKIE_NAME)
+        assert good
+        # Clear jar so only the crafted Cookie header is sent.
+        client.cookies.clear()
+        for header in (
+            f"{SESSION_COOKIE_NAME} ={good}",
+            f"{SESSION_COOKIE_NAME}\t={good}",
+            f"{SESSION_COOKIE_NAME}= {good}",
+            f"{SESSION_COOKIE_NAME} = {good}",
+        ):
+            res = client.get("/api/dashboard", headers={"Cookie": header})
+            assert res.status_code == 401
+            assert res.json() == {"detail": AUTH_DETAIL}
+
+
+def test_session_claims_and_status_repr_omit_secrets():
+    mgr = _manager()
+    claims, _cookie, csrf = mgr.issue_session()
+    claims_repr = repr(claims)
+    assert claims.session_id not in claims_repr
+    assert claims.api_credential_binding not in claims_repr
+    assert "version=" in claims_repr
+    assert "issued_at=" in claims_repr
+    assert "expires_at=" in claims_repr
+
+    status = BrowserSessionStatus(
+        authenticated=True,
+        auth_method="session",
+        browser_session_enabled=True,
+        expires_at="2020-01-01T00:00:00Z",
+        csrf_token=csrf,
+    )
+    status_repr = repr(status)
+    status_str = str(status)
+    assert csrf not in status_repr
+    assert csrf not in status_str
+    assert "csrf_token" not in status_repr
+    dumped = status.model_dump()
+    assert dumped["csrf_token"] == csrf
+    assert csrf in status.model_dump_json()
+
+    identity = AuthIdentity(
+        auth_method="session",
+        session_id=claims.session_id,
+        session_expires_at=claims.expires_at,
+    )
+    identity_repr = repr(identity)
+    assert claims.session_id not in identity_repr
+    assert "auth_method=" in identity_repr
+
+
+def test_session_status_http_includes_csrf_but_repr_logs_do_not(
+    tmp_path, monkeypatch, caplog
+):
+    with _client(tmp_path, monkeypatch) as client:
+        csrf = _login(client)
+        res = client.get("/api/auth/session")
+        assert res.status_code == 200
+        body = res.json()
+        assert body["csrf_token"] == csrf
+        assert body["authenticated"] is True
+
+        mgr = get_context().session_manager
+        assert mgr is not None
+        claims, _c, _t = mgr.issue_session()
+        status = BrowserSessionStatus.model_validate(body)
+        with caplog.at_level(logging.DEBUG):
+            logging.getLogger("zigbeelens.test").info("status=%r claims=%r", status, claims)
+        assert csrf not in caplog.text
+        assert claims.session_id not in caplog.text
+        assert claims.api_credential_binding not in caplog.text
+
 
 def test_invalid_cookie_status_vs_protected(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch) as client:

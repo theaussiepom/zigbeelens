@@ -534,7 +534,7 @@ class BrowserSessionStatus(BaseModel):
     auth_method: Literal["trusted_local", "bearer", "session"] | None
     browser_session_enabled: bool
     expires_at: str | None = None
-    csrf_token: str | None = None
+    csrf_token: str | None = Field(default=None, repr=False)
 
 
 class SecurityConfigStatus(BaseModel):
