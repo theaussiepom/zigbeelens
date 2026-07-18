@@ -11,6 +11,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from zigbeelens.app.context import get_context
+from zigbeelens.config.api_token import parse_bearer_authorization_header
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +41,8 @@ def _unauthorized() -> HTTPException:
 
 
 def _token_matches(provided: str, expected: str) -> bool:
-    provided_bytes = provided.encode("utf-8")
-    expected_bytes = expected.encode("utf-8")
-    if len(provided_bytes) != len(expected_bytes):
-        return False
-    return hmac.compare_digest(provided_bytes, expected_bytes)
+    # Both sides are ASCII after shared api_token validation / header parsing.
+    return hmac.compare_digest(provided.encode("ascii"), expected.encode("ascii"))
 
 
 def _extract_bearer_token(request: Request) -> str | None:
@@ -55,23 +53,10 @@ def _extract_bearer_token(request: Request) -> str | None:
     if not values:
         return None
 
-    raw = values[0]
-    if "," in raw:
-        # Reject comma-combined credentials / multi-challenge headers.
-        raise _unauthorized()
-
-    parts = raw.split(None, 1)
-    if len(parts) != 2:
-        raise _unauthorized()
-
-    scheme, credential = parts
-    if scheme.lower() != "bearer":
-        raise _unauthorized()
-    if not credential or credential != credential.strip():
-        raise _unauthorized()
-    if any(ch.isspace() for ch in credential):
-        raise _unauthorized()
-    return credential
+    try:
+        return parse_bearer_authorization_header(values[0])
+    except ValueError:
+        raise _unauthorized() from None
 
 
 def authenticate_bearer(request: Request) -> AuthIdentity:

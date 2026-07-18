@@ -4,15 +4,19 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
+from zigbeelens.config.api_token import (
+    API_TOKEN_MIN_LENGTH,
+    reject_invalid_api_token,
+)
 from zigbeelens.config.secret_validation import contains_control_characters
 from zigbeelens.config.security_types import SecurityMode
 from zigbeelens.mock.fixtures import DEFAULT_SCENARIO
 
-MIN_SECURITY_SECRET_LENGTH = 32
+MIN_SECURITY_SECRET_LENGTH = API_TOKEN_MIN_LENGTH
 
 
-def _reject_invalid_secret(value: object) -> SecretStr:
-    """Validate an optional secret without echoing the rejected value."""
+def _reject_invalid_session_secret(value: object) -> SecretStr:
+    """Validate session_secret without the HTTP bearer character policy."""
     if isinstance(value, SecretStr):
         raw = value.get_secret_value()
     elif isinstance(value, str):
@@ -38,12 +42,19 @@ class SecurityConfig(BaseModel):
     api_token: SecretStr | None = None
     session_secret: SecretStr | None = None
 
-    @field_validator("api_token", "session_secret", mode="before")
+    @field_validator("api_token", mode="before")
     @classmethod
-    def validate_optional_secret(cls, value: object) -> SecretStr | None:
+    def validate_optional_api_token(cls, value: object) -> SecretStr | None:
         if value is None:
             return None
-        return _reject_invalid_secret(value)
+        return reject_invalid_api_token(value)
+
+    @field_validator("session_secret", mode="before")
+    @classmethod
+    def validate_optional_session_secret(cls, value: object) -> SecretStr | None:
+        if value is None:
+            return None
+        return _reject_invalid_session_secret(value)
 
     @model_validator(mode="after")
     def validate_mode_requirements(self) -> SecurityConfig:
