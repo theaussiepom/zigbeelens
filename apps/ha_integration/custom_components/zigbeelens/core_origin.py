@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import ipaddress
+import re
+import unicodedata
 from urllib.parse import urlsplit
 
 import idna
@@ -9,6 +12,12 @@ import idna
 MAX_ORIGIN_LENGTH = 2048
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 _DEFAULT_PORTS = {"http": 80, "https": 443}
+
+_IPV4_STRICT = re.compile(
+    r"^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}"
+    r"(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$"
+)
+_NUMERIC_HOST = re.compile(r"^(?:[0-9.]+|0[xX][0-9A-Fa-f]+|[0-9]+)$")
 
 
 class InvalidCoreOrigin(ValueError):
@@ -23,9 +32,11 @@ def _has_forbidden_characters(value: str) -> bool:
     if "\\" in value:
         return True
     # Full Unicode Cc category (matches Core secret_validation predicate).
-    import unicodedata
-
     return any(unicodedata.category(ch) == "Cc" for ch in value)
+
+
+def _looks_like_numeric_host(hostname: str) -> bool:
+    return _NUMERIC_HOST.fullmatch(hostname) is not None
 
 
 def _normalize_hostname(hostname: str) -> str:
@@ -37,13 +48,29 @@ def _normalize_hostname(hostname: str) -> str:
         raise InvalidCoreOrigin("invalid_url")
     if "%" in hostname:
         raise InvalidCoreOrigin("invalid_url")
+    if any(ch.isspace() for ch in hostname):
+        raise InvalidCoreOrigin("invalid_url")
+    if any(ch in hostname for ch in ("'", '"', ";", ",", "\\")):
+        raise InvalidCoreOrigin("invalid_url")
+
+    if ":" in hostname:
+        try:
+            return ipaddress.IPv6Address(hostname).compressed
+        except ValueError as exc:
+            raise InvalidCoreOrigin("invalid_url") from exc
+
+    if _looks_like_numeric_host(hostname):
+        if _IPV4_STRICT.fullmatch(hostname) is None:
+            raise InvalidCoreOrigin("invalid_url")
+        try:
+            return str(ipaddress.IPv4Address(hostname))
+        except ValueError as exc:
+            raise InvalidCoreOrigin("invalid_url") from exc
+
     try:
-        hostname.encode("ascii")
-        return hostname.lower()
-    except UnicodeEncodeError:
-        pass
-    try:
-        return idna.encode(hostname, uts46=True, transitional=False).decode("ascii")
+        return idna.encode(
+            hostname, uts46=True, transitional=False, std3_rules=True
+        ).decode("ascii")
     except (idna.IDNAError, UnicodeError, ValueError) as exc:
         raise InvalidCoreOrigin("invalid_url") from exc
 
@@ -53,7 +80,8 @@ def canonicalize_core_origin(value: str) -> str:
 
     Rejects credentials, non-root paths, query, fragment, wildcards, and
     non-HTTP schemes. Does not resolve DNS. A single trailing ``/`` is the only
-    path form that normalizes away.
+    path form that normalizes away. Hostnames use the same CSP-safe grammar as
+    Core (strict IPv4/IPv6 or IDNA STD3 DNS).
     """
     if not isinstance(value, str):
         raise InvalidCoreOrigin("invalid_url")
@@ -103,11 +131,16 @@ def canonicalize_core_origin(value: str) -> str:
         raise InvalidCoreOrigin("invalid_url")
 
     host = _normalize_hostname(hostname)
-    if ":" in host and not host.startswith("["):
+    if ":" in host:
         host_fmt = f"[{host}]"
     else:
         host_fmt = host
 
     if port is None or port == _DEFAULT_PORTS[scheme]:
-        return f"{scheme}://{host_fmt}"
-    return f"{scheme}://{host_fmt}:{port}"
+        origin = f"{scheme}://{host_fmt}"
+    else:
+        origin = f"{scheme}://{host_fmt}:{port}"
+
+    if any(ch.isspace() for ch in origin):
+        raise InvalidCoreOrigin("invalid_url")
+    return origin

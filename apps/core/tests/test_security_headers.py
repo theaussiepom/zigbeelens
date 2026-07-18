@@ -71,6 +71,26 @@ def test_build_csp_frame_ancestors():
     assert "unsafe-inline" in docs
 
 
+def test_frame_ancestor_is_single_csp_source():
+    import pytest
+    from pydantic import ValidationError
+
+    from zigbeelens.config.models import SecurityConfig
+    from zigbeelens.security.headers import _frame_ancestors
+
+    with pytest.raises(ValidationError):
+        SecurityConfig(
+            frame_ancestor_origins=["https://trusted.example evil.example"]
+        )
+    with pytest.raises(ValidationError):
+        SecurityConfig(frame_ancestor_origins=["https://exa mple.com"])
+    ancestors = _frame_ancestors((HA,))
+    assert ancestors == ("'self'", HA)
+    assert all(" " not in item for item in ancestors if item != "'self'")
+    with pytest.raises(AssertionError):
+        _frame_ancestors(("https://trusted.example evil.example",))
+
+
 def test_default_html_framing_sameorigin(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch) as client:
         for path in ("/", "/devices", "/topology/home/graph"):

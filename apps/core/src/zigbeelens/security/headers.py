@@ -58,15 +58,26 @@ _DOCS_CSP_BASE: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
+def _is_single_csp_source(origin: str) -> bool:
+    """True when *origin* is one whitespace-free CSP source expression."""
+    if not origin or any(ch.isspace() for ch in origin):
+        return False
+    if any(ch in origin for ch in (";", ",", "'", '"', "\\")):
+        return False
+    return origin.startswith(("http://", "https://"))
+
+
 def _frame_ancestors(frame_origins: Iterable[str]) -> tuple[str, ...]:
     # 'self' first, then exact configured external origins (already canonical).
+    # Invalid origins must fail config validation before middleware exists;
+    # assert here so a bad value can never split the CSP source list.
     seen: set[str] = {"'self'"}
     values: list[str] = ["'self'"]
     for origin in frame_origins:
+        assert _is_single_csp_source(origin), (
+            "frame ancestor origin is not a single CSP source expression"
+        )
         if origin in seen:
-            continue
-        # Origins are canonical; reject injection characters defensively.
-        if any(ch in origin for ch in ("\r", "\n", ";", ",")):
             continue
         seen.add(origin)
         values.append(origin)

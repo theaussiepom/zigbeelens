@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ipaddress
+import re
 from collections.abc import Iterable
 from urllib.parse import urlsplit
 
@@ -13,6 +15,13 @@ MAX_ORIGIN_LENGTH = 2048
 
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 _DEFAULT_PORTS = {"http": 80, "https": 443}
+
+# Canonical dotted-decimal IPv4 only (no legacy browser forms).
+_IPV4_STRICT = re.compile(
+    r"^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}"
+    r"(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$"
+)
+_NUMERIC_HOST = re.compile(r"^(?:[0-9.]+|0[xX][0-9A-Fa-f]+|[0-9]+)$")
 
 
 class InvalidHttpOrigin(ValueError):
@@ -29,6 +38,11 @@ def _has_forbidden_characters(value: str) -> bool:
     return contains_control_characters(value)
 
 
+def _looks_like_numeric_host(hostname: str) -> bool:
+    """True for hosts that must be strict IPv4 (never DNS fallthrough)."""
+    return _NUMERIC_HOST.fullmatch(hostname) is not None
+
+
 def _normalize_hostname(hostname: str) -> str:
     if not hostname:
         raise InvalidHttpOrigin("missing hostname")
@@ -36,18 +50,34 @@ def _normalize_hostname(hostname: str) -> str:
         raise InvalidHttpOrigin("wildcard hostname")
     if hostname.endswith("."):
         raise InvalidHttpOrigin("trailing-dot hostname")
-    # Reject IPv6 zone identifiers (not required by current deployments).
     if "%" in hostname:
         raise InvalidHttpOrigin("zone identifier")
-    # ASCII hosts (including IPv4/IPv6 literals) stay lowercase without IDNA.
+    if any(ch.isspace() for ch in hostname):
+        raise InvalidHttpOrigin("whitespace hostname")
+    if any(ch in hostname for ch in ("'", '"', ";", ",", "\\")):
+        raise InvalidHttpOrigin("forbidden hostname characters")
+
+    # IPv6 literals (urlsplit returns unbracketed form).
+    if ":" in hostname:
+        try:
+            return ipaddress.IPv6Address(hostname).compressed
+        except ValueError as exc:
+            raise InvalidHttpOrigin("invalid ipv6") from exc
+
+    # Numeric / dotted hosts: strict canonical IPv4 only — never DNS fallthrough.
+    if _looks_like_numeric_host(hostname):
+        if _IPV4_STRICT.fullmatch(hostname) is None:
+            raise InvalidHttpOrigin("invalid ipv4")
+        try:
+            return str(ipaddress.IPv4Address(hostname))
+        except ValueError as exc:
+            raise InvalidHttpOrigin("invalid ipv4") from exc
+
     try:
-        hostname.encode("ascii")
-        return hostname.lower()
-    except UnicodeEncodeError:
-        pass
-    try:
-        # Browser-aligned IDNA 2008 / UTS 46, non-transitional.
-        return idna.encode(hostname, uts46=True, transitional=False).decode("ascii")
+        # Browser-aligned IDNA 2008 / UTS 46, non-transitional, STD3 rules.
+        return idna.encode(
+            hostname, uts46=True, transitional=False, std3_rules=True
+        ).decode("ascii")
     except (idna.IDNAError, UnicodeError, ValueError) as exc:
         raise InvalidHttpOrigin("invalid hostname") from exc
 
@@ -57,6 +87,7 @@ def canonicalize_http_origin(value: str) -> str:
 
     Rejects credentials, paths (other than empty/``/``), query, fragment,
     wildcards, non-HTTP schemes, and control characters. Does not resolve DNS.
+    Hostnames use a CSP-safe grammar (strict IPv4/IPv6 or IDNA STD3 DNS).
     """
     if not isinstance(value, str):
         raise InvalidHttpOrigin("must be a string")
@@ -115,14 +146,20 @@ def canonicalize_http_origin(value: str) -> str:
 
     host = _normalize_hostname(hostname)
     # Bracket IPv6 literals for the authority form.
-    if ":" in host and not host.startswith("["):
+    if ":" in host:
         host_fmt = f"[{host}]"
     else:
         host_fmt = host
 
     if port is None or port == _DEFAULT_PORTS[scheme]:
-        return f"{scheme}://{host_fmt}"
-    return f"{scheme}://{host_fmt}:{port}"
+        origin = f"{scheme}://{host_fmt}"
+    else:
+        origin = f"{scheme}://{host_fmt}:{port}"
+
+    # One whitespace-free CSP/CORS source expression.
+    if any(ch.isspace() for ch in origin):
+        raise InvalidHttpOrigin("whitespace origin")
+    return origin
 
 
 def canonicalize_http_origins(values: Iterable[str]) -> tuple[str, ...]:

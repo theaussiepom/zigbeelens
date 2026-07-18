@@ -15,9 +15,59 @@ const SEVERITY = {
   unknown: { label: "No signal", color: "var(--secondary-text-color, #888)" },
 };
 
+const STRICT_IPV4 =
+  /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
+
+function looksLikeNumericHost(host) {
+  return /^(?:[0-9.]+|0[xX][0-9A-Fa-f]+|[0-9]+)$/.test(host);
+}
+
+function isValidDnsAscii(host) {
+  if (!host || host.length > 253 || host.endsWith(".") || host.includes("*")) {
+    return false;
+  }
+  if (/[\s"'`;,\\]/.test(host) || host.includes("_")) {
+    return false;
+  }
+  const labels = host.split(".");
+  for (const label of labels) {
+    if (!label || label.length > 63) return false;
+    if (label.startsWith("-") || label.endsWith("-")) return false;
+    if (!/^[a-z0-9-]+$/i.test(label)) return false;
+  }
+  return true;
+}
+
+function splitRawAuthority(raw) {
+  const m = /^https?:\/\/(\[[^\]]+\]|[^/?#]+)/i.exec(raw);
+  if (!m) return null;
+  const authority = m[1];
+  if (authority.startsWith("[")) {
+    const end = authority.indexOf("]");
+    if (end < 0) return null;
+    const host = authority.slice(1, end);
+    const rest = authority.slice(end + 1);
+    if (rest && !/^:\d{1,5}$/.test(rest)) return null;
+    return { host, port: rest ? rest.slice(1) : "", ipv6: true };
+  }
+  if (authority.includes("@") || /[\s"'`;,]/.test(authority)) {
+    return null;
+  }
+  const idx = authority.lastIndexOf(":");
+  if (idx >= 0) {
+    return {
+      host: authority.slice(0, idx),
+      port: authority.slice(idx + 1),
+      ipv6: false,
+    };
+  }
+  return { host: authority, port: "", ipv6: false };
+}
+
 /**
  * Strict canonical Core origin for iframe/anchor use.
  * Absolute http(s) only; no relative resolution against the HA page.
+ * Matches Core/HACS CSP-safe host grammar (strict IPv4/IPv6 or IDNA DNS).
  * @returns {string|null}
  */
 function canonicalizeCoreOrigin(coreUrl) {
@@ -29,15 +79,19 @@ function canonicalizeCoreOrigin(coreUrl) {
     if (raw !== String(coreUrl) || raw.toLowerCase() === "null" || raw.startsWith("//")) {
       return null;
     }
-    if (raw.includes("\\") || /[\u0000-\u001f\u007f]/.test(raw)) {
+    if (raw.includes("\\") || /[\u0000-\u001f\u007f]/.test(raw) || /\s/.test(raw)) {
+      return null;
+    }
+    const auth = splitRawAuthority(raw);
+    if (!auth || !auth.host) {
+      return null;
+    }
+    if (auth.host.includes("%")) {
       return null;
     }
     // Reject relative values: do not resolve against window.location.
     const core = new URL(raw);
     if (core.protocol !== "http:" && core.protocol !== "https:") {
-      return null;
-    }
-    if (!core.hostname) {
       return null;
     }
     if (core.username || core.password) {
@@ -50,18 +104,41 @@ function canonicalizeCoreOrigin(coreUrl) {
     if (path && path !== "/") {
       return null;
     }
-    if (core.hostname.includes("*") || core.hostname.endsWith(".")) {
-      return null;
-    }
-    const port = core.port;
-    if (port) {
-      const n = Number(port);
+    if (auth.port) {
+      const n = Number(auth.port);
       if (!Number.isInteger(n) || n < 1 || n > 65535) {
         return null;
       }
     }
-    // Rebuild origin only (scheme/host/port).
-    return core.origin;
+
+    let hostAscii;
+    if (auth.ipv6) {
+      if (!auth.host.includes(":")) return null;
+      // URL.origin compresses IPv6; require a successful parse only.
+      hostAscii = core.hostname.replace(/^\[|\]$/g, "");
+      if (!hostAscii.includes(":")) return null;
+    } else if (looksLikeNumericHost(auth.host)) {
+      // Never accept browser-legacy IPv4 expansions (127.1, 0x7f000001, …).
+      if (!STRICT_IPV4.test(auth.host)) return null;
+      hostAscii = auth.host;
+    } else {
+      hostAscii = core.hostname.replace(/^\[|\]$/g, "");
+      if (hostAscii.includes(":") || !isValidDnsAscii(hostAscii)) {
+        return null;
+      }
+    }
+
+    const scheme = core.protocol === "https:" ? "https" : "http";
+    const hostFmt = hostAscii.includes(":") ? `[${hostAscii}]` : hostAscii;
+    const defaultPort = scheme === "https" ? "443" : "80";
+    const port = auth.port && auth.port !== defaultPort ? `:${auth.port}` : "";
+    const origin = `${scheme}://${hostFmt}${port}`;
+    if (/\s/.test(origin)) return null;
+    // Prefer URL.origin when it agrees (handles IPv6 compression parity).
+    if (auth.ipv6) {
+      return core.origin;
+    }
+    return origin;
   } catch {
     return null;
   }
