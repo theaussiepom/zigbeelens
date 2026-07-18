@@ -272,6 +272,32 @@ def test_redactor_redacts_secret_keys_keeps_linkquality():
     assert out["linkquality"] == 77
 
 
+def test_redactor_redacts_password_only_mqtt_userinfo():
+    sentinel = "report-credential-sentinel"
+    resolved = resolve_redaction(RedactionOptions(profile=RedactionProfile.standard))
+    redactor = Redactor(resolved)
+    out = redactor.redact(
+        {
+            "networks": [],
+            "config_summary": {
+                "mqtt": {
+                    "server": f"mqtt://:{sentinel}@broker:1883",
+                    "mqtt_server": f"mqtt://:{sentinel}@broker:1883/path",
+                }
+            },
+        }
+    )
+    blob = json.dumps(out)
+    assert sentinel not in blob
+    server = out["config_summary"]["mqtt"]["server"]
+    mqtt_server = out["config_summary"]["mqtt"]["mqtt_server"]
+    assert sentinel not in server
+    assert sentinel not in mqtt_server
+    assert "broker" in server
+    assert "1883" in server
+    assert "***" in server
+
+
 # -- limits & empty / live ----------------------------------------------
 
 

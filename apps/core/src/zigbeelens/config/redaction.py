@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import ParseResult, parse_qsl, urlencode, urlparse, urlunparse
 
 from pydantic import SecretStr
 
@@ -75,6 +74,52 @@ def _param_string_has_secret(value: str) -> bool:
     return any(is_secret_key(key) for key, _ in parse_qsl(value, keep_blank_values=True))
 
 
+def _format_host(hostname: str) -> str:
+    """Bracket IPv6 hostnames for a valid URI authority."""
+    if ":" in hostname and not hostname.startswith("["):
+        return f"[{hostname}]"
+    return hostname
+
+
+def _redacted_netloc(
+    parsed: ParseResult,
+    *,
+    username_override: str | None = None,
+) -> str | None:
+    """Build a safe authority from parsed URL facts.
+
+    Returns None when the caller should fail closed to REDACTED (malformed port,
+    or password-bearing / non-empty authority without a usable hostname).
+    """
+    try:
+        port_number = parsed.port
+    except ValueError:
+        return None
+
+    host = parsed.hostname or ""
+    if not host:
+        if parsed.password is not None or parsed.netloc:
+            return None
+        return ""
+
+    host_fmt = _format_host(host)
+    port = f":{port_number}" if port_number else ""
+
+    if username_override:
+        # MQTT status path: config username is known; never echo a password.
+        return f"{username_override}:{REDACTED}@{host_fmt}{port}"
+
+    if parsed.password is not None:
+        # Empty username + password must still redact (mqtt://:secret@host).
+        user = parsed.username if parsed.username is not None else ""
+        return f"{user}:{REDACTED}@{host_fmt}{port}"
+
+    if parsed.username:
+        return f"{parsed.username}@{host_fmt}{port}"
+
+    return f"{host_fmt}{port}"
+
+
 def redact_mqtt_server(server: str, username: str = "") -> str:
     """Return an MQTT server URI safe for logs and API responses."""
     if not server:
@@ -84,22 +129,10 @@ def redact_mqtt_server(server: str, username: str = "") -> str:
     except ValueError:
         return REDACTED
 
-    try:
-        port_number = parsed.port
-    except ValueError:
-        return REDACTED
-
-    host = parsed.hostname or ""
-    port = f":{port_number}" if port_number else ""
-    user_part = f"{username}:{REDACTED}@" if username else ""
-    if not host:
+    netloc = _redacted_netloc(parsed, username_override=username or None)
+    if netloc is None:
         # Fail closed for hostless/malformed authorities (e.g. mqtt://user:pass@).
-        # Never return a raw netloc that may still contain userinfo.
-        if parsed.netloc or "@" in server:
-            return REDACTED
-        netloc = ""
-    else:
-        netloc = f"{user_part}{host}{port}"
+        return REDACTED
 
     query = _redact_param_string(parsed.query)
     fragment = _redact_param_string(parsed.fragment)
@@ -110,27 +143,31 @@ def redact_mqtt_server(server: str, username: str = "") -> str:
 
 def redact_connection_string(value: str) -> str:
     """Redact credentials embedded in connection strings and query/fragment text."""
-    redacted = re.sub(r"://([^:@/]+):([^@/]+)@", r"://\1:***@", value)
     try:
-        parsed = urlparse(redacted)
+        parsed = urlparse(value)
     except ValueError:
         return REDACTED
+
+    netloc = _redacted_netloc(parsed)
+    if netloc is None:
+        return REDACTED
+
     query = _redact_param_string(parsed.query)
     fragment = _redact_param_string(parsed.fragment)
     return urlunparse(
-        (parsed.scheme, parsed.netloc, parsed.path, parsed.params, query, fragment)
+        (parsed.scheme, netloc, parsed.path, parsed.params, query, fragment)
     )
 
 
 def _looks_like_credential_uri(value: str) -> bool:
     if "://" not in value:
         return False
-    if re.search(r"://[^:/@]+:[^@/]+@", value):
-        return True
     try:
         parsed = urlparse(value)
     except ValueError:
         return False
+    if parsed.password is not None:
+        return True
     return _param_string_has_secret(parsed.query) or _param_string_has_secret(
         parsed.fragment
     )

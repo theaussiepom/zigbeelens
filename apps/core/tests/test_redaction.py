@@ -177,6 +177,62 @@ def test_redact_dict_secrets_redacts_credential_uris():
     assert redacted["note"] == "plain text"
 
 
+def test_redact_connection_string_empty_username_password():
+    sentinel = "credential-sentinel"
+    value = f"mqtt://:{sentinel}@broker:1883"
+    redacted = redact_connection_string(value)
+    assert sentinel not in redacted
+    assert ":***@" in redacted
+    assert "broker" in redacted
+    assert "1883" in redacted
+
+
+def test_redact_dict_secrets_empty_username_password_uri():
+    sentinel = "credential-sentinel"
+    redacted = redact_dict_secrets({"server": f"mqtt://:{sentinel}@broker:1883"})
+    assert sentinel not in redacted["server"]
+    assert "broker" in redacted["server"]
+    assert "1883" in redacted["server"]
+
+
+def test_redact_connection_string_hostless_empty_username_password():
+    sentinel = "credential-sentinel"
+    assert redact_connection_string(f"mqtt://:{sentinel}@") == REDACTED
+    assert sentinel not in redact_connection_string(f"mqtt://:{sentinel}@")
+
+
+def test_redact_connection_string_userinfo_still_useful():
+    redacted = redact_connection_string("mqtt://user:password@broker:1883")
+    assert "password" not in redacted.split("@", 1)[0] or ":***@" in redacted
+    assert "user:***@" in redacted
+    assert "broker" in redacted
+    assert "1883" in redacted
+
+
+def test_redact_connection_string_percent_encoded_userinfo():
+    # urlparse may leave userinfo percent-encoded; never echo the password form.
+    value = "mqtt://%75ser:%70assword-sentinel@broker:1883"
+    redacted = redact_connection_string(value)
+    assert "%70assword-sentinel" not in redacted
+    assert "password-sentinel" not in redacted
+    assert "broker" in redacted
+    assert "1883" in redacted
+    assert "***" in redacted
+
+
+def test_redact_connection_string_username_only_may_remain():
+    value = "mqtt://onlyuser@broker:1883"
+    assert redact_connection_string(value) == value
+
+
+def test_redact_connection_string_ipv6_host_remains_bracketed():
+    redacted = redact_connection_string("mqtt://user:secret@[::1]:1883")
+    assert "secret" not in redacted
+    assert "[::1]" in redacted
+    assert "1883" in redacted
+    assert "user:***@" in redacted
+
+
 def test_appconfig_dump_redaction_masks_security_and_mqtt():
     token = "e" * 32
     config = AppConfig(
