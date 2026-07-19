@@ -55,6 +55,44 @@ def test_factual_unavailable_devices(mock_coordinator):
     assert sensor.native_value == 4
 
 
+def test_factual_entities_unknown_when_field_missing(mock_coordinator):
+    dashboard = dict(mock_coordinator.data.dashboard)
+    dashboard.pop("unavailable_device_count", None)
+    mock_coordinator.data.dashboard = dashboard
+    sensor = ZigbeeLensSensor(
+        mock_coordinator,
+        "entry1",
+        SensorEntityDescription(
+            key="unavailable_devices", translation_key="unavailable_devices"
+        ),
+    )
+    assert sensor.native_value is None
+
+
+def test_incident_state_none_when_counts_missing(mock_coordinator):
+    dashboard = dict(mock_coordinator.data.dashboard)
+    dashboard.pop("active_incident_count", None)
+    mock_coordinator.data.dashboard = dashboard
+    sensor = ZigbeeLensSensor(
+        mock_coordinator,
+        "entry1",
+        SensorEntityDescription(key="incident_state", translation_key="incident_state"),
+    )
+    assert sensor.native_value is None
+
+
+def test_network_count_none_without_valid_field(mock_coordinator):
+    dashboard = dict(mock_coordinator.data.dashboard)
+    dashboard.pop("network_count", None)
+    mock_coordinator.data.dashboard = dashboard
+    sensor = ZigbeeLensSensor(
+        mock_coordinator,
+        "entry1",
+        SensorEntityDescription(key="network_count", translation_key="network_count"),
+    )
+    assert sensor.native_value is None
+
+
 def test_network_decision_sensor(mock_coordinator):
     sensor = ZigbeeLensNetworkSensor(
         mock_coordinator,

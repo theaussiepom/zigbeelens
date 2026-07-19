@@ -13,7 +13,7 @@ def test_core_connected_binary_sensor(mock_coordinator):
     assert attrs["core_url"] == "http://localhost:8377"
 
 
-def test_active_incident_off_when_none(mock_coordinator, sample_health, sample_config_status):
+def test_active_incident_off_when_zero(mock_coordinator, sample_health, sample_config_status):
     dashboard = dict(mock_coordinator.data.dashboard)
     dashboard["active_incident_count"] = 0
     mock_coordinator.data = ZigbeeLensCoordinatorData(
@@ -26,3 +26,18 @@ def test_active_incident_off_when_none(mock_coordinator, sample_health, sample_c
     )
     sensor = ZigbeeLensBinarySensor(mock_coordinator, "entry1", BINARY_SENSORS[0])
     assert sensor.is_on is False
+
+
+def test_active_incident_none_when_count_missing(mock_coordinator, sample_health, sample_config_status):
+    dashboard = dict(mock_coordinator.data.dashboard)
+    dashboard.pop("active_incident_count", None)
+    mock_coordinator.data = ZigbeeLensCoordinatorData(
+        health=sample_health,
+        dashboard=dashboard,
+        config_status=sample_config_status,
+        core_version="0.1.0",
+        collector_connected=True,
+        last_update_success=True,
+    )
+    sensor = ZigbeeLensBinarySensor(mock_coordinator, "entry1", BINARY_SENSORS[0])
+    assert sensor.is_on is None

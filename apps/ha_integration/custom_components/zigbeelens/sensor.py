@@ -7,6 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .compatibility import nonneg_int_not_bool
 from .const import DOMAIN
 from .coordinator import ZigbeeLensDataUpdateCoordinator
 from .entity import ZigbeeLensEntity
@@ -162,27 +163,38 @@ class ZigbeeLensSensor(ZigbeeLensEntity, SensorEntity):
             warnings = dashboard.get("data_coverage_warnings")
             return len(warnings) if isinstance(warnings, list) else None
         if key == "incident_state":
-            active = int(dashboard.get("active_incident_count") or 0)
-            watching = int(dashboard.get("watching_incident_count") or 0)
+            if "active_incident_count" not in dashboard:
+                return None
+            active = nonneg_int_not_bool(dashboard.get("active_incident_count"))
+            if active is None:
+                return None
+            if "watching_incident_count" not in dashboard:
+                return None
+            watching = nonneg_int_not_bool(dashboard.get("watching_incident_count"))
+            if watching is None:
+                return None
             if active > 0:
                 return "incident"
             if watching > 0:
                 return "watch"
             return "none"
         if key == "unavailable_devices":
-            if "unavailable_device_count" in dashboard:
-                return int(dashboard.get("unavailable_device_count") or 0)
-            return int(dashboard.get("unavailable_count") or 0)
+            if "unavailable_device_count" not in dashboard:
+                return None
+            return nonneg_int_not_bool(dashboard.get("unavailable_device_count"))
         if key == "router_risks":
-            return len(dashboard.get("router_risks") or [])
+            risks = dashboard.get("router_risks")
+            if not isinstance(risks, list):
+                return None
+            return len(risks)
         if key == "network_count":
-            if "network_count" in dashboard:
-                return int(dashboard.get("network_count") or 0)
-            return len(_networks(self.coordinator))
+            if "network_count" not in dashboard:
+                return None
+            return nonneg_int_not_bool(dashboard.get("network_count"))
         if key == "device_count":
-            if "device_count" in dashboard:
-                return int(dashboard.get("device_count") or 0)
-            return None
+            if "device_count" not in dashboard:
+                return None
+            return nonneg_int_not_bool(dashboard.get("device_count"))
         return None
 
     @property
@@ -252,13 +264,18 @@ class ZigbeeLensNetworkSensor(ZigbeeLensEntity, SensorEntity):
                 return str(summary["overall_status"])
             return None
         if self._metric == "unavailable_devices":
-            return network.get("unavailable_count", 0)
+            if "unavailable_count" not in network:
+                return None
+            return nonneg_int_not_bool(network.get("unavailable_count"))
         if self._metric == "router_risks":
+            risks = self.dashboard.get("router_risks")
+            if not isinstance(risks, list):
+                return None
             return len(
                 [
                     r
-                    for r in (self.dashboard.get("router_risks") or [])
-                    if r.get("network_id") == self._network_id
+                    for r in risks
+                    if isinstance(r, dict) and r.get("network_id") == self._network_id
                 ]
             )
         return None

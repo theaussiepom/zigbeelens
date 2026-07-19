@@ -46,7 +46,7 @@ def sample_dashboard():
         "device_count": 10,
         "unavailable_device_count": 4,
         "decision_summary": {
-            "subject_count": 10,
+            "subject_count": 6,
             "overall_status": "review_first",
             "highest_priority": "high",
             "status_counts": {
@@ -62,7 +62,10 @@ def sample_dashboard():
                 "id": "home",
                 "name": "Home",
                 "base_topic": "zigbee2mqtt",
+                "bridge_state": "online",
+                "device_count": 10,
                 "unavailable_count": 4,
+                "active_incident_count": 1,
                 "active_incident_severity": "incident",
                 "decision": {
                     "status": "review_first",
@@ -71,7 +74,7 @@ def sample_dashboard():
                     "coverage_label_codes": [],
                 },
                 "decision_summary": {
-                    "subject_count": 10,
+                    "subject_count": 2,
                     "overall_status": "review_first",
                     "highest_priority": "high",
                     "status_counts": {"review_first": 2},

@@ -10,7 +10,53 @@ from zigbeelens.compatibility import (
     decision_contract_version,
     parse_core_version,
     supports_companion_decisions,
+    validate_decision_count_summary,
 )
+
+
+def _valid_dashboard(**overrides) -> dict:
+    payload = {
+        "active_incident_count": 0,
+        "watching_incident_count": 0,
+        "device_count": 1,
+        "unavailable_device_count": 0,
+        "network_count": 1,
+        "decision_summary": {
+            "subject_count": 1,
+            "overall_status": "watch",
+            "highest_priority": "low",
+            "status_counts": {"watch": 1},
+            "priority_counts": {"low": 1},
+            "coverage_warning_count": 0,
+        },
+        "investigation_priorities": [],
+        "data_coverage_warnings": [],
+        "networks": [
+            {
+                "id": "home",
+                "name": "Home",
+                "device_count": 1,
+                "unavailable_count": 0,
+                "active_incident_count": 0,
+                "decision": {
+                    "status": "watch",
+                    "priority": "low",
+                    "headline_code": "network_watch",
+                    "coverage_label_codes": [],
+                },
+                "decision_summary": {
+                    "subject_count": 1,
+                    "overall_status": "watch",
+                    "highest_priority": "low",
+                    "status_counts": {"watch": 1},
+                    "priority_counts": {"low": 1},
+                    "coverage_warning_count": 0,
+                },
+            }
+        ],
+    }
+    payload.update(overrides)
+    return payload
 
 
 def _contract_payload(
@@ -62,7 +108,7 @@ def test_core_version_compatible_unknown_is_soft_ok():
 
 def test_decision_contract_version_strict_parsing():
     assert decision_contract_version({"decision_contract_version": 2}) == 2
-    assert decision_contract_version({"decision_contract_version": "2"}) == 2
+    assert decision_contract_version({"decision_contract_version": "2"}) == 0
     assert decision_contract_version({"decision_contract_version": 0}) == 0
     assert decision_contract_version(None) == 0
     assert decision_contract_version({}) == 0
@@ -70,6 +116,7 @@ def test_decision_contract_version_strict_parsing():
     assert decision_contract_version({"decision_contract_version": True}) == 0
     assert decision_contract_version({"decision_contract_version": False}) == 0
     assert decision_contract_version({"decision_contract_version": 1.0}) == 0
+    assert decision_contract_version({"decision_contract_version": 2.0}) == 0
     assert decision_contract_version({"decision_contract_version": 1.5}) == 0
     assert decision_contract_version({"decision_contract_version": -1}) == 0
     assert decision_contract_version({"decision_contract_version": "-1"}) == 0
@@ -89,7 +136,7 @@ def test_supports_companion_decisions_exact_contract_v2():
     assert supports_companion_decisions(_contract_payload(version=0)) is False
     assert supports_companion_decisions(_contract_payload(version=1)) is False
     assert supports_companion_decisions(_contract_payload()) is True
-    assert supports_companion_decisions(_contract_payload(version="2")) is True
+    assert supports_companion_decisions(_contract_payload(version="2")) is False
     assert supports_companion_decisions(_contract_payload(version=3)) is False
     assert supports_companion_decisions(_contract_payload(shared=False)) is False
     assert supports_companion_decisions(_contract_payload(shared=1)) is False
@@ -119,19 +166,7 @@ def test_supports_companion_decisions_exact_contract_v2():
 def test_dashboard_decision_payload_valid_v2():
     assert dashboard_decision_payload_valid(None) is False
     assert dashboard_decision_payload_valid({}) is False
-    assert (
-        dashboard_decision_payload_valid(
-            {
-                "decision_summary": {
-                    "overall_status": "watch",
-                    "status_counts": {"watch": 1},
-                },
-                "investigation_priorities": [],
-                "data_coverage_warnings": [],
-            }
-        )
-        is True
-    )
+    assert dashboard_decision_payload_valid(_valid_dashboard()) is True
     assert (
         dashboard_decision_payload_valid(
             {"investigation_priorities": [], "data_coverage_warnings": []}
@@ -140,11 +175,18 @@ def test_dashboard_decision_payload_valid_v2():
     )
     assert (
         dashboard_decision_payload_valid(
-            {
-                "decision_summary": {"overall_status": "watch"},
-                "investigation_priorities": [],
-                "data_coverage_warnings": [],
-            }
+            _valid_dashboard(
+                decision_summary={
+                    "subject_count": 1,
+                    "overall_status": "watch",
+                    "highest_priority": "low",
+                    "status_counts": {"watch": 2},
+                    "priority_counts": {"low": 1},
+                    "coverage_warning_count": 0,
+                }
+            )
         )
         is False
     )
+    assert validate_decision_count_summary({"subject_count": True}) is False
+    assert validate_decision_count_summary({"subject_count": 1, "overall_status": "nope"}) is False

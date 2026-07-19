@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
 
+from .compatibility import nonneg_int_not_bool
 from .const import DOMAIN
 from .coordinator import ZigbeeLensDataUpdateCoordinator
 from .entity import ZigbeeLensEntity
@@ -68,7 +69,12 @@ class ZigbeeLensBinarySensor(ZigbeeLensEntity, BinarySensorEntity):
             return False
         key = self.entity_description.key
         if key == "active_incident":
-            return int(self.dashboard.get("active_incident_count") or 0) > 0
+            if "active_incident_count" not in self.dashboard:
+                return None
+            active = nonneg_int_not_bool(self.dashboard.get("active_incident_count"))
+            if active is None:
+                return None
+            return active > 0
         if key == "core_connected":
             return self.coordinator.last_update_success
         if key == "mqtt_collector_connected":

@@ -32,6 +32,28 @@ REQUIRED_COMPANION_DECISION_SURFACES = frozenset(
     }
 )
 
+KNOWN_DECISION_STATUSES = frozenset(
+    {
+        "informational",
+        "no_notable_change",
+        "changed",
+        "watch",
+        "worth_reviewing",
+        "review_first",
+        "improve_data_coverage",
+        "data_unavailable",
+    }
+)
+
+KNOWN_DECISION_PRIORITIES = frozenset(
+    {
+        "none",
+        "low",
+        "medium",
+        "high",
+    }
+)
+
 # Absolute minimum Core this integration expects for basic operational use.
 MIN_CORE_VERSION = (0, 1, 0)
 
@@ -57,19 +79,25 @@ def core_version_compatible(version: str | None, *, minimum: tuple[int, ...] = M
     return parsed >= minimum
 
 
+def nonneg_int_not_bool(value: Any) -> int | None:
+    """Return a non-negative int or None when missing, bool, float, or invalid."""
+    if value is None or isinstance(value, bool):
+        return None
+    if type(value) is not int:
+        return None
+    if value < 0:
+        return None
+    return value
+
+
 def decision_contract_version(capabilities: dict[str, Any] | None) -> int:
     """Strict parse of decision_contract_version. Unsupported/malformed → 0."""
     if not isinstance(capabilities, dict):
         return 0
     raw = capabilities.get("decision_contract_version")
-    if type(raw) is int:
-        return raw if raw >= 0 else 0
-    if isinstance(raw, str):
-        cleaned = raw.strip()
-        if cleaned.isdigit():
-            return int(cleaned)
+    if type(raw) is not int or raw < 0:
         return 0
-    return 0
+    return raw
 
 
 def supports_companion_decisions(capabilities: dict[str, Any] | None) -> bool:
@@ -95,18 +123,112 @@ def supports_companion_decisions(capabilities: dict[str, Any] | None) -> bool:
     return True
 
 
-def dashboard_decision_payload_valid(dashboard: dict[str, Any] | None) -> bool:
-    """True when Dashboard advertises the contract-v2 decision surfaces."""
-    if not isinstance(dashboard, dict):
-        return False
-    summary = dashboard.get("decision_summary")
+def validate_decision_count_summary(summary: Any) -> bool:
+    """True when a DecisionCountSummary dict is structurally valid for contract v2."""
     if not isinstance(summary, dict):
         return False
-    if not isinstance(summary.get("overall_status"), str):
+    subject_count = nonneg_int_not_bool(summary.get("subject_count"))
+    if subject_count is None:
         return False
-    if not isinstance(summary.get("status_counts"), dict):
+    overall = summary.get("overall_status")
+    if not isinstance(overall, str) or overall not in KNOWN_DECISION_STATUSES:
         return False
-    return (
-        isinstance(dashboard.get("investigation_priorities"), list)
-        and isinstance(dashboard.get("data_coverage_warnings"), list)
-    )
+    highest = summary.get("highest_priority")
+    if not isinstance(highest, str) or highest not in KNOWN_DECISION_PRIORITIES:
+        return False
+    coverage = nonneg_int_not_bool(summary.get("coverage_warning_count"))
+    if coverage is None:
+        return False
+    status_counts = summary.get("status_counts")
+    if not isinstance(status_counts, dict):
+        return False
+    priority_counts = summary.get("priority_counts")
+    if not isinstance(priority_counts, dict):
+        return False
+
+    status_total = 0
+    for key, count in status_counts.items():
+        if key not in KNOWN_DECISION_STATUSES:
+            return False
+        parsed = nonneg_int_not_bool(count)
+        if parsed is None:
+            return False
+        status_total += parsed
+
+    priority_total = 0
+    for key, count in priority_counts.items():
+        if key not in KNOWN_DECISION_PRIORITIES:
+            return False
+        parsed = nonneg_int_not_bool(count)
+        if parsed is None:
+            return False
+        priority_total += parsed
+
+    if subject_count == 0:
+        return not status_counts and not priority_counts
+    return status_total == subject_count and priority_total == subject_count
+
+
+def validate_decision_badge(badge: Any) -> bool:
+    """True when a compact decision badge dict is structurally valid."""
+    if not isinstance(badge, dict):
+        return False
+    status = badge.get("status")
+    if not isinstance(status, str) or status not in KNOWN_DECISION_STATUSES:
+        return False
+    priority = badge.get("priority")
+    if not isinstance(priority, str) or priority not in KNOWN_DECISION_PRIORITIES:
+        return False
+    headline = badge.get("headline_code")
+    if not isinstance(headline, str) or not headline.strip():
+        return False
+    codes = badge.get("coverage_label_codes", [])
+    if not isinstance(codes, list):
+        return False
+    return all(isinstance(code, str) for code in codes)
+
+
+def _validate_dashboard_factual_fields(dashboard: dict[str, Any]) -> bool:
+    for field in (
+        "active_incident_count",
+        "watching_incident_count",
+        "device_count",
+        "unavailable_device_count",
+    ):
+        if nonneg_int_not_bool(dashboard.get(field)) is None:
+            return False
+    if "network_count" in dashboard:
+        if nonneg_int_not_bool(dashboard.get("network_count")) is None:
+            return False
+    return True
+
+
+def _validate_network_decision_badges(networks: Any) -> bool:
+    if not isinstance(networks, list):
+        return False
+    for net in networks:
+        if not isinstance(net, dict):
+            return False
+        if not validate_decision_badge(net.get("decision")):
+            return False
+        if not validate_decision_count_summary(net.get("decision_summary")):
+            return False
+        for field in ("device_count", "unavailable_count", "active_incident_count"):
+            if nonneg_int_not_bool(net.get(field)) is None:
+                return False
+    return True
+
+
+def dashboard_decision_payload_valid(dashboard: dict[str, Any] | None) -> bool:
+    """True when Dashboard advertises a valid contract-v2 decision payload."""
+    if not isinstance(dashboard, dict):
+        return False
+    if not isinstance(dashboard.get("investigation_priorities"), list):
+        return False
+    if not isinstance(dashboard.get("data_coverage_warnings"), list):
+        return False
+    if not validate_decision_count_summary(dashboard.get("decision_summary")):
+        return False
+    if not _validate_dashboard_factual_fields(dashboard):
+        return False
+    return _validate_network_decision_badges(dashboard.get("networks"))

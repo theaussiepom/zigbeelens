@@ -66,19 +66,18 @@ def test_summary_connected_has_expected_fields(
     assert summary["core_url"] == "http://192.168.100.5:8377"
     assert summary["core_version"] == "0.1.0"
     assert summary["overall_decision_status"] is None  # decision mode off
-    assert summary["active_incident_count"] == 1
-    assert summary["network_count"] == 1
-    assert summary["device_count"] == 10
-    assert summary["unavailable_devices"] == 4
-    assert summary["router_risks"] == 1
+    assert summary["active_incident_count"] is None
+    assert summary["network_count"] is None
+    assert summary["device_count"] is None
+    assert summary["unavailable_devices"] is None
+    assert summary["router_risks"] is None
     assert summary["collector_connected"] is True
     assert summary["shared_decisions_available"] is False
     assert summary["decision_contract_version"] == 0
     assert summary["core_version_compatible"] is True
     assert summary["investigation_priorities"] == []
-    assert summary["investigation_priority_count"] == 0
-    assert summary["networks"][0]["id"] == "home"
-    assert summary["networks"][0]["investigation_priority_count"] == 0
+    assert summary["investigation_priority_count"] is None
+    assert summary["networks"] == []
 
 
 def test_summary_exposes_decision_contract_flags(
@@ -96,6 +95,9 @@ def test_summary_exposes_decision_contract_flags(
     assert summary["shared_decisions_available"] is True
     assert summary["decision_contract_version"] == 2
     assert summary["core_version_compatible"] is True
+    assert summary["active_incident_count"] == 1
+    assert summary["device_count"] == 10
+    assert summary["networks"][0]["id"] == "home"
 
 
 def test_summary_projects_priorities_preserving_order_and_cap(
@@ -109,8 +111,22 @@ def test_summary_projects_priorities_preserving_order_and_cap(
             "bridge_state": "online",
             "device_count": 10,
             "unavailable_count": 1,
+            "active_incident_count": 0,
             "active_incident_severity": "watch",
-            "decision": {"status": "watch", "priority": "low", "headline_code": "network_watch", "coverage_label_codes": []},
+            "decision": {
+                "status": "watch",
+                "priority": "low",
+                "headline_code": "network_watch",
+                "coverage_label_codes": [],
+            },
+            "decision_summary": {
+                "subject_count": 1,
+                "overall_status": "watch",
+                "highest_priority": "low",
+                "status_counts": {"watch": 1},
+                "priority_counts": {"low": 1},
+                "coverage_warning_count": 0,
+            },
         },
         {
             "id": "office",
@@ -118,8 +134,21 @@ def test_summary_projects_priorities_preserving_order_and_cap(
             "bridge_state": "online",
             "device_count": 4,
             "unavailable_count": 0,
-            "incident_state": "healthy",
-            "health": {"severity": "healthy"},
+            "active_incident_count": 0,
+            "decision": {
+                "status": "no_notable_change",
+                "priority": "none",
+                "headline_code": "network_no_notable_change",
+                "coverage_label_codes": [],
+            },
+            "decision_summary": {
+                "subject_count": 0,
+                "overall_status": "no_notable_change",
+                "highest_priority": "none",
+                "status_counts": {},
+                "priority_counts": {},
+                "coverage_warning_count": 0,
+            },
         },
     ]
     dashboard["investigation_priorities"] = [
@@ -193,9 +222,11 @@ def test_summary_hides_decisions_when_contract_unavailable(
     )
     summary = build_panel_summary(data, core_url="http://core:8377", connected=True)
     assert summary["investigation_priorities"] == []
-    assert summary["investigation_priority_count"] == 0
-    assert summary["more_investigation_priority_count"] == 0
-    assert summary["data_coverage_warning_count"] == 0
+    assert summary["investigation_priority_count"] is None
+    assert summary["more_investigation_priority_count"] is None
+    assert summary["data_coverage_warning_count"] is None
+    assert summary["active_incident_count"] is None
+    assert summary["networks"] == []
 
 
 def test_summary_hides_decisions_when_core_incompatible(
@@ -241,7 +272,7 @@ def test_summary_disconnected_is_calm():
     assert summary["core_url"] == "http://192.168.100.5:8377"
     assert summary["error"] == "boom"
     assert summary["networks"] == []
-    assert summary["device_count"] == 0
+    assert summary["device_count"] is None
     assert summary["investigation_priorities"] == []
     assert summary["core_version_compatible"] is None
     assert summary["shared_decisions_available"] is False
@@ -324,13 +355,19 @@ def test_panel_frontend_asset_decision_mode():
     assert "esc(item.title)" in source
     assert "esc(item.summary)" in source
     assert "esc(item.network_name" in source
-    assert "!decisionMode ? this._findingCard(s)" in source
+    assert "_contractIncompatibleCard" in source
+    assert "decision contract is incompatible" in source
+    assert "_findingCard" not in source
+    assert "n.health" not in source
+    assert "No active findings" not in source
+    assert "current_finding" not in source
     assert "Compatible" in source
     assert "Incompatible" in source
     assert "Unknown" in source
     # Decision-mode priority/coverage counts are neutral (no Watch accent).
-    assert 'this._stat("Investigation priorities", s.investigation_priority_count || 0)' in source
-    assert 'this._stat("Data coverage warnings", s.data_coverage_warning_count || 0)' in source
+    assert 'this._stat("Investigation priorities", s.investigation_priority_count)' in source
+    assert 'this._stat("Data coverage warnings", s.data_coverage_warning_count)' in source
+    assert "formatCount" in source
     assert "priorityAccent" not in source
     assert "coverageAccent" not in source
 
