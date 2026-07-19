@@ -119,7 +119,7 @@ describe("BrowserAuthGate", () => {
             auth_method: "session",
             browser_session_enabled: true,
             expires_at: expiry,
-            csrf_token: "csrf-mem",
+            csrf_token: "e30.mem",
           }),
         ),
       ),
@@ -132,9 +132,9 @@ describe("BrowserAuthGate", () => {
     );
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("authenticated"));
     expect(isSessionTransportActive()).toBe(true);
-    expect(screen.queryByText("csrf-mem")).not.toBeInTheDocument();
-    expect(JSON.stringify(authRuntime)).not.toContain("csrf-mem");
-    expect(JSON.stringify(authRuntime.toJSON())).not.toContain("csrf-mem");
+    expect(screen.queryByText("e30.mem")).not.toBeInTheDocument();
+    expect(JSON.stringify(authRuntime)).not.toContain("e30.mem");
+    expect(JSON.stringify(authRuntime.toJSON())).not.toContain("e30.mem");
     expect("applySessionCsrf" in authRuntime).toBe(false);
   });
 
@@ -217,7 +217,7 @@ describe("BrowserAuthGate", () => {
               auth_method: "session",
               browser_session_enabled: true,
               expires_at: futureExpiry(),
-              csrf_token: "csrf-after-login",
+              csrf_token: "e30.after-login",
             }),
           );
         }
@@ -230,7 +230,7 @@ describe("BrowserAuthGate", () => {
             auth_method: "session",
             browser_session_enabled: true,
             expires_at: futureExpiry(),
-            csrf_token: "csrf-post",
+            csrf_token: "e30.post",
           }),
         );
       }
@@ -267,8 +267,8 @@ describe("BrowserAuthGate", () => {
       expect(localStorage.getItem(key)).not.toContain(SENTINEL_TOKEN);
     }
     expect(isSessionTransportActive()).toBe(true);
-    expect(document.body.textContent).not.toContain("csrf-after-login");
-    expect(JSON.stringify(authRuntime.toJSON())).not.toContain("csrf-after-login");
+    expect(document.body.textContent).not.toContain("e30.after-login");
+    expect(JSON.stringify(authRuntime.toJSON())).not.toContain("e30.after-login");
   });
 
   it("POST 200 without cookie round-trip stays locked", async () => {
@@ -282,7 +282,7 @@ describe("BrowserAuthGate", () => {
             auth_method: "session",
             browser_session_enabled: true,
             expires_at: futureExpiry(),
-            csrf_token: "csrf-post",
+            csrf_token: "e30.post",
           }),
         );
       }
@@ -334,7 +334,7 @@ describe("BrowserAuthGate", () => {
                 auth_method: "session",
                 browser_session_enabled: true,
                 expires_at: expiry,
-                csrf_token: "csrf-live",
+                csrf_token: "e30.live",
               })
             : sessionStatus({ authenticated: false }),
         );
@@ -426,7 +426,7 @@ describe("BrowserAuthGate", () => {
                 auth_method: "session",
                 browser_session_enabled: true,
                 expires_at: expiry,
-                csrf_token: "csrf-d",
+                csrf_token: "e30.d",
               })
             : sessionStatus({ authenticated: false }),
         );
@@ -526,7 +526,7 @@ describe("BrowserAuthGate", () => {
       auth_method: "session",
       browser_session_enabled: true,
       expires_at: expiry,
-      csrf_token: "csrf-stable",
+      csrf_token: "e30.stable",
     });
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(status));
     vi.stubGlobal("fetch", fetchMock);
@@ -601,31 +601,25 @@ describe("SSE access gate", () => {
     expect(eventSourceTestState.closeCount).toBeGreaterThanOrEqual(1);
   });
 
-  it("incomplete session status on EventSource error locks via unauthorized", async () => {
-    const listener = vi.fn();
-    authRuntime.onUnauthorized(listener);
+  it("EventSource error requests a provider-owned sse_error probe without fetching", async () => {
+    const requester = vi.fn();
+    liveConnection.setSessionProbeRequester(requester);
     liveConnection.setAccessEnabled(true);
     liveConnection.subscribeEvents(() => {});
     const source = eventSourceTestState.instances.at(-1);
     expect(source).toBeTruthy();
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        jsonResponse({
-          authenticated: true,
-          auth_method: "session",
-          browser_session_enabled: true,
-          expires_at: new Date(Date.now() - 1000).toISOString(),
-          csrf_token: "csrf-x",
-        }),
-      ),
-    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
 
     await act(async () => {
       source?.onerror?.();
-      await vi.waitFor(() => expect(listener).toHaveBeenCalled(), { timeout: 2000 });
+      await vi.waitFor(() => expect(requester).toHaveBeenCalledWith("sse_error"), {
+        timeout: 2000,
+      });
     });
+    expect(fetchMock).not.toHaveBeenCalled();
+    liveConnection.setSessionProbeRequester(null);
   });
 });
 
@@ -656,7 +650,7 @@ describe("bfcache and expiry lifecycle", () => {
             auth_method: "session",
             browser_session_enabled: true,
             expires_at: expiry,
-            csrf_token: "csrf-bf",
+            csrf_token: "e30.bf",
           }),
         );
       }
@@ -696,7 +690,7 @@ describe("bfcache and expiry lifecycle", () => {
             auth_method: "session",
             browser_session_enabled: true,
             expires_at: expiry,
-            csrf_token: "csrf-bf",
+            csrf_token: "e30.bf",
           }),
         ),
       );
@@ -715,7 +709,7 @@ describe("bfcache and expiry lifecycle", () => {
             auth_method: "session",
             browser_session_enabled: true,
             expires_at: expiry,
-            csrf_token: "csrf-bf2",
+            csrf_token: "e30.bf2",
           }),
         );
       }
@@ -746,7 +740,7 @@ describe("bfcache and expiry lifecycle", () => {
           auth_method: "session",
           browser_session_enabled: true,
           expires_at: expiry,
-          csrf_token: "csrf-bf3",
+          csrf_token: "e30.bf3",
         }),
       );
     });
@@ -775,7 +769,7 @@ describe("bfcache and expiry lifecycle", () => {
             auth_method: "session",
             browser_session_enabled: true,
             expires_at: expiry,
-            csrf_token: "csrf-stale-bf",
+            csrf_token: "e30.stale-bf",
           }),
         );
       }
@@ -813,7 +807,7 @@ describe("bfcache and expiry lifecycle", () => {
             auth_method: "session",
             browser_session_enabled: true,
             expires_at: expiry,
-            csrf_token: "csrf-stale-bf",
+            csrf_token: "e30.stale-bf",
           }),
         ),
       );
@@ -831,7 +825,7 @@ describe("bfcache and expiry lifecycle", () => {
           auth_method: "session",
           browser_session_enabled: true,
           expires_at: expiry,
-          csrf_token: "csrf-cycle",
+          csrf_token: "e30.cycle",
         }),
       ),
     );
@@ -864,7 +858,7 @@ describe("bfcache and expiry lifecycle", () => {
             auth_method: "session",
             browser_session_enabled: true,
             expires_at: expiry,
-            csrf_token: "csrf-vis",
+            csrf_token: "e30.vis",
           }),
         ),
       ),
@@ -920,7 +914,7 @@ describe("probe races, logout ownership, identity remount", () => {
             auth_method: "session",
             browser_session_enabled: true,
             expires_at: expiry,
-            csrf_token: "csrf-race",
+            csrf_token: "e30.race",
           }),
         );
       }
@@ -964,7 +958,7 @@ describe("probe races, logout ownership, identity remount", () => {
             auth_method: "session",
             browser_session_enabled: true,
             expires_at: expiry,
-            csrf_token: "csrf-race",
+            csrf_token: "e30.race",
           }),
         ),
       );
@@ -975,7 +969,7 @@ describe("probe races, logout ownership, identity remount", () => {
 
   it("identical status refresh preserves child state; changed session remounts", async () => {
     const expiryA = futureExpiry(120_000);
-    let csrf = "csrf-a";
+    let csrf = "e30.a";
     let expiresAt = expiryA;
     const fetchMock = vi.fn(async () =>
       jsonResponse(
@@ -1030,7 +1024,7 @@ describe("probe races, logout ownership, identity remount", () => {
     expect(screen.getByTestId("local")).toHaveTextContent("1");
     expect(Number(screen.getByTestId("mounts").textContent)).toBe(mountsBefore);
 
-    csrf = "csrf-b";
+    csrf = "e30.b";
     expiresAt = futureExpiry(180_000);
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
@@ -1049,6 +1043,164 @@ describe("probe races, logout ownership, identity remount", () => {
       expect(screen.getByText(/Unexpected session response from Core/i)).toBeInTheDocument(),
     );
     expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
+  });
+
+  it("pagehide advances access generation without clearing identity", async () => {
+    const expiry = futureExpiry(120_000);
+    const fetchMock = vi.fn().mockImplementation(() =>
+      jsonResponse(
+        sessionStatus({
+          authenticated: true,
+          auth_method: "session",
+          browser_session_enabled: true,
+          expires_at: expiry,
+          csrf_token: "e30.access",
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithAuth(<AuthProbe />);
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("authenticated"));
+    const identityBefore = authRuntime.getIdentityGeneration();
+    const accessBefore = authRuntime.getAccessGeneration();
+
+    await act(async () => {
+      const event = new Event("pagehide") as PageTransitionEvent;
+      Object.defineProperty(event, "persisted", { value: true });
+      window.dispatchEvent(event);
+    });
+
+    expect(authRuntime.getIdentityGeneration()).toBe(identityBefore);
+    expect(authRuntime.getAccessGeneration()).toBeGreaterThan(accessBefore);
+    expect(authRuntime.getAuthMethod()).toBe("session");
+    expect(isSessionTransportActive()).toBe(true);
+    expect(screen.getByRole("heading", { name: /Checking access/i })).toBeInTheDocument();
+  });
+
+  it("logout CSRF 403 refreshes after ownership release without replaying DELETE", async () => {
+    const expiry = futureExpiry();
+    let deleteCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const call = fetchCallParts([input, init]);
+      if (call.url.includes("auth/session") && call.method === "DELETE") {
+        deleteCount += 1;
+        return jsonResponse({ detail: "CSRF validation failed." }, 403);
+      }
+      if (call.url.includes("auth/session")) {
+        return jsonResponse(
+          sessionStatus({
+            authenticated: true,
+            auth_method: "session",
+            browser_session_enabled: true,
+            expires_at: expiry,
+            csrf_token: deleteCount > 0 ? "e30.refreshed" : "e30.oldcsrf",
+          }),
+        );
+      }
+      return jsonResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function LogoutCsrf() {
+      const auth = useAuth();
+      return (
+        <div>
+          <AuthProbe />
+          <ProtectedMarker />
+          <button type="button" onClick={() => void auth.logout()}>
+            Sign out
+          </button>
+          {auth.logoutError && <div data-testid="logout-error">{auth.logoutError}</div>}
+        </div>
+      );
+    }
+
+    renderWithAuth(<LogoutCsrf />);
+    await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
+
+    await act(async () => {
+      screen.getByRole("button", { name: /Sign out/i }).click();
+    });
+
+    await waitFor(() => expect(screen.getByTestId("logout-error")).toBeInTheDocument());
+    expect(deleteCount).toBe(1);
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter((c) => fetchCallParts(c).method === "GET").length,
+      ).toBeGreaterThan(1),
+    );
+    expect(deleteCount).toBe(1);
+    expect(screen.getByTestId("protected-data")).toBeInTheDocument();
+    expect(isSessionTransportActive()).toBe(true);
+  });
+
+  it("stale SSE probe cannot lock a newer session", async () => {
+    const expiryA = futureExpiry(120_000);
+    const expiryB = futureExpiry(180_000);
+    let resolveStale: ((value: Response) => void) | null = null;
+    let mode: "a" | "stale" | "b" = "a";
+    const fetchMock = vi.fn(async () => {
+      if (mode === "a") {
+        return jsonResponse(
+          sessionStatus({
+            authenticated: true,
+            auth_method: "session",
+            browser_session_enabled: true,
+            expires_at: expiryA,
+            csrf_token: "e30.sessionA",
+          }),
+        );
+      }
+      if (mode === "stale") {
+        return new Promise<Response>((resolve) => {
+          resolveStale = resolve;
+        });
+      }
+      return jsonResponse(
+        sessionStatus({
+          authenticated: true,
+          auth_method: "session",
+          browser_session_enabled: true,
+          expires_at: expiryB,
+          csrf_token: "e30.sessionB",
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithAuth(
+      <>
+        <AuthProbe />
+        <ProtectedMarker />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("authenticated"));
+
+    mode = "stale";
+    // Ensure SSE is connected under the provider-owned requester.
+    await waitFor(() => expect(liveConnection.isAccessEnabled()).toBe(true));
+    liveConnection.subscribeEvents(() => {});
+    const source = eventSourceTestState.instances.at(-1);
+    expect(source).toBeTruthy();
+    await act(async () => {
+      source?.onerror?.();
+    });
+    await waitFor(() => expect(resolveStale).toBeTruthy(), { timeout: 2000 });
+
+    mode = "b";
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() => expect(authRuntime.getExpiresAt()).toBe(expiryB), {
+      timeout: 2000,
+    });
+
+    await act(async () => {
+      resolveStale?.(jsonResponse(sessionStatus({ authenticated: false })));
+    });
+    expect(screen.getByTestId("phase")).toHaveTextContent("authenticated");
+    expect(screen.getByTestId("protected-data")).toBeInTheDocument();
+    expect(authRuntime.getExpiresAt()).toBe(expiryB);
   });
 
   it("deferred bootstrap releases token from input before confirmation GET", async () => {
@@ -1072,7 +1224,7 @@ describe("probe races, logout ownership, identity remount", () => {
           auth_method: "session",
           browser_session_enabled: true,
           expires_at: futureExpiry(),
-          csrf_token: "csrf-boot",
+          csrf_token: "e30.boot",
         }),
       );
     });
@@ -1106,7 +1258,7 @@ describe("probe races, logout ownership, identity remount", () => {
             auth_method: "session",
             browser_session_enabled: true,
             expires_at: futureExpiry(),
-            csrf_token: "csrf-boot",
+            csrf_token: "e30.boot",
           }),
         ),
       );

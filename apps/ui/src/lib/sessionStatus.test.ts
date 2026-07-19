@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseBrowserSessionStatus } from "./sessionStatus";
+import { isValidCsrfTokenGrammar, parseBrowserSessionStatus } from "./sessionStatus";
+import { CORE_ISSUED_CSRF_FIXTURE } from "@/test/authTestUtils";
 
 describe("parseBrowserSessionStatus", () => {
   it("accepts trusted_local with null expiry and csrf", () => {
@@ -30,7 +31,7 @@ describe("parseBrowserSessionStatus", () => {
       auth_method: "session",
       browser_session_enabled: true,
       expires_at: new Date(Date.now() + 60_000).toISOString(),
-      csrf_token: "csrf-abc",
+      csrf_token: "e30.abc",
     });
     expect(parsed.ok).toBe(true);
   });
@@ -74,7 +75,7 @@ describe("parseBrowserSessionStatus", () => {
       auth_method: "session",
       browser_session_enabled: true,
       expires_at: new Date(Date.now() - 1_000).toISOString(),
-      csrf_token: "csrf-abc",
+      csrf_token: "e30.abc",
     });
     expect(parsed).toEqual({ ok: false, reason: "incomplete_session" });
   });
@@ -85,7 +86,7 @@ describe("parseBrowserSessionStatus", () => {
       auth_method: "session",
       browser_session_enabled: true,
       expires_at: new Date(Date.now() + 8 * 24 * 60 * 60_000).toISOString(),
-      csrf_token: "csrf-abc",
+      csrf_token: "e30.abc",
     });
     expect(parsed).toEqual({ ok: false, reason: "incomplete_session" });
   });
@@ -165,5 +166,41 @@ describe("parseBrowserSessionStatus", () => {
       csrf_token: "x".repeat(4097),
     });
     expect(parsed).toEqual({ ok: false, reason: "malformed" });
+  });
+
+  it("accepts a real Core-issued CSRF fixture", () => {
+    expect(isValidCsrfTokenGrammar(CORE_ISSUED_CSRF_FIXTURE)).toBe(true);
+    const parsed = parseBrowserSessionStatus({
+      authenticated: true,
+      auth_method: "session",
+      browser_session_enabled: true,
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      csrf_token: CORE_ISSUED_CSRF_FIXTURE,
+    });
+    expect(parsed.ok).toBe(true);
+  });
+
+  it("rejects CSRF grammar violations", () => {
+    const expiry = new Date(Date.now() + 60_000).toISOString();
+    for (const csrf_token of [
+      "e30.bad token",
+      "e30.bad,token",
+      "e30.bad:token",
+      'e30."quoted"',
+      "e30.emoji😀",
+      "nodot",
+      "e30.",
+      ".sig",
+    ]) {
+      expect(
+        parseBrowserSessionStatus({
+          authenticated: true,
+          auth_method: "session",
+          browser_session_enabled: true,
+          expires_at: expiry,
+          csrf_token,
+        }),
+      ).toEqual({ ok: false, reason: "malformed" });
+    }
   });
 });

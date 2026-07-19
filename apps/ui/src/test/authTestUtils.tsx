@@ -11,6 +11,19 @@ import {
 
 export const SENTINEL_TOKEN = "zl-test-sentinel-token-DO-NOT-PERSIST";
 
+/**
+ * Grammar-valid CSRF tokens matching Core ItsDangerous URLSafeSerializer output
+ * (url-safe base64 segments separated by `.`).
+ */
+export function testCsrf(label = "test"): string {
+  const safe = label.replace(/[^A-Za-z0-9_-]/g, "") || "x";
+  return `e30.${safe}`;
+}
+
+/** Real Core-issued sample from BrowserSessionManager.issue_csrf_token(). */
+export const CORE_ISSUED_CSRF_FIXTURE =
+  "eyJ2ZXJzaW9uIjoxLCJzZXNzaW9uX2lkIjoiNWFiMzkwM2M5ZjBiZWZlYjQzODBlOTFjZjRlMmNlYTQifQ.bBPL3di-nSQQbHEBTrNO976JWNIn_7jYHBRaflmKoXY";
+
 export function sessionStatus(overrides: Record<string, unknown> = {}) {
   return {
     authenticated: false,
@@ -64,7 +77,7 @@ export function fetchCallParts(call: unknown[]): {
 }
 
 /** Seed in-memory session auth without going through login UI. */
-export function seedSessionAuth(csrf = "csrf-test-token"): void {
+export function seedSessionAuth(csrf = testCsrf("seed")): void {
   const { revision } = installSessionTransportCredentials(csrf);
   authRuntime.setSession({
     expiresAt: futureExpiry(120_000),

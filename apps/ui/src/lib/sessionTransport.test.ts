@@ -29,7 +29,7 @@ describe("sessionTransport CSRF privacy", () => {
   });
 
   it("applies CSRF only onto the Request handed to fetch", async () => {
-    seedSession("csrf-mutate");
+    seedSession("e30.mutate");
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -45,12 +45,12 @@ describe("sessionTransport CSRF privacy", () => {
     expect(fetchMock.mock.calls[0]?.[1]).toBeUndefined();
     const req = fetchMock.mock.calls[0]?.[0] as Request;
     expect(req).toBeInstanceOf(Request);
-    expect(req.headers.get(CSRF_HEADER_NAME)).toBe("csrf-mutate");
+    expect(req.headers.get(CSRF_HEADER_NAME)).toBe("e30.mutate");
     expect(req.credentials).toBe("include");
   });
 
   it("does not apply CSRF on GET or trusted_local mutations", async () => {
-    seedSession("csrf-get");
+    seedSession("e30.get");
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -78,7 +78,7 @@ describe("sessionTransport CSRF privacy", () => {
   });
 
   it("clearing session clears transport-private CSRF", async () => {
-    seedSession("csrf-clear");
+    seedSession("e30.clear");
     expect(isSessionTransportActive()).toBe(true);
     const revBefore = getSessionTransportRevision();
     clearSessionTransportCredentials();
@@ -103,8 +103,8 @@ describe("sessionTransport CSRF privacy", () => {
   });
 
   it("replacing CSRF advances revision and sends the new token", async () => {
-    seedSession("csrf-old");
-    const { revision, changed } = installSessionTransportCredentials("csrf-new");
+    seedSession("e30.old");
+    const { revision, changed } = installSessionTransportCredentials("e30.new");
     expect(changed).toBe(true);
     authRuntime.setSession({
       expiresAt: futureExpiry(90_000),
@@ -122,7 +122,7 @@ describe("sessionTransport CSRF privacy", () => {
     if (!started.ok) return;
     await started.promise;
     const req = fetchMock.mock.calls[0]?.[0] as Request;
-    expect(req.headers.get(CSRF_HEADER_NAME)).toBe("csrf-new");
+    expect(req.headers.get(CSRF_HEADER_NAME)).toBe("e30.new");
   });
 
   it("releases bootstrap bearer from options before await", async () => {

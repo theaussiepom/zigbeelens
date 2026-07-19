@@ -9,6 +9,7 @@ import {
   parseContentDispositionFilename,
   sanitizeDownloadFilename,
   triggerBrowserDownload,
+  writeProtectedClipboardText,
   __unsafeApiMethodsForTests,
 } from "./api";
 import { authRuntime } from "./authRuntime";
@@ -57,7 +58,7 @@ describe("credential-aware Core fetch", () => {
   });
 
   it("does not send CSRF on GET in session mode", async () => {
-    seedSession("csrf-1");
+    seedSession("e30.one");
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: "ok" }));
     vi.stubGlobal("fetch", fetchMock);
     await api.health();
@@ -66,7 +67,7 @@ describe("credential-aware Core fetch", () => {
   });
 
   it("sends CSRF on session mutations and preserves Content-Type", async () => {
-    seedSession("csrf-mutate");
+    seedSession("e30.mutate");
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
         id: "r1",
@@ -84,7 +85,7 @@ describe("credential-aware Core fetch", () => {
       redaction: { profile: "standard" },
     });
     const call = fetchCallParts(fetchMock.mock.calls[0] ?? []);
-    expect(call.headers.get(CSRF_HEADER_NAME)).toBe("csrf-mutate");
+    expect(call.headers.get(CSRF_HEADER_NAME)).toBe("e30.mutate");
     expect(call.headers.get("Content-Type")).toBe("application/json");
     expect(call.headers.has("Origin")).toBe(false);
   });
@@ -105,7 +106,7 @@ describe("credential-aware Core fetch", () => {
         auth_method: "session",
         browser_session_enabled: true,
         expires_at: futureExpiry(),
-        csrf_token: "csrf-new",
+        csrf_token: "e30.new",
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -136,7 +137,7 @@ describe("credential-aware Core fetch", () => {
   });
 
   it("maps CSRF 403 and Origin 403 kinds without retry", async () => {
-    seedSession("csrf-1");
+    seedSession("e30.one");
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ detail: "CSRF validation failed." }, 403))
@@ -174,18 +175,18 @@ describe("credential-aware Core fetch", () => {
   });
 
   it("logout DELETE sends CSRF in session mode", async () => {
-    seedSession("csrf-logout");
+    seedSession("e30.logout");
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
     await deleteBrowserSession();
     const call = fetchCallParts(fetchMock.mock.calls[0] ?? []);
-    expect(call.headers.get(CSRF_HEADER_NAME)).toBe("csrf-logout");
+    expect(call.headers.get(CSRF_HEADER_NAME)).toBe("e30.logout");
     expect(call.method).toBe("DELETE");
     expect(call.credentials).toBe("include");
   });
 
   it("covers every unsafe api method through mutation transport", async () => {
-    seedSession("csrf-all");
+    seedSession("e30.all");
     const fetchMock = vi.fn().mockImplementation(() =>
       jsonResponse({
         ok: true,
@@ -214,13 +215,13 @@ describe("credential-aware Core fetch", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
     for (const call of fetchMock.mock.calls) {
       const parts = fetchCallParts(call);
-      expect(parts.headers.get(CSRF_HEADER_NAME)).toBe("csrf-all");
+      expect(parts.headers.get(CSRF_HEADER_NAME)).toBe("e30.all");
       expect(parts.credentials).toBe("include");
     }
   });
 
   it("preserves stale_auth_context through allowEmpty JSON branch", async () => {
-    seedSession("csrf-empty");
+    seedSession("e30.empty");
     let resolveText: ((value: string) => void) | null = null;
     const textPromise = new Promise<string>((resolve) => {
       resolveText = resolve;
@@ -250,6 +251,21 @@ describe("credential-aware Core fetch", () => {
     await expect(createBrowserSession(SENTINEL_TOKEN)).rejects.toMatchObject({
       kind: "protocol",
     });
+  });
+
+  it("does not retry a protected GET after accessGeneration changes during backoff", async () => {
+    seedSession("e30.retry");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ detail: "temporary" }, 503));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = api.health();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    authRuntime.advanceAccessGeneration();
+
+    await expect(pending).rejects.toMatchObject({ kind: "stale_auth_context" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -339,7 +355,7 @@ describe("report download helpers", () => {
   });
 
   it("rejects download trigger after auth generation change", async () => {
-    seedSession("csrf-dl");
+    seedSession("e30.dl");
     const generation = authRuntime.getGeneration();
     const createObjectURL = vi.fn(() => "blob:test-url");
     vi.stubGlobal("URL", { createObjectURL, revokeObjectURL: vi.fn() });
@@ -356,7 +372,7 @@ describe("report download helpers", () => {
   });
 
   it("marks protected JSON stale after logout during body read", async () => {
-    seedSession("csrf-stale");
+    seedSession("e30.stale");
     let resolveBody: ((value: string) => void) | null = null;
     const bodyPromise = new Promise<string>((resolve) => {
       resolveBody = resolve;
@@ -375,5 +391,20 @@ describe("report download helpers", () => {
     authRuntime.clear();
     resolveBody?.(JSON.stringify({ status: "ok" }));
     await expect(pending).rejects.toMatchObject({ kind: "stale_auth_context" });
+  });
+
+  it("writeProtectedClipboardText refuses after accessGeneration change", async () => {
+    seedSession("e30.clip");
+    const access = authRuntime.getAccessGeneration();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    authRuntime.advanceAccessGeneration();
+    await expect(writeProtectedClipboardText("secret", access)).rejects.toMatchObject({
+      kind: "stale_auth_context",
+    });
+    expect(writeText).not.toHaveBeenCalled();
   });
 });

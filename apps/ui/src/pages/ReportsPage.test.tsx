@@ -64,6 +64,9 @@ vi.mock("@/lib/api", () => ({
     authGeneration: 1,
   })),
   triggerBrowserDownload: vi.fn(async () => {}),
+  writeProtectedClipboardText: vi.fn(async (text: string) => {
+    await navigator.clipboard.writeText(text);
+  }),
   ApiError: class ApiError extends Error {},
 }));
 
