@@ -56,9 +56,10 @@ Some API routes can modify ZigbeeLens’ own local data. If you expose Core beyo
 Exact CORS and frame-ancestor allowlists, Content-Security-Policy on HTML, and
 canonical HACS Core URL validation are implemented. The bundled standalone UI
 uses browser-session login (HttpOnly cookie + in-memory CSRF) when both
-`api_token` and `session_secret` are configured. HACS token configuration and
-Home Assistant ingress identity enforcement are not implemented yet. HTTPS may
-help with the optional embedded dashboard view, but **HTTPS is not authentication**.
+`api_token` and `session_secret` are configured. The HACS integration can store
+the same Core API token for server-side bearer reads. Home Assistant ingress
+identity enforcement is not implemented yet. HTTPS may help with the optional
+embedded dashboard view, but **HTTPS is not authentication**.
 
 See [docs/security.md](docs/security.md).
 

@@ -89,7 +89,11 @@ See [redaction.md](redaction.md).
    - HAOS add-on: `http://localhost:8377` (typical)
    - Docker on another host: `http://<host>:8377`
 3. Check firewall from HA to Core.
-4. Review HA logs for connection errors.
+4. If Core requires bearer authentication, set the same Core API token in the
+   HACS config flow / reauth form (leave blank only for trusted-open Core).
+5. When Home Assistant prompts to reauthenticate ZigbeeLens, enter the current
+   token or leave blank if Core returned to trusted-open mode.
+6. Review HA logs for connection errors (never expect the token in logs).
 
 See [hacs.md](hacs.md).
 

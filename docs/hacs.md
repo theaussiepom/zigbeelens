@@ -6,9 +6,12 @@ The HACS sidebar provides a ZigbeeLens companion entry with a native summary and
 
 The Core dashboard is **canonical**. HACS does not collect MQTT or replace the dashboard.
 
-HACS does not yet send an API token. When Core requires authentication, use the
-native companion summary and **Open Full Dashboard** (or the standalone UI login
-when cookie policy permits). HACS bearer-token support is later work.
+HACS can store an optional **Core API token** and sends it only as
+`Authorization: Bearer <token>` from Home Assistant’s server-side HTTP client.
+Leave the token blank for trusted-open Core. The token is never placed in the
+Core URL, panel config, websocket summary, iframe URL, or **Open Full Dashboard**
+href — those browser paths still use standalone UI session login when Core is
+protected.
 
 ## Install via HACS (recommended)
 
@@ -40,7 +43,10 @@ Do not use `localhost` unless HA and Core share the same network namespace.
 
 The companion panel renders status from the integration (over the HA websocket) and does not require the browser to reach Core directly. The **Open Full Dashboard** button opens the configured Core URL in a new tab, so that URL must be reachable from your browser.
 
-You can change the Core URL later without deleting the integration: **Settings → Devices & services → ZigbeeLens → Configure**.
+Use **Reconfigure** on the integration to change the Core URL, TLS verification,
+or API token. Use **Configure** (options) for panel visibility and polling
+interval. When Core rejects credentials, Home Assistant offers linked
+**reauthentication**.
 
 ### Core URL and embedded view
 

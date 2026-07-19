@@ -54,7 +54,7 @@ The Core URL is the address Home Assistant uses to reach ZigbeeLens Core.
 
 HTTP Core URLs are the normal Docker path and work for the native companion panel, entities, repairs, diagnostics, and **Open Full Dashboard**.
 
-The optional embedded dashboard view usually requires an **HTTPS Core URL** when Home Assistant is served over HTTPS. Configure this through **Settings → Devices & services → ZigbeeLens → Configure** — no need to delete and re-add the integration.
+The optional embedded dashboard view usually requires an **HTTPS Core URL** when Home Assistant is served over HTTPS. Change the Core URL through **Reconfigure** — no need to delete and re-add the integration.
 
 See [docs/hacs-embedded-view.md](../../docs/hacs-embedded-view.md) for HTTPS reverse proxy options (Traefik on Beast, Caddy example, etc.).
 
@@ -65,15 +65,23 @@ During setup you will be asked for:
 | Option | Description |
 |--------|-------------|
 | Core URL | Address of your ZigbeeLens Core dashboard — must be reachable **from Home Assistant**. HTTP is fine for the native panel and **Open Full Dashboard**. Use HTTPS if you want the optional embedded dashboard view inside Home Assistant. |
+| Core API token | Optional. Same value as Core `security.api_token` when Core protects its API. Leave blank for trusted-open Core. Stored in Home Assistant config-entry data; sent only as a server-side `Authorization: Bearer` header. |
 | Verify SSL | Enable TLS certificate verification |
 | Panel enabled | Show the ZigbeeLens companion panel in the Home Assistant sidebar |
-| Polling interval | How often summary entities refresh (default 60s) |
+
+Polling interval defaults to 60s and is adjusted later under **Configure** (options).
 
 Examples: `http://192.168.1.10:8377`, `https://zigbeelens.example.com`
 
-The config flow validates connectivity with `GET /api/health`.
+Setup validates public `GET /api/version` (product proof, no Authorization), then protected `GET /api/health` with the bearer when configured.
 
-Change the Core URL later without deleting the integration: **Settings → Devices & services → ZigbeeLens → Configure**.
+| Flow | Use for |
+|------|---------|
+| **Configure** (options) | Panel visibility and polling interval |
+| **Reconfigure** | Core URL, TLS verification, API token replace/remove |
+| **Reauthenticate** | Offered automatically when Core rejects the stored token |
+
+The API token is never placed in panel JavaScript, websocket data, iframe URLs, or **Open Full Dashboard**. Those browser paths use standalone UI session login when Core is protected. Protect Home Assistant administrators and backups accordingly — the token lives in HA config-entry storage. Diagnostics expose only `api_token_configured` (boolean).
 
 ### URL hints
 

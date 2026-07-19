@@ -11,11 +11,14 @@ CONF_CORE_URL = "core_url"
 CONF_VERIFY_SSL = "verify_ssl"
 CONF_PANEL_ENABLED = "panel_enabled"
 CONF_SCAN_INTERVAL = "scan_interval"
+CONF_API_TOKEN = "api_token"
+CONF_REMOVE_API_TOKEN = "remove_api_token"
 
 DEFAULT_CORE_URL = "http://localhost:8377"
 DEFAULT_SCAN_INTERVAL = 60
 DEFAULT_VERIFY_SSL = False
 DEFAULT_PANEL_ENABLED = True
+DEFAULT_API_TOKEN = ""
 
 CONFIG_ENTRY_VERSION = 1
 

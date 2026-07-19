@@ -33,9 +33,29 @@ async def test_panel_registered_as_native_custom_panel():
     assert kwargs["frontend_url_path"] == "zigbeelens"
     assert kwargs["module_url"].endswith(".js")
     assert kwargs["config"] == {"core_url": "http://192.168.100.5:8377"}
+    assert "api_token" not in kwargs["config"]
+    assert "Authorization" not in json.dumps(kwargs["config"])
     ws_register.assert_called_once()
     hass.http.async_register_static_paths.assert_awaited_once()
     assert hass.data["zigbeelens"]["_panel_state"]["panel_registered"] is True
+
+
+@pytest.mark.asyncio
+async def test_panel_registration_never_includes_token_sentinel():
+    sentinel = "zl-hacs-panel-sentinel-token-aaaaaa"
+    hass = MagicMock()
+    hass.data = {"zigbeelens": {}}
+    hass.http.async_register_static_paths = AsyncMock()
+    with (
+        patch("zigbeelens.panel.panel_custom.async_register_panel", new=AsyncMock()) as register,
+        patch("zigbeelens.panel.websocket_api.async_register_command"),
+    ):
+        await async_register_panel(hass, "entry1", "http://192.168.100.5:8377")
+    blob = json.dumps(register.call_args.kwargs)
+    assert sentinel not in blob
+    assert register.call_args.kwargs["config"] == {
+        "core_url": "http://192.168.100.5:8377"
+    }
 
 
 @pytest.mark.asyncio

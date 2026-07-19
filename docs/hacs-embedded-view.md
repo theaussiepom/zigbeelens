@@ -265,7 +265,7 @@ For a domain with public DNS:
 2. Map `443:443` on the host.
 3. HACS Core URL: `https://zigbeelens.example.com` (no port).
 
-**Security:** Core may require `Authorization: Bearer` when an API token is configured; the HACS integration does not yet attach bearer credentials. The standalone UI can still log in via browser session when `session_secret` is set and cookie policy allows it. HTTPS adds TLS, not authentication. If Core is reachable beyond users or networks you trust, consider firewall rules, network isolation, VPN, or authentication at the proxy (Authelia, OAuth2 proxy, Authentik, etc.).
+**Security:** Core may require `Authorization: Bearer` when an API token is configured. The HACS integration sends that token only from Home Assistant’s server-side client for entities/panel summary/repairs — never into the iframe URL or browser storage. **Try Embedded View** and **Open Full Dashboard** remain standalone browser clients and use session login when `session_secret` is set. HTTPS adds TLS, not authentication. If Core is reachable beyond users or networks you trust, consider firewall rules, network isolation, VPN, or authentication at the proxy (Authelia, OAuth2 proxy, Authentik, etc.).
 
 ---
 

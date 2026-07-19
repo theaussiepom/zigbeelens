@@ -6,9 +6,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.update_coordinator import UpdateFailed
+
 from zigbeelens.api import ZigbeeLensApiClient
 from zigbeelens.coordinator import ZigbeeLensDataUpdateCoordinator
-from zigbeelens.exceptions import ZigbeeLensConnectionError, ZigbeeLensInvalidResponseError
+from zigbeelens.exceptions import (
+    ZigbeeLensAuthError,
+    ZigbeeLensConnectionError,
+    ZigbeeLensInvalidResponseError,
+)
 
 
 def _capabilities(*, version: object = 1) -> dict:
@@ -43,6 +50,7 @@ def _bare_coordinator(mock_client) -> ZigbeeLensDataUpdateCoordinator:
     coordinator.client = mock_client
     coordinator.last_update_success = False
     coordinator.last_exception = None
+    coordinator.auth_failed = False
     return coordinator
 
 
@@ -119,8 +127,43 @@ async def test_coordinator_accepts_valid_empty_decision_lists(mock_client):
     assert data.shared_decisions_available is True
     mock_client.async_get_health = AsyncMock(side_effect=ZigbeeLensConnectionError("down"))
     coordinator = _bare_coordinator(mock_client)
-    from homeassistant.helpers.update_coordinator import UpdateFailed
 
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
     assert coordinator.last_update_success is False
+    assert coordinator.auth_failed is False
+
+
+@pytest.mark.asyncio
+async def test_coordinator_health_401_raises_auth_failed(mock_client):
+    mock_client.async_get_health = AsyncMock(
+        side_effect=ZigbeeLensAuthError("Authentication required")
+    )
+    coordinator = _bare_coordinator(mock_client)
+    with pytest.raises(ConfigEntryAuthFailed):
+        await coordinator._async_update_data()
+    assert coordinator.auth_failed is True
+    assert coordinator.last_exception == "Authentication required"
+    assert "Bearer" not in (coordinator.last_exception or "")
+
+
+@pytest.mark.asyncio
+async def test_coordinator_dashboard_401_raises_auth_failed(mock_client):
+    mock_client.async_get_dashboard = AsyncMock(
+        side_effect=ZigbeeLensAuthError("Authentication required")
+    )
+    coordinator = _bare_coordinator(mock_client)
+    with pytest.raises(ConfigEntryAuthFailed):
+        await coordinator._async_update_data()
+    assert coordinator.auth_failed is True
+
+
+@pytest.mark.asyncio
+async def test_coordinator_capabilities_401_raises_auth_failed(mock_client):
+    mock_client.async_get_capabilities = AsyncMock(
+        side_effect=ZigbeeLensAuthError("Authentication required")
+    )
+    coordinator = _bare_coordinator(mock_client)
+    with pytest.raises(ConfigEntryAuthFailed):
+        await coordinator._async_update_data()
+    assert coordinator.auth_failed is True

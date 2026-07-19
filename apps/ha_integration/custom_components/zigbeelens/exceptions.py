@@ -16,7 +16,7 @@ class ZigbeeLensConnectionError(ZigbeeLensApiError):
 
 
 class ZigbeeLensAuthError(ZigbeeLensApiError):
-    """Authentication failed (reserved for future auth)."""
+    """Core rejected the HACS bearer credential (HTTP 401 on a protected route)."""
 
 
 class ZigbeeLensInvalidResponseError(ZigbeeLensApiError):

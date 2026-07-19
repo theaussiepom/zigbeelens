@@ -86,7 +86,7 @@ See [reports.md](reports.md).
 
 ## Home Assistant integration
 
-The HACS integration currently uses legacy `/api/health`, `/api/dashboard`, and related routes. This remains supported. New HA-side code may adopt `/api/v1` when convenient.
+The HACS integration uses legacy `/api/health`, `/api/dashboard`, and related routes with an optional server-side `Authorization: Bearer` header (never in URLs). This remains supported. New HA-side code may adopt `/api/v1` when convenient.
 
 See [hacs.md](hacs.md) and [hacs-embedded-view.md](hacs-embedded-view.md).
 

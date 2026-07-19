@@ -32,7 +32,7 @@ Before release testing, confirm you understand:
 - Core may require `Authorization: Bearer` for protected API routes when an API token is configured
 - Optional browser sessions need both API token and session secret; cookie mutations need exact `Origin` and `X-ZigbeeLens-CSRF-Token`
 - The bundled UI uses session login when both are configured; bearer-only Core shows a UI setup-required state
-- HACS token support and ingress identity enforcement are not implemented yet
+- Ingress identity enforcement is not implemented yet
 - ZigbeeLens is **read-only for Zigbee control** (no permit join, remove, reset, bind/unbind, OTA, or channel changes)
 - Some Core API routes modify **ZigbeeLens local data only** (reports, topology snapshots, HA enrichment)
 - If Core is reachable beyond users or networks you trust, **access-control decisions are your responsibility**
@@ -91,7 +91,7 @@ curl -s -b /tmp/zl-cookies.txt -X DELETE http://localhost:8377/api/auth/session 
 
 ### B. No-token release test (trusted-open; API routes intentionally open)
 
-Omit `ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` from `docker run`. In that configuration, protected API routes remain open — use only on a trusted local host. For token-enabled UI testing, also set `session_secret` so the standalone UI can create a browser session. HACS does not yet attach bearer credentials.
+Omit `ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` from `docker run`. In that configuration, protected API routes remain open — use only on a trusted local host. For token-enabled UI testing, also set `session_secret` so the standalone UI can create a browser session. For HACS against protected Core, configure the same API token in the integration (server-side bearer only).
 
 Optional helper (creates dirs, copies template, refuses placeholder config):
 
@@ -327,6 +327,12 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 - [ ] Integration installs without errors
 - [ ] Restart completed if required
 - [ ] Config flow accepts Core URL
+- [ ] Trusted-open Core + blank HACS token succeeds
+- [ ] Protected Core + missing/wrong token → invalid auth / reauth (not a misleading unreachable loop)
+- [ ] Protected Core + correct token → entities/panel/repairs work
+- [ ] Rotate Core token → HA linked reauth → enter new token → updates recover
+- [ ] Diagnostics show `api_token_configured` and contain no token value
+- [ ] Open Full Dashboard still uses standalone login (no HACS token in URL)
 - [ ] Existing summary entities still appear (overall health, active incident, counts)
 - [ ] Per-network sensors appear (`Home`, `Home 2`)
 - [ ] No new decision entities appear for priorities / Device Stories
@@ -347,7 +353,8 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 - [ ] Disconnected Core shows compatibility Unknown, not Compatible
 - [ ] Open Full Dashboard opens Core in a new tab
 - [ ] Try Embedded View shows a friendly explanation if Home Assistant is HTTPS and Core is HTTP
-- [ ] Settings → Devices & services → ZigbeeLens → Configure can change Core URL without delete/re-add
+- [ ] Settings → Devices & services → ZigbeeLens → Reconfigure can change Core URL / token without delete/re-add
+- [ ] Configure (options) adjusts panel/polling only
 - [ ] If using an HTTPS Core URL, Try Embedded View displays the full dashboard inside Home Assistant
 - [ ] *(Optional advanced)* Caddy HTTPS stack from [hacs-embedded-view.md](hacs-embedded-view.md): Core URL updated, cert trusted, embedded view works
 - [ ] Core connected state appears

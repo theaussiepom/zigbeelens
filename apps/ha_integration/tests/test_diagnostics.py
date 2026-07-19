@@ -128,12 +128,69 @@ def test_repairs_core_unreachable():
     coord = MagicMock(spec=ZigbeeLensDataUpdateCoordinator)
     coord.last_update_success = False
     coord.data = None
+    coord.auth_failed = False
 
     with patch("zigbeelens.repairs.ir.async_create_issue") as create_issue:
         async_manage_repairs(hass, coord)
         assert any(
             call.args[2] == ISSUE_CORE_UNREACHABLE for call in create_issue.call_args_list
         )
+
+
+def test_repairs_auth_failed_skips_unreachable():
+    hass = MagicMock()
+    coord = MagicMock(spec=ZigbeeLensDataUpdateCoordinator)
+    coord.last_update_success = False
+    coord.data = None
+    coord.auth_failed = True
+    coord.last_exception = "Authentication required"
+
+    with patch("zigbeelens.repairs.ir.async_create_issue") as create_issue, patch(
+        "zigbeelens.repairs.ir.async_delete_issue"
+    ) as delete_issue:
+        async_manage_repairs(hass, coord)
+    assert not any(
+        call.args[2] == ISSUE_CORE_UNREACHABLE for call in create_issue.call_args_list
+    )
+    assert any(
+        call.args[2] == ISSUE_CORE_UNREACHABLE for call in delete_issue.call_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_hides_api_token_sentinel():
+    import json
+
+    sentinel = "zl-hacs-diag-sentinel-token-aaaaaaa"
+    hass = MagicMock()
+    entry = MagicMock()
+    entry.entry_id = "entry1"
+    entry.version = 1
+    entry.data = {
+        "core_url": "http://localhost:8377",
+        "api_token": sentinel,
+    }
+    coordinator = MagicMock(spec=ZigbeeLensDataUpdateCoordinator)
+    coordinator.data = None
+    coordinator.last_update_success = False
+    coordinator.last_exception = "Authentication required"
+    hass.data = {"zigbeelens": {"entry1": {"coordinator": coordinator}}}
+
+    with patch("zigbeelens.diagnostics.er.async_get") as mock_er_get:
+        mock_er_get.return_value = MagicMock()
+        with patch(
+            "zigbeelens.diagnostics.er.async_entries_for_config_entry",
+            return_value=[],
+        ):
+            payload = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert payload["api_token_configured"] is True
+    assert payload["last_exception"] == "Authentication required"
+    blob = json.dumps(payload)
+    assert sentinel not in blob
+    assert sentinel not in str(payload)
+    assert "Authorization" not in blob
+    assert "api_token" not in payload
 
 
 def test_repairs_collector_disconnected(sample_health, sample_dashboard, sample_config_status):
