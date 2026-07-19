@@ -554,8 +554,8 @@ def test_report_preview_parity_and_no_devices_endpoint(tmp_path: Path, monkeypat
         assert network.scope == ReportScope.network
         assert incident.scope == ReportScope.incident
         assert device.scope == ReportScope.device
-        assert len(full.devices) == len(network.devices) == 20
-        assert device.devices and device.devices[0].ieee_address
+        assert len(full.domain_details.devices) == len(network.domain_details.devices) == 20
+        assert device.domain_details.devices and device.domain_details.devices[0].ieee_address
         assert full.incidents
         assert incident.incidents
 
@@ -747,7 +747,9 @@ def test_devices_cold_cache_evaluates_before_incident_context(tmp_path: Path):
     cached = health.get_device_health("home", "0xOFF")
     assert cached is not None
     assert HealthFlag.unavailable in cached.flags
-    assert match.health.primary.value == cached.primary.value
+    # Public inventory is decision-led; internal health remains evaluation input.
+    assert match.decision is not None
+    assert match.decision.status
 
 
 def test_devices_recovers_when_cache_incomplete_after_failed_eval(

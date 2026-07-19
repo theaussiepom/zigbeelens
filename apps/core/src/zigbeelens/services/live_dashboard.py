@@ -12,7 +12,6 @@ from zigbeelens.schemas import (
     BridgeState,
     Confidence,
     CoordinatorSummary,
-    DeviceHealth,
     DeviceHealthPrimary,
     DiagnosticConclusion,
     EvidenceItem,

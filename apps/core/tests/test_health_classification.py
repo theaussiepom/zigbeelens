@@ -24,7 +24,6 @@ from zigbeelens.diagnostics.service import HealthDiagnosticService
 from zigbeelens.mqtt.client import FakeMqttClient
 from zigbeelens.mqtt.collector import build_collector
 from zigbeelens.mqtt.ingestion import MqttIngestionService
-from zigbeelens.schemas import DeviceHealthPrimary
 from zigbeelens.services.payload_builder import PayloadBuilder
 from zigbeelens.storage.repository import Repository, utc_now_iso
 

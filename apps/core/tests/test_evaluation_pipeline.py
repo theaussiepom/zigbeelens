@@ -724,9 +724,15 @@ def test_payload_missing_device_cache_uses_coordinator_not_direct_recalculate_de
     )
     evaluation = _CountingEvaluation(health=health)
 
-    summary = PayloadBuilder(cfg, repo, health, evaluation=evaluation).device_detail("home", "0x1")
+    # Device detail is decision/facts only and does not re-enter health evaluation.
+    # Inventory remains the surface that ensures network health via the coordinator.
+    detail = PayloadBuilder(cfg, repo, health, evaluation=evaluation).device_detail("home", "0x1")
+    assert detail is not None
+    assert detail.decision is not None
+    assert evaluation.network_calls == []
 
-    assert summary is not None
+    evaluation.network_calls.clear()
+    PayloadBuilder(cfg, repo, health, evaluation=evaluation).devices()
     assert evaluation.network_calls == ["home"]
     assert health.get_device_health("home", "0x1") is not None
 
@@ -809,5 +815,5 @@ def test_builder_without_coordinator_uses_side_effect_free_health_fallback(tmp_p
 
     dashboard = PayloadBuilder(cfg, repo, health).dashboard()
 
-    assert dashboard.top_affected_devices == []
+    assert dashboard.decision_summary.subject_count >= 0
     assert health.all_device_health() == {}

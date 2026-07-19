@@ -40,8 +40,6 @@ from report_v3_helpers import (
     report_device_details,
     report_devices,
     report_networks,
-    report_router_risks,
-    report_timeline,
 )
 
 NOW = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)

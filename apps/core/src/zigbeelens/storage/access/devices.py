@@ -109,6 +109,14 @@ class DeviceRepository:
     ) -> list[dict[str, Any]]:
         return self._repo.list_device_snapshots(network_id, ieee_address, limit=limit)
 
+    def list_device_snapshots_for_devices(
+        self,
+        device_keys,
+        *,
+        limit: int = 50,
+    ):
+        return self._repo.list_device_snapshots_for_devices(device_keys, limit=limit)
+
     def get_devices_by_friendly_name(self, friendly_name: str) -> list[DeviceRow]:
         return self._repo.get_devices_by_friendly_name(friendly_name)
 

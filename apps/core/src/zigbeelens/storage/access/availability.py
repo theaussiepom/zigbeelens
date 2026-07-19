@@ -31,6 +31,9 @@ class AvailabilityRepository:
     ) -> list[dict[str, Any]]:
         return self._repo.list_availability_changes(network_id, ieee_address, limit)
 
+    def list_availability_changes_for_devices(self, device_keys, *, limit: int = 20):
+        return self._repo.list_availability_changes_for_devices(device_keys, limit=limit)
+
     def get_earliest_availability_change_at(self, network_id: str) -> str | None:
         return self._repo.get_earliest_availability_change_at(network_id)
 

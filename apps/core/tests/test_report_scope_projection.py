@@ -30,7 +30,6 @@ from zigbeelens.mqtt.models import MqttCollectorStatus, NetworkSubscriptionStatu
 from zigbeelens.schemas import (
     Availability,
     Confidence,
-    DashboardPayload,
     DeviceHealth,
     DeviceHealthPrimary,
     DeviceType,
@@ -61,11 +60,9 @@ from zigbeelens.storage.repository import Repository
 
 from report_v3_helpers import (
     report_active_incidents,
-    report_device_details,
     report_devices,
     report_networks,
     report_router_risks,
-    report_timeline,
 )
 
 NOW = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)

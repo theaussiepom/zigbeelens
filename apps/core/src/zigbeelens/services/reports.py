@@ -22,7 +22,6 @@ from zigbeelens.schemas import (
     DeviceHealthPrimary,
     DeviceSummary,
     Incident,
-    IncidentDeviceRef,
     IncidentStatus,
     InvestigationPrioritySummary,
     LensHealthSummary,

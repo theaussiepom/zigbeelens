@@ -21,7 +21,6 @@ from zigbeelens.diagnostics.service import (
 from zigbeelens.schemas import (
     Availability,
     AvailabilityChange,
-    BridgeState,
     Confidence,
     DashboardPayload,
     DeviceDecisionBadge,
@@ -55,6 +54,7 @@ from zigbeelens.services.decision_summary import (
     data_unavailable_device_badge,
     decision_count_summary_from_badges,
 )
+from zigbeelens.services.empty_state import empty_finding
 from zigbeelens.services.device_decision_badge import (
     device_decision_badge_for_device,
     device_decision_badges_for_devices,

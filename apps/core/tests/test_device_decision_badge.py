@@ -476,32 +476,50 @@ def test_devices_list_loads_snapshot_links_once_per_snapshot(monkeypatch, tmp_pa
     link_calls.clear()
     tracking_calls.clear()
     earliest_calls.clear()
-    device_snapshot_calls: list[str] = []
-    availability_calls: list[str] = []
+    bulk_snapshot_calls: list[int] = []
+    bulk_availability_calls: list[int] = []
+    per_device_snapshot_calls: list[str] = []
+    per_device_availability_calls: list[str] = []
     node_calls: list[str] = []
+    original_bulk_snapshots = repo.devices.list_device_snapshots_for_devices
+    original_bulk_availability = repo.availability.list_availability_changes_for_devices
     original_device_snapshots = repo.devices.list_device_snapshots
     original_availability_changes = repo.availability.list_availability_changes
     original_nodes = repo.list_topology_nodes
 
+    def _bulk_snapshots(device_keys, *, limit: int = 50):
+        bulk_snapshot_calls.append(len(list(device_keys)))
+        return original_bulk_snapshots(device_keys, limit=limit)
+
+    def _bulk_availability(device_keys, *, limit: int = 20):
+        bulk_availability_calls.append(len(list(device_keys)))
+        return original_bulk_availability(device_keys, limit=limit)
+
     def _device_snapshots(network_id: str, ieee_address: str, *, limit: int):
-        device_snapshot_calls.append(ieee_address)
+        per_device_snapshot_calls.append(ieee_address)
         return original_device_snapshots(network_id, ieee_address, limit=limit)
 
-    def _availability_changes(network_id: str, ieee_address: str, *, limit: int):
-        availability_calls.append(ieee_address)
-        return original_availability_changes(network_id, ieee_address, limit=limit)
+    def _availability_changes(network_id: str, ieee_address: str, limit: int = 20):
+        per_device_availability_calls.append(ieee_address)
+        return original_availability_changes(network_id, ieee_address, limit)
 
     def _nodes(snapshot_id: str):
         node_calls.append(snapshot_id)
         return original_nodes(snapshot_id)
 
+    monkeypatch.setattr(repo.devices, "list_device_snapshots_for_devices", _bulk_snapshots)
+    monkeypatch.setattr(
+        repo.availability, "list_availability_changes_for_devices", _bulk_availability
+    )
     monkeypatch.setattr(repo.devices, "list_device_snapshots", _device_snapshots)
     monkeypatch.setattr(repo.availability, "list_availability_changes", _availability_changes)
     monkeypatch.setattr(repo, "list_topology_nodes", _nodes)
     devices = PayloadBuilder(config, repo, health).devices()
     assert len(devices) == 4
-    assert sorted(device_snapshot_calls) == ["0xa1", "0xa2", "0xa3", "0xa4"]
-    assert sorted(availability_calls) == ["0xa1", "0xa2", "0xa3", "0xa4"]
+    assert bulk_snapshot_calls == [4]
+    assert bulk_availability_calls == [4]
+    assert per_device_snapshot_calls == []
+    assert per_device_availability_calls == []
     assert len(set(node_calls)) <= 3
     assert snapshot_calls == ["home"]
     assert sorted(link_calls) == ["snap-1", "snap-2", "snap-3"]

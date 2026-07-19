@@ -417,6 +417,59 @@ class Repository:
         )
         return [dict(row) for row in cur.fetchall()]
 
+    def list_device_snapshots_for_devices(
+        self,
+        device_keys: Collection[tuple[str, str]],
+        *,
+        limit: int = 50,
+    ) -> dict[tuple[str, str], list[dict[str, Any]]]:
+        """Recent device snapshots for many devices, newest first, bounded per device."""
+        ordered_keys = list(dict.fromkeys(device_keys))
+        result: dict[tuple[str, str], list[dict[str, Any]]] = {key: [] for key in ordered_keys}
+        if not ordered_keys or limit <= 0:
+            return result
+        for chunk in _chunked(ordered_keys, _SAFE_PAIR_CHUNK):
+            values_sql = ",".join("(?, ?)" for _ in chunk)
+            params: list[Any] = []
+            for network_id, ieee_address in chunk:
+                params.extend((network_id, ieee_address))
+            params.append(limit)
+            cur = self.db.conn.execute(
+                f"""
+                WITH requested(network_id, ieee_address) AS (VALUES {values_sql}),
+                ranked AS (
+                    SELECT s.network_id, s.ieee_address, s.availability, s.last_seen,
+                           s.last_payload_at, s.linkquality, s.battery, s.captured_at,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY s.network_id, s.ieee_address
+                               ORDER BY s.captured_at DESC
+                           ) AS rn
+                    FROM device_snapshots s
+                    JOIN requested r
+                      ON r.network_id = s.network_id AND r.ieee_address = s.ieee_address
+                )
+                SELECT network_id, ieee_address, availability, last_seen, last_payload_at,
+                       linkquality, battery, captured_at
+                FROM ranked
+                WHERE rn <= ?
+                ORDER BY network_id, ieee_address, captured_at DESC
+                """,
+                params,
+            )
+            for row in cur.fetchall():
+                key = (row["network_id"], row["ieee_address"])
+                result[key].append(
+                    {
+                        "availability": row["availability"],
+                        "last_seen": row["last_seen"],
+                        "last_payload_at": row["last_payload_at"],
+                        "linkquality": row["linkquality"],
+                        "battery": row["battery"],
+                        "captured_at": row["captured_at"],
+                    }
+                )
+        return result
+
     def insert_metric_sample(
         self, network_id: str, ieee_address: str, metric_name: str, metric_value: float
     ) -> None:
@@ -1800,6 +1853,54 @@ class Repository:
             (network_id, ieee_address, limit),
         )
         return [dict(row) for row in cur.fetchall()]
+
+    def list_availability_changes_for_devices(
+        self,
+        device_keys: Collection[tuple[str, str]],
+        *,
+        limit: int = 20,
+    ) -> dict[tuple[str, str], list[dict[str, Any]]]:
+        """Recent availability changes for many devices, newest first, bounded per device."""
+        ordered_keys = list(dict.fromkeys(device_keys))
+        result: dict[tuple[str, str], list[dict[str, Any]]] = {key: [] for key in ordered_keys}
+        if not ordered_keys or limit <= 0:
+            return result
+        for chunk in _chunked(ordered_keys, _SAFE_PAIR_CHUNK):
+            values_sql = ",".join("(?, ?)" for _ in chunk)
+            params: list[Any] = []
+            for network_id, ieee_address in chunk:
+                params.extend((network_id, ieee_address))
+            params.append(limit)
+            cur = self.db.conn.execute(
+                f"""
+                WITH requested(network_id, ieee_address) AS (VALUES {values_sql}),
+                ranked AS (
+                    SELECT a.network_id, a.ieee_address, a.from_state, a.to_state, a.changed_at,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY a.network_id, a.ieee_address
+                               ORDER BY a.changed_at DESC
+                           ) AS rn
+                    FROM availability_changes a
+                    JOIN requested r
+                      ON r.network_id = a.network_id AND r.ieee_address = a.ieee_address
+                )
+                SELECT network_id, ieee_address, from_state, to_state, changed_at
+                FROM ranked
+                WHERE rn <= ?
+                ORDER BY network_id, ieee_address, changed_at DESC
+                """,
+                params,
+            )
+            for row in cur.fetchall():
+                key = (row["network_id"], row["ieee_address"])
+                result[key].append(
+                    {
+                        "from_state": row["from_state"],
+                        "to_state": row["to_state"],
+                        "changed_at": row["changed_at"],
+                    }
+                )
+        return result
 
     def get_earliest_availability_change_at(self, network_id: str) -> str | None:
         """Timestamp of the first recorded availability transition for a

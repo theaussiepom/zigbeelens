@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from zigbeelens.config.models import AppConfig
 from zigbeelens.decisions.device_story import DeviceStory, device_stories_for_devices
-from zigbeelens.schemas import DeviceDetail, DeviceSummary, ReportDetail, ReportRequest
+from zigbeelens.schemas import DeviceDetail, DeviceSummary, ReportRequest
 from zigbeelens.diagnostics.incidents.service import IncidentDiagnosticService
 from zigbeelens.diagnostics.service import HealthDiagnosticService
 from zigbeelens.services.device_decision_badge import device_decision_badge_from_story

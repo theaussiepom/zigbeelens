@@ -47,11 +47,8 @@ from zigbeelens.services.reports import (
 from zigbeelens.storage.repository import Repository
 
 from report_v3_helpers import (
-    report_active_incidents,
     report_device_details,
-    report_devices,
     report_networks,
-    report_router_risks,
     report_timeline,
 )
 
