@@ -441,7 +441,6 @@ class ZigbeeLensPanel extends HTMLElement {
 
   _heroCard(s, coreUrl, connected) {
     const decisionMode = this._decisionMode(s);
-    const sev = SEVERITY[s.overall_health] || SEVERITY.unknown;
     const connBadge = connected
       ? `<span class="badge ok">Connected to Core</span>`
       : `<span class="badge off">Not connected</span>`;
@@ -450,9 +449,14 @@ class ZigbeeLensPanel extends HTMLElement {
       const contract = s.decision_contract_version
         ? `Decision contract v${esc(s.decision_contract_version)}`
         : "Shared decisions";
-      modeBadge = `<span class="badge ok">${contract}</span>`;
-    } else if (connected && s.overall_health) {
-      modeBadge = `<span class="badge" style="--badge:${sev.color}">Health: ${esc(sev.label)}</span>`;
+      const status = s.overall_decision_status
+        ? ` · ${esc(s.overall_decision_status)}`
+        : "";
+      modeBadge = `<span class="badge ok">${contract}${status}</span>`;
+    } else if (connected && s.core_update_required) {
+      modeBadge = `<span class="badge watch">Core update required</span>`;
+    } else if (connected && !decisionMode) {
+      modeBadge = `<span class="badge watch">Decision contract incompatible</span>`;
     }
     const mockBadge = s.mock_mode ? `<span class="badge watch">Mock data</span>` : "";
     return `

@@ -33,6 +33,7 @@ ISSUE_NO_NETWORKS = "no_networks_configured"
 ISSUE_NO_MQTT_DATA = "no_mqtt_data"
 ISSUE_MOCK_MODE = "mock_mode_active"
 ISSUE_INCOMPATIBLE_VERSION = "incompatible_core_version"
+ISSUE_DECISION_CONTRACT_INCOMPATIBLE = "core_decision_contract_incompatible"
 
 UPDATE_INTERVAL = timedelta(seconds=DEFAULT_SCAN_INTERVAL)
 

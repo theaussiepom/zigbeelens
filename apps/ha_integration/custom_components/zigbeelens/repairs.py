@@ -9,6 +9,7 @@ from .const import (
     DOMAIN,
     ISSUE_COLLECTOR_DISCONNECTED,
     ISSUE_CORE_UNREACHABLE,
+    ISSUE_DECISION_CONTRACT_INCOMPATIBLE,
     ISSUE_INCOMPATIBLE_VERSION,
     ISSUE_MOCK_MODE,
     ISSUE_NO_MQTT_DATA,
@@ -55,6 +56,25 @@ def async_manage_repairs(hass: HomeAssistant, coordinator: ZigbeeLensDataUpdateC
     else:
         ir.async_delete_issue(hass, DOMAIN, ISSUE_INCOMPATIBLE_VERSION)
 
+    # Contract mismatch is not an auth failure and must not compete with unreachable.
+    if (
+        data.core_version_compatible is not False
+        and not data.shared_decisions_available
+    ):
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            ISSUE_DECISION_CONTRACT_INCOMPATIBLE,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=ISSUE_DECISION_CONTRACT_INCOMPATIBLE,
+            translation_placeholders={
+                "version": str(data.decision_contract_version or 0),
+            },
+        )
+    else:
+        ir.async_delete_issue(hass, DOMAIN, ISSUE_DECISION_CONTRACT_INCOMPATIBLE)
+
     if not data.collector_connected:
         ir.async_create_issue(
             hass,
@@ -81,8 +101,10 @@ def async_manage_repairs(hass: HomeAssistant, coordinator: ZigbeeLensDataUpdateC
     else:
         ir.async_delete_issue(hass, DOMAIN, ISSUE_NO_NETWORKS)
 
-    device_count = (dashboard.get("health_snapshot") or {}).get("device_count", 0)
-    if networks and device_count == 0 and not health.get("mock_mode"):
+    device_count = dashboard.get("device_count")
+    if device_count is None:
+        device_count = 0
+    if networks and int(device_count or 0) == 0 and not health.get("mock_mode"):
         ir.async_create_issue(
             hass,
             DOMAIN,
@@ -111,6 +133,7 @@ def async_clear_repairs(hass: HomeAssistant) -> None:
     for issue_id in (
         ISSUE_CORE_UNREACHABLE,
         ISSUE_INCOMPATIBLE_VERSION,
+        ISSUE_DECISION_CONTRACT_INCOMPATIBLE,
         ISSUE_COLLECTOR_DISCONNECTED,
         ISSUE_NO_NETWORKS,
         ISSUE_NO_MQTT_DATA,

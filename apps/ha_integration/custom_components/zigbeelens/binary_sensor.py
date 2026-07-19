@@ -81,12 +81,13 @@ class ZigbeeLensBinarySensor(ZigbeeLensEntity, BinarySensorEntity):
             return {}
         key = self.entity_description.key
         if key == "active_incident":
-            finding = self.dashboard.get("current_finding") or {}
+            decision = self.dashboard.get("decision_summary") or {}
             return {
                 "active_incident_count": self.dashboard.get("active_incident_count"),
-                "highest_severity": self.dashboard.get("overall_severity"),
-                "current_finding": finding.get("summary"),
-                "top_incident_summary": finding.get("summary"),
+                "watching_incident_count": self.dashboard.get("watching_incident_count"),
+                "overall_decision_status": (
+                    decision.get("overall_status") if isinstance(decision, dict) else None
+                ),
             }
         if key == "core_connected":
             return {

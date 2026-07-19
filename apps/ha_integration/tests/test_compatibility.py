@@ -15,15 +15,20 @@ from zigbeelens.compatibility import (
 
 def _contract_payload(
     *,
-    version: object = 1,
+    version: object = 2,
     shared: object = True,
     companion: object = True,
+    decision_only: object = True,
+    legacy_health: object = False,
     surfaces: object | None = None,
 ) -> dict:
     if surfaces is None:
         surfaces = {
+            "dashboard_decision_summary": True,
             "dashboard_investigation_priorities": True,
             "dashboard_data_coverage_warnings": True,
+            "network_decision_badges": True,
+            "device_decision_badges": True,
             "device_story": True,
             "report_device_stories": True,
         }
@@ -33,6 +38,8 @@ def _contract_payload(
         "capabilities": {
             "shared_decisions": shared,
             "companion_decision_summary": companion,
+            "decision_only_diagnostic_payloads": decision_only,
+            "legacy_health_lens_payloads": legacy_health,
         },
         "decision_surfaces": surfaces,
     }
@@ -54,8 +61,8 @@ def test_core_version_compatible_unknown_is_soft_ok():
 
 
 def test_decision_contract_version_strict_parsing():
-    assert decision_contract_version({"decision_contract_version": 1}) == 1
-    assert decision_contract_version({"decision_contract_version": "1"}) == 1
+    assert decision_contract_version({"decision_contract_version": 2}) == 2
+    assert decision_contract_version({"decision_contract_version": "2"}) == 2
     assert decision_contract_version({"decision_contract_version": 0}) == 0
     assert decision_contract_version(None) == 0
     assert decision_contract_version({}) == 0
@@ -74,107 +81,70 @@ def test_decision_contract_version_strict_parsing():
     assert decision_contract_version({"decision_contract_version": {}}) == 0
 
 
-def test_supports_companion_decisions_exact_contract():
-    assert DECISION_CONTRACT_VERSION == 1
-    assert SUPPORTED_DECISION_CONTRACT_VERSIONS == frozenset({1})
+def test_supports_companion_decisions_exact_contract_v2():
+    assert DECISION_CONTRACT_VERSION == 2
+    assert SUPPORTED_DECISION_CONTRACT_VERSIONS == frozenset({2})
     assert supports_companion_decisions(None) is False
     assert supports_companion_decisions({}) is False
     assert supports_companion_decisions(_contract_payload(version=0)) is False
+    assert supports_companion_decisions(_contract_payload(version=1)) is False
     assert supports_companion_decisions(_contract_payload()) is True
-    assert supports_companion_decisions(_contract_payload(version="1")) is True
-    assert supports_companion_decisions(_contract_payload(version=2)) is False
+    assert supports_companion_decisions(_contract_payload(version="2")) is True
+    assert supports_companion_decisions(_contract_payload(version=3)) is False
     assert supports_companion_decisions(_contract_payload(shared=False)) is False
     assert supports_companion_decisions(_contract_payload(shared=1)) is False
     assert supports_companion_decisions(_contract_payload(companion="true")) is False
+    assert supports_companion_decisions(_contract_payload(decision_only=False)) is False
+    assert supports_companion_decisions(_contract_payload(legacy_health=True)) is False
     assert supports_companion_decisions(_contract_payload(surfaces={})) is False
     assert (
         supports_companion_decisions(
             _contract_payload(
                 surfaces={
+                    "dashboard_decision_summary": True,
                     "dashboard_investigation_priorities": True,
                     "dashboard_data_coverage_warnings": False,
+                    "network_decision_badges": True,
+                    "device_decision_badges": True,
                 }
             )
         )
         is False
-    )
-    assert (
-        supports_companion_decisions(
-            _contract_payload(
-                surfaces={
-                    "dashboard_investigation_priorities": True,
-                    "dashboard_data_coverage_warnings": 1,
-                }
-            )
-        )
-        is False
-    )
-    assert (
-        supports_companion_decisions(
-            _contract_payload(
-                surfaces={
-                    "dashboard_investigation_priorities": True,
-                    "dashboard_data_coverage_warnings": True,
-                    "extra_surface": True,
-                }
-            )
-        )
-        is True
     )
     malformed = _contract_payload()
     malformed["decision_surfaces"] = "nope"
     assert supports_companion_decisions(malformed) is False
 
 
-def test_dashboard_decision_payload_valid():
+def test_dashboard_decision_payload_valid_v2():
     assert dashboard_decision_payload_valid(None) is False
     assert dashboard_decision_payload_valid({}) is False
     assert (
         dashboard_decision_payload_valid(
-            {"investigation_priorities": [], "data_coverage_warnings": []}
-        )
-        is True
-    )
-    assert (
-        dashboard_decision_payload_valid(
             {
-                "investigation_priorities": [{"id": "p1"}],
-                "data_coverage_warnings": [{"id": "w1"}],
-            }
-        )
-        is True
-    )
-    assert (
-        dashboard_decision_payload_valid(
-            {"investigation_priorities": None, "data_coverage_warnings": []}
-        )
-        is False
-    )
-    assert (
-        dashboard_decision_payload_valid(
-            {"investigation_priorities": [], "data_coverage_warnings": {}}
-        )
-        is False
-    )
-    assert (
-        dashboard_decision_payload_valid(
-            {"investigation_priorities": "x", "data_coverage_warnings": []}
-        )
-        is False
-    )
-    assert (
-        dashboard_decision_payload_valid(
-            {"investigation_priorities": 1, "data_coverage_warnings": []}
-        )
-        is False
-    )
-    # Malformed individual entries do not invalidate the contracted surface shape.
-    assert (
-        dashboard_decision_payload_valid(
-            {
-                "investigation_priorities": ["bad", {"id": "ok"}],
+                "decision_summary": {
+                    "overall_status": "watch",
+                    "status_counts": {"watch": 1},
+                },
+                "investigation_priorities": [],
                 "data_coverage_warnings": [],
             }
         )
         is True
+    )
+    assert (
+        dashboard_decision_payload_valid(
+            {"investigation_priorities": [], "data_coverage_warnings": []}
+        )
+        is False
+    )
+    assert (
+        dashboard_decision_payload_valid(
+            {
+                "decision_summary": {"overall_status": "watch"},
+                "investigation_priorities": [],
+                "data_coverage_warnings": [],
+            }
+        )
+        is False
     )

@@ -8,7 +8,7 @@ The HACS sidebar panel is a polished **native companion panel** — a status and
 
 - Connects Home Assistant to ZigbeeLens Core over HTTP
 - Adds summary sensors and binary sensors for automations
-- Registers a native companion panel that can show Core decision priorities when contract v1 is available
+- Registers a native companion panel that can show Core decision priorities when contract v2 is available
 - Provides an obvious **Open Full ZigbeeLens dashboard** button (opens Core in a new tab)
 - Offers optional **Try Embedded View** for the full Core dashboard when schemes match (native summary remains the default)
 - Exposes redacted diagnostics (including decision-contract availability)
@@ -121,7 +121,7 @@ When enabled, **ZigbeeLens** appears in the Home Assistant sidebar. There are tw
 
 ### Native companion summary (default)
 
-The sidebar opens on the **native companion panel**. HACS negotiates an exact companion decision contract (`decision_contract_version = 1`). When supported and the Dashboard decision payload is valid:
+The sidebar opens on the **native companion panel**. HACS negotiates an exact companion decision contract (`decision_contract_version = 2`). When supported and the Dashboard decision payload is valid:
 
 - **What needs attention now** shows up to three Core investigation priorities
 - Core priority labels, titles, and summaries are passed through unchanged

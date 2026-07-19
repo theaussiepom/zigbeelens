@@ -1,8 +1,7 @@
 """Core version and decision-contract compatibility helpers for the HACS companion.
 
-Phase 5E negotiates an exact decision contract. Missing, older, newer, or malformed
-contracts disable companion decision display softly — the rest of the integration
-keeps working from the factual non-decision summary.
+Track 5 requires exact decision contract v2. Missing, older, newer, or malformed
+contracts disable companion decision display — never fall back to Health/Lens.
 """
 
 from __future__ import annotations
@@ -10,19 +9,30 @@ from __future__ import annotations
 from typing import Any
 
 # Must match apps/core/.../api/summary.py DECISION_CONTRACT_VERSION.
-DECISION_CONTRACT_VERSION = 1
+DECISION_CONTRACT_VERSION = 2
 
 # Exact versions this HACS package understands. Do not treat newer as compatible.
-SUPPORTED_DECISION_CONTRACT_VERSIONS = frozenset({1})
+SUPPORTED_DECISION_CONTRACT_VERSIONS = frozenset({2})
 
-REQUIRED_COMPANION_DECISION_SURFACES = frozenset(
+REQUIRED_COMPANION_CAPABILITIES = frozenset(
     {
-        "dashboard_investigation_priorities",
-        "dashboard_data_coverage_warnings",
+        "shared_decisions",
+        "companion_decision_summary",
+        "decision_only_diagnostic_payloads",
     }
 )
 
-# Absolute minimum Core this integration expects for basic health/dashboard use.
+REQUIRED_COMPANION_DECISION_SURFACES = frozenset(
+    {
+        "dashboard_decision_summary",
+        "dashboard_investigation_priorities",
+        "dashboard_data_coverage_warnings",
+        "network_decision_badges",
+        "device_decision_badges",
+    }
+)
+
+# Absolute minimum Core this integration expects for basic operational use.
 MIN_CORE_VERSION = (0, 1, 0)
 
 
@@ -71,9 +81,10 @@ def supports_companion_decisions(capabilities: dict[str, Any] | None) -> bool:
     caps = capabilities.get("capabilities")
     if not isinstance(caps, dict):
         return False
-    if caps.get("shared_decisions") is not True:
-        return False
-    if caps.get("companion_decision_summary") is not True:
+    for name in REQUIRED_COMPANION_CAPABILITIES:
+        if caps.get(name) is not True:
+            return False
+    if caps.get("legacy_health_lens_payloads") is True:
         return False
     surfaces = capabilities.get("decision_surfaces")
     if not isinstance(surfaces, dict):
@@ -85,9 +96,17 @@ def supports_companion_decisions(capabilities: dict[str, Any] | None) -> bool:
 
 
 def dashboard_decision_payload_valid(dashboard: dict[str, Any] | None) -> bool:
-    """True when Dashboard advertises the contract-v1 decision surfaces as lists."""
+    """True when Dashboard advertises the contract-v2 decision surfaces."""
+    if not isinstance(dashboard, dict):
+        return False
+    summary = dashboard.get("decision_summary")
+    if not isinstance(summary, dict):
+        return False
+    if not isinstance(summary.get("overall_status"), str):
+        return False
+    if not isinstance(summary.get("status_counts"), dict):
+        return False
     return (
-        isinstance(dashboard, dict)
-        and isinstance(dashboard.get("investigation_priorities"), list)
+        isinstance(dashboard.get("investigation_priorities"), list)
         and isinstance(dashboard.get("data_coverage_warnings"), list)
     )

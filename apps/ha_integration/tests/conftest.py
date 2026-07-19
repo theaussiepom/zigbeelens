@@ -40,18 +40,22 @@ def sample_health():
 def sample_dashboard():
     return {
         "generated_at": "2026-06-14T12:00:00+00:00",
-        "overall_severity": "incident",
         "active_incident_count": 1,
         "watching_incident_count": 0,
-        "current_finding": {
-            "classification": "correlated_device_unavailability",
-            "severity": "incident",
-            "scope": "mesh_segment",
-            "confidence": "medium",
-            "summary": "4 devices became unavailable within 94 seconds.",
-            "evidence": [],
-            "counter_evidence": [],
-            "limitations": [],
+        "network_count": 1,
+        "device_count": 10,
+        "unavailable_device_count": 4,
+        "decision_summary": {
+            "subject_count": 10,
+            "overall_status": "review_first",
+            "highest_priority": "high",
+            "status_counts": {
+                "review_first": 2,
+                "worth_reviewing": 1,
+                "watch": 3,
+            },
+            "priority_counts": {"high": 2, "medium": 1, "low": 3},
+            "coverage_warning_count": 1,
         },
         "networks": [
             {
@@ -59,29 +63,27 @@ def sample_dashboard():
                 "name": "Home",
                 "base_topic": "zigbee2mqtt",
                 "unavailable_count": 4,
-                "incident_state": "incident",
-                "health": {"primary": "unavailable", "severity": "incident"},
+                "active_incident_severity": "incident",
+                "decision": {
+                    "status": "review_first",
+                    "priority": "high",
+                    "headline_code": "network_review_first",
+                    "coverage_label_codes": [],
+                },
+                "decision_summary": {
+                    "subject_count": 10,
+                    "overall_status": "review_first",
+                    "highest_priority": "high",
+                    "status_counts": {"review_first": 2},
+                    "priority_counts": {"high": 2},
+                    "coverage_warning_count": 1,
+                },
             }
         ],
-        "top_affected_devices": [],
         "router_risks": [{"network_id": "home", "friendly_name": "router"}],
-        "recently_unstable": [{"health": {"primary": "recently_unstable"}}],
-        "weak_links": [],
-        "low_batteries": [],
-        "stale_devices": [],
         "recent_timeline": [],
         "investigation_priorities": [],
-        "data_coverage_warnings": [],
-        "health_snapshot": {
-            "timestamp": "2026-06-14T12:00:00+00:00",
-            "overall_severity": "incident",
-            "overall_health": "unavailable",
-            "network_count": 1,
-            "device_count": 10,
-            "unavailable_count": 4,
-            "incident_count": 1,
-            "networks": [],
-        },
+        "data_coverage_warnings": [{"id": "w1", "network_id": "home", "label_code": "x"}],
     }
 
 
@@ -120,6 +122,9 @@ def mock_coordinator(sample_health, sample_dashboard, sample_config_status):
         core_version="0.1.0",
         collector_connected=True,
         last_update_success=True,
+        decision_contract_version=2,
+        shared_decisions_available=True,
+        core_version_compatible=True,
     )
     coordinator.last_update_success = True
     coordinator.last_exception = None

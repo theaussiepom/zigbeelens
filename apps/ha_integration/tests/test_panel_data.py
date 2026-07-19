@@ -65,14 +65,13 @@ def test_summary_connected_has_expected_fields(
     assert summary["connected"] is True
     assert summary["core_url"] == "http://192.168.100.5:8377"
     assert summary["core_version"] == "0.1.0"
-    assert summary["overall_health"] == "incident"
+    assert summary["overall_decision_status"] is None  # decision mode off
     assert summary["active_incident_count"] == 1
     assert summary["network_count"] == 1
     assert summary["device_count"] == 10
     assert summary["unavailable_devices"] == 4
     assert summary["router_risks"] == 1
     assert summary["collector_connected"] is True
-    assert summary["current_finding"].startswith("4 devices")
     assert summary["shared_decisions_available"] is False
     assert summary["decision_contract_version"] == 0
     assert summary["core_version_compatible"] is True
@@ -90,12 +89,12 @@ def test_summary_exposes_decision_contract_flags(
         sample_dashboard,
         sample_config_status,
         shared=True,
-        contract=1,
+        contract=2,
         compatible=True,
     )
     summary = build_panel_summary(data, core_url="http://core:8377", connected=True)
     assert summary["shared_decisions_available"] is True
-    assert summary["decision_contract_version"] == 1
+    assert summary["decision_contract_version"] == 2
     assert summary["core_version_compatible"] is True
 
 
@@ -110,8 +109,8 @@ def test_summary_projects_priorities_preserving_order_and_cap(
             "bridge_state": "online",
             "device_count": 10,
             "unavailable_count": 1,
-            "incident_state": "watch",
-            "health": {"severity": "watch"},
+            "active_incident_severity": "watch",
+            "decision": {"status": "watch", "priority": "low", "headline_code": "network_watch", "coverage_label_codes": []},
         },
         {
             "id": "office",
@@ -142,7 +141,7 @@ def test_summary_projects_priorities_preserving_order_and_cap(
         dashboard,
         sample_config_status,
         shared=True,
-        contract=1,
+        contract=2,
         compatible=True,
     )
     summary = build_panel_summary(data, core_url="http://core:8377", connected=True)
@@ -209,7 +208,7 @@ def test_summary_hides_decisions_when_core_incompatible(
         dashboard,
         sample_config_status,
         shared=False,
-        contract=1,
+        contract=2,
         compatible=False,
     )
     summary = build_panel_summary(data, core_url="http://core:8377", connected=True)
@@ -257,7 +256,7 @@ def test_summary_preserves_compatibility_tri_state(
         sample_dashboard,
         sample_config_status,
         shared=True,
-        contract=1,
+        contract=2,
         compatible=True,
     )
     assert (
@@ -271,7 +270,7 @@ def test_summary_preserves_compatibility_tri_state(
         sample_dashboard,
         sample_config_status,
         shared=False,
-        contract=1,
+        contract=2,
         compatible=False,
     )
     assert (
@@ -285,7 +284,7 @@ def test_summary_preserves_compatibility_tri_state(
         sample_dashboard,
         sample_config_status,
         shared=False,
-        contract=1,
+        contract=2,
         compatible=None,
     )
     summary = build_panel_summary(unknown, core_url="http://core:8377", connected=True)

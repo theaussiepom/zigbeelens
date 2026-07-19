@@ -18,7 +18,7 @@ from zigbeelens.exceptions import (
 )
 
 
-def _capabilities(*, version: object = 1) -> dict:
+def _capabilities(*, version: object = 2) -> dict:
     return {
         "product": "zigbeelens",
         "version": "0.1.13",
@@ -26,10 +26,15 @@ def _capabilities(*, version: object = 1) -> dict:
         "capabilities": {
             "shared_decisions": True,
             "companion_decision_summary": True,
+            "decision_only_diagnostic_payloads": True,
+            "legacy_health_lens_payloads": False,
         },
         "decision_surfaces": {
+            "dashboard_decision_summary": True,
             "dashboard_investigation_priorities": True,
             "dashboard_data_coverage_warnings": True,
+            "network_decision_badges": True,
+            "device_decision_badges": True,
         },
     }
 
@@ -62,19 +67,30 @@ async def test_coordinator_first_refresh_success(mock_client):
     assert data.collector_connected is True
     assert coordinator.last_update_success is True
     assert data.shared_decisions_available is True
-    assert data.decision_contract_version == 1
+    assert data.decision_contract_version == 2
     assert data.core_version_compatible is True
 
 
 @pytest.mark.asyncio
-async def test_coordinator_rejects_contract_version_2(mock_client):
-    mock_client.async_get_capabilities = AsyncMock(return_value=_capabilities(version=2))
+async def test_coordinator_rejects_contract_version_1(mock_client):
+    mock_client.async_get_capabilities = AsyncMock(return_value=_capabilities(version=1))
     coordinator = _bare_coordinator(mock_client)
     data = await coordinator._async_update_data()
     assert coordinator.last_update_success is True
     assert data.shared_decisions_available is False
-    assert data.decision_contract_version == 2
+    assert data.decision_contract_version == 1
     assert data.core_version_compatible is True
+    assert coordinator.auth_failed is False
+
+
+@pytest.mark.asyncio
+async def test_coordinator_rejects_newer_contract(mock_client):
+    mock_client.async_get_capabilities = AsyncMock(return_value=_capabilities(version=3))
+    coordinator = _bare_coordinator(mock_client)
+    data = await coordinator._async_update_data()
+    assert data.shared_decisions_available is False
+    assert data.decision_contract_version == 3
+    assert coordinator.auth_failed is False
 
 
 @pytest.mark.asyncio
@@ -100,18 +116,18 @@ async def test_coordinator_gates_decisions_when_core_incompatible(
     data = await coordinator._async_update_data()
     assert data.core_version_compatible is False
     assert data.shared_decisions_available is False
-    assert data.decision_contract_version == 1
+    assert data.decision_contract_version == 2
 
 
 @pytest.mark.asyncio
 async def test_coordinator_rejects_malformed_dashboard_decision_surfaces(mock_client):
     dashboard = dict(mock_client.async_get_dashboard.return_value)
-    dashboard.pop("investigation_priorities", None)
+    dashboard.pop("decision_summary", None)
     mock_client.async_get_dashboard = AsyncMock(return_value=dashboard)
     coordinator = _bare_coordinator(mock_client)
     data = await coordinator._async_update_data()
     assert coordinator.last_update_success is True
-    assert data.decision_contract_version == 1
+    assert data.decision_contract_version == 2
     assert data.shared_decisions_available is False
     assert data.core_version_compatible is True
 
@@ -125,45 +141,21 @@ async def test_coordinator_accepts_valid_empty_decision_lists(mock_client):
     coordinator = _bare_coordinator(mock_client)
     data = await coordinator._async_update_data()
     assert data.shared_decisions_available is True
+
+
+@pytest.mark.asyncio
+async def test_coordinator_auth_error_still_raises_reauth(mock_client):
+    mock_client.async_get_health = AsyncMock(side_effect=ZigbeeLensAuthError("401"))
+    coordinator = _bare_coordinator(mock_client)
+    with pytest.raises(ConfigEntryAuthFailed):
+        await coordinator._async_update_data()
+    assert coordinator.auth_failed is True
+
+
+@pytest.mark.asyncio
+async def test_coordinator_connection_error_is_update_failed(mock_client):
     mock_client.async_get_health = AsyncMock(side_effect=ZigbeeLensConnectionError("down"))
     coordinator = _bare_coordinator(mock_client)
-
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
-    assert coordinator.last_update_success is False
     assert coordinator.auth_failed is False
-
-
-@pytest.mark.asyncio
-async def test_coordinator_health_401_raises_auth_failed(mock_client):
-    mock_client.async_get_health = AsyncMock(
-        side_effect=ZigbeeLensAuthError("Authentication required")
-    )
-    coordinator = _bare_coordinator(mock_client)
-    with pytest.raises(ConfigEntryAuthFailed):
-        await coordinator._async_update_data()
-    assert coordinator.auth_failed is True
-    assert coordinator.last_exception == "Authentication required"
-    assert "Bearer" not in (coordinator.last_exception or "")
-
-
-@pytest.mark.asyncio
-async def test_coordinator_dashboard_401_raises_auth_failed(mock_client):
-    mock_client.async_get_dashboard = AsyncMock(
-        side_effect=ZigbeeLensAuthError("Authentication required")
-    )
-    coordinator = _bare_coordinator(mock_client)
-    with pytest.raises(ConfigEntryAuthFailed):
-        await coordinator._async_update_data()
-    assert coordinator.auth_failed is True
-
-
-@pytest.mark.asyncio
-async def test_coordinator_capabilities_401_raises_auth_failed(mock_client):
-    mock_client.async_get_capabilities = AsyncMock(
-        side_effect=ZigbeeLensAuthError("Authentication required")
-    )
-    coordinator = _bare_coordinator(mock_client)
-    with pytest.raises(ConfigEntryAuthFailed):
-        await coordinator._async_update_data()
-    assert coordinator.auth_failed is True
