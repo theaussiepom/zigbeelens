@@ -531,8 +531,11 @@ class BrowserSessionStatus(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     authenticated: bool
-    auth_method: Literal["trusted_local", "bearer", "session"] | None
+    auth_method: Literal[
+        "trusted_local", "bearer", "session", "home_assistant_ingress"
+    ] | None
     browser_session_enabled: bool
+    home_assistant_ingress_enabled: bool = False
     expires_at: str | None = None
     csrf_token: str | None = Field(default=None, repr=False)
 
@@ -555,6 +558,9 @@ class SecurityConfigStatus(BaseModel):
     # Deprecated: true only when auth is required and browser sessions are off.
     mutation_routes_require_bearer: bool
     ingress_identity_enforced: bool = False
+    ingress_trusted_proxy_count: int = 0
+    ingress_proxy_only: bool = False
+    ingress_bearer_fallback_enabled: bool = False
     trusted_local_open: bool
     # Deprecated: Track 4A mutation-only guard. Always false under bearer policy.
     legacy_mutation_guard_enabled: bool = False

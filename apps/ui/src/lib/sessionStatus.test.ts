@@ -8,6 +8,7 @@ describe("parseBrowserSessionStatus", () => {
       authenticated: true,
       auth_method: "trusted_local",
       browser_session_enabled: false,
+      home_assistant_ingress_enabled: false,
       expires_at: null,
       csrf_token: null,
     });
@@ -19,10 +20,81 @@ describe("parseBrowserSessionStatus", () => {
       authenticated: true,
       auth_method: "trusted_local",
       browser_session_enabled: false,
+      home_assistant_ingress_enabled: false,
       expires_at: null,
       csrf_token: "x",
     });
     expect(parsed).toEqual({ ok: false, reason: "malformed" });
+  });
+
+  it("accepts home_assistant_ingress with null expiry and csrf", () => {
+    const parsed = parseBrowserSessionStatus({
+      authenticated: true,
+      auth_method: "home_assistant_ingress",
+      browser_session_enabled: false,
+      home_assistant_ingress_enabled: true,
+      expires_at: null,
+      csrf_token: null,
+    });
+    expect(parsed.ok).toBe(true);
+  });
+
+  it("rejects home_assistant_ingress with expiry or csrf", () => {
+    expect(
+      parseBrowserSessionStatus({
+        authenticated: true,
+        auth_method: "home_assistant_ingress",
+        browser_session_enabled: false,
+        home_assistant_ingress_enabled: true,
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+        csrf_token: null,
+      }),
+    ).toEqual({ ok: false, reason: "malformed" });
+    expect(
+      parseBrowserSessionStatus({
+        authenticated: true,
+        auth_method: "home_assistant_ingress",
+        browser_session_enabled: false,
+        home_assistant_ingress_enabled: true,
+        expires_at: null,
+        csrf_token: "e30.abc",
+      }),
+    ).toEqual({ ok: false, reason: "malformed" });
+  });
+
+  it("does not treat home_assistant_ingress as unexpected_bearer", () => {
+    const parsed = parseBrowserSessionStatus({
+      authenticated: true,
+      auth_method: "home_assistant_ingress",
+      browser_session_enabled: false,
+      home_assistant_ingress_enabled: true,
+      expires_at: null,
+      csrf_token: null,
+    });
+    expect(parsed).not.toEqual({ ok: false, reason: "unexpected_bearer" });
+    expect(parsed.ok).toBe(true);
+  });
+
+  it("accepts unauthenticated ingress-required status (sessions disabled)", () => {
+    const parsed = parseBrowserSessionStatus({
+      authenticated: false,
+      auth_method: null,
+      browser_session_enabled: false,
+      home_assistant_ingress_enabled: true,
+      expires_at: null,
+      csrf_token: null,
+    });
+    expect(parsed).toEqual({
+      ok: true,
+      status: {
+        authenticated: false,
+        auth_method: null,
+        browser_session_enabled: false,
+        home_assistant_ingress_enabled: true,
+        expires_at: null,
+        csrf_token: null,
+      },
+    });
   });
 
   it("accepts valid session", () => {
@@ -30,6 +102,7 @@ describe("parseBrowserSessionStatus", () => {
       authenticated: true,
       auth_method: "session",
       browser_session_enabled: true,
+      home_assistant_ingress_enabled: false,
       expires_at: new Date(Date.now() + 60_000).toISOString(),
       csrf_token: "e30.abc",
     });
@@ -41,10 +114,23 @@ describe("parseBrowserSessionStatus", () => {
       authenticated: true,
       auth_method: "bearer",
       browser_session_enabled: false,
+      home_assistant_ingress_enabled: false,
       expires_at: null,
       csrf_token: null,
     });
     expect(parsed).toEqual({ ok: false, reason: "unexpected_bearer" });
+  });
+
+  it("rejects unknown auth methods", () => {
+    const parsed = parseBrowserSessionStatus({
+      authenticated: true,
+      auth_method: "totally_new_method",
+      browser_session_enabled: false,
+      home_assistant_ingress_enabled: false,
+      expires_at: null,
+      csrf_token: null,
+    });
+    expect(parsed).toEqual({ ok: false, reason: "malformed" });
   });
 
   it("rejects session without csrf", () => {
@@ -52,6 +138,7 @@ describe("parseBrowserSessionStatus", () => {
       authenticated: true,
       auth_method: "session",
       browser_session_enabled: true,
+      home_assistant_ingress_enabled: false,
       expires_at: new Date(Date.now() + 60_000).toISOString(),
       csrf_token: "",
     });
@@ -63,6 +150,7 @@ describe("parseBrowserSessionStatus", () => {
       authenticated: true,
       auth_method: "session",
       browser_session_enabled: true,
+      home_assistant_ingress_enabled: false,
       expires_at: new Date(Date.now() + 60_000).toISOString(),
       csrf_token: "  csrf-abc  ",
     });
@@ -74,6 +162,7 @@ describe("parseBrowserSessionStatus", () => {
       authenticated: true,
       auth_method: "session",
       browser_session_enabled: true,
+      home_assistant_ingress_enabled: false,
       expires_at: new Date(Date.now() - 1_000).toISOString(),
       csrf_token: "e30.abc",
     });
@@ -85,6 +174,7 @@ describe("parseBrowserSessionStatus", () => {
       authenticated: true,
       auth_method: "session",
       browser_session_enabled: true,
+      home_assistant_ingress_enabled: false,
       expires_at: new Date(Date.now() + 8 * 24 * 60 * 60_000).toISOString(),
       csrf_token: "e30.abc",
     });
@@ -97,6 +187,7 @@ describe("parseBrowserSessionStatus", () => {
         authenticated: false,
         auth_method: "session",
         browser_session_enabled: true,
+        home_assistant_ingress_enabled: false,
         expires_at: null,
         csrf_token: null,
       }),
@@ -106,6 +197,7 @@ describe("parseBrowserSessionStatus", () => {
         authenticated: false,
         auth_method: null,
         browser_session_enabled: true,
+        home_assistant_ingress_enabled: false,
         expires_at: new Date().toISOString(),
         csrf_token: null,
       }),
@@ -117,6 +209,7 @@ describe("parseBrowserSessionStatus", () => {
       authenticated: false,
       auth_method: null,
       browser_session_enabled: true,
+      home_assistant_ingress_enabled: false,
       expires_at: null,
       csrf_token: null,
     });
@@ -128,6 +221,30 @@ describe("parseBrowserSessionStatus", () => {
       authenticated: "yes",
       auth_method: null,
       browser_session_enabled: true,
+      home_assistant_ingress_enabled: false,
+      expires_at: null,
+      csrf_token: null,
+    });
+    expect(parsed).toEqual({ ok: false, reason: "malformed" });
+  });
+
+  it("rejects missing home_assistant_ingress_enabled", () => {
+    const parsed = parseBrowserSessionStatus({
+      authenticated: false,
+      auth_method: null,
+      browser_session_enabled: true,
+      expires_at: null,
+      csrf_token: null,
+    });
+    expect(parsed).toEqual({ ok: false, reason: "malformed" });
+  });
+
+  it("rejects non-boolean home_assistant_ingress_enabled", () => {
+    const parsed = parseBrowserSessionStatus({
+      authenticated: false,
+      auth_method: null,
+      browser_session_enabled: true,
+      home_assistant_ingress_enabled: "true",
       expires_at: null,
       csrf_token: null,
     });
@@ -139,6 +256,7 @@ describe("parseBrowserSessionStatus", () => {
       authenticated: false,
       auth_method: null,
       browser_session_enabled: true,
+      home_assistant_ingress_enabled: false,
       expires_at: null,
       csrf_token: null,
       future_field: true,
@@ -151,6 +269,7 @@ describe("parseBrowserSessionStatus", () => {
       authenticated: true,
       auth_method: "session",
       browser_session_enabled: true,
+      home_assistant_ingress_enabled: false,
       expires_at: new Date(Date.now() + 60_000).toISOString(),
       csrf_token: "csrf\nbad",
     });
@@ -162,6 +281,7 @@ describe("parseBrowserSessionStatus", () => {
       authenticated: true,
       auth_method: "session",
       browser_session_enabled: true,
+      home_assistant_ingress_enabled: false,
       expires_at: new Date(Date.now() + 60_000).toISOString(),
       csrf_token: "x".repeat(4097),
     });
@@ -174,6 +294,7 @@ describe("parseBrowserSessionStatus", () => {
       authenticated: true,
       auth_method: "session",
       browser_session_enabled: true,
+      home_assistant_ingress_enabled: false,
       expires_at: new Date(Date.now() + 60_000).toISOString(),
       csrf_token: CORE_ISSUED_CSRF_FIXTURE,
     });
@@ -197,6 +318,7 @@ describe("parseBrowserSessionStatus", () => {
           authenticated: true,
           auth_method: "session",
           browser_session_enabled: true,
+          home_assistant_ingress_enabled: false,
           expires_at: expiry,
           csrf_token,
         }),

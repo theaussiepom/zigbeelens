@@ -81,4 +81,8 @@ def apply_openapi_security(schema: dict[str, Any]) -> dict[str, Any]:
                     {BEARER_SCHEME: []},
                     {BROWSER_SESSION_SCHEME: []},
                 ]
+            # Safe vendor note: Supervisor ingress may authorize; clients cannot
+            # activate this by forging X-Remote-User-* headers themselves.
+            if path.startswith("/api") and path not in PUBLIC_PATHS:
+                operation["x-zigbeelens-home-assistant-ingress"] = True
     return schema

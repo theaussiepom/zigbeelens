@@ -16,12 +16,14 @@ from zigbeelens.app.context import get_context
 from zigbeelens.config.api_token import parse_bearer_authorization_header
 from zigbeelens.config.http_origin import InvalidHttpOrigin, canonicalize_http_origin
 from zigbeelens.config.secret_validation import contains_control_characters
+from zigbeelens.config.security_types import trusted_local_open
 from zigbeelens.security.browser_sessions import (
     MAX_SESSION_COOKIE_BYTES,
     SESSION_COOKIE_NAME,
     BrowserSessionManager,
     SessionClaims,
 )
+from zigbeelens.security.ingress import get_ingress_identity_from_request_state
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +45,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 browser_session_scheme = APIKeyCookie(name=SESSION_COOKIE_NAME, auto_error=False)
 csrf_header_scheme = APIKeyHeader(name=CSRF_HEADER_NAME, auto_error=False)
 
-AuthMethod = Literal["bearer", "session", "trusted_local"]
+AuthMethod = Literal["bearer", "session", "trusted_local", "home_assistant_ingress"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +53,7 @@ class AuthIdentity:
     auth_method: AuthMethod
     session_id: str | None = field(default=None, repr=False)
     session_expires_at: int | None = field(default=None, repr=False)
+    ingress_user_id: str | None = field(default=None, repr=False)
 
 
 def _unauthorized() -> HTTPException:
@@ -177,12 +180,14 @@ def _session_manager() -> BrowserSessionManager:
 
 
 def authenticate_request(request: Request) -> AuthIdentity:
-    """Resolve bearer, session, or trusted-local identity for a protected route.
+    """Resolve bearer, ingress, session, or trusted-local identity.
 
     Precedence:
-    1. Authorization header present → bearer only (no cookie fallback).
-    2. Else session cookie when browser sessions are enabled.
-    3. Else trusted-local when no API token, otherwise 401.
+    1. Authorization header present → bearer only (no ingress/session fallback).
+    2. Else trusted Home Assistant ingress identity from the ingress boundary.
+    3. Else trusted-local when mode=local and no API token.
+    4. Else session cookie when browser sessions are enabled.
+    5. Else 401.
     """
     cached = _cached_auth_identity(request)
     if cached is not None:
@@ -200,7 +205,14 @@ def authenticate_request(request: Request) -> AuthIdentity:
             raise _unauthorized()
         return _store_auth_identity(request, AuthIdentity("bearer"))
 
-    if expected is None:
+    ingress = get_ingress_identity_from_request_state(request.state)
+    if ingress is not None:
+        return _store_auth_identity(
+            request,
+            AuthIdentity("home_assistant_ingress", ingress_user_id=ingress.user_id),
+        )
+
+    if trusted_local_open(ctx.config):
         return _store_auth_identity(request, AuthIdentity("trusted_local"))
 
     if manager.enabled:

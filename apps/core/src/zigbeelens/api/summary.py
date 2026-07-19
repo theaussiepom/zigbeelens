@@ -44,7 +44,9 @@ def capabilities_dict(ctx: AppContext) -> dict[str, Any]:
             "content_security_policy": True,
             "frame_ancestor_allowlist": True,
             "browser_origin_validation": True,
-            "home_assistant_ingress_identity": False,
+            "home_assistant_ingress_identity": True,
+            "trusted_ingress_peer_enforcement": True,
+            "ingress_browser_authentication": True,
         },
         "decision_surfaces": {
             "dashboard_investigation_priorities": True,

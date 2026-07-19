@@ -9,7 +9,7 @@
  *   (identity change, 401, logout, expiry, protocol/auth locks, bfcache, unmount).
  */
 
-export type AuthMethod = "trusted_local" | "session";
+export type AuthMethod = "trusted_local" | "session" | "home_assistant_ingress";
 
 export type AuthPhase =
   | "checking"
@@ -26,6 +26,7 @@ export type AuthReason =
   | "unauthorized"
   | "cookie_blocked"
   | "configuration"
+  | "ingress_required"
   | "network"
   | "origin_rejected"
   | "protocol_error";
@@ -111,6 +112,10 @@ class AuthRuntime {
     return this.#authMethod === "trusted_local";
   }
 
+  isHomeAssistantIngress(): boolean {
+    return this.#authMethod === "home_assistant_ingress";
+  }
+
   setTrustedLocal(browserSessionEnabled = false): void {
     const next: IdentityTuple = {
       authMethod: "trusted_local",
@@ -123,6 +128,23 @@ class AuthRuntime {
     this.#expiresAt = null;
     this.#credentialRevision = 0;
     this.#browserSessionEnabled = browserSessionEnabled;
+    this.#bumpIdentityChange();
+    this.#emitChange();
+  }
+
+  /** Home Assistant ingress identity: no expiry, no CSRF, never paired with a browser session. */
+  setHomeAssistantIngress(): void {
+    const next: IdentityTuple = {
+      authMethod: "home_assistant_ingress",
+      expiresAt: null,
+      credentialRevision: 0,
+      browserSessionEnabled: false,
+    };
+    if (identityEqual(this.#currentIdentity(), next)) return;
+    this.#authMethod = "home_assistant_ingress";
+    this.#expiresAt = null;
+    this.#credentialRevision = 0;
+    this.#browserSessionEnabled = false;
     this.#bumpIdentityChange();
     this.#emitChange();
   }

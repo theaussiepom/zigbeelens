@@ -68,8 +68,9 @@ type ProbeHandle = {
 
 type SessionStatus = {
   authenticated: boolean;
-  auth_method: "trusted_local" | "bearer" | "session" | null;
+  auth_method: "trusted_local" | "bearer" | "session" | "home_assistant_ingress" | null;
   browser_session_enabled: boolean;
+  home_assistant_ingress_enabled: boolean;
   expires_at: string | null;
   csrf_token: string | null;
 };
@@ -78,6 +79,11 @@ function installAuthenticatedIdentity(status: SessionStatus): void {
   if (status.auth_method === "trusted_local") {
     clearSessionTransportCredentials();
     authRuntime.setTrustedLocal(status.browser_session_enabled);
+    return;
+  }
+  if (status.auth_method === "home_assistant_ingress") {
+    clearSessionTransportCredentials();
+    authRuntime.setHomeAssistantIngress();
     return;
   }
   // CSRF grammar already enforced by parseBrowserSessionStatus before this runs.
@@ -272,6 +278,10 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
   const applyStatus = useCallback(
     (status: SessionStatus, probeReason: AuthReason) => {
       if (!status.authenticated) {
+        if (status.home_assistant_ingress_enabled && !status.browser_session_enabled) {
+          lockUi("locked", "ingress_required");
+          return;
+        }
         if (!status.browser_session_enabled) {
           lockUi("setup_required", "configuration");
           return;
@@ -286,7 +296,11 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       setReason(probeReason);
-      if (status.auth_method === "trusted_local" || status.auth_method === "session") {
+      if (
+        status.auth_method === "trusted_local" ||
+        status.auth_method === "session" ||
+        status.auth_method === "home_assistant_ingress"
+      ) {
         installAuthenticatedIdentity(status);
         syncFromRuntime();
         if (status.auth_method === "session") {

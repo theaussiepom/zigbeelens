@@ -81,6 +81,23 @@ function UnreachableState({ onRetry }: { onRetry: () => void }) {
   );
 }
 
+function IngressRequiredState() {
+  return (
+    <Shell>
+      <h1 className="text-xl font-semibold">Open ZigbeeLens through Home Assistant</h1>
+      <p className="text-sm text-zl-muted">
+        This ZigbeeLens instance is configured to authenticate through the Home Assistant ingress
+        panel. Return to Home Assistant and open the ZigbeeLens add-on from its panel to continue.
+      </p>
+      <p className="text-sm text-zl-muted">
+        There is no separate URL for this deployment that works outside of Home Assistant, and
+        pasting a token or session identifier into the address bar is never a substitute for
+        opening the add-on through ingress.
+      </p>
+    </Shell>
+  );
+}
+
 function SetupRequiredState({ onRetry }: { onRetry: () => void }) {
   return (
     <Shell>
@@ -234,6 +251,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return <SetupRequiredState onRetry={() => void auth.retry()} />;
   }
   if (auth.phase === "locked") {
+    if (auth.reason === "ingress_required") {
+      return <IngressRequiredState />;
+    }
     return (
       <LockedLoginState
         reason={auth.reason}

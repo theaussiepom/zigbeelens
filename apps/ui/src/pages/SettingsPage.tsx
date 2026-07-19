@@ -192,7 +192,9 @@ export function SettingsPage() {
                 ? "browser session"
                 : auth.authMethod === "trusted_local"
                   ? "trusted local"
-                  : "—"
+                  : auth.authMethod === "home_assistant_ingress"
+                    ? "Home Assistant ingress"
+                    : "—"
             }
           />
           <Row label="Browser sessions enabled" value={auth.browserSessionEnabled ? "yes" : "no"} />

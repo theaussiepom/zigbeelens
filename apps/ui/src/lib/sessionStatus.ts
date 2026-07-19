@@ -1,6 +1,12 @@
 import type { BrowserSessionStatus } from "@zigbeelens/shared";
 
-const AUTH_METHODS = new Set(["trusted_local", "bearer", "session", null]);
+const AUTH_METHODS = new Set([
+  "trusted_local",
+  "bearer",
+  "session",
+  "home_assistant_ingress",
+  null,
+]);
 
 /** Core max session TTL is 604800s (7d); allow a small clock skew. */
 const MAX_SESSION_TTL_MS = 604_800_000 + 5 * 60_000;
@@ -64,6 +70,9 @@ export function parseBrowserSessionStatus(raw: unknown): ParsedSessionStatus {
   if (typeof raw.browser_session_enabled !== "boolean") {
     return { ok: false, reason: "malformed" };
   }
+  if (typeof raw.home_assistant_ingress_enabled !== "boolean") {
+    return { ok: false, reason: "malformed" };
+  }
 
   const authMethod = raw.auth_method ?? null;
   if (!AUTH_METHODS.has(authMethod as string | null)) {
@@ -80,6 +89,7 @@ export function parseBrowserSessionStatus(raw: unknown): ParsedSessionStatus {
     authenticated: raw.authenticated,
     auth_method: authMethod as BrowserSessionStatus["auth_method"],
     browser_session_enabled: raw.browser_session_enabled,
+    home_assistant_ingress_enabled: raw.home_assistant_ingress_enabled,
     expires_at: expiresAt,
     csrf_token: csrf,
   };
@@ -95,7 +105,7 @@ export function parseBrowserSessionStatus(raw: unknown): ParsedSessionStatus {
     return { ok: false, reason: "unexpected_bearer" };
   }
 
-  if (status.auth_method === "trusted_local") {
+  if (status.auth_method === "trusted_local" || status.auth_method === "home_assistant_ingress") {
     if (status.expires_at !== null) return { ok: false, reason: "malformed" };
     if (status.csrf_token !== null) return { ok: false, reason: "malformed" };
     return { ok: true, status };
