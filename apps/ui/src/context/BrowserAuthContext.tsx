@@ -83,7 +83,7 @@ function installAuthenticatedIdentity(status: SessionStatus): void {
   }
   if (status.auth_method === "home_assistant_ingress") {
     clearSessionTransportCredentials();
-    authRuntime.setHomeAssistantIngress();
+    authRuntime.setHomeAssistantIngress(status.browser_session_enabled);
     return;
   }
   // CSRF grammar already enforced by parseBrowserSessionStatus before this runs.

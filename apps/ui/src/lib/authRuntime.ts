@@ -132,19 +132,22 @@ class AuthRuntime {
     this.#emitChange();
   }
 
-  /** Home Assistant ingress identity: no expiry, no CSRF, never paired with a browser session. */
-  setHomeAssistantIngress(): void {
+  /**
+   * Home Assistant ingress identity: no expiry, no CSRF, no Sign out.
+   * ``browserSessionEnabled`` preserves the Core configuration fact only.
+   */
+  setHomeAssistantIngress(browserSessionEnabled = false): void {
     const next: IdentityTuple = {
       authMethod: "home_assistant_ingress",
       expiresAt: null,
       credentialRevision: 0,
-      browserSessionEnabled: false,
+      browserSessionEnabled,
     };
     if (identityEqual(this.#currentIdentity(), next)) return;
     this.#authMethod = "home_assistant_ingress";
     this.#expiresAt = null;
     this.#credentialRevision = 0;
-    this.#browserSessionEnabled = false;
+    this.#browserSessionEnabled = browserSessionEnabled;
     this.#bumpIdentityChange();
     this.#emitChange();
   }

@@ -105,7 +105,15 @@ export function parseBrowserSessionStatus(raw: unknown): ParsedSessionStatus {
     return { ok: false, reason: "unexpected_bearer" };
   }
 
-  if (status.auth_method === "trusted_local" || status.auth_method === "home_assistant_ingress") {
+  if (status.auth_method === "trusted_local") {
+    if (status.expires_at !== null) return { ok: false, reason: "malformed" };
+    if (status.csrf_token !== null) return { ok: false, reason: "malformed" };
+    return { ok: true, status };
+  }
+
+  if (status.auth_method === "home_assistant_ingress") {
+    if (!status.authenticated) return { ok: false, reason: "malformed" };
+    if (!status.home_assistant_ingress_enabled) return { ok: false, reason: "malformed" };
     if (status.expires_at !== null) return { ok: false, reason: "malformed" };
     if (status.csrf_token !== null) return { ok: false, reason: "malformed" };
     return { ok: true, status };

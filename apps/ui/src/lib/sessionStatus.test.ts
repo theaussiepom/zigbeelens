@@ -39,6 +39,34 @@ describe("parseBrowserSessionStatus", () => {
     expect(parsed.ok).toBe(true);
   });
 
+  it("accepts home_assistant_ingress with browser_session_enabled configuration fact", () => {
+    const parsed = parseBrowserSessionStatus({
+      authenticated: true,
+      auth_method: "home_assistant_ingress",
+      browser_session_enabled: true,
+      home_assistant_ingress_enabled: true,
+      expires_at: null,
+      csrf_token: null,
+    });
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.status.browser_session_enabled).toBe(true);
+    }
+  });
+
+  it("rejects home_assistant_ingress when ingress-enabled flag is false", () => {
+    expect(
+      parseBrowserSessionStatus({
+        authenticated: true,
+        auth_method: "home_assistant_ingress",
+        browser_session_enabled: false,
+        home_assistant_ingress_enabled: false,
+        expires_at: null,
+        csrf_token: null,
+      }),
+    ).toEqual({ ok: false, reason: "malformed" });
+  });
+
   it("rejects home_assistant_ingress with expiry or csrf", () => {
     expect(
       parseBrowserSessionStatus({
