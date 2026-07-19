@@ -45,6 +45,23 @@ function CheckingState() {
   );
 }
 
+function SigningOutState() {
+  return (
+    <Shell>
+      <h1 className="text-xl font-semibold">Signing out…</h1>
+      <p className="text-sm text-zl-muted" role="status" aria-live="polite">
+        Ending the browser session with ZigbeeLens Core.
+      </p>
+      <div
+        className="h-1.5 w-full overflow-hidden rounded-full bg-zl-surface-2"
+        aria-hidden="true"
+      >
+        <div className="h-full w-1/3 animate-pulse rounded-full bg-zl-accent/60" />
+      </div>
+    </Shell>
+  );
+}
+
 function UnreachableState({ onRetry }: { onRetry: () => void }) {
   return (
     <Shell>
@@ -206,6 +223,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (auth.phase === "checking") {
     return <CheckingState />;
+  }
+  if (auth.phase === "signing_out") {
+    return <SigningOutState />;
   }
   if (auth.phase === "unreachable") {
     return <UnreachableState onRetry={() => void auth.retry()} />;

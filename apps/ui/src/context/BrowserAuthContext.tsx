@@ -111,6 +111,8 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
   const focusProbePromise = useRef<Promise<void> | null>(null);
   const loginInFlight = useRef(false);
   const logoutInFlight = useRef(false);
+  /** Unauthorized notify arrived while logout owned the lifecycle. */
+  const unauthorizedDuringLogout = useRef(false);
   const bfcacheSuspended = useRef(false);
   const expiryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -193,6 +195,7 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
       clearRevalidateTimer();
       invalidateProbes();
       bfcacheSuspended.current = false;
+      unauthorizedDuringLogout.current = false;
       liveConnection.setStatusProbesSuppressed(false);
       liveConnection.clearPendingSessionProbe();
       liveConnection.setAccessEnabled(false);
@@ -230,6 +233,42 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
     [clearExpiryTimer, lockUi],
   );
 
+  /**
+   * Restore authenticated UI after a failed logout. If an unauthorized
+   * notification arrived during logout, require a fresh status probe instead
+   * of trusting the old in-memory identity.
+   */
+  const restoreAuthenticatedAccess = useCallback(
+    async (opts: {
+      expiryAtStart: string | null;
+      logoutError: string | null;
+    }): Promise<void> => {
+      // Release logout ownership so a deferred unauthorized probe can run.
+      logoutInFlight.current = false;
+      liveConnection.setStatusProbesSuppressed(false);
+      if (unauthorizedDuringLogout.current) {
+        unauthorizedDuringLogout.current = false;
+        clearExpiryTimer();
+        liveConnection.setAccessEnabled(false);
+        flushSync(() => {
+          setPhase("checking");
+          setReason("unauthorized");
+          if (opts.logoutError) setLogoutError(opts.logoutError);
+        });
+        await startProbeRef.current("forced", "unauthorized");
+        return;
+      }
+      if (opts.logoutError) setLogoutError(opts.logoutError);
+      syncFromRuntime();
+      const exp = opts.expiryAtStart ?? authRuntime.getExpiresAt();
+      if (exp) scheduleExpiry(exp);
+      liveConnection.setAccessEnabled(true);
+      setPhase("authenticated");
+      setReason("initial");
+    },
+    [clearExpiryTimer, scheduleExpiry, syncFromRuntime],
+  );
+
   const applyStatus = useCallback(
     (status: SessionStatus, probeReason: AuthReason) => {
       if (!status.authenticated) {
@@ -256,6 +295,7 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
           clearExpiryTimer();
         }
         bfcacheSuspended.current = false;
+        unauthorizedDuringLogout.current = false;
         liveConnection.setAccessEnabled(true);
         setPhase("authenticated");
         setReason("initial");
@@ -335,13 +375,10 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
               setLogoutError(null);
               return;
             }
-            setLogoutError("Sign out could not be confirmed. Retry or clear site cookies.");
-            if (phaseRef.current === "authenticated" || authRuntime.getAuthMethod()) {
-              liveConnection.setAccessEnabled(true);
-              const exp = authRuntime.getExpiresAt();
-              if (exp) scheduleExpiry(exp);
-              setPhase("authenticated");
-            }
+            await restoreAuthenticatedAccess({
+              expiryAtStart: authRuntime.getExpiresAt(),
+              logoutError: "Sign out could not be confirmed. Retry or clear site cookies.",
+            });
             return;
           }
 
@@ -383,15 +420,18 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
                 return;
               }
               if (kind === "logout") {
-                setLogoutError(
-                  "Could not reach Core to sign out. Your session may still be active.",
-                );
-                if (authRuntime.getAuthMethod()) {
-                  liveConnection.setAccessEnabled(true);
-                  const exp = authRuntime.getExpiresAt();
-                  if (exp) scheduleExpiry(exp);
-                  setPhase("authenticated");
-                }
+                await restoreAuthenticatedAccess({
+                  expiryAtStart: authRuntime.getExpiresAt(),
+                  logoutError:
+                    "Could not reach Core to sign out. Your session may still be active.",
+                });
+                return;
+              }
+              if (kind === "csrf_refresh" && phaseRef.current === "signing_out") {
+                await restoreAuthenticatedAccess({
+                  expiryAtStart: authRuntime.getExpiresAt(),
+                  logoutError: "Session security check failed. Retry sign out.",
+                });
                 return;
               }
               lockUi("unreachable", "network");
@@ -402,6 +442,13 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
             }
           }
           if (retainOnNetwork && phaseRef.current === "authenticated") {
+            return;
+          }
+          if (kind === "csrf_refresh" && phaseRef.current === "signing_out") {
+            await restoreAuthenticatedAccess({
+              expiryAtStart: authRuntime.getExpiresAt(),
+              logoutError: "Session security check failed. Retry sign out.",
+            });
             return;
           }
           lockUi("unreachable", "network");
@@ -420,12 +467,24 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
       }
       return run;
     },
-    [applyStatus, invalidateProbes, isProbeCurrent, lockUi, scheduleExpiry],
+    [
+      applyStatus,
+      invalidateProbes,
+      isProbeCurrent,
+      lockUi,
+      restoreAuthenticatedAccess,
+    ],
   );
   startProbeRef.current = startProbe;
 
   const handleUnauthorized = useCallback(() => {
-    if (logoutInFlight.current) return;
+    if (logoutInFlight.current) {
+      // Record auth loss; do not apply the ordinary transition while logout owns the lifecycle.
+      unauthorizedDuringLogout.current = true;
+      // Release dedupe so a later protected 401 after failed-logout restore is not lost.
+      authRuntime.releaseUnauthorizedDedupe();
+      return;
+    }
     clearFocusTimer();
     clearRevalidateTimer();
     liveConnection.clearPendingSessionProbe();
@@ -468,6 +527,7 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
       clearFocusTimer();
       clearRevalidateTimer();
       invalidateProbes();
+      unauthorizedDuringLogout.current = false;
       liveConnection.clearPendingSessionProbe();
       liveConnection.setStatusProbesSuppressed(false);
       liveConnection.setAccessEnabled(false);
@@ -631,63 +691,70 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     if (logoutInFlight.current) return;
-    logoutInFlight.current = true;
-    setLogoutBusy(true);
-    setLogoutError(null);
-    clearFocusTimer();
-    clearRevalidateTimer();
-    clearExpiryTimer();
-    liveConnection.clearPendingSessionProbe();
-    // Invalidate already-running protected work; keep identity until confirmed.
-    authRuntime.advanceAccessGeneration();
-    syncFromRuntime();
-    invalidateProbes();
-    liveConnection.setStatusProbesSuppressed(true);
     const expiryAtStart = authRuntime.getExpiresAt();
     let csrfRefreshAfter = false;
+
+    // Suspend the protected tree for the entire DELETE + confirmation lifecycle.
+    // Keep identity + transport CSRF solely so DELETE can carry the session header.
+    flushSync(() => {
+      logoutInFlight.current = true;
+      setLogoutBusy(true);
+      setLogoutError(null);
+      clearFocusTimer();
+      clearRevalidateTimer();
+      clearExpiryTimer();
+      liveConnection.clearPendingSessionProbe();
+      liveConnection.setStatusProbesSuppressed(true);
+      liveConnection.setAccessEnabled(false);
+      invalidateProbes();
+      authRuntime.advanceAccessGeneration();
+      syncFromRuntime();
+      setPhase("signing_out");
+      setReason("logged_out");
+    });
+
     try {
       await deleteBrowserSession();
       await startProbe("logout", "logged_out");
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
+        // Keep suspended; provider-owned logout probe decides lock vs restore.
         await startProbe("logout", "logged_out");
         return;
       }
       if (error instanceof ApiError && error.kind === "csrf") {
         setLogoutError("Session security check failed. Retry sign out.");
         csrfRefreshAfter = true;
-        if (phaseRef.current === "authenticated" || authRuntime.getAuthMethod()) {
-          liveConnection.setAccessEnabled(true);
-          if (expiryAtStart) scheduleExpiry(expiryAtStart);
-        }
+        // Remain suspended until csrf_refresh is accepted (or restore on refresh failure).
         return;
       }
       if (error instanceof ApiError && error.kind === "unreachable") {
-        setLogoutError("Could not reach Core to sign out. Your session may still be active.");
-        if (phaseRef.current === "authenticated" || authRuntime.getAuthMethod()) {
-          liveConnection.setAccessEnabled(true);
-          if (expiryAtStart) scheduleExpiry(expiryAtStart);
-          setPhase("authenticated");
-        }
+        await restoreAuthenticatedAccess({
+          expiryAtStart,
+          logoutError: "Could not reach Core to sign out. Your session may still be active.",
+        });
+        return;
+      }
+      if (error instanceof ApiError && error.kind === "protocol") {
+        lockUi("locked", "protocol_error");
         return;
       }
       if (error instanceof ApiError && error.kind === "stale_auth_context") {
-        // Access already advanced; confirmation/lock may still proceed via probe.
         await startProbe("logout", "logged_out");
         return;
       }
-      setLogoutError("Sign out failed. Retry.");
-      if (phaseRef.current === "authenticated" || authRuntime.getAuthMethod()) {
-        liveConnection.setAccessEnabled(true);
-        if (expiryAtStart) scheduleExpiry(expiryAtStart);
-      }
+      await restoreAuthenticatedAccess({
+        expiryAtStart,
+        logoutError: "Sign out failed. Retry.",
+      });
     } finally {
       logoutInFlight.current = false;
       setLogoutBusy(false);
       liveConnection.setStatusProbesSuppressed(false);
       if (csrfRefreshAfter) {
-        // Ownership released — run exactly one sequenced CSRF refresh; never replay DELETE.
-        void startProbe("csrf_refresh", "initial");
+        // Ownership released — one sequenced CSRF refresh; never replay DELETE.
+        // Protected tree remounts only when applyStatus accepts the refreshed status.
+        await startProbe("csrf_refresh", "initial");
       }
     }
   }, [
@@ -695,7 +762,8 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
     clearFocusTimer,
     clearRevalidateTimer,
     invalidateProbes,
-    scheduleExpiry,
+    lockUi,
+    restoreAuthenticatedAccess,
     startProbe,
     syncFromRuntime,
   ]);

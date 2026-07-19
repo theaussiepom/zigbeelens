@@ -892,20 +892,22 @@ describe("probe races, logout ownership, identity remount", () => {
   it("logout confirmation wins over a stale authenticated focus probe", async () => {
     const expiry = futureExpiry();
     let resolveFocus: ((value: Response) => void) | null = null;
-    let deleteStarted = false;
+    let resolveDelete: ((value: Response) => void) | null = null;
+    let mode: "authed" | "focus_deferred" | "deleted" = "authed";
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const call = fetchCallParts([input, init]);
       if (call.url.includes("auth/session") && call.method === "DELETE") {
-        deleteStarted = true;
-        return new Response(null, { status: 204 });
+        return new Promise<Response>((resolve) => {
+          resolveDelete = resolve;
+        });
       }
       if (call.url.includes("auth/session")) {
-        if (!deleteStarted && fetchMock.mock.calls.length > 1) {
+        if (mode === "focus_deferred") {
           return new Promise<Response>((resolve) => {
             resolveFocus = resolve;
           });
         }
-        if (deleteStarted) {
+        if (mode === "deleted") {
           return jsonResponse(sessionStatus({ authenticated: false }));
         }
         return jsonResponse(
@@ -938,6 +940,7 @@ describe("probe races, logout ownership, identity remount", () => {
     renderWithAuth(<LogoutRace />);
     await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
 
+    mode = "focus_deferred";
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
     });
@@ -945,6 +948,13 @@ describe("probe races, logout ownership, identity remount", () => {
 
     await act(async () => {
       screen.getByRole("button", { name: /Sign out/i }).click();
+    });
+    expect(screen.getByRole("heading", { name: /Signing out/i })).toBeInTheDocument();
+    expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
+
+    mode = "deleted";
+    await act(async () => {
+      resolveDelete?.(new Response(null, { status: 204 }));
     });
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: /locked/i })).toBeInTheDocument(),
@@ -1080,11 +1090,14 @@ describe("probe races, logout ownership, identity remount", () => {
   it("logout CSRF 403 refreshes after ownership release without replaying DELETE", async () => {
     const expiry = futureExpiry();
     let deleteCount = 0;
+    let resolveDelete: ((value: Response) => void) | null = null;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const call = fetchCallParts([input, init]);
       if (call.url.includes("auth/session") && call.method === "DELETE") {
         deleteCount += 1;
-        return jsonResponse({ detail: "CSRF validation failed." }, 403);
+        return new Promise<Response>((resolve) => {
+          resolveDelete = resolve;
+        });
       }
       if (call.url.includes("auth/session")) {
         return jsonResponse(
@@ -1122,15 +1135,17 @@ describe("probe races, logout ownership, identity remount", () => {
       screen.getByRole("button", { name: /Sign out/i }).click();
     });
 
-    await waitFor(() => expect(screen.getByTestId("logout-error")).toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: /Signing out/i })).toBeInTheDocument();
+    expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
     expect(deleteCount).toBe(1);
-    await waitFor(() =>
-      expect(
-        fetchMock.mock.calls.filter((c) => fetchCallParts(c).method === "GET").length,
-      ).toBeGreaterThan(1),
-    );
+
+    await act(async () => {
+      resolveDelete?.(jsonResponse({ detail: "CSRF validation failed." }, 403));
+    });
+
+    await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
+    expect(screen.getByTestId("logout-error")).toBeInTheDocument();
     expect(deleteCount).toBe(1);
-    expect(screen.getByTestId("protected-data")).toBeInTheDocument();
     expect(isSessionTransportActive()).toBe(true);
   });
 
@@ -1201,6 +1216,240 @@ describe("probe races, logout ownership, identity remount", () => {
     expect(screen.getByTestId("phase")).toHaveTextContent("authenticated");
     expect(screen.getByTestId("protected-data")).toBeInTheDocument();
     expect(authRuntime.getExpiresAt()).toBe(expiryB);
+  });
+
+  it("suspends protected tree for entire DELETE lifecycle with zero protected requests", async () => {
+    const expiry = futureExpiry();
+    let resolveDelete: ((value: Response) => void) | null = null;
+    let deleted = false;
+    const protectedUrls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const call = fetchCallParts([input, init]);
+      if (call.url.includes("auth/session") && call.method === "DELETE") {
+        return new Promise<Response>((resolve) => {
+          resolveDelete = (value) => {
+            deleted = true;
+            resolve(value);
+          };
+        });
+      }
+      if (call.url.includes("auth/session")) {
+        if (deleted) return jsonResponse(sessionStatus({ authenticated: false }));
+        return jsonResponse(
+          sessionStatus({
+            authenticated: true,
+            auth_method: "session",
+            browser_session_enabled: true,
+            expires_at: expiry,
+            csrf_token: "e30.suspend",
+          }),
+        );
+      }
+      protectedUrls.push(call.url);
+      if (call.url.includes("scenarios")) return jsonResponse([]);
+      if (call.url.includes("config/status")) {
+        return jsonResponse({
+          version: "0.1.0",
+          uptime_seconds: 1,
+          data_mode: "live",
+          mqtt_connected: true,
+          storage_ready: true,
+          storage_path: "/data",
+          retention_days: 7,
+          mqtt_server: "mqtt",
+          configured_networks: [],
+          features: {},
+          active_scenario: null,
+        });
+      }
+      return jsonResponse({ status: "ok", collector: {} });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function LogoutPage() {
+      const auth = useAuth();
+      return (
+        <div>
+          <ProtectedMarker />
+          <button type="button" onClick={() => void auth.logout()}>
+            Sign out
+          </button>
+        </div>
+      );
+    }
+
+    render(
+      <MemoryRouter>
+        <BrowserAuthProvider>
+          <AuthProbe />
+          <AuthGate>
+            <ScenarioProvider>
+              <div data-testid="scenario-child">scenario-mounted</div>
+              <LogoutPage />
+            </ScenarioProvider>
+          </AuthGate>
+        </BrowserAuthProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("scenario-child")).toBeInTheDocument());
+    const protectedBefore = protectedUrls.length;
+    expect(protectedBefore).toBeGreaterThan(0);
+
+    liveConnection.subscribeEvents(() => {});
+    expect(eventSourceTestState.constructs.length).toBeGreaterThan(0);
+    const closesBefore = eventSourceTestState.closeCount;
+
+    await act(async () => {
+      screen.getByRole("button", { name: /Sign out/i }).click();
+    });
+
+    expect(screen.getByTestId("phase")).toHaveTextContent("signing_out");
+    expect(screen.getByRole("heading", { name: /Signing out/i })).toBeInTheDocument();
+    expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Main navigation")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("scenario-child")).not.toBeInTheDocument();
+    expect(eventSourceTestState.closeCount).toBeGreaterThan(closesBefore);
+    expect(resolveDelete).toBeTruthy();
+    expect(protectedUrls.length).toBe(protectedBefore);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      eventSourceTestState.instances.at(-1)?.onerror?.();
+    });
+    expect(protectedUrls.length).toBe(protectedBefore);
+
+    await act(async () => {
+      resolveDelete?.(new Response(null, { status: 204 }));
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /locked/i })).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("scenario-child")).not.toBeInTheDocument();
+    expect(protectedUrls.length).toBe(protectedBefore);
+  });
+
+  it("network failure restores authenticated tree under newer access generation", async () => {
+    const expiry = futureExpiry();
+    let rejectDelete: ((reason?: unknown) => void) | null = null;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const call = fetchCallParts([input, init]);
+      if (call.url.includes("auth/session") && call.method === "DELETE") {
+        return new Promise<Response>((_resolve, reject) => {
+          rejectDelete = reject;
+        });
+      }
+      return jsonResponse(
+        sessionStatus({
+          authenticated: true,
+          auth_method: "session",
+          browser_session_enabled: true,
+          expires_at: expiry,
+          csrf_token: "e30.netfail",
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function LogoutNet() {
+      const auth = useAuth();
+      return (
+        <div>
+          <span data-testid="epoch">{auth.authEpoch}</span>
+          <ProtectedMarker />
+          <button type="button" onClick={() => void auth.logout()}>
+            Sign out
+          </button>
+          {auth.logoutError && <div data-testid="logout-error">{auth.logoutError}</div>}
+        </div>
+      );
+    }
+
+    renderWithAuth(<LogoutNet />);
+    await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
+    const epochBefore = Number(screen.getByTestId("epoch").textContent);
+
+    await act(async () => {
+      screen.getByRole("button", { name: /Sign out/i }).click();
+    });
+    expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Signing out/i })).toBeInTheDocument();
+
+    await act(async () => {
+      rejectDelete?.(new TypeError("offline"));
+    });
+
+    await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
+    expect(Number(screen.getByTestId("epoch").textContent)).toBeGreaterThan(epochBefore);
+    expect(screen.getByTestId("logout-error")).toHaveTextContent(/could not reach Core/i);
+    expect(isSessionTransportActive()).toBe(true);
+  });
+
+  it("unauthorized during logout forces a fresh status probe before restore", async () => {
+    const expiry = futureExpiry();
+    let rejectDelete: ((reason?: unknown) => void) | null = null;
+    let deleteFinished = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const call = fetchCallParts([input, init]);
+      if (call.url.includes("auth/session") && call.method === "DELETE") {
+        return new Promise<Response>((_resolve, reject) => {
+          rejectDelete = (reason) => {
+            deleteFinished = true;
+            reject(reason);
+          };
+        });
+      }
+      if (call.url.includes("auth/session")) {
+        if (deleteFinished) {
+          return jsonResponse(sessionStatus({ authenticated: false }));
+        }
+        return jsonResponse(
+          sessionStatus({
+            authenticated: true,
+            auth_method: "session",
+            browser_session_enabled: true,
+            expires_at: expiry,
+            csrf_token: "e30.unauth",
+          }),
+        );
+      }
+      return jsonResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function LogoutUnauth() {
+      const auth = useAuth();
+      return (
+        <div>
+          <ProtectedMarker />
+          <button type="button" onClick={() => void auth.logout()}>
+            Sign out
+          </button>
+        </div>
+      );
+    }
+
+    renderWithAuth(<LogoutUnauth />);
+    await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
+
+    await act(async () => {
+      screen.getByRole("button", { name: /Sign out/i }).click();
+    });
+    expect(screen.getByRole("heading", { name: /Signing out/i })).toBeInTheDocument();
+
+    await act(async () => {
+      authRuntime.notifyUnauthorized();
+    });
+
+    await act(async () => {
+      rejectDelete?.(new TypeError("offline"));
+    });
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /locked/i })).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
   });
 
   it("deferred bootstrap releases token from input before confirmation GET", async () => {

@@ -13,6 +13,7 @@ export type AuthMethod = "trusted_local" | "session";
 
 export type AuthPhase =
   | "checking"
+  | "signing_out"
   | "authenticated"
   | "locked"
   | "setup_required"
@@ -202,6 +203,15 @@ class AuthRuntime {
     for (const listener of [...this.#unauthorizedListeners]) {
       listener();
     }
+  }
+
+  /**
+   * Allow another unauthorized notification for the current access generation.
+   * Used when the provider defers handling (e.g. unauthorized during logout)
+   * so a later protected 401 is not lost to dedupe.
+   */
+  releaseUnauthorizedDedupe(): void {
+    this.#unauthorizedNotifiedForAccess = -1;
   }
 
   /** Debounced session-status refresh (CSRF miss / CSRF 403). */
