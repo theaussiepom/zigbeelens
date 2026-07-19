@@ -23,10 +23,7 @@ type EventListener = (eventName: string) => void;
 type StateListener = (state: ConnectionState) => void;
 
 /**
- * Single shared EventSource connection to Core. Pages subscribe to event-name
- * notifications and refetch their own data; connection state is exposed
- * separately for a subtle live/stale indicator.
- *
+ * Single shared EventSource connection to Core.
  * Connections are created only while access is enabled (authenticated UI).
  */
 class LiveConnection {
@@ -36,6 +33,7 @@ class LiveConnection {
   private state: ConnectionState = "connecting";
   private refCount = 0;
   private accessEnabled = false;
+  private statusProbesSuppressed = false;
   private statusProbeAt = 0;
   private statusProbeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -63,6 +61,15 @@ class LiveConnection {
     }
   }
 
+  /** While true, EventSource errors do not start session-status probes (e.g. during logout). */
+  setStatusProbesSuppressed(suppressed: boolean): void {
+    this.statusProbesSuppressed = suppressed;
+    if (suppressed && this.statusProbeTimer) {
+      clearTimeout(this.statusProbeTimer);
+      this.statusProbeTimer = null;
+    }
+  }
+
   subscribeEvents(listener: EventListener): () => void {
     this.eventListeners.add(listener);
     this.ensureConnected();
@@ -82,13 +89,13 @@ class LiveConnection {
     };
   }
 
-  /** Test helper */
   resetForTests(): void {
     this.closeSource();
     this.eventListeners.clear();
     this.stateListeners.clear();
     this.refCount = 0;
     this.accessEnabled = false;
+    this.statusProbesSuppressed = false;
     this.statusProbeAt = 0;
     if (this.statusProbeTimer) {
       clearTimeout(this.statusProbeTimer);
@@ -157,7 +164,7 @@ class LiveConnection {
   }
 
   private scheduleStatusProbe() {
-    if (!this.accessEnabled) return;
+    if (!this.accessEnabled || this.statusProbesSuppressed) return;
     const now = Date.now();
     if (now - this.statusProbeAt < 5_000) return;
     if (this.statusProbeTimer) return;
@@ -169,20 +176,22 @@ class LiveConnection {
   }
 
   private async probeSessionOnce() {
-    if (!this.accessEnabled) return;
+    if (!this.accessEnabled || this.statusProbesSuppressed) return;
     try {
       const status = await fetchSessionStatus();
-      if (!this.accessEnabled) return;
+      if (!this.accessEnabled || this.statusProbesSuppressed) return;
       if (!status.authenticated) {
         authRuntime.notifyUnauthorized();
       }
     } catch (error) {
-      if (!this.accessEnabled) return;
+      if (!this.accessEnabled || this.statusProbesSuppressed) return;
       if (error instanceof ApiError) {
         if (
           error.detail === "incomplete_session" ||
           error.detail === "unexpected_bearer" ||
-          error.kind === "authentication"
+          error.detail === "malformed" ||
+          error.kind === "authentication" ||
+          error.kind === "protocol"
         ) {
           authRuntime.notifyUnauthorized();
           return;
@@ -190,13 +199,7 @@ class LiveConnection {
         if (error.kind === "unreachable" || error.kind === "stale_auth_context") {
           return;
         }
-        // Malformed / protocol — fail closed through auth loss.
-        if (error.detail === "malformed" || error.kind === "generic") {
-          authRuntime.notifyUnauthorized();
-          return;
-        }
       }
-      // Unknown — treat as network interruption.
     }
   }
 

@@ -4,7 +4,8 @@ const AUTH_METHODS = new Set(["trusted_local", "bearer", "session", null]);
 
 /** Core max session TTL is 604800s (7d); allow a small clock skew. */
 const MAX_SESSION_TTL_MS = 604_800_000 + 5 * 60_000;
-const MAX_CSRF_LENGTH = 512;
+/** Align with Core MAX_CSRF_TOKEN_BYTES. */
+const MAX_CSRF_BYTES = 4096;
 
 export type ParsedSessionStatus =
   | { ok: true; status: BrowserSessionStatus }
@@ -22,11 +23,19 @@ function parseExpiresAt(value: unknown): string | null | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "string") return undefined;
   if (value.trim() === "") return undefined;
-  // Reject whitespace-padded values.
   if (value !== value.trim()) return undefined;
   const ms = Date.parse(value);
   if (Number.isNaN(ms)) return undefined;
   return value;
+}
+
+function isSafeHeaderToken(value: string): boolean {
+  // Reject control characters and DEL; CSRF must be header-safe.
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return false;
+  }
+  return true;
 }
 
 function parseCsrf(value: unknown): string | null | undefined {
@@ -35,7 +44,8 @@ function parseCsrf(value: unknown): string | null | undefined {
   if (typeof value !== "string") return undefined;
   if (value.length === 0) return "";
   if (value !== value.trim()) return undefined;
-  if (value.length > MAX_CSRF_LENGTH) return undefined;
+  if (!isSafeHeaderToken(value)) return undefined;
+  if (new TextEncoder().encode(value).length > MAX_CSRF_BYTES) return undefined;
   return value;
 }
 
@@ -77,7 +87,6 @@ export function parseBrowserSessionStatus(raw: unknown): ParsedSessionStatus {
     return { ok: true, status };
   }
 
-  // Standalone UI must not treat bearer as a durable unlocked state.
   if (status.auth_method === "bearer") {
     return { ok: false, reason: "unexpected_bearer" };
   }

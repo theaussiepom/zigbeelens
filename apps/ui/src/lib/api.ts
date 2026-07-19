@@ -16,6 +16,10 @@ export type IncidentListQuery = IncidentCollectionQuery;
 import { resolveApiBase } from "@/lib/base";
 import { authRuntime } from "@/lib/authRuntime";
 import { parseBrowserSessionStatus } from "@/lib/sessionStatus";
+import {
+  startCredentialedFetch,
+  type RequestIntent,
+} from "@/lib/sessionTransport";
 import type { Paginated } from "@/types/api";
 import type {
   DeviceSnapshotHistoryDetail,
@@ -31,6 +35,8 @@ import type {
   TopologyOverview,
 } from "@/types/topology";
 
+export type { RequestIntent };
+
 export type ApiErrorKind =
   | "authentication"
   | "csrf"
@@ -38,14 +44,8 @@ export type ApiErrorKind =
   | "session_unavailable"
   | "unreachable"
   | "stale_auth_context"
+  | "protocol"
   | "generic";
-
-/** Explicit Core request intent — replaces overloaded isSessionStatus flags. */
-export type RequestIntent =
-  | "protected"
-  | "public_session_status"
-  | "session_bootstrap"
-  | "session_logout";
 
 const CSRF_DETAIL = "CSRF validation failed.";
 const ORIGIN_DETAIL = "Browser origin validation failed.";
@@ -93,6 +93,8 @@ function messageFor(status: number, detail: string | null, kind: ApiErrorKind): 
       return "ZigbeeLens Core is not reachable.";
     case "stale_auth_context":
       return "Authentication context changed.";
+    case "protocol":
+      return "Unexpected session response from Core.";
     default:
       if (detail && detail.length < 200) return detail;
       return `ZigbeeLens Core returned an error (${status}).`;
@@ -154,11 +156,10 @@ function buildUrl(path: string, params: Record<string, QueryParamValue> = {}): s
 const RETRYABLE_STATUSES = new Set([0, 408, 429, 500, 502, 503, 504]);
 const MAX_FETCH_RETRIES = 3;
 const RETRY_BASE_MS = 400;
-const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 export type CoreFetchOptions = {
   intent?: RequestIntent;
-  /** Transient bearer for session bootstrap only. Cleared by the caller after construction. */
+  /** Transient bearer for session bootstrap only — released inside transport before await. */
   bearer?: string;
   /** Expect no JSON body (e.g. 204). */
   allowEmpty?: boolean;
@@ -168,17 +169,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isUnsafeMethod(method: string): boolean {
-  return UNSAFE_METHODS.has(method.toUpperCase());
-}
-
 function isIdempotentRequest(init?: RequestInit): boolean {
   const method = (init?.method ?? "GET").toUpperCase();
   return method === "GET" || method === "HEAD";
-}
-
-function mergeHeaders(init?: RequestInit): Headers {
-  return new Headers(init?.headers);
 }
 
 function resolveIntent(options: CoreFetchOptions): RequestIntent {
@@ -188,6 +181,7 @@ function resolveIntent(options: CoreFetchOptions): RequestIntent {
 
 /**
  * Central credential-aware Core fetch. Every request uses credentials: "include".
+ * CSRF is applied only inside sessionTransport.startCredentialedFetch.
  */
 export async function coreFetch(
   path: string,
@@ -196,53 +190,43 @@ export async function coreFetch(
   options: CoreFetchOptions = {},
 ): Promise<Response> {
   const method = (init?.method ?? "GET").toUpperCase();
-  const headers = mergeHeaders(init);
   const intent = resolveIntent(options);
   const generationAtStart = authRuntime.getGeneration();
-  const isProtected = intent === "protected";
+  const checkGeneration = intent === "protected" || intent === "session_logout";
 
-  if (intent === "session_bootstrap" && options.bearer) {
-    headers.set("Authorization", `Bearer ${options.bearer}`);
-  }
-
-  if (isUnsafeMethod(method) && (intent === "protected" || intent === "session_logout")) {
-    const csrfResult = authRuntime.applySessionCsrf(headers);
-    if (csrfResult === "missing") {
-      authRuntime.notifyRevalidate();
-      throw new ApiError("Session security token is missing. Retry the action.", 403, {
-        kind: "csrf",
-        detail: CSRF_DETAIL,
-      });
-    }
-  }
-
-  const noStore =
-    intent === "public_session_status" ||
-    intent === "session_bootstrap" ||
-    intent === "session_logout";
-
-  const requestInit: RequestInit = {
-    ...init,
+  const started = startCredentialedFetch(buildUrl(path, params), {
+    intent,
+    bearer: options.bearer,
     method,
-    headers,
-    credentials: "include",
-    cache: noStore ? "no-store" : init?.cache,
-  };
+    headers: init?.headers,
+    body: init?.body ?? null,
+    cache: init?.cache,
+  });
+  // Release any remaining bearer reference on the options bag.
+  options.bearer = undefined;
+
+  if (!started.ok) {
+    authRuntime.notifyRevalidate();
+    throw new ApiError("Session security token is missing. Retry the action.", 403, {
+      kind: "csrf",
+      detail: CSRF_DETAIL,
+    });
+  }
 
   let res: Response;
   try {
-    res = await fetch(buildUrl(path, params), requestInit);
+    res = await started.promise;
   } catch {
     throw new ApiError("ZigbeeLens Core is not reachable.", 0, { kind: "unreachable" });
   }
 
-  if (isProtected) {
+  if (checkGeneration) {
     assertGeneration(generationAtStart);
   }
 
   if (!res.ok) {
     const detail = await readErrorDetail(res);
-    if (isProtected) {
+    if (checkGeneration) {
       assertGeneration(generationAtStart);
     }
     const kind = classifyError(res.status, detail);
@@ -255,8 +239,6 @@ export async function coreFetch(
     throw new ApiError(messageFor(res.status, detail, kind), res.status, { detail, kind });
   }
 
-  // Attach starting generation for protected body consumers.
-  (res as Response & { __authGeneration?: number }).__authGeneration = generationAtStart;
   return res;
 }
 
@@ -273,7 +255,8 @@ async function parseJsonBody<T>(
       const parsed = JSON.parse(text) as T;
       if (generationAtStart !== null) assertGeneration(generationAtStart);
       return parsed;
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
       throw new ApiError("ZigbeeLens received an unexpected response.", res.status);
     }
   }
@@ -296,7 +279,8 @@ async function fetchJsonOnce<T>(
   const intent = resolveIntent(options);
   const generationAtStart = authRuntime.getGeneration();
   const res = await coreFetch(path, params, init, options);
-  const checkGen = intent === "protected" ? generationAtStart : null;
+  const checkGen =
+    intent === "protected" || intent === "session_logout" ? generationAtStart : null;
   return parseJsonBody<T>(res, Boolean(options.allowEmpty), checkGen);
 }
 
@@ -481,7 +465,7 @@ export async function fetchSessionStatus(): Promise<BrowserSessionStatus> {
   const parsed = parseBrowserSessionStatus(raw);
   if (!parsed.ok) {
     throw new ApiError("Browser session status was malformed.", 0, {
-      kind: "generic",
+      kind: "protocol",
       detail: parsed.reason,
     });
   }
@@ -490,25 +474,31 @@ export async function fetchSessionStatus(): Promise<BrowserSessionStatus> {
 
 /**
  * Bootstrap browser session with a one-shot bearer token.
- * Caller must not retain the token after this call begins.
+ *
+ * Constructs the credentialed Request synchronously via the transport layer,
+ * then awaits the response. Callers must clear their own token locals after
+ * invoking this (the transport releases its bearer copy before returning the promise).
  */
-export async function createBrowserSession(apiToken: string): Promise<BrowserSessionStatus> {
-  let bearer: string | undefined = apiToken;
-  const raw = await fetchJson<unknown>(
+export function createBrowserSession(apiToken: string): Promise<BrowserSessionStatus> {
+  // Start fetch synchronously so Authorization is bound into the Request before await.
+  let token: string | undefined = apiToken;
+  const pending = fetchJsonOnce<unknown>(
     "api/auth/session",
     {},
     { method: "POST" },
-    { intent: "session_bootstrap", bearer },
+    { intent: "session_bootstrap", bearer: token },
   );
-  bearer = undefined;
-  const parsed = parseBrowserSessionStatus(raw);
-  if (!parsed.ok) {
-    throw new ApiError("Browser session bootstrap response was malformed.", 0, {
-      kind: "generic",
-      detail: parsed.reason,
-    });
-  }
-  return parsed.status;
+  token = undefined;
+  return pending.then((raw) => {
+    const parsed = parseBrowserSessionStatus(raw);
+    if (!parsed.ok) {
+      throw new ApiError("Browser session bootstrap response was malformed.", 0, {
+        kind: "protocol",
+        detail: parsed.reason,
+      });
+    }
+    return parsed.status;
+  });
 }
 
 /** End the browser session (session auth + CSRF). Provider owns 401 outcome. */

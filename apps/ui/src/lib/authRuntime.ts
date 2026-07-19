@@ -1,8 +1,8 @@
 /**
- * Narrow in-memory browser-auth transport ownership.
+ * Safe browser-auth identity and generation.
  *
- * Owns CSRF and auth method only. Never stores API tokens, cookies, or secrets.
- * CSRF is held in ECMAScript #private fields and is never returned to callers.
+ * Does not store API tokens, cookies, session secrets, or CSRF tokens.
+ * CSRF lives only in sessionTransport (transport-private).
  */
 
 export type AuthMethod = "trusted_local" | "session";
@@ -25,10 +25,6 @@ export type AuthReason =
   | "origin_rejected"
   | "protocol_error";
 
-export type ApplyCsrfResult = "applied" | "not_session" | "missing";
-
-export const CSRF_HEADER_NAME = "X-ZigbeeLens-CSRF-Token";
-
 type UnauthorizedListener = () => void;
 type RevalidateListener = () => void;
 type ChangeListener = () => void;
@@ -36,7 +32,7 @@ type ChangeListener = () => void;
 type IdentityTuple = {
   authMethod: AuthMethod | null;
   expiresAt: string | null;
-  csrfToken: string | null;
+  credentialRevision: number;
   browserSessionEnabled: boolean;
 };
 
@@ -44,16 +40,16 @@ function identityEqual(a: IdentityTuple, b: IdentityTuple): boolean {
   return (
     a.authMethod === b.authMethod &&
     a.expiresAt === b.expiresAt &&
-    a.csrfToken === b.csrfToken &&
+    a.credentialRevision === b.credentialRevision &&
     a.browserSessionEnabled === b.browserSessionEnabled
   );
 }
 
 class AuthRuntime {
-  #csrfToken: string | null = null;
   #authMethod: AuthMethod | null = null;
   #expiresAt: string | null = null;
   #browserSessionEnabled = false;
+  #credentialRevision = 0;
   #generation = 0;
   #unauthorizedListeners = new Set<UnauthorizedListener>();
   #revalidateListeners = new Set<RevalidateListener>();
@@ -82,6 +78,10 @@ class AuthRuntime {
     return this.#browserSessionEnabled;
   }
 
+  getCredentialRevision(): number {
+    return this.#credentialRevision;
+  }
+
   isSessionAuth(): boolean {
     return this.#authMethod === "session";
   }
@@ -90,68 +90,53 @@ class AuthRuntime {
     return this.#authMethod === "trusted_local";
   }
 
-  /**
-   * Apply the in-memory CSRF token to headers without exposing the value.
-   */
-  applySessionCsrf(headers: Headers): ApplyCsrfResult {
-    if (this.#authMethod !== "session") return "not_session";
-    if (!this.#csrfToken) return "missing";
-    headers.set(CSRF_HEADER_NAME, this.#csrfToken);
-    return "applied";
-  }
-
   setTrustedLocal(browserSessionEnabled = false): void {
     const next: IdentityTuple = {
       authMethod: "trusted_local",
       expiresAt: null,
-      csrfToken: null,
+      credentialRevision: 0,
       browserSessionEnabled,
     };
     if (identityEqual(this.#currentIdentity(), next)) return;
-    this.#csrfToken = null;
     this.#authMethod = "trusted_local";
     this.#expiresAt = null;
+    this.#credentialRevision = 0;
     this.#browserSessionEnabled = browserSessionEnabled;
     this.#bumpGeneration();
     this.#emitChange();
   }
 
   setSession(opts: {
-    csrfToken: string;
     expiresAt: string;
     browserSessionEnabled: boolean;
+    credentialRevision: number;
   }): void {
     const next: IdentityTuple = {
       authMethod: "session",
       expiresAt: opts.expiresAt,
-      csrfToken: opts.csrfToken,
+      credentialRevision: opts.credentialRevision,
       browserSessionEnabled: opts.browserSessionEnabled,
     };
     if (identityEqual(this.#currentIdentity(), next)) return;
-    this.#csrfToken = opts.csrfToken;
     this.#authMethod = "session";
     this.#expiresAt = opts.expiresAt;
+    this.#credentialRevision = opts.credentialRevision;
     this.#browserSessionEnabled = opts.browserSessionEnabled;
     this.#bumpGeneration();
     this.#emitChange();
   }
 
-  /** Update session credentials; advances generation when the identity tuple changes. */
-  updateSessionCredentials(opts: {
-    csrfToken: string;
-    expiresAt: string;
-    browserSessionEnabled: boolean;
-  }): void {
-    this.setSession(opts);
-  }
-
   clear(): void {
-    if (this.#authMethod === null && this.#csrfToken === null && !this.#browserSessionEnabled) {
+    if (
+      this.#authMethod === null &&
+      this.#credentialRevision === 0 &&
+      !this.#browserSessionEnabled
+    ) {
       return;
     }
-    this.#csrfToken = null;
     this.#authMethod = null;
     this.#expiresAt = null;
+    this.#credentialRevision = 0;
     this.#browserSessionEnabled = false;
     this.#bumpGeneration();
     this.#emitChange();
@@ -198,10 +183,10 @@ class AuthRuntime {
   }
 
   resetForTests(): void {
-    this.#csrfToken = null;
     this.#authMethod = null;
     this.#expiresAt = null;
     this.#browserSessionEnabled = false;
+    this.#credentialRevision = 0;
     this.#generation = 0;
     this.#unauthorizedNotifiedForGeneration = -1;
     this.#revalidateNotifiedAt = 0;
@@ -215,6 +200,7 @@ class AuthRuntime {
       authMethod: this.#authMethod,
       expiresAt: this.#expiresAt,
       browserSessionEnabled: this.#browserSessionEnabled,
+      credentialRevision: this.#credentialRevision,
       generation: this.#generation,
     };
   }
@@ -227,7 +213,7 @@ class AuthRuntime {
     return {
       authMethod: this.#authMethod,
       expiresAt: this.#expiresAt,
-      csrfToken: this.#csrfToken,
+      credentialRevision: this.#credentialRevision,
       browserSessionEnabled: this.#browserSessionEnabled,
     };
   }
