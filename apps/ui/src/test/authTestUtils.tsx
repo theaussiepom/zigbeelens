@@ -4,6 +4,10 @@ import { render, type RenderOptions } from "@testing-library/react";
 import { BrowserAuthProvider } from "@/context/BrowserAuthContext";
 import { AuthGate } from "@/components/AuthGate";
 import { authRuntime } from "@/lib/authRuntime";
+import {
+  clearSessionTransportCredentials,
+  installSessionTransportCredentials,
+} from "@/lib/sessionTransport";
 
 export const SENTINEL_TOKEN = "zl-test-sentinel-token-DO-NOT-PERSIST";
 
@@ -29,16 +33,48 @@ export function jsonResponse(body: unknown, status = 200, headers?: HeadersInit)
   });
 }
 
+/** Normalize fetch mock calls that may receive a Request or (url, init). */
+export function fetchCallParts(call: unknown[]): {
+  url: string;
+  method: string;
+  headers: Headers;
+  credentials: RequestCredentials | undefined;
+  cache: RequestCache | undefined;
+  request: Request | null;
+} {
+  const [input, init] = call as [RequestInfo | URL, RequestInit?];
+  if (input instanceof Request) {
+    return {
+      url: input.url,
+      method: input.method.toUpperCase(),
+      headers: new Headers(input.headers),
+      credentials: input.credentials,
+      cache: input.cache,
+      request: input,
+    };
+  }
+  return {
+    url: String(input),
+    method: (init?.method ?? "GET").toUpperCase(),
+    headers: new Headers(init?.headers),
+    credentials: init?.credentials,
+    cache: init?.cache,
+    request: null,
+  };
+}
+
 /** Seed in-memory session auth without going through login UI. */
 export function seedSessionAuth(csrf = "csrf-test-token"): void {
+  const { revision } = installSessionTransportCredentials(csrf);
   authRuntime.setSession({
-    csrfToken: csrf,
     expiresAt: futureExpiry(120_000),
     browserSessionEnabled: true,
+    credentialRevision: revision,
   });
 }
 
 export function seedTrustedLocal(): void {
+  clearSessionTransportCredentials();
   authRuntime.setTrustedLocal(false);
 }
 

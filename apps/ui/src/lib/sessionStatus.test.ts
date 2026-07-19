@@ -144,4 +144,26 @@ describe("parseBrowserSessionStatus", () => {
     });
     expect(parsed.ok).toBe(true);
   });
+
+  it("rejects CSRF with control characters", () => {
+    const parsed = parseBrowserSessionStatus({
+      authenticated: true,
+      auth_method: "session",
+      browser_session_enabled: true,
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      csrf_token: "csrf\nbad",
+    });
+    expect(parsed).toEqual({ ok: false, reason: "malformed" });
+  });
+
+  it("rejects CSRF over Core 4096-byte maximum", () => {
+    const parsed = parseBrowserSessionStatus({
+      authenticated: true,
+      auth_method: "session",
+      browser_session_enabled: true,
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+      csrf_token: "x".repeat(4097),
+    });
+    expect(parsed).toEqual({ ok: false, reason: "malformed" });
+  });
 });

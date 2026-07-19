@@ -10,12 +10,14 @@ import { authRuntime } from "@/lib/authRuntime";
 import { liveConnection } from "@/lib/events";
 import { eventSourceTestState } from "@/test/setup";
 import {
+  fetchCallParts,
   futureExpiry,
   jsonResponse,
   renderWithAuth,
   SENTINEL_TOKEN,
   sessionStatus,
 } from "@/test/authTestUtils";
+import { isSessionTransportActive } from "@/lib/sessionTransport";
 import { MemoryRouter } from "react-router-dom";
 import { render } from "@testing-library/react";
 
@@ -58,8 +60,8 @@ describe("BrowserAuthGate", () => {
 
   it("first request is credentialed GET /api/auth/session before protected UI", async () => {
     const order: string[] = [];
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchCallParts([input, init]).url;
       order.push(url.includes("auth/session") ? "session" : "other");
       if (url.includes("auth/session")) {
         return jsonResponse(
@@ -77,12 +79,10 @@ describe("BrowserAuthGate", () => {
 
     await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
     expect(order[0]).toBe("session");
-    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
-      credentials: "include",
-      cache: "no-store",
-    });
-    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
-    expect(headers.has("Authorization")).toBe(false);
+    const first = fetchCallParts(fetchMock.mock.calls[0] ?? []);
+    expect(first.credentials).toBe("include");
+    expect(first.cache).toBe("no-store");
+    expect(first.headers.has("Authorization")).toBe(false);
     expect(eventSourceTestState.constructs).toHaveLength(0);
   });
 
@@ -104,11 +104,11 @@ describe("BrowserAuthGate", () => {
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("authenticated"));
     expect(screen.getByTestId("method")).toHaveTextContent("trusted_local");
     expect(screen.getByTestId("protected-data")).toBeInTheDocument();
-    const headers = new Headers();
-    expect(authRuntime.applySessionCsrf(headers)).toBe("not_session");
+    expect(isSessionTransportActive()).toBe(false);
+    expect("applySessionCsrf" in authRuntime).toBe(false);
   });
 
-  it("valid session unlocks and retains CSRF in memory only", async () => {
+  it("valid session unlocks and keeps CSRF transport-private", async () => {
     const expiry = futureExpiry();
     vi.stubGlobal(
       "fetch",
@@ -131,11 +131,11 @@ describe("BrowserAuthGate", () => {
       </>,
     );
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("authenticated"));
-    const headers = new Headers();
-    expect(authRuntime.applySessionCsrf(headers)).toBe("applied");
-    expect(headers.get("X-ZigbeeLens-CSRF-Token")).toBe("csrf-mem");
+    expect(isSessionTransportActive()).toBe(true);
     expect(screen.queryByText("csrf-mem")).not.toBeInTheDocument();
     expect(JSON.stringify(authRuntime)).not.toContain("csrf-mem");
+    expect(JSON.stringify(authRuntime.toJSON())).not.toContain("csrf-mem");
+    expect("applySessionCsrf" in authRuntime).toBe(false);
   });
 
   it("unauthenticated with sessions enabled shows login and no protected data", async () => {
@@ -207,11 +207,10 @@ describe("BrowserAuthGate", () => {
   it("login exchanges token once, clears input, verifies cookie round-trip", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      if (url.includes("auth/session") && method === "GET") {
+      const call = fetchCallParts([input, init]);
+      if (call.url.includes("auth/session") && call.method === "GET") {
         // After POST, cookie round-trip succeeds.
-        if (fetchMock.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === "POST")) {
+        if (fetchMock.mock.calls.some((c) => fetchCallParts(c).method === "POST")) {
           return jsonResponse(
             sessionStatus({
               authenticated: true,
@@ -224,7 +223,7 @@ describe("BrowserAuthGate", () => {
         }
         return jsonResponse(sessionStatus({ authenticated: false }));
       }
-      if (url.includes("auth/session") && method === "POST") {
+      if (call.url.includes("auth/session") && call.method === "POST") {
         return jsonResponse(
           sessionStatus({
             authenticated: true,
@@ -254,11 +253,11 @@ describe("BrowserAuthGate", () => {
     await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("authenticated"));
     expect(screen.getByTestId("protected-data")).toBeInTheDocument();
 
-    const postCall = fetchMock.mock.calls.find((c) => (c[1] as RequestInit)?.method === "POST");
+    const postCall = fetchMock.mock.calls.find((c) => fetchCallParts(c).method === "POST");
     expect(postCall).toBeTruthy();
-    const postHeaders = new Headers(postCall?.[1]?.headers);
-    expect(postHeaders.get("Authorization")).toBe(`Bearer ${SENTINEL_TOKEN}`);
-    expect(postHeaders.has("X-ZigbeeLens-CSRF-Token")).toBe(false);
+    const post = fetchCallParts(postCall ?? []);
+    expect(post.headers.get("Authorization")).toBe(`Bearer ${SENTINEL_TOKEN}`);
+    expect(post.headers.has("X-ZigbeeLens-CSRF-Token")).toBe(false);
 
     expect(input.value).toBe("");
     expect(document.body.textContent).not.toContain(SENTINEL_TOKEN);
@@ -267,17 +266,16 @@ describe("BrowserAuthGate", () => {
     for (const key of Object.keys(localStorage)) {
       expect(localStorage.getItem(key)).not.toContain(SENTINEL_TOKEN);
     }
-    const csrfHeaders = new Headers();
-    expect(authRuntime.applySessionCsrf(csrfHeaders)).toBe("applied");
-    expect(csrfHeaders.get("X-ZigbeeLens-CSRF-Token")).toBe("csrf-after-login");
+    expect(isSessionTransportActive()).toBe(true);
     expect(document.body.textContent).not.toContain("csrf-after-login");
+    expect(JSON.stringify(authRuntime.toJSON())).not.toContain("csrf-after-login");
   });
 
   it("POST 200 without cookie round-trip stays locked", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const method = (init?.method ?? "GET").toUpperCase();
-      if (method === "POST") {
+      const call = fetchCallParts([input, init]);
+      if (call.method === "POST") {
         return jsonResponse(
           sessionStatus({
             authenticated: true,
@@ -305,8 +303,8 @@ describe("BrowserAuthGate", () => {
 
   it("wrong token shows generic message and stays locked", async () => {
     const user = userEvent.setup();
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      if ((init?.method ?? "GET").toUpperCase() === "POST") {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (fetchCallParts([input, init]).method === "POST") {
         return jsonResponse({ detail: "Authentication required." }, 401);
       }
       return jsonResponse(sessionStatus({ authenticated: false }));
@@ -326,8 +324,8 @@ describe("BrowserAuthGate", () => {
   it("protected 401 unmounts protected tree and clears CSRF", async () => {
     const expiry = futureExpiry();
     let sessionAuthenticated = true;
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchCallParts([input, init]).url;
       if (url.includes("auth/session")) {
         return jsonResponse(
           sessionAuthenticated
@@ -392,7 +390,7 @@ describe("BrowserAuthGate", () => {
     );
 
     await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
-    expect(authRuntime.applySessionCsrf(new Headers())).toBe("applied");
+    expect(isSessionTransportActive()).toBe(true);
 
     await act(async () => {
       screen.getByRole("button", { name: /Trigger 401/i }).click();
@@ -400,7 +398,7 @@ describe("BrowserAuthGate", () => {
 
     await waitFor(() => expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument());
     expect(screen.queryByLabelText("Main navigation")).not.toBeInTheDocument();
-    expect(authRuntime.applySessionCsrf(new Headers())).toBe("not_session");
+    expect(isSessionTransportActive()).toBe(false);
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: /locked/i })).toBeInTheDocument(),
     );
@@ -415,13 +413,12 @@ describe("BrowserAuthGate", () => {
 
     let authed = true;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      if (url.includes("auth/session") && method === "DELETE") {
+      const call = fetchCallParts([input, init]);
+      if (call.url.includes("auth/session") && call.method === "DELETE") {
         authed = false;
         return new Response(null, { status: 204 });
       }
-      if (url.includes("auth/session")) {
+      if (call.url.includes("auth/session")) {
         return jsonResponse(
           authed
             ? sessionStatus({
@@ -434,7 +431,7 @@ describe("BrowserAuthGate", () => {
             : sessionStatus({ authenticated: false }),
         );
       }
-      if (url.includes("health")) {
+      if (call.url.includes("health")) {
         return healthPromise;
       }
       return jsonResponse({});
@@ -497,8 +494,8 @@ describe("BrowserAuthGate", () => {
   it("token sentinel never appears in storage or console after failed login", async () => {
     const user = userEvent.setup();
     const setItemLocal = vi.spyOn(Storage.prototype, "setItem");
-    const fetchMock = vi.fn(async (_i: RequestInfo | URL, init?: RequestInit) => {
-      if ((init?.method ?? "GET").toUpperCase() === "POST") {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (fetchCallParts([input, init]).method === "POST") {
         return jsonResponse({ detail: "Authentication required." }, 401);
       }
       return jsonResponse(sessionStatus({ authenticated: false }));
@@ -545,8 +542,8 @@ describe("BrowserAuthGate", () => {
   });
 
   it("ScenarioProvider does not mount while locked", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = fetchCallParts([input, init]).url;
       if (url.includes("auth/session")) {
         return jsonResponse(sessionStatus({ authenticated: false }));
       }
@@ -568,7 +565,9 @@ describe("BrowserAuthGate", () => {
 
     await waitFor(() => screen.getByRole("heading", { name: /locked/i }));
     expect(screen.queryByTestId("scenario-child")).not.toBeInTheDocument();
-    expect(fetchMock.mock.calls.every((c) => String(c[0]).includes("auth/session"))).toBe(true);
+    expect(fetchMock.mock.calls.every((c) => fetchCallParts(c).url.includes("auth/session"))).toBe(
+      true,
+    );
   });
 });
 
@@ -638,11 +637,59 @@ describe("bfcache and expiry lifecycle", () => {
     liveConnection.resetForTests();
   });
 
-  it("persisted pagehide moves to checking before restore", async () => {
+  function dispatchPersisted(type: "pagehide" | "pageshow") {
+    const event = new Event(type) as PageTransitionEvent;
+    Object.defineProperty(event, "persisted", { value: true });
+    window.dispatchEvent(event);
+  }
+
+  it("persisted pagehide then pageshow requires a fresh status before remount", async () => {
     const expiry = futureExpiry(120_000);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
+    let resolveStatus: ((value: Response) => void) | null = null;
+    let statusCalls = 0;
+    const fetchMock = vi.fn(async () => {
+      statusCalls += 1;
+      if (statusCalls === 1) {
+        return jsonResponse(
+          sessionStatus({
+            authenticated: true,
+            auth_method: "session",
+            browser_session_enabled: true,
+            expires_at: expiry,
+            csrf_token: "csrf-bf",
+          }),
+        );
+      }
+      return new Promise<Response>((resolve) => {
+        resolveStatus = resolve;
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithAuth(
+      <>
+        <AuthProbe />
+        <ProtectedMarker />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
+    const callsAfterAuth = fetchMock.mock.calls.length;
+
+    await act(async () => {
+      dispatchPersisted("pagehide");
+    });
+    expect(screen.getByRole("heading", { name: /Checking access/i })).toBeInTheDocument();
+    expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
+
+    await act(async () => {
+      dispatchPersisted("pageshow");
+    });
+    expect(screen.getByRole("heading", { name: /Checking access/i })).toBeInTheDocument();
+    expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBe(callsAfterAuth + 1));
+
+    await act(async () => {
+      resolveStatus?.(
         jsonResponse(
           sessionStatus({
             authenticated: true,
@@ -652,18 +699,155 @@ describe("bfcache and expiry lifecycle", () => {
             csrf_token: "csrf-bf",
           }),
         ),
-      ),
+      );
+    });
+    await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
+  });
+
+  it("persisted pageshow with unauthenticated status stays locked", async () => {
+    const expiry = futureExpiry(120_000);
+    let phase: "authed" | "restore" = "authed";
+    const fetchMock = vi.fn(async () => {
+      if (phase === "authed") {
+        return jsonResponse(
+          sessionStatus({
+            authenticated: true,
+            auth_method: "session",
+            browser_session_enabled: true,
+            expires_at: expiry,
+            csrf_token: "csrf-bf2",
+          }),
+        );
+      }
+      return jsonResponse(sessionStatus({ authenticated: false }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithAuth(<ProtectedMarker />);
+    await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
+    await act(async () => {
+      dispatchPersisted("pagehide");
+      phase = "restore";
+      dispatchPersisted("pageshow");
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /locked/i })).toBeInTheDocument(),
     );
+    expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
+  });
+
+  it("persisted pageshow network failure is unreachable", async () => {
+    const expiry = futureExpiry(120_000);
+    let fail = false;
+    const fetchMock = vi.fn(async () => {
+      if (fail) throw new TypeError("offline");
+      return jsonResponse(
+        sessionStatus({
+          authenticated: true,
+          auth_method: "session",
+          browser_session_enabled: true,
+          expires_at: expiry,
+          csrf_token: "csrf-bf3",
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithAuth(<ProtectedMarker />);
+    await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
+    await act(async () => {
+      dispatchPersisted("pagehide");
+      fail = true;
+      dispatchPersisted("pageshow");
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /not reachable/i })).toBeInTheDocument(),
+    );
+  });
+
+  it("pre-pagehide status cannot unlock after restore", async () => {
+    const expiry = futureExpiry(120_000);
+    let resolveStale: ((value: Response) => void) | null = null;
+    let mode: "initial" | "stale_focus" | "restore" = "initial";
+    const fetchMock = vi.fn(async () => {
+      if (mode === "initial") {
+        return jsonResponse(
+          sessionStatus({
+            authenticated: true,
+            auth_method: "session",
+            browser_session_enabled: true,
+            expires_at: expiry,
+            csrf_token: "csrf-stale-bf",
+          }),
+        );
+      }
+      if (mode === "stale_focus") {
+        return new Promise<Response>((resolve) => {
+          resolveStale = resolve;
+        });
+      }
+      return jsonResponse(sessionStatus({ authenticated: false }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
     renderWithAuth(<ProtectedMarker />);
     await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
 
+    mode = "stale_focus";
     await act(async () => {
-      const event = new Event("pagehide") as PageTransitionEvent;
-      Object.defineProperty(event, "persisted", { value: true });
-      window.dispatchEvent(event);
+      window.dispatchEvent(new Event("focus"));
     });
-    expect(screen.getByRole("heading", { name: /Checking access/i })).toBeInTheDocument();
+    await waitFor(() => expect(resolveStale).toBeTruthy());
+
+    mode = "restore";
+    await act(async () => {
+      dispatchPersisted("pagehide");
+      dispatchPersisted("pageshow");
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /locked/i })).toBeInTheDocument(),
+    );
+
+    await act(async () => {
+      resolveStale?.(
+        jsonResponse(
+          sessionStatus({
+            authenticated: true,
+            auth_method: "session",
+            browser_session_enabled: true,
+            expires_at: expiry,
+            csrf_token: "csrf-stale-bf",
+          }),
+        ),
+      );
+    });
     expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /locked/i })).toBeInTheDocument();
+  });
+
+  it("bfcache listeners remain functional across multiple cycles", async () => {
+    const expiry = futureExpiry(120_000);
+    const fetchMock = vi.fn().mockImplementation(() =>
+      jsonResponse(
+        sessionStatus({
+          authenticated: true,
+          auth_method: "session",
+          browser_session_enabled: true,
+          expires_at: expiry,
+          csrf_token: "csrf-cycle",
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithAuth(<ProtectedMarker />);
+    await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
+    for (let i = 0; i < 3; i += 1) {
+      await act(async () => {
+        dispatchPersisted("pagehide");
+      });
+      expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
+      await act(async () => {
+        dispatchPersisted("pageshow");
+      });
+      await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
+    }
   });
 
   it("detects hidden-tab expiry immediately on visibility restore", async () => {
@@ -699,5 +883,239 @@ describe("bfcache and expiry lifecycle", () => {
 
     expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
     vi.useRealTimers();
+  });
+});
+
+describe("probe races, logout ownership, identity remount", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    authRuntime.resetForTests();
+    liveConnection.resetForTests();
+    eventSourceTestState.reset();
+  });
+
+  it("logout confirmation wins over a stale authenticated focus probe", async () => {
+    const expiry = futureExpiry();
+    let resolveFocus: ((value: Response) => void) | null = null;
+    let deleteStarted = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const call = fetchCallParts([input, init]);
+      if (call.url.includes("auth/session") && call.method === "DELETE") {
+        deleteStarted = true;
+        return new Response(null, { status: 204 });
+      }
+      if (call.url.includes("auth/session")) {
+        if (!deleteStarted && fetchMock.mock.calls.length > 1) {
+          return new Promise<Response>((resolve) => {
+            resolveFocus = resolve;
+          });
+        }
+        if (deleteStarted) {
+          return jsonResponse(sessionStatus({ authenticated: false }));
+        }
+        return jsonResponse(
+          sessionStatus({
+            authenticated: true,
+            auth_method: "session",
+            browser_session_enabled: true,
+            expires_at: expiry,
+            csrf_token: "csrf-race",
+          }),
+        );
+      }
+      return jsonResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function LogoutRace() {
+      const auth = useAuth();
+      return (
+        <div>
+          <AuthProbe />
+          <ProtectedMarker />
+          <button type="button" onClick={() => void auth.logout()}>
+            Sign out
+          </button>
+        </div>
+      );
+    }
+
+    renderWithAuth(<LogoutRace />);
+    await waitFor(() => expect(screen.getByTestId("protected-data")).toBeInTheDocument());
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() => expect(resolveFocus).toBeTruthy());
+
+    await act(async () => {
+      screen.getByRole("button", { name: /Sign out/i }).click();
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /locked/i })).toBeInTheDocument(),
+    );
+
+    await act(async () => {
+      resolveFocus?.(
+        jsonResponse(
+          sessionStatus({
+            authenticated: true,
+            auth_method: "session",
+            browser_session_enabled: true,
+            expires_at: expiry,
+            csrf_token: "csrf-race",
+          }),
+        ),
+      );
+    });
+    expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
+    expect(isSessionTransportActive()).toBe(false);
+  });
+
+  it("identical status refresh preserves child state; changed session remounts", async () => {
+    const expiryA = futureExpiry(120_000);
+    let csrf = "csrf-a";
+    let expiresAt = expiryA;
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(
+        sessionStatus({
+          authenticated: true,
+          auth_method: "session",
+          browser_session_enabled: true,
+          expires_at: expiresAt,
+          csrf_token: csrf,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let mounts = 0;
+    function StatefulChild() {
+      const [n, setN] = useState(0);
+      const [mountCount] = useState(() => {
+        mounts += 1;
+        return mounts;
+      });
+      return (
+        <div>
+          <span data-testid="mounts">{mountCount}</span>
+          <span data-testid="local">{n}</span>
+          <button type="button" onClick={() => setN((v) => v + 1)}>
+            Inc
+          </button>
+        </div>
+      );
+    }
+
+    renderWithAuth(
+      <>
+        <AuthProbe />
+        <StatefulChild />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("authenticated"));
+    await act(async () => {
+      screen.getByRole("button", { name: /Inc/i }).click();
+    });
+    expect(screen.getByTestId("local")).toHaveTextContent("1");
+    const mountsBefore = Number(screen.getByTestId("mounts").textContent);
+    const epochBefore = Number(screen.getByTestId("epoch").textContent);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(1));
+    expect(Number(screen.getByTestId("epoch").textContent)).toBe(epochBefore);
+    expect(screen.getByTestId("local")).toHaveTextContent("1");
+    expect(Number(screen.getByTestId("mounts").textContent)).toBe(mountsBefore);
+
+    csrf = "csrf-b";
+    expiresAt = futureExpiry(180_000);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() =>
+      expect(Number(screen.getByTestId("epoch").textContent)).toBeGreaterThan(epochBefore),
+    );
+    expect(screen.getByTestId("local")).toHaveTextContent("0");
+    expect(Number(screen.getByTestId("mounts").textContent)).toBeGreaterThan(mountsBefore);
+  });
+
+  it("malformed initial status fails closed to protocol guidance", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ authenticated: "nope" })));
+    renderWithAuth(<ProtectedMarker />);
+    await waitFor(() =>
+      expect(screen.getByText(/Unexpected session response from Core/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
+  });
+
+  it("deferred bootstrap releases token from input before confirmation GET", async () => {
+    const user = userEvent.setup();
+    let resolveBootstrap: ((value: Response) => void) | null = null;
+    let bootstrapped = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const call = fetchCallParts([input, init]);
+      if (call.method === "POST") {
+        bootstrapped = true;
+        return new Promise<Response>((resolve) => {
+          resolveBootstrap = resolve;
+        });
+      }
+      if (!bootstrapped) {
+        return jsonResponse(sessionStatus({ authenticated: false }));
+      }
+      return jsonResponse(
+        sessionStatus({
+          authenticated: true,
+          auth_method: "session",
+          browser_session_enabled: true,
+          expires_at: futureExpiry(),
+          csrf_token: "csrf-boot",
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithAuth(
+      <>
+        <AuthProbe />
+        <ProtectedMarker />
+      </>,
+    );
+    await waitFor(() => screen.getByLabelText(/API token/i));
+    const input = screen.getByLabelText(/API token/i) as HTMLInputElement;
+    await user.type(input, SENTINEL_TOKEN);
+    await user.click(screen.getByRole("button", { name: /Unlock/i }));
+
+    expect(input.value).toBe("");
+    expect(document.body.textContent).not.toContain(SENTINEL_TOKEN);
+    expect(JSON.stringify(authRuntime.toJSON())).not.toContain(SENTINEL_TOKEN);
+
+    const post = fetchMock.mock.calls.find((c) => fetchCallParts(c).method === "POST");
+    expect(fetchCallParts(post ?? []).headers.get("Authorization")).toBe(
+      `Bearer ${SENTINEL_TOKEN}`,
+    );
+
+    await act(async () => {
+      resolveBootstrap?.(
+        jsonResponse(
+          sessionStatus({
+            authenticated: true,
+            auth_method: "session",
+            browser_session_enabled: true,
+            expires_at: futureExpiry(),
+            csrf_token: "csrf-boot",
+          }),
+        ),
+      );
+    });
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("authenticated"));
+    const confirmation = fetchMock.mock.calls
+      .map((c) => fetchCallParts(c))
+      .filter((c) => c.url.includes("auth/session") && c.method === "GET")
+      .at(-1);
+    expect(confirmation?.headers.has("Authorization")).toBe(false);
   });
 });

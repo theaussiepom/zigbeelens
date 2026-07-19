@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { api, ApiError } from "./api";
+import { fetchCallParts } from "@/test/authTestUtils";
 import type { DeviceStoryDto } from "@/types/devices";
 
 const sampleDeviceStory: DeviceStoryDto = {
@@ -53,10 +54,10 @@ describe("deviceStory API client", () => {
     const result = await api.deviceStory("home", "0x03");
     expect(result).toEqual(sampleDeviceStory);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const url = String(fetchMock.mock.calls[0]?.[0]);
-    expect(url).toContain("api/devices/home/0x03/story");
-    expect(url).not.toContain("scenario=");
-    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ credentials: "include" });
+    const call = fetchCallParts(fetchMock.mock.calls[0] ?? []);
+    expect(call.url).toContain("api/devices/home/0x03/story");
+    expect(call.url).not.toContain("scenario=");
+    expect(call.credentials).toBe("include");
   });
 
   it("omits scenario query when scenario is undefined", async () => {
@@ -66,8 +67,8 @@ describe("deviceStory API client", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await api.deviceStory("home", "0x03");
-    const url = String(fetchMock.mock.calls[0]?.[0]);
-    expect(url).not.toMatch(/[?&]scenario=/);
+    const call = fetchCallParts(fetchMock.mock.calls[0] ?? []);
+    expect(call.url).not.toMatch(/[?&]scenario=/);
   });
 
   it("includes scenario query when provided and keeps path encoding", async () => {
@@ -77,7 +78,8 @@ describe("deviceStory API client", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await api.deviceStory("home/net", "0xab/cd", "offline_cluster");
-    const url = String(fetchMock.mock.calls[0]?.[0]);
+    const call = fetchCallParts(fetchMock.mock.calls[0] ?? []);
+    const url = call.url;
     expect(url).toContain(`api/devices/${encodeURIComponent("home/net")}/${encodeURIComponent("0xab/cd")}/story`);
     expect(url).toContain("scenario=offline_cluster");
   });

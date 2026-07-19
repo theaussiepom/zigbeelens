@@ -3,6 +3,7 @@ import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
 import { authRuntime } from "@/lib/authRuntime";
 import { liveConnection } from "@/lib/events";
+import { resetSessionTransportForTests } from "@/lib/sessionTransport";
 
 export type EventSourceConstruct = {
   url: string;
@@ -56,6 +57,7 @@ globalThis.EventSource = StubEventSource;
 afterEach(() => {
   cleanup();
   authRuntime.resetForTests();
+  resetSessionTransportForTests();
   liveConnection.resetForTests();
   eventSourceTestState.reset();
 });
