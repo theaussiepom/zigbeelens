@@ -12,7 +12,7 @@ import {
 } from "@/components/ui";
 import {
   IncidentCard,
-  NetworkHealthCard,
+  NetworkDecisionCard,
   RouterRiskCard,
   TimelineEventRow,
 } from "@/components/cards";
@@ -251,7 +251,7 @@ export function OverviewPage() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">Networks</h2>
         <div className="grid gap-4 md:grid-cols-2">
           {data.networks.map((n) => (
-            <NetworkHealthCard
+            <NetworkDecisionCard
               key={n.id}
               network={n}
               topologyEnabled={status?.topology?.enabled ?? false}

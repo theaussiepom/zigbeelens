@@ -14,7 +14,7 @@ import {
 import {
   DeviceDecisionCard,
   IncidentCard,
-  NetworkHealthCard,
+  NetworkDecisionCard,
   RouterRiskCard,
   TimelineEventRow,
 } from "@/components/cards";
@@ -59,7 +59,7 @@ export function NetworksPage() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {networks.map((n) => (
-            <NetworkHealthCard
+            <NetworkDecisionCard
               key={n.id}
               network={n}
               topologyEnabled={status?.topology?.enabled ?? false}

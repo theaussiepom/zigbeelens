@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom";
 import type {
   DeviceSummary,
-  DiagnosticConclusion,
   Incident,
   NetworkSummary,
   RouterRisk,
@@ -12,10 +11,7 @@ import {
   Badge,
   Card,
   ConfidenceBadge,
-  CounterEvidenceList,
-  EvidenceList,
   LastSeenText,
-  LimitationsList,
   LifecycleBadge,
   MetricPill,
   NetworkBadge,
@@ -33,46 +29,6 @@ import {
 } from "@/lib/format";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
-
-/* ----------------------------------------------------------------------- */
-/* Current finding — the most important surface on the overview            */
-/* ----------------------------------------------------------------------- */
-
-export function CurrentFindingCard({
-  finding,
-  incidentId,
-}: {
-  finding: DiagnosticConclusion;
-  incidentId?: string;
-}) {
-  return (
-    <Card
-      title="Current finding"
-      subtitle="What ZigbeeLens sees right now — with evidence and limits"
-      className="border-zl-accent/30 bg-gradient-to-br from-zl-surface to-zl-surface-2"
-    >
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <SeverityBadge severity={finding.severity} />
-        <span className="text-xs text-zl-muted">Likely scope: {scopeLabel(finding.scope)}</span>
-        <ConfidenceBadge confidence={finding.confidence} />
-      </div>
-      <p className="mb-6 text-lg leading-relaxed text-zl-text">{finding.summary}</p>
-      <div className="grid gap-4 md:grid-cols-3">
-        <EvidenceList items={finding.evidence} emptyText="No supporting evidence yet." />
-        <CounterEvidenceList items={finding.counter_evidence} />
-        <LimitationsList items={finding.limitations} />
-      </div>
-      {incidentId && (
-        <Link
-          to={`/incidents/${incidentId}`}
-          className="mt-4 inline-block text-sm text-zl-accent hover:underline"
-        >
-          View incident detail →
-        </Link>
-      )}
-    </Card>
-  );
-}
 
 /* ----------------------------------------------------------------------- */
 /* Incident card                                                            */
@@ -128,14 +84,7 @@ export function IncidentCard({ incident }: { incident: Incident }) {
 /* ----------------------------------------------------------------------- */
 
 export function DeviceDecisionCard({ device }: { device: DeviceSummary }) {
-  const decisionVm = buildDeviceDecisionBadgeViewModel(
-    device.decision ?? {
-      status: "data_unavailable",
-      priority: "none",
-      headline_code: "device_data_unavailable",
-      coverage_label_codes: [],
-    },
-  );
+  const decisionVm = buildDeviceDecisionBadgeViewModel(device.decision);
   return (
     <Link
       to={devicePath(device.network_id, device.ieee_address)}
@@ -167,14 +116,11 @@ export function DeviceDecisionCard({ device }: { device: DeviceSummary }) {
   );
 }
 
-/** @deprecated Use DeviceDecisionCard — kept as alias during Track 5 migration. */
-export const DeviceHealthCard = DeviceDecisionCard;
-
 /* ----------------------------------------------------------------------- */
 /* Network decision card                                                    */
 /* ----------------------------------------------------------------------- */
 
-export function NetworkHealthCard({
+export function NetworkDecisionCard({
   network,
   topologyEnabled = false,
 }: {
@@ -182,9 +128,9 @@ export function NetworkHealthCard({
   topologyEnabled?: boolean;
 }) {
   const summary = network.decision_summary;
-  const reviewFirst = summary?.status_counts?.review_first ?? 0;
-  const worthReviewing = summary?.status_counts?.worth_reviewing ?? 0;
-  const coverage = summary?.coverage_warning_count ?? 0;
+  const reviewFirst = summary.status_counts.review_first ?? 0;
+  const worthReviewing = summary.status_counts.worth_reviewing ?? 0;
+  const coverage = summary.coverage_warning_count;
   return (
     <div className="rounded-xl border border-zl-border bg-zl-surface p-5 transition-colors hover:border-zl-accent/40">
       <Link
@@ -198,14 +144,7 @@ export function NetworkHealthCard({
           </div>
           <div className="flex flex-col items-end gap-1.5">
             <DeviceDecisionBadge
-              decision={buildDeviceDecisionBadgeViewModel(
-                network.decision ?? {
-                  status: "data_unavailable",
-                  priority: "none",
-                  headline_code: "network_data_unavailable",
-                  coverage_label_codes: [],
-                },
-              )}
+              decision={buildDeviceDecisionBadgeViewModel(network.decision)}
             />
             <Badge severity={network.bridge_state === "online" ? "healthy" : "critical"}>
               Bridge: {bridgeStateLabel(network.bridge_state)}

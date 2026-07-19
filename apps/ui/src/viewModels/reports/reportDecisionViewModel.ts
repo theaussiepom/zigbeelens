@@ -1,11 +1,16 @@
 /**
- * Reports preview ViewModel — maps ReportDetail decision sections to UI-ready models.
+ * Reports preview ViewModel — maps ReportDetailV3 decision sections to UI-ready models.
  * Reuses Device Story, investigation priority, and data coverage ViewModel builders.
  */
 
-import type { ReportDetail, ReportDeviceStory, ReportScope } from "@zigbeelens/shared";
+import type {
+  LegacyStoredReportBody,
+  ReportDetailV3,
+  ReportDeviceStory,
+  ReportScope,
+} from "@zigbeelens/shared";
 import type { DeviceStoryDto } from "@/types/devices";
-import type { DecisionPriority, DecisionStatus } from "@/types/decisions";
+import { isLegacyStoredReportBody, storedReportVersion } from "@/lib/decisionContract";
 import { decisionStatusLabel } from "@/viewModels/decisionCopy";
 import {
   DEVICE_DECISION_SORT_ORDER,
@@ -65,30 +70,26 @@ export interface ReportDecisionViewModel {
   markdown: string;
 }
 
-function isLegacyReport(report: ReportDetail): boolean {
-  // Current contract is report_version 3. Stored v1/v2 remain readable as-is.
-  if (report.report_version < 3) {
-    return true;
-  }
-  const stories = report.device_stories ?? [];
-  const decisionSummary = report.decision_summary;
-  return stories.length === 0 && decisionSummary == null;
+export type ReportSource = ReportDetailV3 | LegacyStoredReportBody;
+
+function isLegacyReport(report: ReportSource): boolean {
+  return isLegacyStoredReportBody(report);
 }
 
-function reportNetworks(report: ReportDetail) {
-  return report.domain_details?.networks ?? report.networks ?? [];
+function reportNetworks(report: ReportDetailV3) {
+  return report.domain_details.networks;
 }
 
-function reportDevices(report: ReportDetail) {
-  return report.domain_details?.devices ?? report.devices ?? [];
+function reportDevices(report: ReportDetailV3) {
+  return report.domain_details.devices;
 }
 
 function reportStoryToDeviceStoryDto(story: ReportDeviceStory): DeviceStoryDto {
   return {
     subject_type: "device",
     subject_id: story.subject_id,
-    status: story.status as DecisionStatus,
-    priority: story.priority as DecisionPriority,
+    status: story.status,
+    priority: story.priority,
     headline_code: story.headline_code,
     reasons: story.reasons,
     evidence: story.evidence as unknown as DeviceStoryDto["evidence"],
@@ -105,7 +106,7 @@ function reportStoryToDeviceStoryDto(story: ReportDeviceStory): DeviceStoryDto {
 }
 
 function buildDecisionSummaryItems(
-  statusCounts: Record<string, number>,
+  statusCounts: Partial<Record<string, number>>,
 ): ReportDecisionSummaryItem[] {
   const items: ReportDecisionSummaryItem[] = [];
   const seen = new Set<string>();
@@ -125,11 +126,12 @@ function buildDecisionSummaryItems(
   for (const [status, count] of Object.entries(statusCounts).sort(([a], [b]) =>
     a.localeCompare(b),
   )) {
-    if (!seen.has(status) && count > 0) {
+    const value = count ?? 0;
+    if (!seen.has(status) && value > 0) {
       items.push({
         key: status,
         label: decisionStatusLabel(status),
-        count,
+        count: value,
       });
     }
   }
@@ -150,63 +152,75 @@ function compareReportDeviceStories(
   });
 }
 
-function networkNamesFromReport(report: ReportDetail): Record<string, string> {
+function networkNamesFromReport(report: ReportDetailV3): Record<string, string> {
   return Object.fromEntries(
     reportNetworks(report).map((network) => [network.id, network.name]),
   );
 }
 
-export function buildReportDecisionViewModel(
-  report: ReportDetail,
-): ReportDecisionViewModel {
-  const legacy = isLegacyReport(report);
-  const names = networkNamesFromReport(report);
-  const meshNavigationAvailable = report.redaction.network_names === "preserved";
+export function buildReportDecisionViewModel(report: ReportSource): ReportDecisionViewModel {
+  if (isLegacyReport(report)) {
+    const legacy = report as LegacyStoredReportBody;
+    const version = storedReportVersion(legacy);
+    const markdown =
+      typeof legacy.markdown_summary === "string" ? legacy.markdown_summary : "";
+    const scope = typeof legacy.scope === "string" ? legacy.scope : "full";
+    return {
+      reportVersion: version,
+      scopeLabel: SCOPE_LABELS[scope as ReportScope] ?? scope,
+      isLegacyFormat: true,
+      legacyNotice: REPORT_LEGACY_NOTICE,
+      meshNavigationAvailable: false,
+      decisionSummaryItems: [],
+      networksInScope: 0,
+      devicesInScope: 0,
+      incidentsInScope: 0,
+      investigationPriorities: [],
+      deviceStories: [],
+      networkCoverage: [],
+      redactionProfile: "standard",
+      markdown,
+    };
+  }
 
-  const decisionSummaryItems = legacy
-    ? []
-    : buildDecisionSummaryItems(report.decision_summary?.status_counts ?? {});
+  const current = report as ReportDetailV3;
+  const names = networkNamesFromReport(current);
+  const meshNavigationAvailable = current.redaction.network_names === "preserved";
 
-  const investigationPriorities = legacy
-    ? []
-    : (report.investigation_priorities ?? []).map((priority) =>
-        buildInvestigationPriorityViewModel(priority, names[priority.network_id]),
-      );
+  const decisionSummaryItems = buildDecisionSummaryItems(current.decision_summary.status_counts);
 
-  const deviceStories = legacy
-    ? []
-    : [...(report.device_stories ?? [])]
-        .sort(compareReportDeviceStories)
-        .map((story) => ({
-          key: `${story.network_id}:${story.ieee_address}`,
-          name: story.friendly_name,
-          networkId: story.network_id,
-          ieeeAddress: story.ieee_address,
-          story: buildDeviceStoryViewModel(reportStoryToDeviceStoryDto(story)),
-        }));
+  const investigationPriorities = current.investigation_priorities.map((priority) =>
+    buildInvestigationPriorityViewModel(priority, names[priority.network_id]),
+  );
 
-  const networkCoverage = legacy
-    ? []
-    : (report.data_coverage_warnings ?? []).map((warning) =>
-        buildDataCoverageWarningViewModel(warning, names[warning.network_id]),
-      );
+  const deviceStories = [...current.device_stories]
+    .sort(compareReportDeviceStories)
+    .map((story) => ({
+      key: `${story.network_id}:${story.ieee_address}`,
+      name: story.friendly_name,
+      networkId: story.network_id,
+      ieeeAddress: story.ieee_address,
+      story: buildDeviceStoryViewModel(reportStoryToDeviceStoryDto(story)),
+    }));
+
+  const networkCoverage = current.data_coverage_warnings.map((warning) =>
+    buildDataCoverageWarningViewModel(warning, names[warning.network_id]),
+  );
 
   return {
-    reportVersion: report.report_version,
-    scopeLabel: SCOPE_LABELS[report.scope] ?? report.scope,
-    isLegacyFormat: legacy,
-    legacyNotice: legacy ? REPORT_LEGACY_NOTICE : null,
+    reportVersion: current.report_version,
+    scopeLabel: SCOPE_LABELS[current.scope] ?? current.scope,
+    isLegacyFormat: false,
+    legacyNotice: null,
     meshNavigationAvailable,
     decisionSummaryItems,
-    networksInScope: reportNetworks(report).length,
-    devicesInScope:
-      report.raw_counts.devices_included ?? reportDevices(report).length,
-    incidentsInScope:
-      report.raw_counts.incidents_included ?? report.incidents.length,
+    networksInScope: reportNetworks(current).length,
+    devicesInScope: current.raw_counts.devices_included ?? reportDevices(current).length,
+    incidentsInScope: current.raw_counts.incidents_included ?? current.incidents.length,
     investigationPriorities,
     deviceStories,
     networkCoverage,
-    redactionProfile: report.redaction.profile,
-    markdown: report.markdown_summary,
+    redactionProfile: current.redaction.profile,
+    markdown: current.markdown_summary,
   };
 }

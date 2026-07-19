@@ -300,7 +300,12 @@ describe("IncidentsPage list", () => {
             network_id: "office",
             ieee_address: "0xb1",
             friendly_name: "Office motion",
-            decision: null,
+            decision: {
+              status: "watch",
+              priority: "medium",
+              headline_code: "stale_last_seen",
+              coverage_label_codes: [],
+            },
           },
         ],
       }),
@@ -365,14 +370,19 @@ describe("IncidentDetailPage", () => {
     expect(screen.queryByText("Related router candidates")).not.toBeInTheDocument();
   });
 
-  it("uses safe unknown for null decision", () => {
+  it("uses safe unknown for unknown future status", () => {
     mockState.detail = makeIncident({
       affected_devices: [
         {
           network_id: "home",
           ieee_address: "0xa1",
           friendly_name: "Kitchen Plug",
-          decision: null,
+          decision: {
+            status: "future_status_v2",
+            priority: "high",
+            headline_code: "future_headline_v2",
+            coverage_label_codes: [],
+          },
         },
       ],
     });

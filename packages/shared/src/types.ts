@@ -16,20 +16,41 @@ export type IncidentScope =
 /** Incident lifecycle state */
 export type IncidentStatus = "open" | "watching" | "resolved";
 
-/**
- * Legacy health primary — retained only for historical report readers.
- * Not part of the live decision-contract v2 public DTOs.
- */
-export type DeviceHealthPrimary =
-  | "healthy"
-  | "unavailable"
-  | "recently_unstable"
-  | "weak_link"
-  | "low_battery"
-  | "stale_reporting"
-  | "interview_issue"
-  | "router_risk"
-  | "unknown";
+/** Canonical decision status for Device Story and estate summaries. */
+export type DecisionStatus =
+  | "informational"
+  | "no_notable_change"
+  | "changed"
+  | "watch"
+  | "worth_reviewing"
+  | "review_first"
+  | "improve_data_coverage"
+  | "data_unavailable";
+
+/** Canonical decision priority. */
+export type DecisionPriority = "none" | "low" | "medium" | "high";
+
+/** Stable coverage label codes mapped by UI/report presenters. */
+export type CoverageLabelCode =
+  | "availability_tracking_off"
+  | "availability_history_building"
+  | "availability_status_unknown"
+  | "availability_available"
+  | "route_hints_unavailable"
+  | "ha_areas_not_linked"
+  | "snapshot_stale"
+  | "battery_history_sparse"
+  | "battery_history_available"
+  | "lqi_history_sparse"
+  | "lqi_history_available"
+  | "last_seen_available"
+  | "last_seen_unknown"
+  | "last_payload_available"
+  | "last_payload_unknown"
+  | "topology_history_available"
+  | "topology_history_sparse"
+  | "topology_history_not_observed"
+  | "ha_area_linked";
 
 /** Bridge online state */
 export type BridgeState = "online" | "offline" | "unknown";
@@ -76,35 +97,24 @@ export interface DiagnosticConclusion {
   limitations: LimitationItem[];
 }
 
-/**
- * Legacy device health classification — historical report readers only.
- * Live APIs expose DeviceDecisionBadge instead.
- */
-export interface DeviceHealth {
-  primary: DeviceHealthPrimary;
-  severity: Severity;
-  confidence: Confidence;
-  evidence: string[];
-  counter_evidence: string[];
-  limitations: string[];
-  flags?: DeviceHealthPrimary[];
-}
-
-/** Compact Device Story projection for inventory badges */
-export interface DeviceDecisionBadge {
-  status: string;
-  priority: string;
+/** Compact Device Story projection for inventory badges. */
+export interface DecisionBadge {
+  status: DecisionStatus;
+  priority: DecisionPriority;
   headline_code: string;
-  coverage_label_codes: string[];
+  coverage_label_codes: CoverageLabelCode[];
 }
 
-/** Aggregated decision counts for Dashboard / network / report / MQTT / HACS */
+/** Compatibility alias — same shape as DecisionBadge. */
+export type DeviceDecisionBadge = DecisionBadge;
+
+/** Aggregated decision counts for Dashboard / network / report / MQTT / HACS. */
 export interface DecisionCountSummary {
   subject_count: number;
-  overall_status: string;
-  highest_priority: string;
-  status_counts: Record<string, number>;
-  priority_counts: Record<string, number>;
+  overall_status: DecisionStatus;
+  highest_priority: DecisionPriority;
+  status_counts: Partial<Record<DecisionStatus, number>>;
+  priority_counts: Partial<Record<DecisionPriority, number>>;
   coverage_warning_count: number;
 }
 
@@ -119,7 +129,7 @@ export interface NetworkSummary {
   router_count: number;
   end_device_count: number;
   unavailable_count: number;
-  active_incident_severity: Severity;
+  active_incident_severity: Severity | null;
   active_incident_count: number;
   recent_bridge_warnings: number;
   recent_bridge_errors: number;
@@ -250,25 +260,6 @@ export interface TimelineEvent {
   incident_id?: string;
 }
 
-/**
- * Point-in-time health snapshot — historical report bodies only.
- * Not present on live DashboardPayload (decision contract v2).
- */
-export interface HealthSnapshot {
-  timestamp: string;
-  overall_severity: Severity;
-  overall_health: DeviceHealthPrimary;
-  network_count: number;
-  device_count: number;
-  unavailable_count: number;
-  incident_count: number;
-  networks: Array<{
-    network_id: string;
-    severity: Severity;
-    unavailable_count: number;
-  }>;
-}
-
 /** Facts-only shared availability event for dashboard Overview */
 export interface SharedAvailabilityEventSummary {
   event_id: string;
@@ -382,37 +373,15 @@ export interface ReportSummary {
   redaction_profile: RedactionProfile;
 }
 
-/** High-level numeric summary block */
-export interface ReportSummaryBlock {
-  overall_state: Severity;
-  current_finding: string;
-  networks_monitored: number;
-  total_devices: number;
-  active_incidents: number;
-  watching_incidents: number;
-  unavailable_devices: number;
-  router_risks: number;
-  stale_devices: number;
-  weak_links: number;
-  low_battery_devices: number;
-}
-
-/** Full report detail */
-export interface ReportDecisionSummary {
-  device_story_count: number;
-  status_counts: Record<string, number>;
-  priority_counts: Record<string, number>;
-}
-
-/** Canonical Device Story fields plus report identity (Phase 5D) */
+/** Canonical Device Story fields plus report identity (Phase 5D). */
 export interface ReportDeviceStory {
   network_id: string;
   ieee_address: string;
   friendly_name: string;
   subject_type: string;
   subject_id: string;
-  status: string;
-  priority: string;
+  status: DecisionStatus;
+  priority: DecisionPriority;
   headline_code: string;
   reasons: Array<{ code: string; params?: Record<string, unknown> }>;
   evidence: Array<Record<string, unknown>>;
@@ -427,8 +396,8 @@ export interface ReportDeviceStory {
   }>;
 }
 
-/** Canonical v3 report domain inventory */
-export interface ReportDomainDetails {
+/** Exact v3 report domain inventory. */
+export interface ReportDomainDetailsV3 {
   networks: NetworkSummary[];
   devices: DeviceSummary[];
   device_details: DeviceDetail[];
@@ -436,52 +405,38 @@ export interface ReportDomainDetails {
   topology_snapshot_count: number;
 }
 
-/**
- * Current report contract is version 3 (decision-only).
- * Optional legacy fields remain so stored v1/v2 bodies can still be typed
- * when loaded through the legacy reader path.
- */
-export interface ReportDetail {
+/** Compatibility alias for helpers during the Track 5 seal. */
+export type ReportDomainDetails = ReportDomainDetailsV3;
+
+/** Exact current report contract (version 3). No legacy aliases. */
+export interface ReportDetailV3 {
   id: string;
   product: string;
-  report_version: number;
+  report_version: 3;
   generated_at: string;
   version: string;
   scope: ReportScope;
   format: ReportFormat;
   redaction: ReportRedactionStatus;
-  /** @deprecated v1/v2 health-count summary — absent on v3 */
-  summary?: ReportSummaryBlock | null;
-  /** v3 uses DecisionCountSummary; v2 used ReportDecisionSummary */
-  decision_summary?: DecisionCountSummary | ReportDecisionSummary | null;
-  investigation_priorities?: InvestigationPrioritySummary[];
-  device_stories?: ReportDeviceStory[];
-  data_coverage_warnings?: DataCoverageWarningSummary[];
   config_summary: Record<string, unknown>;
-  /** @deprecated use collector_status on v3 */
-  collector?: Record<string, unknown>;
-  collector_status?: Record<string, unknown>;
-  /** @deprecated top-level domain arrays — use domain_details on v3 */
-  networks?: NetworkSummary[];
-  /** @deprecated use domain_details.devices on v3 */
-  devices?: DeviceSummary[];
-  /** @deprecated use domain_details.device_details on v3 */
-  device_details?: DeviceDetail[];
-  /** @deprecated use domain_details.router_risks on v3 */
-  router_risks?: RouterRisk[];
+  decision_summary: DecisionCountSummary;
+  investigation_priorities: InvestigationPrioritySummary[];
+  device_stories: ReportDeviceStory[];
+  data_coverage_warnings: DataCoverageWarningSummary[];
   incidents: Incident[];
-  /** @deprecated use events_or_timeline on v3 */
-  timeline?: TimelineEvent[];
-  events_or_timeline?: TimelineEvent[];
-  /** @deprecated absent on v3 */
-  health_snapshot?: HealthSnapshot | null;
-  /** @deprecated absent on v3 */
-  diagnostic_conclusions?: DiagnosticConclusion[];
-  domain_details?: ReportDomainDetails;
+  collector_status: Record<string, unknown>;
+  domain_details: ReportDomainDetailsV3;
+  events_or_timeline: TimelineEvent[];
   limitations: LimitationItem[];
   raw_counts: Record<string, number>;
   markdown_summary: string;
 }
+
+/** Current writers and OpenAPI advertise ReportDetail as the exact v3 model. */
+export type ReportDetail = ReportDetailV3;
+
+/** Opaque stored report body for historical v1/v2 rows. */
+export type LegacyStoredReportBody = Record<string, unknown>;
 
 export interface ReportRedactionStatus {
   applied: boolean;

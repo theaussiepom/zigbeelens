@@ -41,7 +41,6 @@ function makeDevice(overrides: Partial<DeviceSummary> = {}): DeviceSummary {
     availability: "online",
     interview_state: "successful",
     incident_affected: false,
-    decision: { status: "no_notable_change", priority: "none", headline_code: "device_no_notable_change", coverage_label_codes: [] },
     manufacturer: "IKEA",
     model: "TS011F",
     battery: 62,
@@ -78,7 +77,6 @@ describe("DevicesPage decision inventory", () => {
           headline_code: "stale_last_seen",
           coverage_label_codes: [],
         },
-    decision: { status: "no_notable_change", priority: "none", headline_code: "device_no_notable_change", coverage_label_codes: [] },
       }),
       makeDevice({
         ieee_address: "0xrev",
@@ -90,14 +88,6 @@ describe("DevicesPage decision inventory", () => {
           headline_code: "current_issue_present",
           coverage_label_codes: ["availability_tracking_off", "ha_areas_not_linked"],
         },
-      }),
-      makeDevice({
-        ieee_address: "0xnull",
-        friendly_name: "Null Decision",
-        decision: null,
-        manufacturer: "Philips",
-        model: "Hue",
-        ha_area: "Office",
       }),
       makeDevice({
         ieee_address: "0xfuture",
@@ -117,7 +107,7 @@ describe("DevicesPage decision inventory", () => {
     expect(screen.getByRole("columnheader", { name: "Decision" })).toBeInTheDocument();
     expect(screen.getAllByText("Review first").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Watch").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Status unknown").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("Status unknown").length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
     expect(screen.queryByText("Legacy lens says unavailable")).not.toBeInTheDocument();
   });
@@ -133,13 +123,11 @@ describe("DevicesPage decision inventory", () => {
     fireEvent.change(decisionSelect, { target: { value: "review_first" } });
     expect(screen.getByText("Review Plug")).toBeInTheDocument();
     expect(screen.queryByText("Watch Sensor")).not.toBeInTheDocument();
-    expect(screen.queryByText("Null Decision")).not.toBeInTheDocument();
   });
 
   it("keeps unknown statuses visible under All decisions", () => {
     renderDevices();
     expect(screen.getByText("Future Status")).toBeInTheDocument();
-    expect(screen.getByText("Null Decision")).toBeInTheDocument();
     expect(screen.queryByText("future_status_v2")).not.toBeInTheDocument();
     expect(screen.queryByText("future_coverage_v2")).not.toBeInTheDocument();
     expect(screen.queryByText("availability_tracking_off")).not.toBeInTheDocument();
@@ -168,15 +156,6 @@ describe("DevicesPage decision inventory", () => {
     fireEvent.change(search, { target: { value: "Watch Sensor" } });
     expect(screen.getByText("Watch Sensor")).toBeInTheDocument();
     expect(screen.queryByText("Review Plug")).not.toBeInTheDocument();
-
-    fireEvent.change(search, { target: { value: "0xnull" } });
-    expect(screen.getByText("Null Decision")).toBeInTheDocument();
-
-    fireEvent.change(search, { target: { value: "philips" } });
-    expect(screen.getByText("Null Decision")).toBeInTheDocument();
-
-    fireEvent.change(search, { target: { value: "office" } });
-    expect(screen.getByText("Null Decision")).toBeInTheDocument();
   });
 
   it("orders rows by decision priority", () => {
@@ -188,9 +167,7 @@ describe("DevicesPage decision inventory", () => {
     expect(names[0]).toContain("Review Plug");
     expect(names[1]).toContain("Watch Sensor");
     const unknownIndex = names.findIndex((n) => n.includes("Future Status"));
-    const nullIndex = names.findIndex((n) => n.includes("Null Decision"));
     expect(unknownIndex).toBeGreaterThan(1);
-    expect(nullIndex).toBeGreaterThan(1);
   });
 
   it("links to device detail and mesh routes", () => {
@@ -203,14 +180,6 @@ describe("DevicesPage decision inventory", () => {
       "href",
       "/topology/home",
     );
-  });
-
-  it("remains usable when decision is null", () => {
-    mockState.devices = [makeDevice({ decision: null, friendly_name: "Only Null" })];
-    renderDevices();
-    expect(screen.getByText("Only Null")).toBeInTheDocument();
-    expect(screen.getByText("Status unknown")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "View device →" })).toBeInTheDocument();
   });
 
   it("does not hard-code decision status mappings in the page source", () => {

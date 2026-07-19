@@ -20,7 +20,6 @@ import {
 } from "@/viewModels/decisionCopy";
 import {
   buildDeviceDecisionBadgeViewModel,
-  unknownDeviceDecisionBadgeViewModel,
   type DeviceDecisionBadgeViewModel,
 } from "./deviceDecisionBadgeViewModel";
 
@@ -55,7 +54,7 @@ export interface DeviceRowViewModel {
   ieeeAddress: string;
   name: string;
   secondaryLabel: string;
-  decisionStatus: string | null;
+  decisionStatus: DecisionStatus;
   decision: DeviceDecisionBadgeViewModel;
   availability: Availability;
   availabilityLabel: string;
@@ -80,10 +79,6 @@ export interface DeviceInventorySummaryCounts {
   reviewFirst: number;
   worthReviewing: number;
   coverage: number;
-}
-
-function unknownDecisionBadge(): DeviceDecisionBadgeViewModel {
-  return unknownDeviceDecisionBadgeViewModel();
 }
 
 function coverageSummaryFromLabels(labels: string[]): string | null {
@@ -150,10 +145,7 @@ export function compareDevicesByDecision(
 }
 
 export function buildDeviceRowViewModel(device: DeviceSummary): DeviceRowViewModel {
-  const decision =
-    device.decision != null
-      ? buildDeviceDecisionBadgeViewModel(device.decision)
-      : unknownDecisionBadge();
+  const decision = buildDeviceDecisionBadgeViewModel(device.decision);
   const area = device.ha_area?.trim() || null;
 
   return {
@@ -162,13 +154,13 @@ export function buildDeviceRowViewModel(device: DeviceSummary): DeviceRowViewMod
     ieeeAddress: device.ieee_address,
     name: device.friendly_name,
     secondaryLabel: deviceTypeLabel(device.device_type),
-    decisionStatus: device.decision?.status ?? null,
+    decisionStatus: device.decision.status,
     decision,
     availability: device.availability,
     availabilityLabel: availabilityLabel(device.availability),
     availabilityTone: availabilityTone(device.availability),
     coverageSummary: coverageSummaryFromLabels(decision.coverageLabels),
-    hasCoverageLimitations: (device.decision?.coverage_label_codes.length ?? 0) > 0,
+    hasCoverageLimitations: device.decision.coverage_label_codes.length > 0,
     batterySummary: telemetrySummary("Battery", device.battery),
     lqiSummary: telemetrySummary("LQI", device.linkquality),
     lastSeenLabel: relativeTime(device.last_seen),

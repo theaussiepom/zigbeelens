@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import type {
   Availability,
   Confidence,
-  DeviceHealthPrimary,
   IncidentStatus,
   Severity,
 } from "@zigbeelens/shared";
@@ -10,8 +9,6 @@ import {
   availabilityLabel,
   confidenceLabel,
   formatTime,
-  healthLabel,
-  healthSeverity,
   lifecycleLabel,
   lifecycleSeverity,
   relativeTime,
@@ -93,11 +90,6 @@ export function SeverityBadge({ severity }: { severity: Severity }) {
       {severityLabel(severity)}
     </Badge>
   );
-}
-
-export function HealthBadge({ primary }: { primary: DeviceHealthPrimary }) {
-  /** Legacy helper — prefer DeviceDecisionBadge for diagnostic surfaces. */
-  return <Badge severity={healthSeverity(primary)}>{healthLabel(primary)}</Badge>;
 }
 
 export function ConfidenceBadge({ confidence }: { confidence: Confidence }) {

@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import type {
   DataCoverageWarningSummary,
   InvestigationPrioritySummary,
-  ReportDetail,
+  LegacyStoredReportBody,
+  ReportDetailV3,
   ReportDeviceStory,
 } from "@zigbeelens/shared";
 import { buildDeviceStoryViewModel } from "@/viewModels/topology/deviceStoryViewModel";
@@ -14,7 +15,7 @@ import {
   buildReportDecisionViewModel,
 } from "./reportDecisionViewModel";
 
-function baseReport(overrides: Partial<ReportDetail> = {}): ReportDetail {
+function baseReport(overrides: Partial<ReportDetailV3> = {}): ReportDetailV3 {
   return {
     id: "report-preview",
     product: "ZigbeeLens",
@@ -44,6 +45,9 @@ function baseReport(overrides: Partial<ReportDetail> = {}): ReportDetail {
     },
     config_summary: { mode: "mock" },
     collector_status: {},
+    investigation_priorities: [],
+    device_stories: [],
+    data_coverage_warnings: [],
     domain_details: {
       networks: [
         {
@@ -51,7 +55,7 @@ function baseReport(overrides: Partial<ReportDetail> = {}): ReportDetail {
           name: "Home",
           base_topic: "zigbee2mqtt/home",
         },
-      ] as NonNullable<ReportDetail["domain_details"]>["networks"],
+      ] as ReportDetailV3["domain_details"]["networks"],
       devices: [],
       device_details: [],
       router_risks: [],
@@ -67,7 +71,7 @@ function baseReport(overrides: Partial<ReportDetail> = {}): ReportDetail {
     },
     markdown_summary: "# ZigbeeLens Evidence Report",
     ...overrides,
-  } as ReportDetail;
+  } as ReportDetailV3;
 }
 
 function makeStory(overrides: Partial<ReportDeviceStory> = {}): ReportDeviceStory {
@@ -141,9 +145,12 @@ describe("reportDecisionViewModel", () => {
     const report = baseReport({
       device_stories: [story],
       decision_summary: {
-        device_story_count: 1,
+        subject_count: 1,
+        overall_status: "watch",
+        highest_priority: "low",
         status_counts: { watch: 1 },
         priority_counts: { low: 1 },
+        coverage_warning_count: 0,
       },
     });
     const vm = buildReportDecisionViewModel(report);
@@ -206,13 +213,16 @@ describe("reportDecisionViewModel", () => {
   it("maps decision summary counts with human labels and stable ordering", () => {
     const report = baseReport({
       decision_summary: {
-        device_story_count: 4,
+        subject_count: 4,
+        overall_status: "review_first",
+        highest_priority: "high",
         status_counts: {
           informational: 1,
           review_first: 2,
           future_status_code: 1,
         },
-        priority_counts: {},
+        priority_counts: { high: 4 },
+        coverage_warning_count: 0,
       },
       device_stories: [
         makeStory({ status: "review_first", friendly_name: "A" }),
@@ -234,7 +244,7 @@ describe("reportDecisionViewModel", () => {
   });
 
   it("marks version 1 reports as legacy without reinterpreting decision sections", () => {
-    const report = baseReport({
+    const report: LegacyStoredReportBody = {
       report_version: 1,
       summary: {
         overall_state: "incident",
@@ -249,11 +259,9 @@ describe("reportDecisionViewModel", () => {
         weak_links: 0,
         low_battery_devices: 0,
       },
-      decision_summary: null,
-      device_stories: [],
-      investigation_priorities: [],
-      data_coverage_warnings: [],
-    });
+      markdown_summary: "# ZigbeeLens\n\nGenerated: 2026-06-14",
+      scope: "full",
+    };
     const vm = buildReportDecisionViewModel(report);
 
     expect(vm.isLegacyFormat).toBe(true);
@@ -266,9 +274,12 @@ describe("reportDecisionViewModel", () => {
   });
 
   it("marks stored v2 reports as legacy even when decision sections exist", () => {
-    const report = baseReport({
+    const report: LegacyStoredReportBody = {
       report_version: 2,
-    });
+      markdown_summary: "# ZigbeeLens Evidence Report",
+      scope: "full",
+      device_stories: [makeStory()],
+    };
     const vm = buildReportDecisionViewModel(report);
     expect(vm.isLegacyFormat).toBe(true);
     expect(vm.legacyNotice).toBe(REPORT_LEGACY_NOTICE);
@@ -295,9 +306,12 @@ describe("reportDecisionViewModel", () => {
         }),
       ],
       decision_summary: {
-        device_story_count: 3,
+        subject_count: 3,
+        overall_status: "review_first",
+        highest_priority: "high",
         status_counts: { review_first: 2, informational: 1 },
-        priority_counts: {},
+        priority_counts: { high: 3 },
+        coverage_warning_count: 0,
       },
     });
     const vm = buildReportDecisionViewModel(report);
@@ -320,7 +334,7 @@ describe("reportDecisionViewModel", () => {
       domain_details: {
         networks: [
           { id: "home", name: "Home From Report", base_topic: "zigbee2mqtt/home" },
-        ] as NonNullable<ReportDetail["domain_details"]>["networks"],
+        ] as ReportDetailV3["domain_details"]["networks"],
         devices: [],
         device_details: [],
         router_risks: [],
@@ -353,7 +367,7 @@ describe("reportDecisionViewModel", () => {
       domain_details: {
         networks: [
           { id: "network_001", name: "network_001", base_topic: "topic_001" },
-        ] as NonNullable<ReportDetail["domain_details"]>["networks"],
+        ] as ReportDetailV3["domain_details"]["networks"],
         devices: [],
         device_details: [],
         router_risks: [],

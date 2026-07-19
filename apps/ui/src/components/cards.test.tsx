@@ -1,23 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import type { DeviceSummary, DiagnosticConclusion, Incident } from "@zigbeelens/shared";
-import { CurrentFindingCard, DeviceHealthCard, IncidentCard } from "./cards";
+import type { DeviceSummary, Incident } from "@zigbeelens/shared";
+import { DeviceDecisionCard, IncidentCard } from "./cards";
 
 function wrap(node: React.ReactNode) {
   return render(<MemoryRouter>{node}</MemoryRouter>);
 }
-
-const finding: DiagnosticConclusion = {
-  classification: "correlated_device_unavailability",
-  severity: "incident",
-  scope: "mesh_segment",
-  confidence: "medium",
-  summary: "4 devices became unavailable on Home2 within 94 seconds.",
-  evidence: [{ id: "e1", kind: "availability", summary: "4 devices changed to offline" }],
-  counter_evidence: [],
-  limitations: [{ id: "l1", summary: "No topology snapshot is available" }],
-};
 
 const incident: Incident = {
   id: "inc-1",
@@ -38,7 +27,16 @@ const incident: Incident = {
   counter_evidence: [],
   limitations: [{ id: "l1", summary: "No topology snapshot is available" }],
   timeline: [],
-  conclusion: finding,
+  conclusion: {
+    classification: "correlated_device_unavailability",
+    severity: "incident",
+    scope: "mesh_segment",
+    confidence: "medium",
+    summary: "4 devices became unavailable on Home2 within 94 seconds.",
+    evidence: [{ id: "e1", kind: "availability", summary: "4 devices changed to offline" }],
+    counter_evidence: [],
+    limitations: [{ id: "l1", summary: "No topology snapshot is available" }],
+  },
 };
 
 function device(overrides: Partial<DeviceSummary> = {}): DeviceSummary {
@@ -51,23 +49,15 @@ function device(overrides: Partial<DeviceSummary> = {}): DeviceSummary {
     availability: "offline",
     interview_state: "successful",
     incident_affected: true,
-    decision: { status: "no_notable_change", priority: "none", headline_code: "device_no_notable_change", coverage_label_codes: [] },
+    decision: {
+      status: "no_notable_change",
+      priority: "none",
+      headline_code: "device_no_notable_change",
+      coverage_label_codes: [],
+    },
     ...overrides,
   };
 }
-
-describe("CurrentFindingCard", () => {
-  it("shows the summary, evidence, limitations, and incident link", () => {
-    wrap(<CurrentFindingCard finding={finding} incidentId="inc-1" />);
-    expect(screen.getByText(/4 devices became unavailable/)).toBeInTheDocument();
-    expect(screen.getByText("4 devices changed to offline")).toBeInTheDocument();
-    expect(screen.getByText("No topology snapshot is available")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /view incident detail/i })).toHaveAttribute(
-      "href",
-      "/incidents/inc-1",
-    );
-  });
-});
 
 describe("IncidentCard", () => {
   it("surfaces lifecycle, title, and affected count", () => {
@@ -81,7 +71,7 @@ describe("IncidentCard", () => {
 describe("DeviceDecisionCard", () => {
   it("flags incident-affected devices", () => {
     wrap(
-      <DeviceHealthCard
+      <DeviceDecisionCard
         device={device({
           decision: {
             status: "review_first",

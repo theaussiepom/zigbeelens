@@ -6,7 +6,8 @@ import { MemoryRouter } from "react-router-dom";
 import type {
   DataCoverageWarningSummary,
   InvestigationPrioritySummary,
-  ReportDetail,
+  LegacyStoredReportBody,
+  ReportDetailV3,
   ReportDeviceStory,
   ReportSummary,
 } from "@zigbeelens/shared";
@@ -181,7 +182,7 @@ function makeCoverageWarning(
   };
 }
 
-function makeLegacyReport(): ReportDetail {
+function makeLegacyReport(): LegacyStoredReportBody {
   return {
     id: "report-preview",
     product: "ZigbeeLens",
@@ -238,12 +239,27 @@ function makeLegacyReport(): ReportDetail {
   };
 }
 
-function makeDecisionReport(overrides: Partial<ReportDetail> = {}): ReportDetail {
+function makeDecisionReport(overrides: Partial<ReportDetailV3> = {}): ReportDetailV3 {
   const story = makeStory();
   return {
-    ...makeLegacyReport(),
+    id: "report-preview",
+    product: "ZigbeeLens",
     report_version: 3,
-    summary: null,
+    generated_at: "2026-06-14T15:30:00+00:00",
+    version: "0.1.0",
+    scope: "full",
+    format: "json",
+    redaction: {
+      applied: true,
+      profile: "standard",
+      mqtt_credentials: true,
+      secrets: true,
+      hostnames: false,
+      ip_addresses: false,
+      ieee_addresses_hashed: true,
+      friendly_names: "preserved",
+      network_names: "preserved",
+    },
     decision_summary: {
       subject_count: 1,
       overall_status: "watch",
@@ -255,16 +271,20 @@ function makeDecisionReport(overrides: Partial<ReportDetail> = {}): ReportDetail
     investigation_priorities: [makePriority()],
     device_stories: [story],
     data_coverage_warnings: [makeCoverageWarning()],
+    config_summary: {},
+    collector_status: {},
     domain_details: {
       networks: [
         { id: "home", name: "Home", base_topic: "zigbee2mqtt/home" },
-      ] as NonNullable<ReportDetail["domain_details"]>["networks"],
+      ] as ReportDetailV3["domain_details"]["networks"],
       devices: [],
       device_details: [],
       router_risks: [],
       topology_snapshot_count: 0,
     },
-    networks: [],
+    incidents: [],
+    events_or_timeline: [],
+    limitations: [],
     raw_counts: { events_included: 0, devices_included: 1, incidents_included: 0 },
     markdown_summary: "# ZigbeeLens Evidence Report\n\nGenerated: 2026-06-14",
     ...overrides,

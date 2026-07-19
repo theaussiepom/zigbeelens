@@ -1,7 +1,6 @@
 import type {
   Availability,
   Confidence,
-  DeviceHealthPrimary,
   DeviceSummary,
   DeviceType,
   Incident,
@@ -117,11 +116,6 @@ export function lifecycleSeverity(status: IncidentStatus): Severity {
   }
 }
 
-export function healthLabel(h: DeviceHealthPrimary): string {
-  if (h === "unknown") return "No health signal";
-  return titleCase(h.replace(/_/g, " "));
-}
-
 /** Human label for a Zigbee device type; disambiguates the "Unknown" case. */
 export function deviceTypeLabel(t: DeviceType | string): string {
   switch (t) {
@@ -173,26 +167,6 @@ export function bridgeStateLabel(state: string): string {
       return "No bridge signal";
   }
 }
-
-/** Map a device health primary to a severity for consistent colouring. */
-export function healthSeverity(h: DeviceHealthPrimary): Severity {
-  switch (h) {
-    case "healthy":
-      return "healthy";
-    case "unavailable":
-      return "incident";
-    case "router_risk":
-    case "recently_unstable":
-    case "interview_issue":
-    case "stale_reporting":
-    case "weak_link":
-    case "low_battery":
-      return "watch";
-    default:
-      return "watch";
-  }
-}
-
 
 export function availabilityLabel(a: Availability): string {
   switch (a) {
@@ -258,25 +232,9 @@ export function severityRank(severity: Severity): number {
 }
 
 /**
- * Bad-first ordering rank for a device primary health.
+ * Bad-first ordering rank for a device decision status.
  * Mirrors the Phase 5 device list ordering specification.
  */
-export function healthRank(primary: DeviceHealthPrimary): number {
-  const order: Record<DeviceHealthPrimary, number> = {
-    unavailable: 1,
-    router_risk: 2,
-    recently_unstable: 3,
-    interview_issue: 4,
-    stale_reporting: 5,
-    weak_link: 6,
-    low_battery: 7,
-    unknown: 8,
-    healthy: 9,
-  };
-  return order[primary] ?? 8;
-}
-
-/** Comparator implementing bad-first device ordering. */
 const DECISION_STATUS_RANK: Record<string, number> = {
   review_first: 0,
   worth_reviewing: 1,

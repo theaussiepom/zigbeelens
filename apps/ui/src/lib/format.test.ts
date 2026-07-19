@@ -4,7 +4,6 @@ import {
   compareDevices,
   compareIncidents,
   compareRouterRisks,
-  healthRank,
   lifecycleSeverity,
   relativeTime,
   scopeLabel,
@@ -22,7 +21,12 @@ function device(overrides: Partial<DeviceSummary> = {}): DeviceSummary {
     availability: "online",
     interview_state: "successful",
     incident_affected: false,
-    decision: { status: "no_notable_change", priority: "none", headline_code: "device_no_notable_change", coverage_label_codes: [] },
+    decision: {
+      status: "no_notable_change",
+      priority: "none",
+      headline_code: "device_no_notable_change",
+      coverage_label_codes: [],
+    },
     ...overrides,
   };
 }
@@ -40,13 +44,6 @@ describe("severity helpers", () => {
   });
 });
 
-describe("healthRank", () => {
-  it("places unavailable before healthy", () => {
-    expect(healthRank("unavailable")).toBeLessThan(healthRank("healthy"));
-    expect(healthRank("router_risk")).toBeLessThan(healthRank("low_battery"));
-  });
-});
-
 describe("compareDevices bad-first ordering", () => {
   it("puts incident-affected devices first", () => {
     const list = [
@@ -57,12 +54,25 @@ describe("compareDevices bad-first ordering", () => {
     expect(sorted[0].friendly_name).toBe("in-incident");
   });
 
-  it("orders by health rank when incident state is equal", () => {
+  it("orders by decision status when incident state is equal", () => {
     const list = [
-      device({ friendly_name: "ok", health: { ...device().health } }),
+      device({
+        friendly_name: "ok",
+        decision: {
+          status: "no_notable_change",
+          priority: "none",
+          headline_code: "device_no_notable_change",
+          coverage_label_codes: [],
+        },
+      }),
       device({
         friendly_name: "offline",
-    decision: { status: "no_notable_change", priority: "none", headline_code: "device_no_notable_change", coverage_label_codes: [] },
+        decision: {
+          status: "review_first",
+          priority: "high",
+          headline_code: "current_issue_present",
+          coverage_label_codes: [],
+        },
       }),
     ];
     const sorted = [...list].sort(compareDevices);

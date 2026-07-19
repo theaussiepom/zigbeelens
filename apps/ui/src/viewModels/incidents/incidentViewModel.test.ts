@@ -93,12 +93,7 @@ describe("incidentViewModel", () => {
     expect(item.decision.headline).not.toContain("lens");
   });
 
-  it("uses safe unknown for null decision and unknown future codes", () => {
-    const missing = buildIncidentDeviceDecisionViewModel(makeRef({ decision: null }));
-    expect(missing.decision.statusLabel).toBe("Status unknown");
-    expect(missing.decision.headline).toBe("Device story summary unavailable.");
-    expect(missing.decisionStatus).toBeNull();
-
+  it("uses safe unknown copy for unknown future codes", () => {
     const future = buildIncidentDeviceDecisionViewModel(
       makeRef({
         decision: {
@@ -129,7 +124,15 @@ describe("incidentViewModel", () => {
       }),
     );
     const c = buildIncidentDeviceDecisionViewModel(
-      makeRef({ ieee_address: "0xa3", decision: null }),
+      makeRef({
+        ieee_address: "0xa3",
+        decision: {
+          status: "future_status_v2",
+          priority: "high",
+          headline_code: "x",
+          coverage_label_codes: [],
+        },
+      }),
     );
     expect(buildCurrentDecisionSummary([a, b, a])).toContain("Review first");
     expect(buildCurrentDecisionSummary([a, b, a])).toContain("Worth reviewing");

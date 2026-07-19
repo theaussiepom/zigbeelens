@@ -27,13 +27,29 @@ import type {
 } from "@/types/devices";
 import type { DataCoverageDto } from "@/types/decisions";
 import type { Incident } from "@/types/incidents";
-import type { ReportDetail, ReportRequest, ReportSummary } from "@/types/reports";
+import type {
+  ReportDetailV3,
+  ReportRequest,
+  ReportSummary,
+  StoredReport,
+} from "@/types/reports";
 import type {
   SnapshotCompareDetail,
   TopologyEvidenceGraphDetail,
   TopologyNetworkDetail,
   TopologyOverview,
 } from "@/types/topology";
+import {
+  parseDeviceDetail,
+  parseIncident,
+  parseNetworkSummary,
+  parseStoredReport,
+  validateDashboardPayload,
+  validateDeviceSummaries,
+  validateIncidents,
+  validateNetworkSummaries,
+  validateReportDetailV3,
+} from "@/lib/decisionContract";
 
 export type { RequestIntent };
 
@@ -572,15 +588,26 @@ export const api = {
   configStatus: (scenario?: string) =>
     fetchJson<ZigbeeLensConfigStatus>("api/config/status", { scenario }),
   scenarios: () => fetchJson<Array<{ id: string; label: string }>>("api/scenarios"),
-  dashboard: (scenario?: string) => fetchJson<DashboardPayload>("api/dashboard", { scenario }),
+  dashboard: (scenario?: string) =>
+    fetchJson<DashboardPayload>("api/dashboard", { scenario }).then(validateDashboardPayload),
   networks: (scenario?: string) =>
-    fetchJson<Paginated<NetworkSummary>>("api/networks", { scenario }),
+    fetchJson<Paginated<NetworkSummary>>("api/networks", { scenario }).then((page) => ({
+      ...page,
+      items: validateNetworkSummaries(page.items),
+    })),
   network: (id: string, scenario?: string) =>
-    fetchJson<NetworkSummary>(`api/networks/${id}`, { scenario }),
+    fetchJson<NetworkSummary>(`api/networks/${id}`, { scenario }).then(parseNetworkSummary),
   devices: (scenario?: string, networkId?: string) =>
-    fetchJson<Paginated<DeviceSummary>>("api/devices", { scenario, network_id: networkId }),
+    fetchJson<Paginated<DeviceSummary>>("api/devices", { scenario, network_id: networkId }).then(
+      (page) => ({
+        ...page,
+        items: validateDeviceSummaries(page.items),
+      }),
+    ),
   device: (networkId: string, ieee: string, scenario?: string) =>
-    fetchJson<DeviceDetail>(`api/devices/${networkId}/${encodeURIComponent(ieee)}`, { scenario }),
+    fetchJson<DeviceDetail>(`api/devices/${networkId}/${encodeURIComponent(ieee)}`, {
+      scenario,
+    }).then(parseDeviceDetail),
   deviceStory: (
     networkId: string,
     ieee: string,
@@ -604,13 +631,18 @@ export const api = {
       device_ieee: query.device_ieee,
       limit: query.limit,
       cursor: query.cursor,
-    }),
+    }).then((page) => ({
+      ...page,
+      items: validateIncidents(page.items),
+    })),
   incident: (id: string, scenario?: string) =>
-    fetchJson<Incident>(`api/incidents/${id}`, { scenario }),
+    fetchJson<Incident>(`api/incidents/${id}`, { scenario }).then(parseIncident),
   timeline: (scenario?: string, networkId?: string) =>
     fetchJson<Paginated<TimelineEvent>>("api/timeline", { scenario, network_id: networkId }),
   previewReport: (request: ReportRequest, scenario?: string) =>
-    fetchJson<ReportDetail>("api/reports/preview", reportParams(request, scenario)),
+    fetchJson<ReportDetailV3>("api/reports/preview", reportParams(request, scenario)).then(
+      validateReportDetailV3,
+    ),
   createReport: (request: ReportRequest, scenario?: string) =>
     fetchJson<ReportSummary>(
       "api/reports",
@@ -623,7 +655,7 @@ export const api = {
     ),
   listReports: () => fetchJson<ReportSummary[]>("api/reports"),
   report: (id: string, scenario?: string) =>
-    fetchJson<ReportDetail>(`api/reports/${id}`, { scenario }),
+    fetchJson<StoredReport>(`api/reports/${id}`, { scenario }).then(parseStoredReport),
   deleteReport: (id: string) =>
     fetchJson<{ deleted: boolean }>(`api/reports/${id}`, {}, { method: "DELETE" }),
   topology: () => fetchJson<TopologyOverview>("api/topology"),
@@ -671,7 +703,14 @@ export type {
   DeviceStoryTimelineItemDto,
 } from "@/types/devices";
 export type { Incident } from "@/types/incidents";
-export type { ReportDetail, ReportRequest, ReportSummary } from "@/types/reports";
+export type {
+  LegacyStoredReportBody,
+  ReportDetail,
+  ReportDetailV3,
+  ReportRequest,
+  ReportSummary,
+  StoredReport,
+} from "@/types/reports";
 export type {
   HistoricalEdgeAggregate,
   InvestigationCard,

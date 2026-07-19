@@ -30,7 +30,7 @@ import {
   filterDeviceInventoryRows,
   type DeviceRowViewModel,
 } from "@/viewModels/devices/deviceRowViewModel";
-import { buildDeviceDecisionBadgeViewModelOrUnknown } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
+import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
 
 const DEVICE_EVENTS = [
   "device_health_updated",
@@ -328,7 +328,7 @@ export function DeviceDetailPage() {
   if (detail.loading || !detail.data) return <LoadingState />;
   const device = detail.data;
   const related = incidents.data ?? [];
-  const decision = buildDeviceDecisionBadgeViewModelOrUnknown(device.decision);
+  const decision = buildDeviceDecisionBadgeViewModel(device.decision);
 
   return (
     <div className="max-w-4xl space-y-6">

@@ -4,6 +4,7 @@ import type {
   Incident,
   InvestigationPrioritySummary,
 } from "@zigbeelens/shared";
+import { makeDashboardPayload, makeNetworkSummary } from "@/test/decisionFixtures";
 import {
   MAX_OVERVIEW_RECENT_CHANGES,
   RECENT_CHANGES_FIRST_VISIT_COPY,
@@ -13,38 +14,11 @@ import {
 } from "./recentChangesViewModel";
 
 function makeDashboard(overrides: Partial<DashboardPayload> = {}): DashboardPayload {
-  return {
+  return makeDashboardPayload({
     generated_at: "2026-07-14T12:00:00+00:00",
-    current_finding: {
-      classification: "healthy",
-      severity: "healthy",
-      scope: "network",
-      confidence: "high",
-      summary: "No notable issues right now.",
-      evidence: [],
-      counter_evidence: [],
-      limitations: [],
-    },
-    active_incident_count: 0,
-    watching_incident_count: 0,
-    networks: [{ id: "home", name: "Home" } as DashboardPayload["networks"][number]],
-    router_risks: [],
-    recent_timeline: [],
-    health_snapshot: {
-      timestamp: "2026-07-14T12:00:00+00:00",
-      overall_health: "healthy",
-      network_count: 1,
-      device_count: 0,
-      unavailable_count: 0,
-      incident_count: 0,
-      networks: [],
-    },
-    shared_availability_events: [],
-    model_patterns: [],
-    investigation_priorities: [],
-    data_coverage_warnings: [],
+    networks: [makeNetworkSummary({ id: "home", name: "Home" })],
     ...overrides,
-  };
+  });
 }
 
 function makePriority(

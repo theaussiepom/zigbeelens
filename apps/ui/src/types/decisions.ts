@@ -1,21 +1,24 @@
 /**
  * API DTO types for the shared decision engine.
  *
- * These mirror backend `zigbeelens.decisions` models. Screens should prefer
- * ViewModels built from these DTOs rather than interpreting raw fields.
+ * Canonical unions live in @zigbeelens/shared. This module re-exports them and
+ * adds UI-only DTO shapes that are not part of the compact public contract.
  */
 
-export type DecisionStatus =
-  | "informational"
-  | "no_notable_change"
-  | "changed"
-  | "watch"
-  | "worth_reviewing"
-  | "review_first"
-  | "improve_data_coverage"
-  | "data_unavailable";
+import type {
+  CoverageLabelCode,
+  DecisionPriority,
+  DecisionStatus,
+} from "@zigbeelens/shared";
 
-export type DecisionPriority = "none" | "low" | "medium" | "high";
+export type {
+  CoverageLabelCode,
+  DecisionBadge,
+  DecisionCountSummary,
+  DecisionPriority,
+  DecisionStatus,
+  DeviceDecisionBadge,
+} from "@zigbeelens/shared";
 
 export type CoverageDimension =
   | "availability"
@@ -40,27 +43,6 @@ export type CoverageState =
   | "not_configured"
   | "not_observed"
   | "sparse";
-
-export type CoverageLabelCode =
-  | "availability_tracking_off"
-  | "availability_history_building"
-  | "availability_status_unknown"
-  | "availability_available"
-  | "route_hints_unavailable"
-  | "ha_areas_not_linked"
-  | "snapshot_stale"
-  | "battery_history_sparse"
-  | "battery_history_available"
-  | "lqi_history_sparse"
-  | "lqi_history_available"
-  | "last_seen_available"
-  | "last_seen_unknown"
-  | "last_payload_available"
-  | "last_payload_unknown"
-  | "topology_history_available"
-  | "topology_history_sparse"
-  | "topology_history_not_observed"
-  | "ha_area_linked";
 
 export interface EvidenceFactDto {
   code: string;

@@ -370,7 +370,9 @@ export function ReportsPage() {
   async function copyStored(id: string) {
     const accessGeneration = authRuntime.getAccessGeneration();
     const detail = await api.report(id, scen);
-    await writeProtectedClipboardText(detail.markdown_summary, accessGeneration);
+    const markdown =
+      typeof detail.markdown_summary === "string" ? detail.markdown_summary : "";
+    await writeProtectedClipboardText(markdown, accessGeneration);
     flash("Stored report markdown copied.");
   }
 
@@ -879,7 +881,7 @@ function ReportDeviceStoryPreview({
   );
 }
 
-function RedactionSummary({ report }: { report: import("@zigbeelens/shared").ReportDetail }) {
+function RedactionSummary({ report }: { report: import("@zigbeelens/shared").ReportDetailV3 }) {
   const r = report.redaction;
   const rows: [string, string][] = [
     ["Profile", r.profile],

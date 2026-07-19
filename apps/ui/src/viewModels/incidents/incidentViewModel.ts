@@ -17,7 +17,7 @@ import {
   severityLabel,
 } from "@/lib/format";
 import {
-  buildDeviceDecisionBadgeViewModelOrUnknown,
+  buildDeviceDecisionBadgeViewModel,
   type DeviceDecisionBadgeViewModel,
 } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
 import { decisionStatusLabel } from "@/viewModels/decisionCopy";
@@ -29,8 +29,8 @@ export interface IncidentDeviceDecisionViewModel {
   ieeeAddress: string;
   deviceHref: string;
   decision: DeviceDecisionBadgeViewModel;
-  /** Raw decision status when present; null when decision is missing. */
-  decisionStatus: string | null;
+  /** Raw decision status from the validated Core contract. */
+  decisionStatus: string;
 }
 
 export interface IncidentRecordViewModel {
@@ -70,23 +70,22 @@ const LIFECYCLE_ORDER: Record<IncidentStatus, number> = {
   resolved: 2,
 };
 
-/** True when the ViewModel used the unknown/safe fallback (no decision). */
-function isUnknownDecision(item: IncidentDeviceDecisionViewModel): boolean {
-  return item.decisionStatus == null;
+/** True when copy mapping could not resolve a known decision status. */
+function isUnknownDecisionStatus(status: string): boolean {
+  return decisionStatusLabel(status) === "Status unknown";
 }
 
 export function buildIncidentDeviceDecisionViewModel(
   ref: IncidentDeviceRef,
 ): IncidentDeviceDecisionViewModel {
-  const hasDecision = ref.decision != null;
   return {
     key: `${ref.network_id}:${ref.ieee_address}`,
     name: ref.friendly_name,
     networkId: ref.network_id,
     ieeeAddress: ref.ieee_address,
     deviceHref: devicePath(ref.network_id, ref.ieee_address),
-    decision: buildDeviceDecisionBadgeViewModelOrUnknown(ref.decision),
-    decisionStatus: hasDecision ? ref.decision!.status : null,
+    decision: buildDeviceDecisionBadgeViewModel(ref.decision),
+    decisionStatus: ref.decision.status,
   };
 }
 
@@ -95,14 +94,14 @@ export function buildCurrentDecisionSummary(
 ): string | null {
   if (items.length === 0) return null;
 
-  const known = items.filter((item) => !isUnknownDecision(item));
+  const known = items.filter((item) => !isUnknownDecisionStatus(item.decisionStatus));
   if (known.length === 0) {
     return "Current device decisions unavailable";
   }
 
   const counts = new Map<string, number>();
   for (const item of known) {
-    const label = decisionStatusLabel(item.decisionStatus!);
+    const label = decisionStatusLabel(item.decisionStatus);
     if (label === "Status unknown") continue;
     counts.set(label, (counts.get(label) ?? 0) + 1);
   }

@@ -203,7 +203,7 @@ describe("DeviceDetailPage decision authority", () => {
     expect(within(story).getByText(/Availability tracking off/i)).toBeInTheDocument();
   });
 
-  it("uses safe unknown copy for data_unavailable and unknown future status", () => {
+  it("renders data_unavailable through canonical decision copy", () => {
     mockState.detail = makeDetail({
       decision: {
         status: "data_unavailable",
@@ -212,10 +212,11 @@ describe("DeviceDetailPage decision authority", () => {
         coverage_label_codes: [],
       },
     });
-    const { unmount } = renderDetail();
+    renderDetail();
     expect(screen.getByText("Data unavailable")).toBeInTheDocument();
-    unmount();
+  });
 
+  it("uses safe unknown copy for unknown future status", () => {
     mockState.detail = makeDetail({
       decision: {
         status: "future_status_v2",
