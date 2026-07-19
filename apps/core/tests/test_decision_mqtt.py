@@ -81,4 +81,15 @@ def test_unobservable_estate_uses_unknown_counts():
     assert by_key["decision_status"].state == "data_unavailable"
     assert by_key["review_first"].state == "unknown"
     assert by_key["unavailable"].state == "unknown"
-    assert by_key["decision_status"].attributes["observation_reliable"] is False
+    attrs = by_key["decision_status"].attributes
+    assert attrs["observation_reliable"] is False
+    # Stale decision/count attributes must be omitted while unobservable.
+    for key in (
+        "highest_priority",
+        "status_counts",
+        "priority_counts",
+        "coverage_warning_count",
+        "active_incident_count",
+        "unavailable_device_count",
+    ):
+        assert key not in attrs

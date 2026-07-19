@@ -216,6 +216,42 @@ def test_legacy_discovery_topics_documented():
     assert "homeassistant/sensor/zigbeelens/health/config" in SUPERSEDED_LENS_DISCOVERY_TOPICS
 
 
+def test_custom_discovery_prefix_tombstones_superseded_lens(tmp_path: Path):
+    from zigbeelens.app.context import bootstrap, reset_context
+    from zigbeelens.mqtt_discovery.topics import (
+        SUPERSEDED_LENS_DISCOVERY_ENTITY_KEYS,
+        superseded_lens_discovery_topics,
+    )
+
+    db_path = tmp_path / "custom-prefix.sqlite"
+    config = _config(db_path, discovery=True)
+    config.mqtt_discovery.topic_prefix = "ha_custom"
+    reset_context()
+    ctx = bootstrap(config=config)
+    publisher = FakeDiscoveryPublisher(config=config)
+    service = MqttDiscoveryService(ctx, publisher=publisher)
+    service.start()
+
+    topics = [record.topic for record in publisher.published]
+    expected = superseded_lens_discovery_topics("ha_custom")
+    assert len(expected) == len(SUPERSEDED_LENS_DISCOVERY_ENTITY_KEYS)
+    for topic in expected:
+        assert topic in topics
+        assert topic.startswith("ha_custom/")
+        retained_empty = [
+            r for r in publisher.published if r.topic == topic and r.payload == "" and r.retain
+        ]
+        assert retained_empty
+    # Default-prefix superseded topics must not be the only cleanup path.
+    assert "homeassistant/sensor/zigbeelens/health/config" not in topics
+    # Current decision entities remain under the configured prefix.
+    assert "ha_custom/sensor/zigbeelens/decision_status/config" in topics
+    assert not any("/bridge/request/" in t for t in topics)
+    assert not any(t.endswith("/set") for t in topics)
+    service.stop()
+    reset_context()
+
+
 def test_disabled_discovery_publishes_nothing(tmp_path: Path):
     db_path = tmp_path / "disabled.sqlite"
     config = _config(db_path, discovery=False)

@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from zigbeelens.decisions.types import DecisionStatus
 from zigbeelens.schemas import DashboardPayload
 from zigbeelens.storage.repository import utc_now_iso
 
@@ -38,10 +39,14 @@ def count_state(value: int | str | None, *, observable: bool) -> str:
 
 def _status_count(dashboard: DashboardPayload, status: str) -> int:
     counts = dashboard.decision_summary.status_counts or {}
-    try:
-        return int(counts.get(status, 0))
-    except (TypeError, ValueError):
-        return 0
+    # Accept enum keys or string keys.
+    for key, value in counts.items():
+        if str(key) == status:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return 0
+    return 0
 
 
 def build_summary_entities(
@@ -56,33 +61,37 @@ def build_summary_entities(
     overall = (
         str(summary.overall_status)
         if observable
-        else "data_unavailable"
+        else DecisionStatus.data_unavailable.value
     )
     generated_at = utc_now_iso()
     coverage = int(summary.coverage_warning_count or 0)
     if coverage == 0 and dashboard.data_coverage_warnings:
         coverage = len(dashboard.data_coverage_warnings)
 
-    base_attrs = {
+    base_attrs: dict[str, Any] = {
         "product": PRODUCT,
         "version": core_version,
         "decision_contract_version": 2,
         "overall_decision_status": overall,
-        "highest_priority": str(summary.highest_priority),
-        "status_counts": dict(summary.status_counts or {}),
-        "priority_counts": dict(summary.priority_counts or {}),
-        "coverage_warning_count": coverage if observable else "unknown",
-        "active_incident_count": (
-            int(dashboard.active_incident_count) if observable else "unknown"
-        ),
-        "unavailable_device_count": (
-            int(dashboard.unavailable_device_count) if observable else "unknown"
-        ),
         "generated_at": generated_at,
         "collector_connected": collector_connected,
         "observation_reliable": observable,
         "redaction_profile": REDACTION_PROFILE,
     }
+    if observable:
+        base_attrs.update(
+            {
+                "highest_priority": str(summary.highest_priority),
+                "status_counts": {str(k): int(v) for k, v in (summary.status_counts or {}).items()},
+                "priority_counts": {
+                    str(k): int(v) for k, v in (summary.priority_counts or {}).items()
+                },
+                "coverage_warning_count": coverage,
+                "active_incident_count": int(dashboard.active_incident_count),
+                "unavailable_device_count": int(dashboard.unavailable_device_count),
+            }
+        )
+    # Unobservable: omit stale current-decision numeric attributes.
 
     return [
         SummaryEntityState(

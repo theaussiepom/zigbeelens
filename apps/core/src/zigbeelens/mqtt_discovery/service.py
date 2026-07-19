@@ -19,7 +19,6 @@ from zigbeelens.mqtt_discovery.payloads import (
 from zigbeelens.mqtt_discovery.publisher import FakeDiscoveryPublisher, SafeMqttPublisher
 from zigbeelens.mqtt_discovery.topics import (
     LEGACY_DISCOVERY_TOPICS,
-    SUPERSEDED_LENS_DISCOVERY_TOPICS,
     availability_topic,
     summary_attributes_topic,
     summary_state_topic,
@@ -160,7 +159,12 @@ class MqttDiscoveryService:
 
     def _tombstone_superseded_lens_configs(self) -> None:
         """Retained-empty tombstones for superseded Lens nested discovery configs."""
-        for topic in SUPERSEDED_LENS_DISCOVERY_TOPICS:
+        from zigbeelens.mqtt_discovery.topics import superseded_lens_discovery_topics
+
+        topics = superseded_lens_discovery_topics(
+            self._config.mqtt_discovery.topic_prefix
+        )
+        for topic in topics:
             try:
                 self._publisher.delete_retained(topic)
             except Exception:

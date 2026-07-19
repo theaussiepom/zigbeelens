@@ -20,7 +20,12 @@ def sanitize_object_id(value: str) -> str:
     return cleaned or "unknown"
 
 
-def validate_publish_topic(topic: str, *, zigbee_base_topics: tuple[str, ...] = ()) -> None:
+def validate_publish_topic(
+    topic: str,
+    *,
+    zigbee_base_topics: tuple[str, ...] = (),
+    discovery_topic_prefix: str | None = None,
+) -> None:
     """Reject topics that could mutate Zigbee2MQTT or use wildcards."""
     if not topic or not topic.strip():
         raise UnsafeMqttTopicError("Topic must not be empty")
@@ -38,9 +43,15 @@ def validate_publish_topic(topic: str, *, zigbee_base_topics: tuple[str, ...] = 
             continue
         if normalized == base or normalized.startswith(f"{base}/"):
             raise UnsafeMqttTopicError("Publishing under Zigbee2MQTT base topics is not allowed")
-    allowed_prefixes = ("homeassistant/", f"{PRODUCT}/")
-    if not any(normalized.startswith(prefix) for prefix in allowed_prefixes):
-        raise UnsafeMqttTopicError(f"Topic must be under homeassistant/ or {PRODUCT}/")
+    allowed = ["homeassistant/", f"{PRODUCT}/"]
+    if discovery_topic_prefix:
+        custom = discovery_topic_prefix.strip("/")
+        if custom:
+            allowed.append(f"{custom}/")
+    if not any(normalized.startswith(prefix) for prefix in allowed):
+        raise UnsafeMqttTopicError(
+            f"Topic must be under homeassistant/, {PRODUCT}/, or the configured discovery prefix"
+        )
 
 
 def discovery_config_topic(
@@ -69,14 +80,29 @@ def summary_attributes_topic(state_topic_prefix: str, entity_key: str) -> str:
     return f"{prefix}/summary/{entity_key}/attributes"
 
 
-# Superseded Track-4 Lens nested discovery config topics (tombstone on start).
+# Superseded Track-4 Lens nested discovery entity keys (tombstone on start).
+# Topics are built with the configured mqtt_discovery.topic_prefix.
 # Do not reuse these entity keys for different semantics.
-SUPERSEDED_LENS_DISCOVERY_TOPICS: tuple[str, ...] = (
-    "homeassistant/sensor/zigbeelens/health/config",
-    "homeassistant/sensor/zigbeelens/issues/config",
-    "homeassistant/sensor/zigbeelens/needs_attention/config",
-    "homeassistant/sensor/zigbeelens/recently_unstable/config",
-    "homeassistant/sensor/zigbeelens/diagnostics_limited/config",
+SUPERSEDED_LENS_DISCOVERY_ENTITY_KEYS: tuple[str, ...] = (
+    "health",
+    "issues",
+    "needs_attention",
+    "recently_unstable",
+    "diagnostics_limited",
+)
+
+
+def superseded_lens_discovery_topics(topic_prefix: str) -> tuple[str, ...]:
+    """Discovery config topics for superseded Lens entities under the active prefix."""
+    return tuple(
+        discovery_config_topic(topic_prefix, "sensor", key)
+        for key in SUPERSEDED_LENS_DISCOVERY_ENTITY_KEYS
+    )
+
+
+# Backward-compatible default-prefix constant for docs/tests that expect full topics.
+SUPERSEDED_LENS_DISCOVERY_TOPICS: tuple[str, ...] = superseded_lens_discovery_topics(
+    "homeassistant"
 )
 
 # Legacy discovery topics from the pre-clean flat MQTT model (for manual cleanup).
