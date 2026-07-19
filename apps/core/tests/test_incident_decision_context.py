@@ -258,7 +258,9 @@ def test_incidents_list_batch_composer_called_once_across_networks(tmp_path: Pat
     assert len(spy.call_args.args[1]) == 2
 
 
-def test_missing_historical_device_keeps_identity_with_null_decision(tmp_path: Path):
+def test_missing_historical_device_keeps_identity_with_data_unavailable_decision(
+    tmp_path: Path,
+):
     repo, config = _repo(tmp_path)
     _add_device(repo, "0xalive", availability="online")
     _insert_incident(repo, "inc-hist")
@@ -272,10 +274,11 @@ def test_missing_historical_device_keeps_identity_with_null_decision(tmp_path: P
     assert len(incident.affected_devices) == 2
     missing = next(d for d in incident.affected_devices if d.ieee_address == "0xmissing")
     alive = next(d for d in incident.affected_devices if d.ieee_address == "0xalive")
-    assert missing.decision is None
+    assert missing.decision.status == "data_unavailable"
     assert missing.network_id == "home"
     assert missing.friendly_name == "0xmissing"
     assert alive.decision is not None
+    assert alive.decision.status != "data_unavailable" or alive.decision.headline_code
 
 
 def test_incident_from_row_does_not_compose_decisions(tmp_path: Path):
@@ -382,7 +385,7 @@ def test_scenario_incident_affected_decisions_match_stories():
                 key = (ref.network_id, ref.ieee_address)
                 story = data.device_stories.get(key)
                 if story is None:
-                    assert ref.decision is None
+                    assert ref.decision.status == "data_unavailable"
                 else:
                     assert ref.decision == device_decision_badge_from_story(story)
 
@@ -396,7 +399,7 @@ def test_apply_incident_device_story_badges_projects_from_stories_only():
         for ref in incident.affected_devices:
             story = stories.get((ref.network_id, ref.ieee_address))
             if story is None:
-                assert ref.decision is None
+                assert ref.decision.status == "data_unavailable"
             else:
                 assert ref.decision == device_decision_badge_from_story(story)
 
@@ -483,10 +486,9 @@ def test_incident_api_shape_includes_decision_and_legacy_fields(mock_client: Tes
             "network_id",
             "ieee_address",
             "friendly_name",
-            "health_primary",
-            "lens_bucket",
-            "lens_bucket_label",
-            "lens_bucket_reason",
             "decision",
         ):
             assert key in ref
+        assert "health_primary" not in ref
+        assert "lens_bucket" not in ref
+        assert ref["decision"]["status"]

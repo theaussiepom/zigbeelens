@@ -246,7 +246,6 @@ def test_investigation_priorities_do_not_change_dashboard_severity_or_incident_c
 
     assert baseline.investigation_priorities == []
     assert with_priorities.investigation_priorities
-    assert with_priorities.overall_severity == baseline.overall_severity
-    assert with_priorities.current_finding == baseline.current_finding
+    assert with_priorities.decision_summary == baseline.decision_summary
     assert with_priorities.active_incident_count == baseline.active_incident_count
     assert with_priorities.watching_incident_count == baseline.watching_incident_count

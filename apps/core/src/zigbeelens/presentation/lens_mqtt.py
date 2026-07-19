@@ -1,4 +1,8 @@
-"""Lens-family MQTT summary presentation (no health-engine changes)."""
+"""Temporary Lens MQTT bridge until Track 5 Commit 5 decision MQTT lands.
+
+Maps DecisionCountSummary onto the existing Lens entity keys so discovery
+keeps compiling. Commit 5 replaces this module with decision_mqtt.py.
+"""
 
 from __future__ import annotations
 
@@ -6,41 +10,35 @@ from dataclasses import dataclass
 from typing import Any
 
 from zigbeelens.presentation.lens_buckets import BUCKET_LABELS, LensBucket
-from zigbeelens.schemas import DashboardPayload, Severity
+from zigbeelens.schemas import DashboardPayload
 from zigbeelens.storage.repository import utc_now_iso
 
 PRODUCT = "zigbeelens"
 REDACTION_PROFILE = "public_safe"
 
+_STATUS_TO_BUCKET = {
+    "review_first": LensBucket.needs_attention.value,
+    "worth_reviewing": LensBucket.needs_attention.value,
+    "improve_data_coverage": LensBucket.diagnostics_limited.value,
+    "watch": LensBucket.recently_unstable.value,
+    "changed": LensBucket.informational.value,
+    "informational": LensBucket.informational.value,
+    "no_notable_change": LensBucket.healthy.value,
+    "data_unavailable": LensBucket.unknown.value,
+}
 
-def severity_to_lens_bucket(severity: Severity | str | None) -> str:
-    if severity is None:
-        return LensBucket.unknown.value
-    raw = severity.value if isinstance(severity, Severity) else str(severity)
-    if raw in {"healthy", "ok"}:
-        return LensBucket.healthy.value
-    if raw == "watch":
-        return LensBucket.recently_unstable.value
-    if raw in {"incident", "critical"}:
-        return LensBucket.needs_attention.value
+
+def severity_to_lens_bucket(severity: Any) -> str:
+    """Compatibility shim — prefer decision status mapping."""
+    del severity
     return LensBucket.unknown.value
 
 
-def _iter_dashboard_devices(dashboard: DashboardPayload):
-    seen: set[tuple[str, str]] = set()
-    for collection in (
-        dashboard.top_affected_devices,
-        dashboard.recently_unstable,
-        dashboard.weak_links,
-        dashboard.low_batteries,
-        dashboard.stale_devices,
-    ):
-        for device in collection:
-            key = (device.network_id, device.ieee_address)
-            if key in seen:
-                continue
-            seen.add(key)
-            yield device
+def _status_counts(dashboard: DashboardPayload) -> dict[str, int]:
+    return {
+        str(k): int(v)
+        for k, v in (dashboard.decision_summary.status_counts or {}).items()
+    }
 
 
 def lens_bucket_counts(
@@ -61,11 +59,11 @@ def lens_bucket_counts(
         return dict.fromkeys(keys, "unknown")
 
     counts: dict[str, int] = dict.fromkeys(keys, 0)
-    counts[LensBucket.unavailable.value] = dashboard.health_snapshot.unavailable_count
-    for device in _iter_dashboard_devices(dashboard):
-        bucket = device.lens_bucket if device.lens_bucket in counts else LensBucket.unknown.value
-        counts[bucket] += 1
-    counts[LensBucket.needs_attention.value] += len(dashboard.router_risks)
+    status_counts = _status_counts(dashboard)
+    for status, count in status_counts.items():
+        bucket = _STATUS_TO_BUCKET.get(status, LensBucket.unknown.value)
+        counts[bucket] = counts.get(bucket, 0) + count
+    counts[LensBucket.unavailable.value] = dashboard.unavailable_device_count
     return counts
 
 
@@ -107,7 +105,12 @@ def build_summary_entities(
 ) -> list[SummaryEntityState]:
     observable = mock_mode or collector_connected
     counts = lens_bucket_counts(dashboard, observable=observable)
-    overall_bucket = severity_to_lens_bucket(dashboard.overall_severity)
+    overall_status = str(dashboard.decision_summary.overall_status)
+    overall_bucket = (
+        _STATUS_TO_BUCKET.get(overall_status, LensBucket.unknown.value)
+        if observable
+        else LensBucket.unknown.value
+    )
     overall_label = BUCKET_LABELS.get(LensBucket(overall_bucket), overall_bucket.title())
     issues = issue_count(counts)
     generated_at = utc_now_iso()
@@ -128,6 +131,8 @@ def build_summary_entities(
         "redaction_profile": REDACTION_PROFILE,
         "collector_connected": collector_connected,
         "observation_reliable": observable,
+        "decision_contract_version": 2,
+        "overall_decision_status": overall_status,
     }
 
     return [

@@ -73,8 +73,10 @@ def test_dashboard_default_scenario(mock_client: TestClient):
     assert res.status_code == 200
     data = res.json()
     assert data["scenario"] == DEFAULT_SCENARIO
-    assert "current_finding" in data
-    assert "evidence" in data["current_finding"]
+    assert "decision_summary" in data
+    assert data["decision_summary"]["overall_status"]
+    assert "current_finding" not in data
+    assert "health_snapshot" not in data
 
 
 def test_all_mock_scenarios_load(mock_client: TestClient):
@@ -83,22 +85,26 @@ def test_all_mock_scenarios_load(mock_client: TestClient):
         assert res.status_code == 200, scenario_id
         body = res.json()
         assert body["scenario"] == scenario_id
-        finding = body["current_finding"]
-        assert finding["summary"]
-        assert isinstance(finding["evidence"], list)
-        assert isinstance(finding["limitations"], list)
+        assert body["decision_summary"]["overall_status"]
         assert isinstance(body["shared_availability_events"], list)
         assert isinstance(body["model_patterns"], list)
+        assert "current_finding" not in body
+        assert "top_affected_devices" not in body
 
 
 def test_device_lookup(mock_client: TestClient):
-    dash = mock_client.get("/api/dashboard").json()
-    if dash["top_affected_devices"]:
-        d = dash["top_affected_devices"][0]
-        path = f"/api/devices/{d['network_id']}/{d['ieee_address']}"
-        res = mock_client.get(path)
-        assert res.status_code == 200
-        assert res.json()["ieee_address"] == d["ieee_address"]
+    devices = mock_client.get("/api/devices").json()["items"]
+    assert devices
+    d = devices[0]
+    path = f"/api/devices/{d['network_id']}/{d['ieee_address']}"
+    res = mock_client.get(path)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ieee_address"] == d["ieee_address"]
+    assert body["decision"]["status"]
+    assert "health" not in body
+    assert "diagnostic" not in body
+    assert "lens_bucket" not in body
 
 
 def test_report_preview(mock_client: TestClient):
@@ -134,9 +140,11 @@ def test_live_empty_dashboard(live_client: TestClient):
     assert res.status_code == 200
     data = res.json()
     assert data["scenario"] is None
-    assert "No Zigbee2MQTT data has been collected yet" in data["current_finding"]["summary"]
+    assert data["decision_summary"]["overall_status"] == "data_unavailable"
+    assert data["device_count"] == 0
     assert len(data["networks"]) == 2
-    assert data["top_affected_devices"] == []
+    assert "top_affected_devices" not in data
+    assert "current_finding" not in data
 
 
 def test_live_mode_uses_scenario_override(live_client: TestClient):

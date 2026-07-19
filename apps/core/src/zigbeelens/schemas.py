@@ -127,6 +127,30 @@ class CoordinatorSummary(BaseModel):
     extended_pan_id: str | None = None
 
 
+class DeviceDecisionBadge(BaseModel):
+    """Compact decision projection for inventory/list surfaces."""
+
+    status: str
+    priority: str
+    headline_code: str
+    coverage_label_codes: list[str] = Field(default_factory=list)
+
+
+# Public alias — same compact badge shape for devices and networks.
+DecisionBadge = DeviceDecisionBadge
+
+
+class DecisionCountSummary(BaseModel):
+    """Aggregated decision counts for Dashboard / network / report / MQTT / HACS."""
+
+    subject_count: int
+    overall_status: str
+    highest_priority: str
+    status_counts: dict[str, int] = Field(default_factory=dict)
+    priority_counts: dict[str, int] = Field(default_factory=dict)
+    coverage_warning_count: int = 0
+
+
 class NetworkSummary(BaseModel):
     id: str
     name: str
@@ -137,16 +161,12 @@ class NetworkSummary(BaseModel):
     router_count: int
     end_device_count: int
     unavailable_count: int
-    recently_unstable_count: int
-    weak_link_count: int
-    low_battery_count: int
-    stale_count: int
-    interview_issue_count: int = 0
-    incident_state: Severity
+    active_incident_severity: Severity
     active_incident_count: int
     recent_bridge_warnings: int = 0
     recent_bridge_errors: int = 0
-    health: DeviceHealth
+    decision: DeviceDecisionBadge
+    decision_summary: DecisionCountSummary
 
 
 class AvailabilityChange(BaseModel):
@@ -170,15 +190,6 @@ class DeviceTrendPoint(BaseModel):
     availability: Availability | None = None
 
 
-class DeviceDecisionBadge(BaseModel):
-    """Compact Device Story projection for inventory/list surfaces (Phase 5B-1)."""
-
-    status: str
-    priority: str
-    headline_code: str
-    coverage_label_codes: list[str] = Field(default_factory=list)
-
-
 class DeviceSummary(BaseModel):
     network_id: str
     ieee_address: str
@@ -193,14 +204,8 @@ class DeviceSummary(BaseModel):
     manufacturer: str | None = None
     model: str | None = None
     interview_state: InterviewState
-    health: DeviceHealth
     incident_affected: bool = False
-    sort_priority: int = 100
-    lens_bucket: str = "unknown"
-    lens_bucket_label: str = "Unknown"
-    lens_bucket_reason: str = ""
-    lens_reasons: list[str] = Field(default_factory=list)
-    decision: DeviceDecisionBadge | None = None
+    decision: DeviceDecisionBadge
     ha_area: str | None = None
 
 
@@ -210,7 +215,6 @@ class DeviceDetail(DeviceSummary):
     recent_availability_changes: list[AvailabilityChange] = Field(default_factory=list)
     recent_events: list[TimelineEvent] = Field(default_factory=list)
     recent_bridge_logs: list[BridgeLogEntry] = Field(default_factory=list)
-    diagnostic: DiagnosticConclusion
     trends: list[DeviceTrendPoint] = Field(default_factory=list)
 
 
@@ -230,14 +234,7 @@ class IncidentDeviceRef(BaseModel):
     network_id: str
     ieee_address: str
     friendly_name: str
-    health_primary: DeviceHealthPrimary
-    lens_bucket: str = "unknown"
-    lens_bucket_label: str = "Unknown"
-    lens_bucket_reason: str = ""
-    name: str = ""
-    reason: str = ""
-    classification: str = ""
-    decision: DeviceDecisionBadge | None = None
+    decision: DeviceDecisionBadge
 
 
 class TimelineEvent(BaseModel):
@@ -343,19 +340,15 @@ class DataCoverageWarningSummary(BaseModel):
 class DashboardPayload(BaseModel):
     generated_at: str
     scenario: str | None = None
-    overall_severity: Severity
-    current_finding: DiagnosticConclusion
     active_incident_count: int
     watching_incident_count: int
+    network_count: int = 0
+    device_count: int = 0
+    unavailable_device_count: int = 0
     networks: list[NetworkSummary]
-    top_affected_devices: list[DeviceSummary]
     router_risks: list[RouterRisk]
-    recently_unstable: list[DeviceSummary]
-    weak_links: list[DeviceSummary]
-    low_batteries: list[DeviceSummary]
-    stale_devices: list[DeviceSummary]
     recent_timeline: list[TimelineEvent]
-    health_snapshot: HealthSnapshot
+    decision_summary: DecisionCountSummary
     shared_availability_events: list[SharedAvailabilityEventSummary] = Field(default_factory=list)
     model_patterns: list[ModelPatternSummary] = Field(default_factory=list)
     investigation_priorities: list[InvestigationPrioritySummary] = Field(default_factory=list)

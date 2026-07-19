@@ -76,7 +76,17 @@ class DataService:
     def devices(self, scenario: str | None = None, network_id: str | None = None):
         if self.uses_mock(scenario):
             devices = self._mock(scenario).devices(network_id)
-            return sorted(devices, key=lambda d: d.sort_priority)
+            from zigbeelens.services.decision_summary import DECISION_STATUS_ORDER
+
+            rank = {s.value: i for i, s in enumerate(DECISION_STATUS_ORDER)}
+            return sorted(
+                devices,
+                key=lambda d: (
+                    rank.get(str(d.decision.status), len(rank)),
+                    d.network_id,
+                    d.ieee_address,
+                ),
+            )
         return self._builder.devices(network_id)
 
     def report_device_context(

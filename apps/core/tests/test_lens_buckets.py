@@ -9,6 +9,7 @@ from zigbeelens.schemas import (
     Availability,
     BridgeState,
     Confidence,
+    DeviceDecisionBadge,
     DeviceHealth,
     DeviceHealthPrimary,
     DeviceSummary,
@@ -140,40 +141,43 @@ def test_presentation_does_not_change_health_engine_output():
     assert pres["lens_bucket"] == "unavailable"
 
 
-def test_dashboard_includes_lens_bucket_fields(mock_client: TestClient):
+def test_dashboard_excludes_lens_bucket_fields(mock_client: TestClient):
     res = mock_client.get("/api/dashboard")
     assert res.status_code == 200
-    devices = res.json()["top_affected_devices"]
+    body = res.json()
+    assert "top_affected_devices" not in body
+    devices = mock_client.get("/api/devices").json()["items"]
     assert devices, "expected mock scenario devices"
     device = devices[0]
-    assert "health" in device
-    assert "primary" in device["health"]
-    assert device["lens_bucket"]
-    assert device["lens_bucket_label"]
-    assert "lens_bucket_reason" in device
-    assert isinstance(device["lens_reasons"], list)
+    assert "health" not in device
+    assert "lens_bucket" not in device
+    assert "lens_bucket_label" not in device
+    assert "lens_reasons" not in device
+    assert device["decision"]["status"]
 
 
-def test_v1_dashboard_includes_lens_bucket_fields(mock_client: TestClient):
+def test_v1_dashboard_excludes_lens_bucket_fields(mock_client: TestClient):
     res = mock_client.get("/api/v1/dashboard")
     assert res.status_code == 200
-    devices = res.json()["top_affected_devices"]
+    assert "top_affected_devices" not in res.json()
+    devices = mock_client.get("/api/v1/devices").json()["items"]
     assert devices
-    assert devices[0]["lens_bucket"]
+    assert "lens_bucket" not in devices[0]
+    assert devices[0]["decision"]["status"]
 
 
-def test_device_detail_preserves_health_and_adds_lens_fields(mock_client: TestClient):
-    dash = mock_client.get("/api/dashboard").json()
-    device = dash["top_affected_devices"][0]
+def test_device_detail_is_decision_only(mock_client: TestClient):
+    device = mock_client.get("/api/devices").json()["items"][0]
     path = f"/api/devices/{device['network_id']}/{device['ieee_address']}"
     detail = mock_client.get(path).json()
-    assert detail["health"]["primary"] == device["health"]["primary"]
-    assert detail["lens_bucket"] == device["lens_bucket"]
+    assert detail["decision"]["status"] == device["decision"]["status"]
+    assert "health" not in detail
+    assert "diagnostic" not in detail
+    assert "lens_bucket" not in detail
 
 
-def test_enrich_device_summary_adds_fields():
-    from zigbeelens.presentation.lens_buckets import enrich_device_summary
-
+def test_enrich_device_summary_removed_from_public_contract():
+    """Lens enrich helper remains internal; public DeviceSummary has no lens fields."""
     summary = DeviceSummary(
         network_id="home",
         ieee_address="0x1",
@@ -182,8 +186,12 @@ def test_enrich_device_summary_adds_fields():
         power_source=PowerSource.Battery,
         availability=Availability.online,
         interview_state=InterviewState.successful,
-        health=_health(DeviceHealthPrimary.router_risk),
+        decision=DeviceDecisionBadge(
+            status="worth_reviewing",
+            priority="high",
+            headline_code="device_router_risk",
+            coverage_label_codes=[],
+        ),
     )
-    enriched = enrich_device_summary(summary)
-    assert enriched.lens_bucket == "needs_attention"
-    assert enriched.health.primary == DeviceHealthPrimary.router_risk
+    assert not hasattr(summary, "lens_bucket")
+    assert "health" not in summary.model_fields

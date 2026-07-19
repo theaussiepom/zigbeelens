@@ -16,12 +16,8 @@ from zigbeelens.diagnostics.incidents.service import (
 from zigbeelens.diagnostics.models import HealthFlag
 from zigbeelens.diagnostics.service import (
     HealthDiagnosticService,
-    health_result_to_device_health,
-    health_result_to_diagnostic,
     health_result_to_router_risk,
-    sort_priority,
 )
-from zigbeelens.presentation.lens_buckets import enrich_device_summary, lens_presentation_for_health
 from zigbeelens.schemas import (
     Availability,
     AvailabilityChange,
@@ -30,7 +26,6 @@ from zigbeelens.schemas import (
     DashboardPayload,
     DeviceDecisionBadge,
     DeviceDetail,
-    DeviceHealthPrimary,
     DeviceSummary,
     DeviceTrendPoint,
     DeviceType,
@@ -55,16 +50,17 @@ from zigbeelens.services.dashboard_investigation_priorities import (
     compose_dashboard_investigation_priorities,
 )
 from zigbeelens.services.dashboard_coverage_warnings import compose_dashboard_coverage_warnings
+from zigbeelens.services.decision_summary import (
+    DECISION_STATUS_ORDER,
+    data_unavailable_device_badge,
+    decision_count_summary_from_badges,
+)
 from zigbeelens.services.device_decision_badge import (
     device_decision_badge_for_device,
     device_decision_badges_for_devices,
 )
-from zigbeelens.services.empty_state import build_empty_dashboard, empty_finding
-from zigbeelens.services.live_dashboard import (
-    build_health_snapshot,
-    build_network_summary,
-    live_finding,
-)
+from zigbeelens.services.empty_state import build_empty_dashboard
+from zigbeelens.services.live_dashboard import build_network_summary
 from zigbeelens.storage.repository import DeviceRow, NetworkRow, Repository
 from zigbeelens.util.json_helpers import parse_json_list
 
@@ -106,8 +102,17 @@ def _parse_json_list(raw: str | None) -> list:
     return parse_json_list(raw)
 
 
-def _device_has_flag(health, flag: DeviceHealthPrimary) -> bool:
-    return flag in (health.flags or [])
+_STATUS_RANK = {status.value: index for index, status in enumerate(DECISION_STATUS_ORDER)}
+
+
+def _device_decision_sort_key(device: DeviceSummary) -> tuple[int, str, str]:
+    """Deterministic inventory order from decision status, then identity."""
+    status = str(device.decision.status)
+    return (
+        _STATUS_RANK.get(status, len(_STATUS_RANK)),
+        device.network_id,
+        device.ieee_address,
+    )
 
 
 def _evidence_items(raw_list: list, prefix: str = "ev") -> list[EvidenceItem]:
@@ -349,17 +354,7 @@ class PayloadBuilder:
         )
         composition = self._device_composition_context(
             rows,
-            include_related_incidents=False,
-            incident_context=incident_context,
-        )
-        devices = self._devices_from_rows(rows, summary_context=composition.summary)
-        finding = live_finding(
-            self.repo,
-            self.config,
-            health,
-            self._incident_service,
-            devices=rows,
-            networks=network_rows,
+            include_related_incidents=True,
             incident_context=incident_context,
         )
 
@@ -370,35 +365,6 @@ class PayloadBuilder:
         else:
             open_count, watching_count = 0, 0
 
-        def _is_affected(d: DeviceSummary) -> bool:
-            return d.health.primary not in {
-                DeviceHealthPrimary.healthy,
-                DeviceHealthPrimary.unknown,
-            }
-
-        top_affected = sorted(
-            [d for d in devices if _is_affected(d)],
-            key=lambda d: d.sort_priority,
-        )[:10]
-
-        devices_by_network = _group_devices_by_network(rows)
-        network_summaries = [
-            build_network_summary(
-                self.repo,
-                net_row,
-                health,
-                self._incident_service,
-                devices=devices_by_network.get(net_row.id, []),
-                active_incident_count=(
-                    incident_context.active_count_by_network_id.get(net_row.id, 0)
-                    if incident_context is not None
-                    else None
-                ),
-                incident_context=incident_context,
-            )
-            for net_row in network_rows
-        ]
-
         from zigbeelens.services.network_evidence import DASHBOARD_EVIDENCE_REQUIREMENTS
         from zigbeelens.services.network_evidence_composition import (
             compose_network_evidence_contexts,
@@ -408,6 +374,7 @@ class PayloadBuilder:
         )
 
         reference_now = datetime.now(timezone.utc)
+        devices_by_network = _group_devices_by_network(rows)
         devices_by_network_id = {
             network.id: devices_by_network.get(network.id, []) for network in network_rows
         }
@@ -423,6 +390,21 @@ class PayloadBuilder:
             stale_after_hours=topology_stale_threshold_hours(self.config),
         )
         evidence_map = dict(evidence_contexts)
+
+        # One Device Story badge batch for the whole estate (reused for networks).
+        badges = device_decision_badges_for_devices(
+            self.repo,
+            rows,
+            now=reference_now,
+            ha_enrichment_by_key=composition.summary.ha_enrichment_by_key,
+            related_incident_ids_by_key=composition.related_incident_ids_by_key,
+            network_evidence_contexts=evidence_map,
+        )
+        devices = self._devices_from_rows(
+            rows,
+            summary_context=composition.summary,
+            decision_badges=badges,
+        )
 
         shared_availability_events = compose_dashboard_shared_availability_events(
             self.repo,
@@ -455,47 +437,60 @@ class PayloadBuilder:
             network_evidence_contexts=evidence_map,
         )
 
+        coverage_by_network: dict[str, int] = {}
+        for warning in data_coverage_warnings:
+            coverage_by_network[warning.network_id] = (
+                coverage_by_network.get(warning.network_id, 0) + 1
+            )
+
+        network_summaries = [
+            build_network_summary(
+                self.repo,
+                net_row,
+                health,
+                self._incident_service,
+                devices=devices_by_network.get(net_row.id, []),
+                active_incident_count=(
+                    incident_context.active_count_by_network_id.get(net_row.id, 0)
+                    if incident_context is not None
+                    else None
+                ),
+                incident_context=incident_context,
+                device_decision_badges=[
+                    badges[(row.network_id, row.ieee_address)]
+                    for row in devices_by_network.get(net_row.id, [])
+                    if (row.network_id, row.ieee_address) in badges
+                ],
+                coverage_warning_count=coverage_by_network.get(net_row.id, 0),
+            )
+            for net_row in network_rows
+        ]
+
+        decision_summary = decision_count_summary_from_badges(
+            [d.decision for d in devices],
+            coverage_warning_count=len(data_coverage_warnings),
+        )
+        unavailable_device_count = sum(
+            1 for d in devices if d.availability == Availability.offline
+        )
+
         return DashboardPayload(
             generated_at=reference_now.isoformat(),
             scenario=None,
-            overall_severity=finding.severity,
-            current_finding=finding,
             active_incident_count=open_count,
             watching_incident_count=watching_count,
+            network_count=len(network_summaries),
+            device_count=len(devices),
+            unavailable_device_count=unavailable_device_count,
             networks=network_summaries,
-            top_affected_devices=top_affected,
             router_risks=self.routers(
                 devices=rows,
                 incident_context=incident_context,
                 health=health,
                 network_evidence_contexts=evidence_map,
             ),
-            recently_unstable=[
-                d
-                for d in devices
-                if _device_has_flag(d.health, DeviceHealthPrimary.recently_unstable)
-            ],
-            weak_links=[
-                d for d in devices if _device_has_flag(d.health, DeviceHealthPrimary.weak_link)
-            ],
-            low_batteries=[
-                d for d in devices if _device_has_flag(d.health, DeviceHealthPrimary.low_battery)
-            ],
-            stale_devices=[
-                d
-                for d in devices
-                if _device_has_flag(d.health, DeviceHealthPrimary.stale_reporting)
-            ],
             recent_timeline=self.timeline()[:12],
-            health_snapshot=build_health_snapshot(
-                self.repo,
-                health,
-                self._incident_service,
-                networks=network_rows,
-                devices=rows,
-                network_summaries=network_summaries,
-                incident_context=incident_context,
-            ),
+            decision_summary=decision_summary,
             shared_availability_events=shared_availability_events,
             model_patterns=model_patterns,
             investigation_priorities=investigation_priorities,
@@ -509,16 +504,31 @@ class PayloadBuilder:
         svc.recalculate_all()
         return svc
 
-    def networks(self):
-        health = self._ensure_health()
-        if not health:
-            health = self._fallback_health()
-        network_rows = self.repo.list_networks()
-        device_rows = self.repo.list_devices()
-        incident_context = (
-            self._incident_service.active_incident_read_context()
-            if self._incident_service
-            else None
+    def _network_summaries_with_decisions(
+        self,
+        network_rows: list[NetworkRow],
+        device_rows: list[DeviceRow],
+        *,
+        health: HealthDiagnosticService,
+        incident_context: ActiveIncidentReadContext | None,
+    ) -> list:
+        """Build NetworkSummary list with one Device Story badge batch."""
+        reference_now = datetime.now(timezone.utc)
+        composition = self._device_composition_context(
+            device_rows,
+            include_related_incidents=True,
+            incident_context=incident_context,
+        )
+        evidence_map = self._device_story_evidence_contexts(
+            device_rows, now=reference_now, complete_inventory=True
+        )
+        badges = device_decision_badges_for_devices(
+            self.repo,
+            device_rows,
+            now=reference_now,
+            ha_enrichment_by_key=composition.summary.ha_enrichment_by_key,
+            related_incident_ids_by_key=composition.related_incident_ids_by_key,
+            network_evidence_contexts=evidence_map,
         )
         devices_by_network = _group_devices_by_network(device_rows)
         return [
@@ -534,9 +544,32 @@ class PayloadBuilder:
                     else None
                 ),
                 incident_context=incident_context,
+                device_decision_badges=[
+                    badges[(dev.network_id, dev.ieee_address)]
+                    for dev in devices_by_network.get(row.id, [])
+                    if (dev.network_id, dev.ieee_address) in badges
+                ],
             )
             for row in network_rows
         ]
+
+    def networks(self):
+        health = self._ensure_health()
+        if not health:
+            health = self._fallback_health()
+        network_rows = self.repo.list_networks()
+        device_rows = self.repo.list_devices()
+        incident_context = (
+            self._incident_service.active_incident_read_context()
+            if self._incident_service
+            else None
+        )
+        return self._network_summaries_with_decisions(
+            network_rows,
+            device_rows,
+            health=health,
+            incident_context=incident_context,
+        )
 
     def network(self, network_id: str):
         row = self.repo.get_network(network_id)
@@ -549,19 +582,13 @@ class PayloadBuilder:
             if self._incident_service
             else None
         )
-        return build_network_summary(
-            self.repo,
-            row,
-            health,
-            self._incident_service,
-            devices=device_rows,
-            active_incident_count=(
-                incident_context.active_count_by_network_id.get(network_id, 0)
-                if incident_context is not None
-                else None
-            ),
+        summaries = self._network_summaries_with_decisions(
+            [row],
+            device_rows,
+            health=health,
             incident_context=incident_context,
         )
+        return summaries[0] if summaries else None
 
     def _device_story_evidence_contexts(
         self,
@@ -660,14 +687,17 @@ class PayloadBuilder:
             )
             for row in rows
         ]
-        return sorted(summaries, key=lambda d: d.sort_priority)
+        return sorted(summaries, key=_device_decision_sort_key)
 
     def device_detail(self, network_id: str, ieee_address: str) -> DeviceDetail | None:
         row = self.repo.get_device(network_id, ieee_address)
         if not row:
             return None
         badge = device_decision_badge_for_device(self.repo, network_id, ieee_address)
-        return self._device_detail_from_row(row, decision_badge=badge)
+        return self._device_detail_from_row(
+            row,
+            decision_badge=badge or data_unavailable_device_badge(),
+        )
 
     def _device_detail_from_row(
         self,
@@ -678,7 +708,7 @@ class PayloadBuilder:
         summary: DeviceSummary | None = None,
         summary_context: DeviceSummaryReadContext | None = None,
     ) -> DeviceDetail:
-        """Build DeviceDetail without composing Device Story decisions."""
+        """Build DeviceDetail facts/trends; judgement stays on Device Story."""
         network_id = row.network_id
         ieee_address = row.ieee_address
         if summary is None:
@@ -687,46 +717,6 @@ class PayloadBuilder:
                 summary_context=summary_context,
                 decision_badge=decision_badge,
             )
-        health_svc = self._ensure_health()
-        result = (
-            health_svc.get_device_health(network_id, ieee_address) if health_svc else None
-        )
-        finding = (
-            health_result_to_diagnostic(result, row.friendly_name)
-            if result
-            else DiagnosticConclusion(
-                classification=summary.health.primary.value,
-                severity=summary.health.severity,
-                scope=IncidentScope.device,
-                confidence=summary.health.confidence,
-                summary=summary.health.evidence[0] if summary.health.evidence else "",
-                evidence=[
-                    EvidenceItem(id=f"ev-{i}", kind="health", summary=e)
-                    for i, e in enumerate(summary.health.evidence)
-                ],
-                limitations=[
-                    LimitationItem(id=f"lim-{i}", summary=lim)
-                    for i, lim in enumerate(summary.health.limitations)
-                ],
-            )
-        )
-
-        related_ids = self.repo.incidents.list_incidents_for_device(network_id, ieee_address)
-        if related_ids and self._incident_service:
-            top = self.repo.incidents.get_incident(related_ids[0])
-            if top:
-                finding = DiagnosticConclusion(
-                    classification=top["incident_type"],
-                    severity=Severity(top["severity"]),
-                    scope=IncidentScope(top["scope"]),
-                    confidence=Confidence(top["confidence"]),
-                    summary=top["explanation"],
-                    evidence=_evidence_items(_parse_json_list(top.get("evidence_json"))),
-                    counter_evidence=_evidence_items(
-                        _parse_json_list(top.get("counter_evidence_json")), prefix="ce"
-                    ),
-                    limitations=_limitation_items(_parse_json_list(top.get("limitations_json"))),
-                )
 
         availability_changes = [
             AvailabilityChange(
@@ -760,7 +750,6 @@ class PayloadBuilder:
             recent_availability_changes=availability_changes,
             recent_events=recent_events,
             recent_bridge_logs=[],
-            diagnostic=finding,
             trends=trends,
         )
 
@@ -891,45 +880,6 @@ class PayloadBuilder:
         summary_context: DeviceSummaryReadContext | None = None,
         decision_badge: DeviceDecisionBadge | None = None,
     ) -> DeviceSummary:
-        # Batch callers ensure health once; avoid list_networks per device.
-        health_svc = self.health if summary_context is not None else self._ensure_health()
-        result = (
-            health_svc.get_device_health(row.network_id, row.ieee_address)
-            if health_svc
-            else None
-        )
-        # Late evaluation is only for standalone detail paths without a frozen context.
-        if (
-            result is None
-            and summary_context is None
-            and health_svc
-            and self._evaluation is not None
-        ):
-            self._evaluation.evaluate_network(row.network_id)
-            result = health_svc.get_device_health(row.network_id, row.ieee_address)
-        device_health = health_result_to_device_health(result) if result else None
-
-        if device_health is None:
-            from zigbeelens.diagnostics.device_health import classify_device
-            from zigbeelens.diagnostics.models import DeviceHealthContext
-
-            ctx = DeviceHealthContext(
-                network_id=row.network_id,
-                ieee_address=row.ieee_address,
-                friendly_name=row.friendly_name,
-                device_type=row.device_type,
-                power_source=row.power_source,
-                interview_state=row.interview_state,
-                availability=row.availability,
-                last_seen=row.last_seen,
-                last_payload_at=row.last_payload_at,
-                linkquality=row.linkquality,
-                battery=row.battery,
-            )
-            device_health = health_result_to_device_health(
-                classify_device(ctx, self.config.diagnostics)
-            )
-
         availability = (
             Availability(row.availability)
             if row.availability in Availability.__members__
@@ -940,7 +890,6 @@ class PayloadBuilder:
                 row.network_id,
                 row.ieee_address,
             ) in summary_context.incident_affected_keys
-            network_row = summary_context.networks_by_id.get(row.network_id)
             ha_enrichment = summary_context.ha_enrichment_by_key.get(
                 (row.network_id, row.ieee_address)
             )
@@ -951,19 +900,15 @@ class PayloadBuilder:
                 else set()
             )
             incident_affected = (row.network_id, row.ieee_address) in affected_keys
-            network_row = self.repo.get_network(row.network_id)
             ha_enrichment = self.repo.get_ha_device_enrichment(
                 row.network_id, row.ieee_address
             )
-        bridge_state = None
-        if network_row is not None and network_row.bridge_state in BridgeState.__members__:
-            bridge_state = BridgeState(network_row.bridge_state)
         ha_area = None
         if ha_enrichment:
             area_name = ha_enrichment.get("area_name")
             if isinstance(area_name, str) and area_name.strip():
                 ha_area = area_name.strip()
-        summary = DeviceSummary(
+        return DeviceSummary(
             network_id=row.network_id,
             ieee_address=row.ieee_address,
             friendly_name=row.friendly_name,
@@ -983,13 +928,10 @@ class PayloadBuilder:
             interview_state=InterviewState(row.interview_state)
             if row.interview_state in InterviewState.__members__
             else InterviewState.unknown,
-            health=device_health,
             incident_affected=incident_affected,
-            sort_priority=sort_priority(result) if result else 100,
-            decision=decision_badge,
+            decision=decision_badge or data_unavailable_device_badge(),
             ha_area=ha_area,
         )
-        return enrich_device_summary(summary, bridge_state=bridge_state)
 
     def _incident_from_row(
         self,
@@ -1026,44 +968,14 @@ class PayloadBuilder:
         for ref in refs:
             key = (ref["network_id"], ref["ieee_address"])
             dev = devices_by_key.get(key)
-            health_primary = DeviceHealthPrimary.unknown
-            device_health = None
-            if self.health:
-                hr = self.health.get_device_health(ref["network_id"], ref["ieee_address"])
-                if hr:
-                    health_primary = DeviceHealthPrimary(hr.primary.value)
-                    device_health = health_result_to_device_health(hr)
-            availability = Availability.unknown
-            if dev:
-                availability = (
-                    Availability(dev.availability)
-                    if dev.availability in Availability.__members__
-                    else Availability.unknown
-                )
-            presentation = (
-                lens_presentation_for_health(
-                    device_health,
-                    availability=availability,
-                    incident_affected=True,
-                )
-                if device_health
-                else {}
-            )
             friendly = dev.friendly_name if dev else ref["ieee_address"]
-            bucket = presentation.get("lens_bucket", "unknown")
-            bucket_reason = presentation.get("lens_bucket_reason", "")
-            decision = badge_source.get(key)
+            decision = badge_source.get(key) or data_unavailable_device_badge()
             affected.append(
                 IncidentDeviceRef(
                     network_id=ref["network_id"],
                     ieee_address=ref["ieee_address"],
                     friendly_name=friendly,
-                    health_primary=health_primary,
-                    name=friendly,
-                    classification=str(bucket),
-                    reason=bucket_reason or str(presentation.get("lens_bucket_label", "")),
                     decision=decision,
-                    **presentation,
                 )
             )
         evidence = _evidence_items(_parse_json_list(row["evidence_json"]))

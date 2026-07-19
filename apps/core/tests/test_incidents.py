@@ -340,7 +340,12 @@ def test_mqtt_single_device_incident(tmp_path: Path):
     builder = PayloadBuilder(config, repo, health, incidents)
     dash = builder.dashboard()
     assert dash.active_incident_count == 1
-    assert "isolated" in dash.current_finding.summary.lower() or "unavailable" in dash.current_finding.summary.lower()
+    assert dash.decision_summary.overall_status in {
+        "review_first",
+        "worth_reviewing",
+        "watch",
+        "data_unavailable",
+    }
 
 
 def test_correlated_incident_integration(tmp_path: Path):
@@ -385,7 +390,8 @@ def test_mock_scenarios_unchanged(mock_client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["active_incident_count"] == 1
-    assert len(data["top_affected_devices"]) >= 1
+    assert data["decision_summary"]["overall_status"]
+    assert data["device_count"] >= 1
 
 
 def test_empty_state_unchanged(live_client):

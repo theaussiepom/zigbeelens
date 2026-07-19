@@ -15,9 +15,11 @@ from zigbeelens import __version__
 from zigbeelens.config.models import AppConfig, ReportingConfig
 from zigbeelens.decisions.device_story import DeviceStory, device_stories_for_devices
 from zigbeelens.schemas import (
+    Availability,
     Confidence,
     DeviceDetail,
     DeviceDecisionBadge,
+    DeviceHealthPrimary,
     DeviceSummary,
     DiagnosticConclusion,
     HealthSnapshot,
@@ -593,6 +595,11 @@ def compose_live_report_scope(
             complete_network_scope=complete_network_scope,
             scoped_device_health_by_key=scoped_health,
             active_incident_severity=severity_by_network.get(row.id),
+            device_decision_badges=[
+                badges[key]
+                for device_row in devices_by_network.get(row.id, [])
+                if (key := (device_row.network_id, device_row.ieee_address)) in badges
+            ],
         )
         for row in network_rows
     ]
@@ -861,7 +868,7 @@ def compose_mock_report_scope(
 
     from zigbeelens.mock.device_stories import apply_incident_device_story_badges
     from zigbeelens.mock.fixtures import device_detail_from_summary
-    from zigbeelens.schemas import DeviceHealth, DeviceHealthPrimary, DeviceType
+    from zigbeelens.schemas import DeviceType
     from zigbeelens.services.report_active_severity import (
         active_severity_by_network_id,
         mock_networks_by_incident_id,
@@ -901,39 +908,23 @@ def compose_mock_report_scope(
     )
 
     def _mock_scoped_network_summary(net: NetworkSummary) -> NetworkSummary:
+        from zigbeelens.services.decision_summary import (
+            decision_count_summary_from_badges,
+            network_decision_badge_from_summary,
+        )
+
         scoped = [d for d in devices if d.network_id == net.id]
         active_count = sum(1 for inc in active_incidents if net.id in inc.network_ids)
-        unavailable = sum(
-            1 for d in scoped if d.health.primary == DeviceHealthPrimary.unavailable
-        )
-        unstable = sum(
-            1 for d in scoped if d.health.primary == DeviceHealthPrimary.recently_unstable
-        )
-        weak = sum(1 for d in scoped if d.health.primary == DeviceHealthPrimary.weak_link)
-        low_bat = sum(
-            1 for d in scoped if d.health.primary == DeviceHealthPrimary.low_battery
-        )
-        stale = sum(
-            1 for d in scoped if d.health.primary == DeviceHealthPrimary.stale_reporting
-        )
-        interview_issues = sum(
-            1 for d in scoped if str(d.interview_state.value) in {"failed", "in_progress"}
-        )
+        unavailable = sum(1 for d in scoped if d.availability == Availability.offline)
         if net.bridge_state.value == "offline":
-            incident_state = Severity.critical
+            incident_severity = Severity.critical
         elif severity_by_network.get(net.id) is not None:
-            incident_state = severity_by_network[net.id]
-        elif unavailable or unstable or weak or low_bat or stale:
-            incident_state = Severity.watch
+            incident_severity = severity_by_network[net.id]
+        elif unavailable or active_count:
+            incident_severity = Severity.watch
         else:
-            incident_state = Severity.healthy
-        health_payload = DeviceHealth(
-            primary=DeviceHealthPrimary.unknown,
-            severity=incident_state,
-            confidence=net.health.confidence,
-            evidence=[f"{len(scoped)} devices in report scope"],
-            limitations=[],
-        )
+            incident_severity = Severity.healthy
+        decision_summary = decision_count_summary_from_badges(d.decision for d in scoped)
         return net.model_copy(
             update={
                 "device_count": len(scoped),
@@ -942,14 +933,10 @@ def compose_mock_report_scope(
                     1 for d in scoped if d.device_type == DeviceType.EndDevice
                 ),
                 "unavailable_count": unavailable,
-                "recently_unstable_count": unstable,
-                "weak_link_count": weak,
-                "low_battery_count": low_bat,
-                "stale_count": stale,
-                "interview_issue_count": interview_issues,
                 "active_incident_count": active_count,
-                "incident_state": incident_state,
-                "health": health_payload,
+                "active_incident_severity": incident_severity,
+                "decision": network_decision_badge_from_summary(decision_summary),
+                "decision_summary": decision_summary,
             }
         )
 
@@ -1008,24 +995,21 @@ def compose_mock_report_scope(
     else:
         routers = []
 
-    unavailable = sum(
-        1 for d in devices if d.health.primary == DeviceHealthPrimary.unavailable
-    )
+    unavailable = sum(1 for d in devices if d.availability == Availability.offline)
     network_payload = [
         {
             "network_id": n.id,
-            "severity": n.incident_state.value,
+            "severity": n.active_incident_severity.value,
             "unavailable_count": sum(
                 1
                 for d in devices
-                if d.network_id == n.id
-                and d.health.primary == DeviceHealthPrimary.unavailable
+                if d.network_id == n.id and d.availability == Availability.offline
             ),
             "unknown_count": sum(
                 1
                 for d in devices
                 if d.network_id == n.id
-                and d.health.primary == DeviceHealthPrimary.unknown
+                and str(d.decision.status) == "data_unavailable"
             ),
         }
         for n in networks
@@ -1036,23 +1020,25 @@ def compose_mock_report_scope(
         scoped_severity = scope_active_severity
     elif unavailable:
         scoped_severity = Severity.watch
-    elif any(d.health.severity not in {Severity.healthy} for d in devices):
+    elif any(
+        str(d.decision.status)
+        in {"review_first", "worth_reviewing", "watch", "improve_data_coverage"}
+        for d in devices
+    ):
         scoped_severity = Severity.watch
     else:
         scoped_severity = Severity.healthy
-    worst_primary = DeviceHealthPrimary.healthy
+    worst_primary = DeviceHealthPrimary.unknown if not devices else DeviceHealthPrimary.healthy
     for d in devices:
-        if d.health.primary == DeviceHealthPrimary.unavailable:
+        status = str(d.decision.status)
+        if status == "review_first":
             worst_primary = DeviceHealthPrimary.unavailable
             break
-        if d.health.primary == DeviceHealthPrimary.unknown:
+        if status == "data_unavailable" and worst_primary == DeviceHealthPrimary.healthy:
+            worst_primary = DeviceHealthPrimary.unknown
+        elif status not in {"no_notable_change", "informational", "data_unavailable"}:
             if worst_primary == DeviceHealthPrimary.healthy:
                 worst_primary = DeviceHealthPrimary.unknown
-            continue
-        if d.health.primary != DeviceHealthPrimary.healthy:
-            worst_primary = d.health.primary
-    if not devices:
-        worst_primary = DeviceHealthPrimary.unknown
 
     health_snapshot = HealthSnapshot(
         timestamp=_reference_iso(reference_now),
@@ -1089,9 +1075,31 @@ def compose_mock_report_scope(
     if plan.scope == ReportScope.incident and incidents:
         conclusions = [incidents[0].conclusion]
     elif plan.scope == ReportScope.device and device_details:
-        conclusions = [device_details[0].diagnostic]
-    elif plan.scope == ReportScope.full:
-        conclusions = [data.dashboard.current_finding]
+        conclusions = [
+            DiagnosticConclusion(
+                classification=str(device_details[0].decision.headline_code),
+                severity=Severity.watch,
+                scope=IncidentScope.device,
+                confidence=Confidence.medium,
+                summary=str(device_details[0].decision.status),
+                evidence=[],
+                limitations=[],
+            )
+        ]
+    elif plan.scope == ReportScope.full and active_incidents:
+        top = sorted(
+            active_incidents,
+            key=lambda inc: (
+                0 if inc.status == IncidentStatus.open else 1,
+                {
+                    Severity.critical: 0,
+                    Severity.incident: 1,
+                    Severity.watch: 2,
+                    Severity.healthy: 3,
+                }.get(inc.severity, 9),
+            ),
+        )[0]
+        conclusions = [top.conclusion]
     elif active_incidents:
         top = sorted(
             active_incidents,
@@ -1109,7 +1117,7 @@ def compose_mock_report_scope(
     else:
         # Narrow Network with no active incident: derive from represented network facts.
         net = networks[0] if networks else None
-        if net is not None and net.incident_state == Severity.healthy:
+        if net is not None and net.active_incident_severity == Severity.healthy:
             conclusions = [
                 DiagnosticConclusion(
                     classification="health_ok",
@@ -1118,7 +1126,7 @@ def compose_mock_report_scope(
                     confidence=Confidence.medium if devices else Confidence.low,
                     summary=(
                         f"ZigbeeLens is monitoring 1 network(s) with {len(devices)} known "
-                        "device(s). No current health concerns were detected."
+                        "device(s). No current decision concerns were detected."
                     ),
                     evidence=[],
                     limitations=[],
@@ -1127,12 +1135,12 @@ def compose_mock_report_scope(
         elif net is not None:
             conclusions = [
                 DiagnosticConclusion(
-                    classification="health_signals",
-                    severity=net.incident_state,
+                    classification="decision_signals",
+                    severity=net.active_incident_severity,
                     scope=IncidentScope.network,
                     confidence=Confidence.medium if devices else Confidence.low,
                     summary=(
-                        f"Health signals detected on {net.name}. "
+                        f"Decision signals detected on {net.name}. "
                         "ZigbeeLens does not yet see a correlated incident pattern."
                     ),
                     evidence=[],

@@ -11,9 +11,9 @@ from zigbeelens.mqtt.lifecycle import collector_status_dict
 from zigbeelens.mqtt_discovery import discovery_enabled
 
 
-# Stable contract version for HACS / companion decision surfaces (Phase 5E).
-# Bump only when companion-facing decision fields change incompatibly.
-DECISION_CONTRACT_VERSION = 1
+# Stable contract version for HACS / companion decision surfaces.
+# Track 5: decision-only public diagnostic payloads (no Health/Lens authority).
+DECISION_CONTRACT_VERSION = 2
 
 
 def capabilities_dict(ctx: AppContext) -> dict[str, Any]:
@@ -34,8 +34,13 @@ def capabilities_dict(ctx: AppContext) -> dict[str, Any]:
             "mqtt_collector": collector_enabled(config),
             # Coded Decision Engine payloads on dashboard / device / report APIs.
             "shared_decisions": True,
+            "decision_only_diagnostic_payloads": True,
+            "legacy_health_lens_payloads": False,
             # Companion may consume Overview-aligned decision summaries when True.
             "companion_decision_summary": True,
+            # Bumped in later Track 5 commits when writers/MQTT land.
+            "report_contract_v3": False,
+            "decision_mqtt_summary": False,
             # Auth surface support (not whether a token is currently configured).
             "bearer_authentication": True,
             "browser_session_authentication": True,
@@ -49,9 +54,14 @@ def capabilities_dict(ctx: AppContext) -> dict[str, Any]:
             "ingress_browser_authentication": True,
         },
         "decision_surfaces": {
+            "dashboard_decision_summary": True,
+            "network_decision_badges": True,
+            "device_decision_badges": True,
+            "device_story": True,
+            "incident_device_decisions": True,
+            "report_decision_sections": True,
             "dashboard_investigation_priorities": True,
             "dashboard_data_coverage_warnings": True,
-            "device_story": True,
             "report_device_stories": True,
         },
     }

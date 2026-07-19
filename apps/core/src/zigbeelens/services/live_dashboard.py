@@ -205,7 +205,14 @@ def build_network_summary(
     complete_network_scope: bool = True,
     scoped_device_health_by_key: dict | None = None,
     active_incident_severity: Severity | None = None,
+    device_decision_badges: list | None = None,
+    coverage_warning_count: int = 0,
 ) -> NetworkSummary:
+    from zigbeelens.services.decision_summary import (
+        decision_count_summary_from_badges,
+        network_decision_badge_from_summary,
+    )
+
     device_rows = devices if devices is not None else repo.list_devices(row.id)
     net_health = health.get_network_health(row.id)
     bridge_health = health.get_bridge_health(row.id)
@@ -221,9 +228,6 @@ def build_network_summary(
             extended_pan_id=snapshot.get("extended_pan_id"),
         )
 
-    interview_issues = sum(
-        1 for d in device_rows if d.interview_state in {"failed", "in_progress"}
-    )
     if complete_network_scope and net_health is not None:
         unavailable = net_health.unavailable_count
         unstable = net_health.recently_unstable_count
@@ -236,32 +240,17 @@ def build_network_summary(
         )
 
     bridge_offline = bridge_health is not None and bridge_health.state == BridgeHealthState.offline
+    # Factual incident-lifecycle severity projection (not public diagnostic authority).
     if complete_network_scope and net_health is not None:
-        incident_state = _network_severity(net_health.state, bridge_offline)
+        severity = _network_severity(net_health.state, bridge_offline)
     elif bridge_offline or bridge == BridgeState.offline:
-        incident_state = Severity.critical
+        severity = Severity.critical
     elif active_incident_severity is not None:
-        incident_state = active_incident_severity
+        severity = active_incident_severity
     elif unavailable or unstable or weak or low_bat or stale:
-        incident_state = Severity.watch
+        severity = Severity.watch
     else:
-        incident_state = Severity.healthy
-
-    health_payload = DeviceHealth(
-        primary=DeviceHealthPrimary.unknown,
-        severity=incident_state,
-        confidence=(
-            Confidence(net_health.confidence.value)
-            if complete_network_scope and net_health
-            else Confidence.low
-        ),
-        evidence=(
-            net_health.evidence[:3]
-            if complete_network_scope and net_health
-            else [f"{len(device_rows)} devices in report scope"]
-        ),
-        limitations=net_health.limitations if complete_network_scope and net_health else [],
-    )
+        severity = Severity.healthy
 
     routers = sum(1 for d in device_rows if d.device_type == "Router")
     ends = sum(1 for d in device_rows if d.device_type == "EndDevice")
@@ -273,6 +262,13 @@ def build_network_summary(
     else:
         active_incidents = 0
 
+    badges = list(device_decision_badges or [])
+    decision_summary = decision_count_summary_from_badges(
+        badges,
+        coverage_warning_count=coverage_warning_count,
+    )
+    decision = network_decision_badge_from_summary(decision_summary)
+
     return NetworkSummary(
         id=row.id,
         name=row.name,
@@ -283,14 +279,10 @@ def build_network_summary(
         router_count=routers,
         end_device_count=ends,
         unavailable_count=unavailable,
-        recently_unstable_count=unstable,
-        weak_link_count=weak,
-        low_battery_count=low_bat,
-        stale_count=stale,
-        interview_issue_count=interview_issues,
-        incident_state=incident_state,
+        active_incident_severity=severity,
         active_incident_count=active_incidents,
-        health=health_payload,
+        decision=decision,
+        decision_summary=decision_summary,
     )
 
 
@@ -419,7 +411,7 @@ def build_health_snapshot(
             summary = summary_by_id.get(n.id)
             if summary is not None:
                 unavailable_count = summary.unavailable_count
-                severity = summary.incident_state.value
+                severity = summary.active_incident_severity.value
             elif complete_network_scope and (net := health.get_network_health(n.id)):
                 unavailable_count = net.unavailable_count
                 severity = Severity.healthy.value
@@ -454,7 +446,7 @@ def build_health_snapshot(
                     complete_network_scope=complete_network_scope,
                     scoped_device_health_by_key=scoped_device_health_by_key,
                     active_incident_severity=active_incident_severity,
-                ).incident_state.value,
+                ).active_incident_severity.value,
                 "unavailable_count": (
                     health.get_network_health(n.id).unavailable_count
                     if complete_network_scope and health.get_network_health(n.id)

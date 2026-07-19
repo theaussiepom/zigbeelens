@@ -204,6 +204,8 @@ def apply_incident_device_story_badges(
     stories: dict[tuple[str, str], DeviceStory],
 ) -> list[Incident]:
     """Project DeviceDecisionBadge onto incident affected-device refs from stories."""
+    from zigbeelens.services.decision_summary import data_unavailable_device_badge
+
     updated: list[Incident] = []
     for incident in incidents:
         new_affected = []
@@ -211,7 +213,9 @@ def apply_incident_device_story_badges(
             key = (ref.network_id, ref.ieee_address)
             story = stories.get(key)
             decision = (
-                device_decision_badge_from_story(story) if story is not None else None
+                device_decision_badge_from_story(story)
+                if story is not None
+                else (ref.decision or data_unavailable_device_badge())
             )
             new_affected.append(ref.model_copy(update={"decision": decision}))
         updated.append(
@@ -320,12 +324,50 @@ def finalize_scenario_device_stories(
     now: datetime,
 ) -> ScenarioData:
     """Attach canonical Device Stories and project decision badges onto devices."""
+    from zigbeelens.services.decision_summary import (
+        decision_count_summary_from_badges,
+        network_decision_badge_from_summary,
+    )
+
     stories = build_device_stories_for_scenario(data, now=now)
     devices = apply_device_story_badges(data.devices, stories)
     incidents = apply_incident_device_story_badges(data.incidents, stories)
+
+    devices_by_network: dict[str, list] = {}
+    for device in devices:
+        devices_by_network.setdefault(device.network_id, []).append(device)
+    networks = []
+    for net in data.dashboard.networks:
+        scoped = devices_by_network.get(net.id, [])
+        summary = decision_count_summary_from_badges(d.decision for d in scoped)
+        networks.append(
+            net.model_copy(
+                update={
+                    "decision": network_decision_badge_from_summary(summary),
+                    "decision_summary": summary,
+                    "device_count": len(scoped) if scoped else net.device_count,
+                    "unavailable_count": (
+                        sum(1 for d in scoped if str(d.availability) == "offline")
+                        if scoped
+                        else net.unavailable_count
+                    ),
+                }
+            )
+        )
+    estate_summary = decision_count_summary_from_badges(d.decision for d in devices)
+    dashboard = data.dashboard.model_copy(
+        update={
+            "networks": networks,
+            "decision_summary": estate_summary,
+            "network_count": len(networks),
+            "device_count": len(devices),
+            "unavailable_device_count": sum(n.unavailable_count for n in networks),
+        }
+    )
     return replace(
         data,
         devices=devices,
         device_stories=stories,
         incidents=incidents,
+        dashboard=dashboard,
     )

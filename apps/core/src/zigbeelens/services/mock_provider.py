@@ -65,7 +65,7 @@ class MockProvider:
 
     def routers(self):
         from zigbeelens.mock.fixtures import conclusion
-        from zigbeelens.schemas import IncidentScope, RouterRisk, Severity
+        from zigbeelens.schemas import Confidence, IncidentScope, RouterRisk, Severity
 
         router_devices = [d for d in self.data.devices if d.device_type.value == "Router"]
         risks = self.data.router_risks or self.data.dashboard.router_risks
@@ -90,7 +90,7 @@ class MockProvider:
                             "router_ok",
                             Severity.healthy,
                             IncidentScope.router_candidate,
-                            d.health.confidence,
+                            Confidence.high,
                             f"{d.friendly_name} shows no elevated router risk.",
                         ),
                     )

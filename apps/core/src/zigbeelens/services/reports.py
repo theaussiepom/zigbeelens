@@ -133,7 +133,9 @@ def build_config_summary(config: AppConfig) -> dict[str, Any]:
 
 
 def _count_primary(devices: list[DeviceSummary], primary: DeviceHealthPrimary) -> int:
-    return sum(1 for d in devices if d.health.primary == primary)
+    """Legacy helper retained for v1 compatibility paths; unused for decision DTOs."""
+    del devices, primary
+    return 0
 
 
 def _lens_health_summary(
@@ -141,19 +143,13 @@ def _lens_health_summary(
     *,
     overall_state: Severity | None,
 ) -> LensHealthSummary:
+    """Legacy v1 Lens summary — empty for decision-only device payloads."""
+    del devices
     counts = {bucket.value: 0 for bucket in LensBucket}
-    for device in devices:
-        bucket = device.lens_bucket if device.lens_bucket in counts else LensBucket.unknown.value
-        counts[bucket] += 1
-    labels = {
-        bucket: BUCKET_LABELS[LensBucket(bucket)]
-        for bucket, count in counts.items()
-        if count > 0
-    }
     return LensHealthSummary(
         overall_state=overall_state.value if overall_state else None,
         bucket_counts=counts,
-        bucket_labels=labels,
+        bucket_labels={},
     )
 
 
@@ -188,29 +184,9 @@ def _domain_details(detail: ReportDetail) -> dict[str, Any]:
     }
 
 
-def _enrich_incident_entity(ref: IncidentDeviceRef) -> IncidentDeviceRef:
-    return ref.model_copy(
-        update={
-            "name": ref.name or ref.friendly_name,
-            "classification": ref.classification or ref.lens_bucket,
-            "reason": ref.reason or ref.lens_bucket_reason or ref.lens_bucket_label,
-        }
-    )
-
-
 def _enrich_incidents(incidents: list[Incident]) -> list[Incident]:
-    enriched: list[Incident] = []
-    for incident in incidents:
-        enriched.append(
-            incident.model_copy(
-                update={
-                    "affected_devices": [
-                        _enrich_incident_entity(ref) for ref in incident.affected_devices
-                    ]
-                }
-            )
-        )
-    return enriched
+    """Identity pass — IncidentDeviceRef is already decision-only."""
+    return list(incidents)
 
 
 def _apply_report_compatibility_sections(detail: ReportDetail) -> ReportDetail:
@@ -564,10 +540,9 @@ def render_markdown_v1(detail: ReportDetail) -> str:
             if inc.affected_devices:
                 lines += ["", "Affected entities:"]
                 for entity in inc.affected_devices[:20]:
-                    reason = entity.reason or entity.lens_bucket_reason or entity.lens_bucket_label
                     lines.append(
-                        f"- {entity.name or entity.friendly_name} "
-                        f"({entity.classification or entity.lens_bucket}): {reason}"
+                        f"- {entity.friendly_name} "
+                        f"({entity.decision.status}): {entity.decision.headline_code}"
                     )
             if inc.evidence:
                 lines += ["", "Evidence:"]
@@ -585,20 +560,24 @@ def render_markdown_v1(detail: ReportDetail) -> str:
             f"Zigbee2MQTT bridge: {detail.collector_status.get('zigbee2mqtt_bridge', 'unknown')}",
         ]
 
-    unhealthy = [d for d in detail.devices if d.health.severity != Severity.healthy]
-    if unhealthy:
+    review = [
+        d
+        for d in detail.devices
+        if str(d.decision.status)
+        in {"review_first", "worth_reviewing", "watch", "improve_data_coverage"}
+    ]
+    if review:
         lines += [
             "",
-            "## Unhealthy devices",
+            "## Devices to review",
             "",
-            "| Device | Network | Health | Lens bucket | Evidence |",
-            "|---|---|---|---|---|",
+            "| Device | Network | Decision | Headline |",
+            "|---|---|---|---|",
         ]
-        for d in unhealthy[:50]:
-            evidence = d.health.evidence[0] if d.health.evidence else ""
+        for d in review[:50]:
             lines.append(
-                f"| {d.friendly_name} | {d.network_id} | {d.health.primary.value} | "
-                f"{d.lens_bucket_label} | {evidence} |"
+                f"| {d.friendly_name} | {d.network_id} | {d.decision.status} | "
+                f"{d.decision.headline_code} |"
             )
 
     lines += ["", "## Limitations", ""]

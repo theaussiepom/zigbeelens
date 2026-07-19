@@ -581,30 +581,22 @@ def test_devices_list_loads_snapshot_context_once_per_network(monkeypatch, tmp_p
     assert earliest_calls.count("office") == 1
 
 
-def test_dashboard_does_not_compose_inventory_decision_badges(tmp_path: Path):
+def test_dashboard_composes_inventory_decision_badges_once(tmp_path: Path):
     repo, config = _repo(tmp_path)
     _add_device(repo, "0xa1", availability="offline")
     health = HealthDiagnosticService(config, repo)
     health.recalculate_all()
+    spy = MagicMock(wraps=device_decision_badges_for_devices)
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
             "zigbeelens.services.payload_builder.device_decision_badges_for_devices",
-            MagicMock(
-                side_effect=AssertionError(
-                    "dashboard must not compose inventory decision badges"
-                )
-            ),
+            spy,
         )
         dash = PayloadBuilder(config, repo, health).dashboard()
-    assert dash.top_affected_devices or dash.stale_devices or True
-    nested = (
-        dash.top_affected_devices
-        + dash.recently_unstable
-        + dash.weak_links
-        + dash.low_batteries
-        + dash.stale_devices
-    )
-    assert all(device.decision is None for device in nested)
+    assert spy.call_count == 1
+    assert dash.decision_summary.subject_count >= 1
+    assert dash.networks[0].decision.status
+    assert "health_snapshot" not in dash.model_dump()
 
 
 def test_devices_endpoint_composes_badges_once(tmp_path: Path):

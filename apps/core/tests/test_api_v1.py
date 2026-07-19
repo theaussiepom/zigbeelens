@@ -32,7 +32,7 @@ def test_v1_capabilities(mock_client: TestClient):
     body = res.json()
     assert body["product"] == "zigbeelens"
     assert "version" in body
-    assert body["decision_contract_version"] == 1
+    assert body["decision_contract_version"] == 2
     caps = body["capabilities"]
     assert caps["dashboard"] is True
     assert caps["sse"] is True
@@ -41,11 +41,16 @@ def test_v1_capabilities(mock_client: TestClient):
     assert caps["mock_scenarios"] is True
     assert caps["home_assistant_enrichment"] is True
     assert caps["shared_decisions"] is True
+    assert caps["decision_only_diagnostic_payloads"] is True
+    assert caps["legacy_health_lens_payloads"] is False
     assert caps["companion_decision_summary"] is True
     assert isinstance(caps["mqtt_discovery"], bool)
     assert isinstance(caps["topology"], bool)
     assert isinstance(caps["mqtt_collector"], bool)
     surfaces = body["decision_surfaces"]
+    assert surfaces["dashboard_decision_summary"] is True
+    assert surfaces["network_decision_badges"] is True
+    assert surfaces["device_decision_badges"] is True
     assert surfaces["dashboard_investigation_priorities"] is True
     assert surfaces["dashboard_data_coverage_warnings"] is True
     assert surfaces["device_story"] is True
@@ -53,10 +58,19 @@ def test_v1_capabilities(mock_client: TestClient):
     assert "dashboard_recent_changes" not in surfaces
 
     dashboard = mock_client.get("/api/v1/dashboard").json()
+    assert "decision_summary" in dashboard
     assert "investigation_priorities" in dashboard
     assert "data_coverage_warnings" in dashboard
+    assert "overall_severity" not in dashboard
+    assert "current_finding" not in dashboard
+    assert "health_snapshot" not in dashboard
+    assert "top_affected_devices" not in dashboard
     assert isinstance(dashboard["investigation_priorities"], list)
     assert isinstance(dashboard["data_coverage_warnings"], list)
+    assert "lens_bucket" not in dashboard["networks"][0]
+    assert "health" not in dashboard["networks"][0]
+    assert "decision" in dashboard["networks"][0]
+    assert "decision_summary" in dashboard["networks"][0]
 
     devices = mock_client.get("/api/v1/devices").json()["items"]
     assert devices

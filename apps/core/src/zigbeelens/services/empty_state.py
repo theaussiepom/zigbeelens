@@ -5,15 +5,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from zigbeelens.config.models import AppConfig
+from zigbeelens.decisions.types import DecisionPriority, DecisionStatus
 from zigbeelens.schemas import (
     BridgeState,
     Confidence,
     DashboardPayload,
-    DeviceHealth,
-    DeviceHealthPrimary,
+    DecisionCountSummary,
+    DeviceDecisionBadge,
     DiagnosticConclusion,
     EvidenceItem,
-    HealthSnapshot,
     IncidentScope,
     LimitationItem,
     NetworkSummary,
@@ -27,6 +27,7 @@ def _now_iso() -> str:
 
 
 def empty_finding() -> DiagnosticConclusion:
+    """Internal diagnostic conclusion for empty estates (not a public Dashboard field)."""
     return DiagnosticConclusion(
         classification="no_data_yet",
         severity=Severity.watch,
@@ -49,47 +50,56 @@ def empty_finding() -> DiagnosticConclusion:
             ),
             LimitationItem(
                 id="lim-empty-1",
-                summary="Device health cannot be assessed until data arrives",
+                summary="Device decisions cannot be assessed until data arrives",
             ),
         ],
     )
 
 
-def network_summary_from_row(row: NetworkRow) -> NetworkSummary:
-    unknown_health = DeviceHealth(
-        primary=DeviceHealthPrimary.unknown,
-        severity=Severity.watch,
-        confidence=Confidence.low,
-        evidence=[],
-        limitations=["No device telemetry received for this network yet"],
+def _empty_network_decision() -> tuple[DeviceDecisionBadge, DecisionCountSummary]:
+    summary = DecisionCountSummary(
+        subject_count=0,
+        overall_status=DecisionStatus.data_unavailable.value,
+        highest_priority=DecisionPriority.none.value,
+        status_counts={},
+        priority_counts={},
+        coverage_warning_count=0,
     )
+    decision = DeviceDecisionBadge(
+        status=DecisionStatus.data_unavailable.value,
+        priority=DecisionPriority.none.value,
+        headline_code="network_data_unavailable",
+        coverage_label_codes=[],
+    )
+    return decision, summary
+
+
+def network_summary_from_row(row: NetworkRow) -> NetworkSummary:
+    decision, decision_summary = _empty_network_decision()
     return NetworkSummary(
         id=row.id,
         name=row.name,
         base_topic=row.base_topic,
         bridge_state=BridgeState(row.bridge_state)
-            if row.bridge_state in {s.value for s in BridgeState}
-            else BridgeState.unknown,
+        if row.bridge_state in {s.value for s in BridgeState}
+        else BridgeState.unknown,
         device_count=0,
         router_count=0,
         end_device_count=0,
         unavailable_count=0,
-        recently_unstable_count=0,
-        weak_link_count=0,
-        low_battery_count=0,
-        stale_count=0,
-        interview_issue_count=0,
-        incident_state=Severity.watch,
+        active_incident_severity=Severity.watch,
         active_incident_count=0,
         recent_bridge_warnings=0,
         recent_bridge_errors=0,
-        health=unknown_health,
+        decision=decision,
+        decision_summary=decision_summary,
     )
 
 
 def build_empty_dashboard(config: AppConfig, networks: list[NetworkRow]) -> DashboardPayload:
     net_summaries = [network_summary_from_row(n) for n in networks]
     if not net_summaries and config.networks:
+        decision, decision_summary = _empty_network_decision()
         net_summaries = [
             NetworkSummary(
                 id=n.id,
@@ -100,56 +110,34 @@ def build_empty_dashboard(config: AppConfig, networks: list[NetworkRow]) -> Dash
                 router_count=0,
                 end_device_count=0,
                 unavailable_count=0,
-                recently_unstable_count=0,
-                weak_link_count=0,
-                low_battery_count=0,
-                stale_count=0,
-                interview_issue_count=0,
-                incident_state=Severity.watch,
+                active_incident_severity=Severity.watch,
                 active_incident_count=0,
-                health=DeviceHealth(
-                    primary=DeviceHealthPrimary.unknown,
-                    severity=Severity.watch,
-                    confidence=Confidence.low,
-                    evidence=[],
-                    limitations=["Awaiting MQTT data"],
-                ),
+                decision=decision,
+                decision_summary=decision_summary,
             )
             for n in config.networks
         ]
 
+    empty_summary = DecisionCountSummary(
+        subject_count=0,
+        overall_status=DecisionStatus.data_unavailable.value,
+        highest_priority=DecisionPriority.none.value,
+        status_counts={},
+        priority_counts={},
+        coverage_warning_count=0,
+    )
     return DashboardPayload(
         generated_at=_now_iso(),
         scenario=None,
-        overall_severity=Severity.watch,
-        current_finding=empty_finding(),
         active_incident_count=0,
         watching_incident_count=0,
+        network_count=len(net_summaries),
+        device_count=0,
+        unavailable_device_count=0,
         networks=net_summaries,
-        top_affected_devices=[],
         router_risks=[],
-        recently_unstable=[],
-        weak_links=[],
-        low_batteries=[],
-        stale_devices=[],
         recent_timeline=[],
-        health_snapshot=HealthSnapshot(
-            timestamp=_now_iso(),
-            overall_severity=Severity.watch,
-            overall_health=DeviceHealthPrimary.unknown,
-            network_count=len(net_summaries),
-            device_count=0,
-            unavailable_count=0,
-            incident_count=0,
-            networks=[
-                {
-                    "network_id": n.id,
-                    "severity": "watch",
-                    "unavailable_count": 0,
-                }
-                for n in net_summaries
-            ],
-        ),
+        decision_summary=empty_summary,
         shared_availability_events=[],
         model_patterns=[],
         investigation_priorities=[],
