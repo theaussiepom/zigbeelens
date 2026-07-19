@@ -1,8 +1,12 @@
 /**
- * Safe browser-auth identity and generation.
+ * Safe browser-auth identity and access generations.
  *
  * Does not store API tokens, cookies, session secrets, or CSRF tokens.
  * CSRF lives only in sessionTransport (transport-private).
+ *
+ * identityGeneration — changes only when the effective identity tuple changes.
+ * accessGeneration — advances whenever protected work must become stale
+ *   (identity change, 401, logout, expiry, protocol/auth locks, bfcache, unmount).
  */
 
 export type AuthMethod = "trusted_local" | "session";
@@ -50,20 +54,36 @@ class AuthRuntime {
   #expiresAt: string | null = null;
   #browserSessionEnabled = false;
   #credentialRevision = 0;
-  #generation = 0;
+  #identityGeneration = 0;
+  #accessGeneration = 0;
   #unauthorizedListeners = new Set<UnauthorizedListener>();
   #revalidateListeners = new Set<RevalidateListener>();
   #changeListeners = new Set<ChangeListener>();
-  #unauthorizedNotifiedForGeneration = -1;
+  #unauthorizedNotifiedForAccess = -1;
   #revalidateNotifiedAt = 0;
 
-  /** Public alias kept for compatibility with authEpoch consumers. */
-  getEpoch(): number {
-    return this.#generation;
+  getIdentityGeneration(): number {
+    return this.#identityGeneration;
   }
 
+  getAccessGeneration(): number {
+    return this.#accessGeneration;
+  }
+
+  /**
+   * Access generation — used by authEpoch / stale protected work.
+   * @deprecated Prefer getAccessGeneration(); retained for existing callers.
+   */
+  getEpoch(): number {
+    return this.#accessGeneration;
+  }
+
+  /**
+   * Access generation alias for existing fetch/download callers.
+   * @deprecated Prefer getAccessGeneration().
+   */
   getGeneration(): number {
-    return this.#generation;
+    return this.#accessGeneration;
   }
 
   getAuthMethod(): AuthMethod | null {
@@ -102,7 +122,7 @@ class AuthRuntime {
     this.#expiresAt = null;
     this.#credentialRevision = 0;
     this.#browserSessionEnabled = browserSessionEnabled;
-    this.#bumpGeneration();
+    this.#bumpIdentityChange();
     this.#emitChange();
   }
 
@@ -122,7 +142,7 @@ class AuthRuntime {
     this.#expiresAt = opts.expiresAt;
     this.#credentialRevision = opts.credentialRevision;
     this.#browserSessionEnabled = opts.browserSessionEnabled;
-    this.#bumpGeneration();
+    this.#bumpIdentityChange();
     this.#emitChange();
   }
 
@@ -138,7 +158,19 @@ class AuthRuntime {
     this.#expiresAt = null;
     this.#credentialRevision = 0;
     this.#browserSessionEnabled = false;
-    this.#bumpGeneration();
+    this.#bumpIdentityChange();
+    this.#emitChange();
+  }
+
+  /**
+   * Advance protected-access generation without changing the identity tuple.
+   * Used for bfcache suspension, logout start, provider unmount, and locks
+   * that do not already change identity.
+   */
+  advanceAccessGeneration(): void {
+    this.#accessGeneration += 1;
+    this.#unauthorizedNotifiedForAccess = -1;
+    this.#revalidateNotifiedAt = 0;
     this.#emitChange();
   }
 
@@ -163,10 +195,10 @@ class AuthRuntime {
     };
   }
 
-  /** One bounded notification per auth generation for protected 401s. */
+  /** One bounded notification per access generation for protected 401s. */
   notifyUnauthorized(): void {
-    if (this.#unauthorizedNotifiedForGeneration === this.#generation) return;
-    this.#unauthorizedNotifiedForGeneration = this.#generation;
+    if (this.#unauthorizedNotifiedForAccess === this.#accessGeneration) return;
+    this.#unauthorizedNotifiedForAccess = this.#accessGeneration;
     for (const listener of [...this.#unauthorizedListeners]) {
       listener();
     }
@@ -187,8 +219,9 @@ class AuthRuntime {
     this.#expiresAt = null;
     this.#browserSessionEnabled = false;
     this.#credentialRevision = 0;
-    this.#generation = 0;
-    this.#unauthorizedNotifiedForGeneration = -1;
+    this.#identityGeneration = 0;
+    this.#accessGeneration = 0;
+    this.#unauthorizedNotifiedForAccess = -1;
     this.#revalidateNotifiedAt = 0;
     this.#unauthorizedListeners.clear();
     this.#revalidateListeners.clear();
@@ -201,12 +234,13 @@ class AuthRuntime {
       expiresAt: this.#expiresAt,
       browserSessionEnabled: this.#browserSessionEnabled,
       credentialRevision: this.#credentialRevision,
-      generation: this.#generation,
+      identityGeneration: this.#identityGeneration,
+      accessGeneration: this.#accessGeneration,
     };
   }
 
   toString(): string {
-    return `AuthRuntime(method=${this.#authMethod ?? "none"}, generation=${this.#generation})`;
+    return `AuthRuntime(method=${this.#authMethod ?? "none"}, identity=${this.#identityGeneration}, access=${this.#accessGeneration})`;
   }
 
   #currentIdentity(): IdentityTuple {
@@ -218,9 +252,10 @@ class AuthRuntime {
     };
   }
 
-  #bumpGeneration(): void {
-    this.#generation += 1;
-    this.#unauthorizedNotifiedForGeneration = -1;
+  #bumpIdentityChange(): void {
+    this.#identityGeneration += 1;
+    this.#accessGeneration += 1;
+    this.#unauthorizedNotifiedForAccess = -1;
     this.#revalidateNotifiedAt = 0;
   }
 

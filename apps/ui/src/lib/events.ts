@@ -1,5 +1,4 @@
-import { ApiError, eventStreamUrl, fetchSessionStatus } from "@/lib/api";
-import { authRuntime } from "@/lib/authRuntime";
+import { eventStreamUrl } from "@/lib/api";
 
 export type ConnectionState = "connecting" | "open" | "disconnected";
 
@@ -19,12 +18,18 @@ export const LIVE_EVENTS = [
   "collector_status",
 ] as const;
 
+export type SessionProbeReason = "sse_error";
+
+type SessionProbeRequester = (reason: SessionProbeReason) => void;
 type EventListener = (eventName: string) => void;
 type StateListener = (state: ConnectionState) => void;
 
 /**
  * Single shared EventSource connection to Core.
  * Connections are created only while access is enabled (authenticated UI).
+ *
+ * Does not fetch /api/auth/session. On errors it requests a bounded status
+ * probe from BrowserAuthProvider via setSessionProbeRequester.
  */
 class LiveConnection {
   private source: EventSource | null = null;
@@ -36,6 +41,8 @@ class LiveConnection {
   private statusProbesSuppressed = false;
   private statusProbeAt = 0;
   private statusProbeTimer: ReturnType<typeof setTimeout> | null = null;
+  private sessionProbeRequester: SessionProbeRequester | null = null;
+  private probeSource: EventSource | null = null;
 
   getState(): ConnectionState {
     return this.state;
@@ -49,10 +56,7 @@ class LiveConnection {
     this.accessEnabled = enabled;
     if (!enabled) {
       this.closeSource();
-      if (this.statusProbeTimer) {
-        clearTimeout(this.statusProbeTimer);
-        this.statusProbeTimer = null;
-      }
+      this.clearPendingSessionProbe();
       this.setState("disconnected");
       return;
     }
@@ -61,13 +65,25 @@ class LiveConnection {
     }
   }
 
-  /** While true, EventSource errors do not start session-status probes (e.g. during logout). */
+  /** While true, EventSource errors do not request session-status probes (e.g. during logout). */
   setStatusProbesSuppressed(suppressed: boolean): void {
     this.statusProbesSuppressed = suppressed;
-    if (suppressed && this.statusProbeTimer) {
+    if (suppressed) {
+      this.clearPendingSessionProbe();
+    }
+  }
+
+  /** Provider-owned callback for SSE-driven session probes. */
+  setSessionProbeRequester(requester: SessionProbeRequester | null): void {
+    this.sessionProbeRequester = requester;
+  }
+
+  clearPendingSessionProbe(): void {
+    if (this.statusProbeTimer) {
       clearTimeout(this.statusProbeTimer);
       this.statusProbeTimer = null;
     }
+    this.probeSource = null;
   }
 
   subscribeEvents(listener: EventListener): () => void {
@@ -97,10 +113,8 @@ class LiveConnection {
     this.accessEnabled = false;
     this.statusProbesSuppressed = false;
     this.statusProbeAt = 0;
-    if (this.statusProbeTimer) {
-      clearTimeout(this.statusProbeTimer);
-      this.statusProbeTimer = null;
-    }
+    this.sessionProbeRequester = null;
+    this.clearPendingSessionProbe();
     this.state = "connecting";
   }
 
@@ -145,7 +159,7 @@ class LiveConnection {
     source.onerror = () => {
       if (!this.accessEnabled || this.source !== source) return;
       this.setState("disconnected");
-      this.scheduleStatusProbe();
+      this.scheduleStatusProbe(source);
     };
 
     const notify = (eventName: string) => () => {
@@ -163,44 +177,24 @@ class LiveConnection {
     });
   }
 
-  private scheduleStatusProbe() {
+  private scheduleStatusProbe(source: EventSource) {
     if (!this.accessEnabled || this.statusProbesSuppressed) return;
+    if (!this.sessionProbeRequester) return;
     const now = Date.now();
     if (now - this.statusProbeAt < 5_000) return;
     if (this.statusProbeTimer) return;
+    this.probeSource = source;
     this.statusProbeTimer = setTimeout(() => {
       this.statusProbeTimer = null;
       this.statusProbeAt = Date.now();
-      void this.probeSessionOnce();
+      const requester = this.sessionProbeRequester;
+      const owned = this.probeSource;
+      this.probeSource = null;
+      if (!requester) return;
+      if (!this.accessEnabled || this.statusProbesSuppressed) return;
+      if (this.source !== owned) return;
+      requester("sse_error");
     }, 400);
-  }
-
-  private async probeSessionOnce() {
-    if (!this.accessEnabled || this.statusProbesSuppressed) return;
-    try {
-      const status = await fetchSessionStatus();
-      if (!this.accessEnabled || this.statusProbesSuppressed) return;
-      if (!status.authenticated) {
-        authRuntime.notifyUnauthorized();
-      }
-    } catch (error) {
-      if (!this.accessEnabled || this.statusProbesSuppressed) return;
-      if (error instanceof ApiError) {
-        if (
-          error.detail === "incomplete_session" ||
-          error.detail === "unexpected_bearer" ||
-          error.detail === "malformed" ||
-          error.kind === "authentication" ||
-          error.kind === "protocol"
-        ) {
-          authRuntime.notifyUnauthorized();
-          return;
-        }
-        if (error.kind === "unreachable" || error.kind === "stale_auth_context") {
-          return;
-        }
-      }
-    }
   }
 
   private setState(state: ConnectionState) {

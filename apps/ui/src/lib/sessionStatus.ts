@@ -7,6 +7,13 @@ const MAX_SESSION_TTL_MS = 604_800_000 + 5 * 60_000;
 /** Align with Core MAX_CSRF_TOKEN_BYTES. */
 const MAX_CSRF_BYTES = 4096;
 
+/**
+ * ItsDangerous URLSafeSerializer alphabet as used by Core BrowserSessionManager.
+ * Issued tokens are url-safe base64 segments separated by `.` (payload.signature).
+ * Characters: ASCII alphanumeric, `-`, `_`, `.` — no spaces, commas, quotes, or non-ASCII.
+ */
+export const CSRF_TOKEN_GRAMMAR = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/;
+
 export type ParsedSessionStatus =
   | { ok: true; status: BrowserSessionStatus }
   | {
@@ -29,12 +36,11 @@ function parseExpiresAt(value: unknown): string | null | undefined {
   return value;
 }
 
-function isSafeHeaderToken(value: string): boolean {
-  // Reject control characters and DEL; CSRF must be header-safe.
-  for (let i = 0; i < value.length; i += 1) {
-    const code = value.charCodeAt(i);
-    if (code < 0x20 || code === 0x7f) return false;
-  }
+export function isValidCsrfTokenGrammar(value: string): boolean {
+  if (value.length === 0) return false;
+  if (value !== value.trim()) return false;
+  if (!CSRF_TOKEN_GRAMMAR.test(value)) return false;
+  if (new TextEncoder().encode(value).length > MAX_CSRF_BYTES) return false;
   return true;
 }
 
@@ -43,9 +49,7 @@ function parseCsrf(value: unknown): string | null | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "string") return undefined;
   if (value.length === 0) return "";
-  if (value !== value.trim()) return undefined;
-  if (!isSafeHeaderToken(value)) return undefined;
-  if (new TextEncoder().encode(value).length > MAX_CSRF_BYTES) return undefined;
+  if (!isValidCsrfTokenGrammar(value)) return undefined;
   return value;
 }
 
@@ -104,6 +108,7 @@ export function parseBrowserSessionStatus(raw: unknown): ParsedSessionStatus {
     if (typeof status.csrf_token !== "string" || status.csrf_token.length === 0) {
       return { ok: false, reason: "incomplete_session" };
     }
+    // Grammar already enforced; empty rejected above.
     if (typeof status.expires_at !== "string" || status.expires_at.length === 0) {
       return { ok: false, reason: "incomplete_session" };
     }

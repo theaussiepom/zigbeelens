@@ -7,6 +7,7 @@
  */
 
 import { authRuntime } from "@/lib/authRuntime";
+import { isValidCsrfTokenGrammar } from "@/lib/sessionStatus";
 
 export const CSRF_HEADER_NAME = "X-ZigbeeLens-CSRF-Token";
 
@@ -37,6 +38,10 @@ export type RequestIntent =
 export function installSessionTransportCredentials(
   csrfToken: string,
 ): TransportCredentialResult {
+  if (!isValidCsrfTokenGrammar(csrfToken)) {
+    // Never store a token that cannot be applied as a header safely.
+    return { revision: state.revision, changed: false };
+  }
   if (state.sessionActive && state.csrfToken === csrfToken) {
     return { revision: state.revision, changed: false };
   }
@@ -77,7 +82,7 @@ export type CredentialedFetchOptions = {
 
 export type StartCredentialedFetchResult =
   | { ok: true; promise: Promise<Response> }
-  | { ok: false; reason: "csrf_missing" };
+  | { ok: false; reason: "csrf_missing" | "protocol" };
 
 /**
  * Build a credentialed Request and start fetch. CSRF is applied only onto the
@@ -106,7 +111,16 @@ export function startCredentialedFetch(
         bearer = undefined;
         return { ok: false, reason: "csrf_missing" };
       }
-      headers.set(CSRF_HEADER_NAME, state.csrfToken);
+      if (!isValidCsrfTokenGrammar(state.csrfToken)) {
+        bearer = undefined;
+        return { ok: false, reason: "protocol" };
+      }
+      try {
+        headers.set(CSRF_HEADER_NAME, state.csrfToken);
+      } catch {
+        bearer = undefined;
+        return { ok: false, reason: "protocol" };
+      }
     }
   }
 
@@ -115,13 +129,20 @@ export function startCredentialedFetch(
     options.intent === "session_bootstrap" ||
     options.intent === "session_logout";
 
-  const request = new Request(url, {
-    method,
-    headers,
-    body: options.body,
-    credentials: "include",
-    cache: noStore ? "no-store" : options.cache,
-  });
+  let request: Request;
+  try {
+    request = new Request(url, {
+      method,
+      headers,
+      body: options.body,
+      credentials: "include",
+      cache: noStore ? "no-store" : options.cache,
+    });
+  } catch {
+    bearer = undefined;
+    options.bearer = undefined;
+    return { ok: false, reason: "protocol" };
+  }
 
   // Release deliberate token copies now that the Request owns the Authorization header.
   bearer = undefined;

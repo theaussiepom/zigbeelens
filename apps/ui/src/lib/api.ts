@@ -108,8 +108,8 @@ function staleAuthError(): ApiError {
   });
 }
 
-function assertGeneration(start: number): void {
-  if (start !== authRuntime.getGeneration()) {
+function assertAccessGeneration(start: number): void {
+  if (start !== authRuntime.getAccessGeneration()) {
     throw staleAuthError();
   }
 }
@@ -163,6 +163,11 @@ export type CoreFetchOptions = {
   bearer?: string;
   /** Expect no JSON body (e.g. 204). */
   allowEmpty?: boolean;
+  /**
+   * Access generation captured by the outermost logical operation.
+   * Retries and nested body parsing must reuse this value — never recapture.
+   */
+  accessGeneration?: number;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -191,8 +196,13 @@ export async function coreFetch(
 ): Promise<Response> {
   const method = (init?.method ?? "GET").toUpperCase();
   const intent = resolveIntent(options);
-  const generationAtStart = authRuntime.getGeneration();
+  const accessGenerationAtStart =
+    options.accessGeneration ?? authRuntime.getAccessGeneration();
   const checkGeneration = intent === "protected" || intent === "session_logout";
+
+  if (checkGeneration) {
+    assertAccessGeneration(accessGenerationAtStart);
+  }
 
   const started = startCredentialedFetch(buildUrl(path, params), {
     intent,
@@ -206,6 +216,12 @@ export async function coreFetch(
   options.bearer = undefined;
 
   if (!started.ok) {
+    if (started.reason === "protocol") {
+      throw new ApiError("Unexpected session credential encoding.", 0, {
+        kind: "protocol",
+        detail: "malformed",
+      });
+    }
     authRuntime.notifyRevalidate();
     throw new ApiError("Session security token is missing. Retry the action.", 403, {
       kind: "csrf",
@@ -221,20 +237,25 @@ export async function coreFetch(
   }
 
   if (checkGeneration) {
-    assertGeneration(generationAtStart);
+    assertAccessGeneration(accessGenerationAtStart);
   }
 
   if (!res.ok) {
     const detail = await readErrorDetail(res);
     if (checkGeneration) {
-      assertGeneration(generationAtStart);
+      assertAccessGeneration(accessGenerationAtStart);
     }
     const kind = classifyError(res.status, detail);
     if (res.status === 401 && intent === "protected") {
-      authRuntime.notifyUnauthorized();
+      if (accessGenerationAtStart === authRuntime.getAccessGeneration()) {
+        authRuntime.notifyUnauthorized();
+      }
     }
-    if (res.status === 403 && kind === "csrf" && (intent === "protected" || intent === "session_logout")) {
-      authRuntime.notifyRevalidate();
+    // session_logout CSRF is owned by BrowserAuthProvider (refresh after ownership release).
+    if (res.status === 403 && kind === "csrf" && intent === "protected") {
+      if (accessGenerationAtStart === authRuntime.getAccessGeneration()) {
+        authRuntime.notifyRevalidate();
+      }
     }
     throw new ApiError(messageFor(res.status, detail, kind), res.status, { detail, kind });
   }
@@ -245,15 +266,15 @@ export async function coreFetch(
 async function parseJsonBody<T>(
   res: Response,
   allowEmpty: boolean,
-  generationAtStart: number | null,
+  accessGenerationAtStart: number | null,
 ): Promise<T> {
   if (res.status === 204 || allowEmpty) {
     const text = await res.text();
-    if (generationAtStart !== null) assertGeneration(generationAtStart);
+    if (accessGenerationAtStart !== null) assertAccessGeneration(accessGenerationAtStart);
     if (!text) return undefined as T;
     try {
       const parsed = JSON.parse(text) as T;
-      if (generationAtStart !== null) assertGeneration(generationAtStart);
+      if (accessGenerationAtStart !== null) assertAccessGeneration(accessGenerationAtStart);
       return parsed;
     } catch (error) {
       if (error instanceof ApiError) throw error;
@@ -262,7 +283,7 @@ async function parseJsonBody<T>(
   }
   try {
     const parsed = (await res.json()) as T;
-    if (generationAtStart !== null) assertGeneration(generationAtStart);
+    if (accessGenerationAtStart !== null) assertAccessGeneration(accessGenerationAtStart);
     return parsed;
   } catch (error) {
     if (error instanceof ApiError) throw error;
@@ -275,12 +296,16 @@ async function fetchJsonOnce<T>(
   params: Record<string, QueryParamValue> = {},
   init?: RequestInit,
   options: CoreFetchOptions = {},
+  accessGenerationAtStart?: number,
 ): Promise<T> {
   const intent = resolveIntent(options);
-  const generationAtStart = authRuntime.getGeneration();
-  const res = await coreFetch(path, params, init, options);
+  const accessGen = accessGenerationAtStart ?? authRuntime.getAccessGeneration();
+  const res = await coreFetch(path, params, init, {
+    ...options,
+    accessGeneration: accessGen,
+  });
   const checkGen =
-    intent === "protected" || intent === "session_logout" ? generationAtStart : null;
+    intent === "protected" || intent === "session_logout" ? accessGen : null;
   return parseJsonBody<T>(res, Boolean(options.allowEmpty), checkGen);
 }
 
@@ -291,13 +316,23 @@ async function fetchJson<T>(
   options: CoreFetchOptions = {},
 ): Promise<T> {
   const intent = resolveIntent(options);
+  const accessGenerationAtStart = authRuntime.getAccessGeneration();
   const retryable =
     intent === "protected" &&
     isIdempotentRequest(init);
   let lastError: ApiError | null = null;
   for (let attempt = 0; attempt <= MAX_FETCH_RETRIES; attempt += 1) {
+    if (retryable || intent === "session_logout") {
+      assertAccessGeneration(accessGenerationAtStart);
+    }
     try {
-      return await fetchJsonOnce<T>(path, params, init, options);
+      return await fetchJsonOnce<T>(
+        path,
+        params,
+        init,
+        options,
+        accessGenerationAtStart,
+      );
     } catch (error) {
       if (
         retryable &&
@@ -309,6 +344,7 @@ async function fetchJson<T>(
       ) {
         lastError = error;
         await sleep(RETRY_BASE_MS * (attempt + 1));
+        assertAccessGeneration(accessGenerationAtStart);
         continue;
       }
       throw error;
@@ -388,7 +424,7 @@ export type StoredReportDownload = {
   blob: Blob;
   filename: string;
   contentType: string;
-  /** Auth generation captured when the download began. */
+  /** Access generation captured when the download began. */
   authGeneration: number;
 };
 
@@ -396,22 +432,22 @@ export async function downloadStoredReport(
   id: string,
   scenario?: string,
 ): Promise<StoredReportDownload> {
-  const generationAtStart = authRuntime.getGeneration();
+  const accessGenerationAtStart = authRuntime.getAccessGeneration();
   const res = await coreFetch(
     `api/reports/${id}/download`,
     { scenario },
     undefined,
-    { intent: "protected" },
+    { intent: "protected", accessGeneration: accessGenerationAtStart },
   );
-  assertGeneration(generationAtStart);
+  assertAccessGeneration(accessGenerationAtStart);
   const contentType = res.headers.get("content-type") ?? "application/octet-stream";
   const blob = await res.blob();
-  assertGeneration(generationAtStart);
+  assertAccessGeneration(accessGenerationAtStart);
   // Refuse to save a typical FastAPI error JSON envelope as a report file.
   if (contentType.includes("application/json") && blob.size < 4096) {
     try {
       const text = await blob.text();
-      assertGeneration(generationAtStart);
+      assertAccessGeneration(accessGenerationAtStart);
       const parsed: unknown = JSON.parse(text);
       if (
         typeof parsed === "object" &&
@@ -426,8 +462,13 @@ export async function downloadStoredReport(
       const filename =
         parseContentDispositionFilename(res.headers.get("Content-Disposition")) ??
         FALLBACK_REPORT_FILENAME;
-      assertGeneration(generationAtStart);
-      return { blob: reportBlob, filename, contentType, authGeneration: generationAtStart };
+      assertAccessGeneration(accessGenerationAtStart);
+      return {
+        blob: reportBlob,
+        filename,
+        contentType,
+        authGeneration: accessGenerationAtStart,
+      };
     } catch (e) {
       if (e instanceof ApiError) throw e;
     }
@@ -435,15 +476,20 @@ export async function downloadStoredReport(
   const filename =
     parseContentDispositionFilename(res.headers.get("Content-Disposition")) ??
     FALLBACK_REPORT_FILENAME;
-  assertGeneration(generationAtStart);
-  return { blob, filename, contentType, authGeneration: generationAtStart };
+  assertAccessGeneration(accessGenerationAtStart);
+  return {
+    blob,
+    filename,
+    contentType,
+    authGeneration: accessGenerationAtStart,
+  };
 }
 
 export async function triggerBrowserDownload(download: StoredReportDownload): Promise<void> {
-  assertGeneration(download.authGeneration);
+  assertAccessGeneration(download.authGeneration);
   const objectUrl = URL.createObjectURL(download.blob);
   try {
-    assertGeneration(download.authGeneration);
+    assertAccessGeneration(download.authGeneration);
     const anchor = document.createElement("a");
     anchor.href = objectUrl;
     anchor.download = download.filename;
@@ -455,6 +501,16 @@ export async function triggerBrowserDownload(download: StoredReportDownload): Pr
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
+}
+
+/** Clipboard write gated by the access generation of the originating protected work. */
+export async function writeProtectedClipboardText(
+  text: string,
+  accessGeneration: number,
+): Promise<void> {
+  assertAccessGeneration(accessGeneration);
+  await navigator.clipboard.writeText(text);
+  assertAccessGeneration(accessGeneration);
 }
 
 /** Public session status — never sends Authorization; never rejected for protected generation. */

@@ -33,6 +33,7 @@ export type BrowserAuthContextValue = {
   authMethod: AuthMethod | null;
   expiresAt: string | null;
   browserSessionEnabled: boolean;
+  /** Protected-access generation (remount / stale-work boundary). */
   authEpoch: number;
   loginError: string | null;
   logoutError: string | null;
@@ -55,11 +56,13 @@ type ProbeKind =
   | "logout"
   | "login"
   | "bfcache"
-  | "csrf_refresh";
+  | "csrf_refresh"
+  | "sse_error";
 
 type ProbeHandle = {
   sequence: number;
-  authGeneration: number;
+  identityGeneration: number;
+  accessGeneration: number;
   kind: ProbeKind;
 };
 
@@ -77,6 +80,7 @@ function installAuthenticatedIdentity(status: SessionStatus): void {
     authRuntime.setTrustedLocal(status.browser_session_enabled);
     return;
   }
+  // CSRF grammar already enforced by parseBrowserSessionStatus before this runs.
   const { revision } = installSessionTransportCredentials(status.csrf_token!);
   authRuntime.setSession({
     expiresAt: status.expires_at!,
@@ -122,7 +126,7 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
     setAuthMethod(authRuntime.getAuthMethod());
     setExpiresAt(authRuntime.getExpiresAt());
     setBrowserSessionEnabled(authRuntime.getBrowserSessionEnabled());
-    setAuthEpoch(authRuntime.getGeneration());
+    setAuthEpoch(authRuntime.getAccessGeneration());
   }, []);
 
   const clearExpiryTimer = useCallback(() => {
@@ -156,12 +160,29 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
     if (!mounted.current) return false;
     if (activeProbe.current?.sequence !== handle.sequence) return false;
     if (handle.sequence !== probeSequence.current) return false;
-    // Focus/CSRF refresh must still match the generation they observed.
-    // Transition-owning probes may clear/replace identity mid-flight.
-    if (handle.kind === "focus" || handle.kind === "csrf_refresh") {
-      if (handle.authGeneration !== authRuntime.getGeneration()) return false;
-    }
     if (logoutInFlight.current && handle.kind !== "logout") return false;
+
+    const identityStableKinds: ProbeKind[] = [
+      "focus",
+      "csrf_refresh",
+      "sse_error",
+    ];
+    if (identityStableKinds.includes(handle.kind)) {
+      if (handle.identityGeneration !== authRuntime.getIdentityGeneration()) return false;
+      if (handle.accessGeneration !== authRuntime.getAccessGeneration()) return false;
+    } else if (handle.kind === "login") {
+      if (bfcacheSuspended.current) return false;
+      if (handle.accessGeneration !== authRuntime.getAccessGeneration()) return false;
+    } else if (handle.kind === "logout") {
+      if (handle.accessGeneration !== authRuntime.getAccessGeneration()) return false;
+    } else {
+      // Transition-owning probes: sequence ownership is primary; access may change
+      // only via this probe's own apply/lock path after acceptance.
+      if (handle.accessGeneration !== authRuntime.getAccessGeneration()) {
+        // Allow when this probe is still the active owner (same sequence).
+        if (activeProbe.current?.sequence !== handle.sequence) return false;
+      }
+    }
     return true;
   }, []);
 
@@ -173,8 +194,13 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
       invalidateProbes();
       bfcacheSuspended.current = false;
       liveConnection.setStatusProbesSuppressed(false);
+      liveConnection.clearPendingSessionProbe();
       liveConnection.setAccessEnabled(false);
+      const accessBefore = authRuntime.getAccessGeneration();
       clearAuthenticatedIdentity();
+      if (authRuntime.getAccessGeneration() === accessBefore) {
+        authRuntime.advanceAccessGeneration();
+      }
       syncFromRuntime();
       setPhase(next);
       setReason(nextReason);
@@ -234,7 +260,8 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
         setPhase("authenticated");
         setReason("initial");
         setLoginError(null);
-        setLogoutError(null);
+        // Keep logoutError sticky across CSRF/focus refresh so CSRF-403 logout
+        // can still tell the user to retry after ownership release.
         return;
       }
       lockUi("locked", "unauthorized");
@@ -249,23 +276,24 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
       }
 
       const retainOnNetwork =
-        kind === "focus" || kind === "csrf_refresh";
+        kind === "focus" || kind === "csrf_refresh" || kind === "sse_error";
 
       if (
         kind === "focus" &&
         focusProbePromise.current &&
         activeProbe.current?.kind === "focus" &&
-        activeProbe.current.authGeneration === authRuntime.getGeneration()
+        activeProbe.current.accessGeneration === authRuntime.getAccessGeneration()
       ) {
         return focusProbePromise.current;
       }
 
-      if (kind !== "focus" && kind !== "csrf_refresh") {
+      if (kind !== "focus" && kind !== "csrf_refresh" && kind !== "sse_error") {
         invalidateProbes();
       } else if (
         activeProbe.current &&
         activeProbe.current.kind !== "focus" &&
         activeProbe.current.kind !== "csrf_refresh" &&
+        activeProbe.current.kind !== "sse_error" &&
         activeProbe.current.sequence === probeSequence.current
       ) {
         return;
@@ -274,7 +302,8 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
       const sequence = (probeSequence.current += 1);
       const handle: ProbeHandle = {
         sequence,
-        authGeneration: authRuntime.getGeneration(),
+        identityGeneration: authRuntime.getIdentityGeneration(),
+        accessGeneration: authRuntime.getAccessGeneration(),
         kind,
       };
       activeProbe.current = handle;
@@ -285,6 +314,37 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
           const status = await fetchSessionStatus();
           if (!isProbeCurrent(handle)) return;
           if (logoutInFlight.current && kind !== "logout") return;
+
+          if (kind === "login") {
+            if (bfcacheSuspended.current) return;
+            if (!status.authenticated || status.auth_method !== "session") {
+              lockUi("locked", "cookie_blocked");
+              return;
+            }
+            applyStatus(status, "initial");
+            return;
+          }
+
+          if (kind === "logout") {
+            if (!status.authenticated) {
+              if (!status.browser_session_enabled) {
+                lockUi("setup_required", "configuration");
+              } else {
+                lockUi("locked", "logged_out");
+              }
+              setLogoutError(null);
+              return;
+            }
+            setLogoutError("Sign out could not be confirmed. Retry or clear site cookies.");
+            if (phaseRef.current === "authenticated" || authRuntime.getAuthMethod()) {
+              liveConnection.setAccessEnabled(true);
+              const exp = authRuntime.getExpiresAt();
+              if (exp) scheduleExpiry(exp);
+              setPhase("authenticated");
+            }
+            return;
+          }
+
           applyStatus(status, probeReason);
         } catch (error) {
           if (!isProbeCurrent(handle)) return;
@@ -292,6 +352,22 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
           if (error instanceof ApiError) {
             if (error.detail === "unexpected_bearer") {
               lockUi("setup_required", "configuration");
+              return;
+            }
+            if (kind === "login") {
+              if (error.kind === "unreachable") {
+                lockUi("unreachable", "network");
+                return;
+              }
+              if (error.kind === "protocol" || error.detail === "malformed") {
+                lockUi("locked", "protocol_error");
+                return;
+              }
+              if (error.detail === "incomplete_session") {
+                lockUi("locked", "cookie_blocked");
+                return;
+              }
+              lockUi("locked", "cookie_blocked");
               return;
             }
             if (error.detail === "incomplete_session") {
@@ -304,6 +380,18 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
             }
             if (error.kind === "unreachable") {
               if (retainOnNetwork && phaseRef.current === "authenticated") {
+                return;
+              }
+              if (kind === "logout") {
+                setLogoutError(
+                  "Could not reach Core to sign out. Your session may still be active.",
+                );
+                if (authRuntime.getAuthMethod()) {
+                  liveConnection.setAccessEnabled(true);
+                  const exp = authRuntime.getExpiresAt();
+                  if (exp) scheduleExpiry(exp);
+                  setPhase("authenticated");
+                }
                 return;
               }
               lockUi("unreachable", "network");
@@ -332,7 +420,7 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
       }
       return run;
     },
-    [applyStatus, invalidateProbes, isProbeCurrent, lockUi],
+    [applyStatus, invalidateProbes, isProbeCurrent, lockUi, scheduleExpiry],
   );
   startProbeRef.current = startProbe;
 
@@ -340,6 +428,7 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
     if (logoutInFlight.current) return;
     clearFocusTimer();
     clearRevalidateTimer();
+    liveConnection.clearPendingSessionProbe();
     flushSync(() => {
       setPhase("checking");
       setReason("unauthorized");
@@ -359,9 +448,14 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
     }, REVALIDATE_DEBOUNCE_MS);
   }, [clearRevalidateTimer, startProbe]);
 
-  // Initial probe + auth listeners
+  // Initial probe + auth listeners + SSE probe ownership
   useEffect(() => {
     mounted.current = true;
+    liveConnection.setSessionProbeRequester(() => {
+      if (logoutInFlight.current || bfcacheSuspended.current) return;
+      if (phaseRef.current !== "authenticated") return;
+      void startProbeRef.current("sse_error", "unauthorized");
+    });
     void startProbe("initial", "initial");
     const offUnauthorized = authRuntime.onUnauthorized(handleUnauthorized);
     const offRevalidate = authRuntime.onRevalidate(handleRevalidate);
@@ -369,12 +463,15 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
       mounted.current = false;
       offUnauthorized();
       offRevalidate();
+      liveConnection.setSessionProbeRequester(null);
       clearExpiryTimer();
       clearFocusTimer();
       clearRevalidateTimer();
       invalidateProbes();
+      liveConnection.clearPendingSessionProbe();
       liveConnection.setStatusProbesSuppressed(false);
       liveConnection.setAccessEnabled(false);
+      authRuntime.advanceAccessGeneration();
       clearSessionTransportCredentials();
     };
   }, [
@@ -424,11 +521,16 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
     };
     const onPageHide = (event: PageTransitionEvent) => {
       if (!event.persisted) return;
+      clearExpiryTimer();
       clearFocusTimer();
       clearRevalidateTimer();
       invalidateProbes();
+      liveConnection.clearPendingSessionProbe();
       bfcacheSuspended.current = true;
+      // Keep identity; advance access so in-flight protected work becomes stale.
+      authRuntime.advanceAccessGeneration();
       flushSync(() => {
+        syncFromRuntime();
         setPhase("checking");
         setReason("initial");
         liveConnection.setAccessEnabled(false);
@@ -463,10 +565,12 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("pageshow", onPageShow);
     };
   }, [
+    clearExpiryTimer,
     clearFocusTimer,
     clearRevalidateTimer,
     invalidateProbes,
     lockUi,
+    syncFromRuntime,
   ]);
 
   const login = useCallback(
@@ -475,9 +579,9 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
       loginInFlight.current = true;
       setLoginBusy(true);
       setLoginError(null);
+      setLogoutError(null);
       invalidateProbes();
 
-      // Start bootstrap synchronously; release local token before awaiting.
       let tokenRef: string | undefined = apiToken;
       const bootstrapPromise = createBrowserSession(tokenRef);
       tokenRef = undefined;
@@ -485,32 +589,7 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
       return (async () => {
         try {
           await bootstrapPromise;
-
-          let confirmed;
-          try {
-            confirmed = await fetchSessionStatus();
-          } catch (error) {
-            if (error instanceof ApiError && error.kind === "unreachable") {
-              lockUi("unreachable", "network");
-              return;
-            }
-            if (error instanceof ApiError && error.kind === "protocol") {
-              lockUi("locked", "protocol_error");
-              return;
-            }
-            if (error instanceof ApiError && error.detail === "incomplete_session") {
-              lockUi("locked", "cookie_blocked");
-              return;
-            }
-            lockUi("locked", "cookie_blocked");
-            return;
-          }
-
-          if (!confirmed.authenticated || confirmed.auth_method !== "session") {
-            lockUi("locked", "cookie_blocked");
-            return;
-          }
-          applyStatus(confirmed, "initial");
+          await startProbe("login", "initial");
         } catch (error) {
           if (error instanceof ApiError) {
             if (error.status === 401) {
@@ -547,7 +626,7 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
         }
       })();
     },
-    [applyStatus, invalidateProbes, lockUi],
+    [invalidateProbes, lockUi, startProbe],
   );
 
   const logout = useCallback(async () => {
@@ -557,69 +636,68 @@ export function BrowserAuthProvider({ children }: { children: ReactNode }) {
     setLogoutError(null);
     clearFocusTimer();
     clearRevalidateTimer();
+    clearExpiryTimer();
+    liveConnection.clearPendingSessionProbe();
+    // Invalidate already-running protected work; keep identity until confirmed.
+    authRuntime.advanceAccessGeneration();
+    syncFromRuntime();
     invalidateProbes();
     liveConnection.setStatusProbesSuppressed(true);
-    const logoutSequence = probeSequence.current;
     const expiryAtStart = authRuntime.getExpiresAt();
+    let csrfRefreshAfter = false;
     try {
       await deleteBrowserSession();
-      const confirmed = await fetchSessionStatus();
-      if (logoutSequence !== probeSequence.current) return;
-      if (confirmed.authenticated) {
-        setLogoutError("Sign out could not be confirmed. Retry or clear site cookies.");
-        liveConnection.setStatusProbesSuppressed(false);
-        if (phaseRef.current === "authenticated") {
-          liveConnection.setAccessEnabled(true);
-          if (expiryAtStart) scheduleExpiry(expiryAtStart);
-        }
-        return;
-      }
-      lockUi("locked", "logged_out");
-      setLogoutError(null);
+      await startProbe("logout", "logged_out");
     } catch (error) {
-      if (logoutSequence !== probeSequence.current) return;
       if (error instanceof ApiError && error.status === 401) {
         await startProbe("logout", "logged_out");
         return;
       }
       if (error instanceof ApiError && error.kind === "csrf") {
         setLogoutError("Session security check failed. Retry sign out.");
-        liveConnection.setStatusProbesSuppressed(false);
-        if (phaseRef.current === "authenticated") {
-          liveConnection.setAccessEnabled(true);
-        }
-        void startProbe("csrf_refresh", "initial");
-        return;
-      }
-      if (error instanceof ApiError && error.kind === "unreachable") {
-        setLogoutError("Could not reach Core to sign out. Your session may still be active.");
-        liveConnection.setStatusProbesSuppressed(false);
-        if (phaseRef.current === "authenticated") {
+        csrfRefreshAfter = true;
+        if (phaseRef.current === "authenticated" || authRuntime.getAuthMethod()) {
           liveConnection.setAccessEnabled(true);
           if (expiryAtStart) scheduleExpiry(expiryAtStart);
         }
         return;
       }
+      if (error instanceof ApiError && error.kind === "unreachable") {
+        setLogoutError("Could not reach Core to sign out. Your session may still be active.");
+        if (phaseRef.current === "authenticated" || authRuntime.getAuthMethod()) {
+          liveConnection.setAccessEnabled(true);
+          if (expiryAtStart) scheduleExpiry(expiryAtStart);
+          setPhase("authenticated");
+        }
+        return;
+      }
+      if (error instanceof ApiError && error.kind === "stale_auth_context") {
+        // Access already advanced; confirmation/lock may still proceed via probe.
+        await startProbe("logout", "logged_out");
+        return;
+      }
       setLogoutError("Sign out failed. Retry.");
-      liveConnection.setStatusProbesSuppressed(false);
-      if (phaseRef.current === "authenticated") {
+      if (phaseRef.current === "authenticated" || authRuntime.getAuthMethod()) {
         liveConnection.setAccessEnabled(true);
         if (expiryAtStart) scheduleExpiry(expiryAtStart);
       }
     } finally {
       logoutInFlight.current = false;
       setLogoutBusy(false);
-      if (phaseRef.current === "authenticated") {
-        liveConnection.setStatusProbesSuppressed(false);
+      liveConnection.setStatusProbesSuppressed(false);
+      if (csrfRefreshAfter) {
+        // Ownership released — run exactly one sequenced CSRF refresh; never replay DELETE.
+        void startProbe("csrf_refresh", "initial");
       }
     }
   }, [
+    clearExpiryTimer,
     clearFocusTimer,
     clearRevalidateTimer,
     invalidateProbes,
-    lockUi,
     scheduleExpiry,
     startProbe,
+    syncFromRuntime,
   ]);
 
   const retry = useCallback(async () => {

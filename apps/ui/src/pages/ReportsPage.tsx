@@ -6,7 +6,13 @@ import type {
   ReportRequest,
   ReportScope,
 } from "@zigbeelens/shared";
-import { api, downloadStoredReport, triggerBrowserDownload } from "@/lib/api";
+import {
+  api,
+  downloadStoredReport,
+  triggerBrowserDownload,
+  writeProtectedClipboardText,
+} from "@/lib/api";
+import { authRuntime } from "@/lib/authRuntime";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
 import {
@@ -341,23 +347,30 @@ export function ReportsPage() {
 
   async function copyMarkdown() {
     if (!preview.data) return;
-    await navigator.clipboard.writeText(preview.data.markdown_summary);
+    const accessGeneration = authRuntime.getAccessGeneration();
+    await writeProtectedClipboardText(preview.data.markdown_summary, accessGeneration);
     flash("Markdown summary copied.");
   }
 
   function clientDownload(filename: string, content: string, type: string) {
+    const accessGeneration = authRuntime.getAccessGeneration();
     const blob = new Blob([content], { type });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      if (accessGeneration !== authRuntime.getAccessGeneration()) return;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   }
 
   async function copyStored(id: string) {
+    const accessGeneration = authRuntime.getAccessGeneration();
     const detail = await api.report(id, scen);
-    await navigator.clipboard.writeText(detail.markdown_summary);
+    await writeProtectedClipboardText(detail.markdown_summary, accessGeneration);
     flash("Stored report markdown copied.");
   }
 
