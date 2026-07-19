@@ -1,41 +1,43 @@
-# Lens alignment — live deployment state
+# Lens alignment — live deployment state (historical)
 
-Documentation of Ben's production Lens deployments (last validated 2026-06-16).
+**Status:** Historical snapshot (last validated 2026-06-16).
+
+This note records Ben's production Lens deployments during the earlier Lens-family
+alignment stream. It is **not** a description of the current Track 5 decision
+contract.
+
+For current ZigbeeLens public contracts see:
+
+- [api.md](../api.md) — decision contract v2
+- [mqtt-discovery.md](../mqtt-discovery.md) — decision MQTT summary entities
+- [hacs.md](../hacs.md) — HACS contract v2
+- [lens-alignment-status.md](../lens-alignment-status.md)
 
 **Do not commit secrets.** Hostnames and image tags only.
 
-ThreadLens canonical copy: [threadlens/docs/deployments/lens-alignment-live-state.md](https://github.com/theaussiepom/threadlens/blob/main/docs/deployments/lens-alignment-live-state.md).
+ThreadLens canonical historical copy:  
+[threadlens/docs/deployments/lens-alignment-live-state.md](https://github.com/theaussiepom/threadlens/blob/main/docs/deployments/lens-alignment-live-state.md).
 
 ---
 
-## ThreadLens (Pironman)
+## ThreadLens (Pironman) — 2026-06-16
 
 | Field | Value |
 |-------|--------|
 | Host | Pironman / `192.168.100.4` |
 | Image | `ghcr.io/theaussiepom/threadlens:0.2.19` |
-| `/api/v1/version` | `0.2.19` |
-| MQTT | **7** clean discovery configs, **0** old flat topics |
-| `per_node_entities` | `false` |
-| HACS | **preserved** |
+| MQTT | Clean discovery configs (Lens-era) |
+| HACS | preserved |
 
----
-
-## ZigbeeLens (BenBeast)
+## ZigbeeLens (BenBeast) — 2026-06-16
 
 | Field | Value |
 |-------|--------|
 | Host | BenBeast / `192.168.100.5` |
-| Compose | `/mnt/nas/docker/automation/docker-compose.yml` |
-| Live image channel | `ghcr.io/theaussiepom/zigbeelens:edge` (**rolling** — BenBeast tracks latest edge, not pinned semver) |
-| Validated edge content | v0.1.13-era / `9a52470` |
-| Semver image (available, not live channel) | `ghcr.io/theaussiepom/zigbeelens:0.1.13` |
-| `/api/version`, `/api/v1/version` | `0.1.13` |
-| MQTT discovery | **enabled** — **6** clean configs, **0** old flat topics |
-| HACS | **preserved** |
+| Live image channel | `ghcr.io/theaussiepom/zigbeelens:edge` (rolling) |
+| MQTT | Lens-era global summary entities (superseded by Track 5 decision entities) |
+| HACS | preserved |
 
----
-
-## Home Assistant (BenBeast)
-
-MQTT summary devices present for both products. HACS companion entities untouched. No `.storage` edits for Lens migration.
+After upgrading to Track 5 Core, expect MQTT Discovery to tombstone superseded
+Lens config topics and publish decision-summary entities instead. HACS requires
+decision contract v2.

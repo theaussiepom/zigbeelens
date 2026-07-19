@@ -1,18 +1,19 @@
-# Lens family conventions
+# Lens family conventions (historical pointer)
 
-ZigbeeLens is part of the **Lens family** of read-only home-network observability tools alongside [ThreadLens](https://github.com/theaussiepom/threadlens).
+ZigbeeLens remains part of the broader Lens family of read-only home-network
+observability tools alongside [ThreadLens](https://github.com/theaussiepom/threadlens).
 
-**Canonical document:** [ThreadLens docs/lens-family.md](https://github.com/theaussiepom/threadlens/blob/main/docs/lens-family.md)
+**Canonical shared conventions (ThreadLens):**  
+[ThreadLens docs/lens-family.md](https://github.com/theaussiepom/threadlens/blob/main/docs/lens-family.md)
 
-This stub avoids duplicating the shared spec. Product-specific details:
+ZigbeeLens’s **active public diagnostic contract** is decision-led (Track 5),
+not the retired Lens-bucket presentation fields (`lens_bucket*`, health-derived
+Dashboard collections, Lens MQTT entities).
 
-| Topic | ZigbeeLens doc |
-|-------|----------------|
+| Topic | Current ZigbeeLens doc |
+|-------|------------------------|
+| Decision / API contract | [api.md](api.md), [decision-engine.md](decision-engine.md) |
 | MQTT summary entities | [mqtt-discovery.md](mqtt-discovery.md) |
-| HTTP API | [api.md](api.md) |
-| Reports | [reports.md](reports.md) |
-| HACS companion | [hacs.md](hacs.md) |
-
-## Alignment status
-
-See [lens-alignment-status.md](lens-alignment-status.md) and [deployments/lens-alignment-live-state.md](deployments/lens-alignment-live-state.md).
+| Reports (v3 + legacy readers) | [reports.md](reports.md) |
+| HACS companion (contract v2) | [hacs.md](hacs.md) |
+| Alignment history | [lens-alignment-status.md](lens-alignment-status.md) |

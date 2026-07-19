@@ -1,40 +1,32 @@
-# Lens family alignment — status
+# Lens family alignment — historical note
 
-**Status:** Complete (alignment stream closed 2026-06-16).
+**Status:** Historical. The active ZigbeeLens public diagnostic contract is
+**decision contract v2** (Track 5), not Lens-bucket presentation fields.
 
-ZigbeeLens and [ThreadLens](https://github.com/theaussiepom/threadlens) remain **separate repositories and runtimes**. Shared conventions: [lens-family.md](lens-family.md) → ThreadLens canonical doc.
+Earlier Lens-family alignment (API `/api/v1`, presentation `lens_bucket`, Lens MQTT
+summary entities, report compatibility sections) shipped in the v0.1.x stream and
+is described in historical CHANGELOG notes.
 
-ThreadLens equivalent: [threadlens/docs/lens-alignment-status.md](https://github.com/theaussiepom/threadlens/blob/main/docs/lens-alignment-status.md).
+## Current behaviour (Track 5)
 
----
+| Area | Current contract |
+|------|------------------|
+| Public diagnostic vocabulary | Shared `DecisionStatus` / `DecisionPriority` |
+| Decision contract | `decision_contract_version = 2` |
+| Reports | `report_version = 3` (stored v1/v2 immutable) |
+| MQTT Discovery | Decision summary entities; Lens configs tombstoned |
+| HACS | Exact contract v2; no Health/Lens diagnostic fallback |
+| Internal health engine | Retained for evaluation / incidents; not public authority |
+| Operational health | `/api/health`, `/healthz` unchanged |
 
-## Complete
+See:
 
-| Area | Notes |
-|------|--------|
-| Shared docs / conventions | [lens-family.md](lens-family.md) stub |
-| API `/api/v1` | **v0.1.13** |
-| Presentation `lens_bucket` | **v0.1.13** |
-| Clean MQTT (6 global) | **edge** @ v0.1.13-era |
-| Report / export alignment | Merged (main) |
-| Deployment hygiene | BenBeast rolling `:edge` (not pinned `:0.1.13`) |
-| Live deployment notes | [deployments/lens-alignment-live-state.md](deployments/lens-alignment-live-state.md) |
+- [api.md](api.md)
+- [reports.md](reports.md)
+- [mqtt-discovery.md](mqtt-discovery.md)
+- [hacs.md](hacs.md)
+- [decision-engine.md](decision-engine.md)
 
----
-
-## Still deferred
-
-- HACS visual smoke / screenshot matrix
-- ThreadLens `/how-it-works` → `/monitoring` route rename
-- Optional ZigbeeLens UI migration to `/api/v1`
-- Optional network-level `lens_bucket`
-- Shared library extraction
-- Optional HA entity ID cosmetic rename
-
----
-
-## Recommended next pass
-
-1. HACS browser visual smoke when convenient
-2. Optional HA entity ID cleanup
-3. Future semver tag when warranted (report alignment lands on edge via main)
+ZigbeeLens and [ThreadLens](https://github.com/theaussiepom/threadlens) remain
+separate repositories and runtimes. Product naming (“ZigbeeLens”) is unrelated
+to the retired `LensBucket` presentation vocabulary.

@@ -99,19 +99,27 @@ The API token is never placed in panel JavaScript, websocket data, iframe URLs, 
 - **ZigbeeLens Core Connected** — on when the last coordinator refresh succeeded
 - **ZigbeeLens MQTT Collector Connected** — on when Core reports the collector is connected
 
-### Summary sensors
+### Summary sensors (decision contract v2)
 
-- Overall health, incident state, unavailable devices, recently unstable devices
-- Router risks, stale devices, weak link devices, low battery devices, unknown devices
-- Network count, device count
+Decision-led (new unique IDs — not reused from superseded health entities):
+
+- Overall decision, review-first devices, worth-reviewing devices, coverage warning count
+
+Factual / operational (stable IDs retained where semantics are unchanged):
+
+- Unavailable devices, network count, device count, router risks, incident lifecycle state
+
+Superseded health-derived entities (`overall_health`, recently-unstable / weak-link /
+stale / low-battery / unknown counts) are no longer registered. Remove leftover
+unavailable entities from the Home Assistant entity registry manually if needed.
 
 ### Per-network sensors
 
 For each configured network:
 
-- `<Network> Health`
+- `<Network> Decision`
 - `<Network> Unavailable Devices`
-- `<Network> Router Risks`
+- `<Network> Router Risks` (until original Phase 6B)
 
 Detailed diagnostics remain in the ZigbeeLens Core dashboard.
 
@@ -135,7 +143,11 @@ Decision mode does **not** use the legacy Current finding card or Health badge a
 
 When Home Assistant and Core use the same protocol, **Try Embedded View** can load the full Core dashboard in the sidebar (Core must allow the Home Assistant origin in `frame_ancestor_origins`). Use **Back to Summary** to leave the iframe, or **Open Full ZigbeeLens dashboard** for a new tab. Mixed-content and invalid Core URLs never become iframe sources.
 
-When the contract is missing, unsupported, or the Dashboard surfaces are malformed, the panel falls back to a factual connection/network/incident summary without inventing diagnoses. Disconnected Core shows compatibility **Unknown**, not Compatible.
+When the contract is missing, older, newer, or malformed, the panel shows an
+**update required / decision contract incompatible** state with safe connection
+and Core version facts only — never Health/Lens diagnostic fallback. This is not
+an authentication failure and does not trigger reauth. Disconnected Core shows
+compatibility **Unknown**, not Compatible.
 
 Always available actions:
 

@@ -4,9 +4,9 @@
 
 Understand your Zigbee mesh before you change it.
 
-ZigbeeLens is a read-only observability and diagnostic console for Zigbee2MQTT networks. It watches Zigbee2MQTT over MQTT, keeps local history, detects health and instability patterns, explains likely scope using evidence and limitations, and generates redacted reports for troubleshooting.
+ZigbeeLens is a read-only observability and diagnostic console for Zigbee2MQTT networks. It watches Zigbee2MQTT over MQTT, keeps local history, evaluates stored evidence into a shared **decision** vocabulary (what to review, with evidence and limitations), and generates redacted reports for troubleshooting.
 
-ZigbeeLens is part of the **Lens family** of read-only home-network observability tools, alongside [ThreadLens](https://github.com/theaussiepom/threadlens). See [docs/lens-family.md](docs/lens-family.md) for shared conventions.
+ZigbeeLens is part of the **Lens family** of read-only home-network observability tools, alongside [ThreadLens](https://github.com/theaussiepom/threadlens). The active public diagnostic contract is **decision contract v2** (not retired Lens-bucket fields); see [docs/api.md](docs/api.md) and [docs/lens-family.md](docs/lens-family.md).
 
 ZigbeeLens does **not** repair, reset, remove, re-pair, or mutate Zigbee devices.
 
@@ -19,7 +19,7 @@ ZigbeeLens does **not** repair, reset, remove, re-pair, or mutate Zigbee devices
 - Local SQLite history and stored reports
 - Redacted JSON, YAML, and Markdown exports
 - Home Assistant OS add-on, Docker/Compose, HACS integration
-- Optional MQTT Discovery summary entities
+- Optional MQTT Discovery decision summary entities
 - Optional topology snapshots and Home Assistant enrichment
 
 ## What it is not
