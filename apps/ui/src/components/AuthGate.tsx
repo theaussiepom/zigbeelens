@@ -1,4 +1,12 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { useAuth } from "@/context/BrowserAuthContext";
 
 function Shell({ children }: { children: ReactNode }) {
@@ -116,9 +124,11 @@ function LockedLoginState({
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    const value = token;
+    let value: string | undefined = token;
     setToken("");
-    await onLogin(value);
+    const loginPromise = onLogin(value);
+    value = undefined;
+    await loginPromise;
   }
 
   return (
@@ -214,5 +224,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
     );
   }
 
-  return <>{children}</>;
+  // Remount protected tree when the authentication identity generation changes.
+  return <Fragment key={auth.authEpoch}>{children}</Fragment>;
 }
