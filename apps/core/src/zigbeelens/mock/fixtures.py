@@ -169,7 +169,8 @@ def network(
     *,
     bridge: BridgeState = BridgeState.online,
     devices: list[DeviceSummary],
-    incident_state: Severity = Severity.healthy,
+    incident_state: Severity | None = None,
+    active_incident_severity: Severity | None = None,
     active_incidents: int = 0,
     warnings: int = 0,
     errors: int = 0,
@@ -184,6 +185,13 @@ def network(
     unavail = sum(1 for d in devices if d.availability == Availability.offline)
     decision_summary = decision_count_summary_from_badges(d.decision for d in devices)
     decision = network_decision_badge_from_summary(decision_summary)
+    severity = (
+        active_incident_severity
+        if active_incident_severity is not None
+        else incident_state
+        if incident_state is not None
+        else Severity.healthy
+    )
     return NetworkSummary(
         id=net_id,
         name=name,
@@ -201,7 +209,7 @@ def network(
         router_count=routers,
         end_device_count=ends,
         unavailable_count=unavail,
-        active_incident_severity=incident_state,
+        active_incident_severity=severity,
         active_incident_count=active_incidents,
         recent_bridge_warnings=warnings,
         recent_bridge_errors=errors,

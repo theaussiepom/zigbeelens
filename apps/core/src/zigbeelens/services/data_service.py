@@ -272,9 +272,9 @@ class DataService:
         row = self.repo.reports.get_report(report_id)
         if not row or not row.body_json:
             return None
-        detail = ReportDetail.model_validate(json.loads(row.body_json))
-        detail.id = row.id
-        return detail
+        from zigbeelens.services.report_storage import load_stored_report_body
+
+        return load_stored_report_body(row)
 
     @staticmethod
     def list_scenarios() -> list[dict[str, str]]:

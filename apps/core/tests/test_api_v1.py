@@ -85,9 +85,13 @@ def test_v1_capabilities(mock_client: TestClient):
     preview = mock_client.get("/api/v1/reports/preview", params={"profile": "standard"})
     assert preview.status_code == 200
     report = preview.json()
-    assert report["report_version"] == 2
+    assert report["report_version"] == 3
     assert "device_stories" in report
     assert isinstance(report["device_stories"], list)
+    assert "domain_details" in report
+    assert "health_snapshot" not in report or report["health_snapshot"] is None
+    assert "executive_summary" not in report or report["executive_summary"] is None
+    assert report.get("networks") in ([], None) or "networks" in report["domain_details"]
 
 
 def test_v1_status(mock_client: TestClient):

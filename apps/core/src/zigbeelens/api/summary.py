@@ -38,8 +38,8 @@ def capabilities_dict(ctx: AppContext) -> dict[str, Any]:
             "legacy_health_lens_payloads": False,
             # Companion may consume Overview-aligned decision summaries when True.
             "companion_decision_summary": True,
-            # Bumped in later Track 5 commits when writers/MQTT land.
-            "report_contract_v3": False,
+            "report_contract_v3": True,
+            # Bumped when MQTT decision summary lands (Commit 5).
             "decision_mqtt_summary": False,
             # Auth surface support (not whether a token is currently configured).
             "bearer_authentication": True,

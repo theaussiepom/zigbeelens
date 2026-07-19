@@ -66,12 +66,21 @@ export interface ReportDecisionViewModel {
 }
 
 function isLegacyReport(report: ReportDetail): boolean {
-  if (report.report_version < 2) {
+  // Current contract is report_version 3. Stored v1/v2 remain readable as-is.
+  if (report.report_version < 3) {
     return true;
   }
   const stories = report.device_stories ?? [];
   const decisionSummary = report.decision_summary;
   return stories.length === 0 && decisionSummary == null;
+}
+
+function reportNetworks(report: ReportDetail) {
+  return report.domain_details?.networks ?? report.networks ?? [];
+}
+
+function reportDevices(report: ReportDetail) {
+  return report.domain_details?.devices ?? report.devices ?? [];
 }
 
 function reportStoryToDeviceStoryDto(story: ReportDeviceStory): DeviceStoryDto {
@@ -143,7 +152,7 @@ function compareReportDeviceStories(
 
 function networkNamesFromReport(report: ReportDetail): Record<string, string> {
   return Object.fromEntries(
-    report.networks.map((network) => [network.id, network.name]),
+    reportNetworks(report).map((network) => [network.id, network.name]),
   );
 }
 
@@ -189,9 +198,9 @@ export function buildReportDecisionViewModel(
     legacyNotice: legacy ? REPORT_LEGACY_NOTICE : null,
     meshNavigationAvailable,
     decisionSummaryItems,
-    networksInScope: report.networks.length,
+    networksInScope: reportNetworks(report).length,
     devicesInScope:
-      report.raw_counts.devices_included ?? report.devices.length,
+      report.raw_counts.devices_included ?? reportDevices(report).length,
     incidentsInScope:
       report.raw_counts.incidents_included ?? report.incidents.length,
     investigationPriorities,

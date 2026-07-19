@@ -480,10 +480,27 @@ class ReportDeviceStory(BaseModel):
     timeline: list[ReportStoryTimelineItem] = Field(default_factory=list)
 
 
+class ReportDomainDetails(BaseModel):
+    """Canonical v3 domain inventory for one report scope."""
+
+    networks: list[NetworkSummary] = Field(default_factory=list)
+    devices: list[DeviceSummary] = Field(default_factory=list)
+    device_details: list[DeviceDetail] = Field(default_factory=list)
+    router_risks: list[RouterRisk] = Field(default_factory=list)
+    topology_snapshot_count: int = 0
+
+
 class ReportDetail(BaseModel):
+    """Current report contract (v3) with optional legacy fields for stored v1/v2 reads.
+
+    New writers must populate the v3 canonical locations only and set
+    ``report_version = 3``. Legacy fields remain optional so historical bodies
+    can still be modeled when explicitly loaded through the legacy reader.
+    """
+
     id: str
     product: str = "ZigbeeLens"
-    report_version: int = 1
+    report_version: int = 3
     generated_at: str
     version: str
     site: str | None = None
@@ -495,27 +512,28 @@ class ReportDetail(BaseModel):
     executive_summary: str | None = None
     summary: ReportSummaryBlock | None = None
     health_summary: LensHealthSummary | None = None
-    decision_summary: ReportDecisionSummary | None = None
+    decision_summary: DecisionCountSummary | ReportDecisionSummary | None = None
     investigation_priorities: list[InvestigationPrioritySummary] = Field(default_factory=list)
     device_stories: list[ReportDeviceStory] = Field(default_factory=list)
     data_coverage_warnings: list[DataCoverageWarningSummary] = Field(default_factory=list)
     active_incidents: list[Incident] = Field(default_factory=list)
-    config_summary: dict[str, Any]
+    config_summary: dict[str, Any] = Field(default_factory=dict)
     collector: dict[str, Any] = Field(default_factory=dict)
     collector_status: dict[str, Any] = Field(default_factory=dict)
-    networks: list[NetworkSummary]
-    devices: list[DeviceSummary]
+    # Top-level domain arrays are legacy (v1/v2). Prefer domain_details for v3.
+    networks: list[NetworkSummary] = Field(default_factory=list)
+    devices: list[DeviceSummary] = Field(default_factory=list)
     device_details: list[DeviceDetail] = Field(default_factory=list)
-    router_risks: list[RouterRisk]
-    incidents: list[Incident]
+    router_risks: list[RouterRisk] = Field(default_factory=list)
+    incidents: list[Incident] = Field(default_factory=list)
     timeline: list[TimelineEvent] = Field(default_factory=list)
     events_or_timeline: list[TimelineEvent] = Field(default_factory=list)
-    health_snapshot: HealthSnapshot
-    diagnostic_conclusions: list[DiagnosticConclusion]
+    health_snapshot: HealthSnapshot | None = None
+    diagnostic_conclusions: list[DiagnosticConclusion] = Field(default_factory=list)
     limitations: list[LimitationItem] = Field(default_factory=list)
-    domain_details: dict[str, Any] = Field(default_factory=dict)
+    domain_details: ReportDomainDetails = Field(default_factory=ReportDomainDetails)
     raw_counts: dict[str, int] = Field(default_factory=dict)
-    markdown_summary: str
+    markdown_summary: str = ""
 
 
 class BrowserSessionStatus(BaseModel):

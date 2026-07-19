@@ -45,7 +45,7 @@ def decision_count_summary_from_badges(
     coverage_warning_count: int = 0,
 ) -> DecisionCountSummary:
     """Fold badges into a DecisionCountSummary without repository access."""
-    badge_list = list(badges)
+    badge_list = [b for b in badges if b is not None]
     if not badge_list:
         return DecisionCountSummary(
             subject_count=0,

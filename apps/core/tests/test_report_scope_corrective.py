@@ -35,6 +35,15 @@ from zigbeelens.services.reports import generate_report
 from zigbeelens.storage.repository import Repository
 from performance.query_instrumentation import install_counter
 
+from report_v3_helpers import (
+    report_active_incidents,
+    report_device_details,
+    report_devices,
+    report_networks,
+    report_router_risks,
+    report_timeline,
+)
+
 NOW = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
 TARGET = "0xtarget"
 SAME_NET_OTHER = "0xsameother"
@@ -188,14 +197,11 @@ def test_resolved_only_device_report_keeps_history_out_of_active(tmp_path: Path)
     )
     assert len(detail.incidents) == 1
     assert detail.incidents[0].status.value == "resolved"
-    assert detail.active_incidents == []
-    assert detail.summary is not None
-    assert detail.summary.active_incidents == 0
-    assert detail.summary.watching_incidents == 0
-    assert detail.devices[0].incident_affected is False
-    assert detail.summary.overall_state in {Severity.healthy, Severity.watch}
-    assert detail.health_snapshot.overall_severity != Severity.incident
-    assert detail.health_snapshot.unavailable_count == 0
+    assert report_active_incidents(detail) == []
+    assert report_devices(detail)[0].incident_affected is False
+    assert report_networks(detail)[0].unavailable_count == 0
+    assert report_networks(detail)[0].active_incident_count == 0
+    assert detail.decision_summary is not None
     dumped = detail.model_dump_json()
     assert OFF_SCOPE not in dumped
     assert "office" not in (detail.collector.get("networks") or {})
@@ -230,10 +236,10 @@ def test_resolved_incident_report_preserves_record_not_current_finding(tmp_path:
     assert detail.incidents[0].id == "inc-resolved-sel"
     assert detail.incidents[0].status.value == "resolved"
     assert "interpretation:ResolvedSelected" in detail.incidents[0].interpretation
-    assert detail.active_incidents == []
-    assert detail.summary is not None
-    assert detail.summary.overall_state != Severity.critical
-    assert detail.diagnostic_conclusions[0].classification == "single_device_unavailable"
+    assert report_active_incidents(detail) == []
+    assert detail.decision_summary is not None
+    # Historical severity remains on the stored incident record.
+    assert detail.incidents[0].severity == Severity.critical
 
 
 def test_network_resolved_history_not_in_current_finding(tmp_path: Path):
@@ -262,11 +268,17 @@ def test_network_resolved_history_not_in_current_finding(tmp_path: Path):
         ),
     )
     assert any(i.id == "inc-net-resolved" for i in detail.incidents)
-    assert detail.active_incidents == []
-    assert detail.networks[0].active_incident_count == 0
-    finding = detail.diagnostic_conclusions[0]
-    assert finding.classification != "bridge_offline"
-    assert "OldBridge" not in finding.summary
+    assert report_active_incidents(detail) == []
+    assert report_networks(detail)[0].active_incident_count == 0
+    # Resolved history must not appear as an open/critical active severity.
+    assert report_networks(detail)[0].active_incident_severity in {
+        Severity.healthy,
+        Severity.watch,
+    }
+    assert report_networks(detail)[0].active_incident_severity != Severity.critical
+    # Historical incident titles may appear in the incidents section; they must not
+    # drive the current network active-severity projection above.
+    assert report_active_incidents(detail) == []
 
 
 def test_open_watching_remain_current(tmp_path: Path):
@@ -304,11 +316,13 @@ def test_open_watching_remain_current(tmp_path: Path):
             redaction=RedactionOptions(include_timeline=False),
         ),
     )
-    assert {i.id for i in detail.active_incidents} == {"inc-open", "inc-watch"}
-    assert detail.devices[0].incident_affected is True
-    assert detail.summary is not None
-    assert detail.summary.active_incidents == 1
-    assert detail.summary.watching_incidents == 1
+    assert {i.id for i in report_active_incidents(detail)} == {"inc-open", "inc-watch"}
+    assert report_devices(detail)[0].incident_affected is True
+    assert report_networks(detail)[0].active_incident_count == 2
+    open_count = sum(1 for i in report_active_incidents(detail) if i.status.value == "open")
+    watch_count = sum(1 for i in report_active_incidents(detail) if i.status.value == "watching")
+    assert open_count == 1
+    assert watch_count == 1
 
 
 def test_off_scope_unhealthy_network_does_not_leak_into_device_severity(tmp_path: Path):
@@ -345,13 +359,12 @@ def test_off_scope_unhealthy_network_does_not_leak_into_device_severity(tmp_path
             redaction=plain,
         ),
     )
-    assert device_detail.health_snapshot.unavailable_count == 0
-    assert device_detail.health_snapshot.device_count == 1
-    assert device_detail.networks[0].device_count == 1
-    assert device_detail.networks[0].unavailable_count == 0
-    assert device_detail.summary is not None
-    assert device_detail.summary.overall_state in {Severity.healthy, Severity.watch}
-    assert full_detail.health_snapshot.unavailable_count >= 4
+    assert report_networks(device_detail)[0].device_count == 1
+    assert report_networks(device_detail)[0].unavailable_count == 0
+    assert len(report_devices(device_detail)) == 1
+    assert device_detail.decision_summary is not None
+    unavailable_full = sum(n.unavailable_count for n in report_networks(full_detail))
+    assert unavailable_full >= 4
     assert "0xbad0" in full_detail.model_dump_json()
     assert "0xbad0" not in device_detail.model_dump_json()
 
@@ -419,9 +432,9 @@ def test_collector_networks_scoped(tmp_path: Path):
             },
         },
     )
-    assert detail.collector["enabled"] is True
-    assert detail.collector["connected"] is False
-    assert set(detail.collector["networks"]) == {"home"}
+    assert detail.collector_status["enabled"] is True
+    assert detail.collector_status["connected"] is False
+    assert set(detail.collector_status["networks"]) == {"home"}
     assert "office" not in detail.model_dump_json()
     assert "office-only" not in detail.markdown_summary
 
@@ -510,8 +523,8 @@ def test_device_story_batch_once_and_badge_parity(tmp_path: Path):
     assert captured["count"] == 1
     story = captured["stories"][("home", TARGET)]
     expected = device_decision_badge_from_story(story)
-    assert detail.devices[0].decision == expected
-    assert detail.device_details[0].decision == expected
+    assert report_devices(detail)[0].decision == expected
+    assert report_device_details(detail)[0].decision == expected
 
 
 def test_reference_now_threaded_to_story_and_generated_at(tmp_path: Path):
@@ -545,7 +558,7 @@ def test_reference_now_threaded_to_story_and_generated_at(tmp_path: Path):
     assert inv_mock.call_args.kwargs["now"] == frozen
     assert cov_mock.call_args.kwargs["now"] == frozen
     assert detail.generated_at.startswith("2025-01-15T08:30:00")
-    assert detail.health_snapshot.timestamp.startswith("2025-01-15T08:30:00")
+    assert detail.generated_at.startswith("2025-01-15T08:30:00")
 
 
 def test_timeline_false_zero_event_reads(tmp_path: Path):

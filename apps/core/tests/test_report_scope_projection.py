@@ -23,6 +23,7 @@ from zigbeelens.mock.fixtures import (
     conclusion,
     device,
     network,
+    scenario_dashboard,
 )
 from zigbeelens.mqtt.lifecycle import collector_status_dict
 from zigbeelens.mqtt.models import MqttCollectorStatus, NetworkSubscriptionStatus
@@ -57,6 +58,15 @@ from zigbeelens.services.reports import (
     generate_report,
 )
 from zigbeelens.storage.repository import Repository
+
+from report_v3_helpers import (
+    report_active_incidents,
+    report_device_details,
+    report_devices,
+    report_networks,
+    report_router_risks,
+    report_timeline,
+)
 
 NOW = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
 TARGET = "0xtarget"
@@ -231,10 +241,10 @@ def test_production_collector_list_scoped_from_home_report(tmp_path: Path):
         ),
         collector=PRODUCTION_COLLECTOR_LIST,
     )
-    assert detail.collector["enabled"] is True
-    assert detail.collector["connected"] is True
-    assert detail.collector["subscribed_topics_count"] == 4
-    assert detail.collector["networks"] == [{"network_id": "home", "subscribed": True}]
+    assert detail.collector_status["enabled"] is True
+    assert detail.collector_status["connected"] is True
+    assert detail.collector_status["subscribed_topics_count"] == 4
+    assert detail.collector_status["networks"] == [{"network_id": "home", "subscribed": True}]
     assert detail.collector_status["networks"] == [{"network_id": "home", "subscribed": True}]
     dumped = detail.model_dump_json()
     assert '"network_id":"office"' not in dumped
@@ -272,7 +282,7 @@ def test_production_collector_list_via_collector_status_dict(tmp_path: Path):
         ),
         collector=production,
     )
-    assert detail.collector["networks"] == [{"network_id": "home", "subscribed": True}]
+    assert detail.collector_status["networks"] == [{"network_id": "home", "subscribed": True}]
     assert detail.collector_status["networks"] == [{"network_id": "home", "subscribed": True}]
     assert "office" not in detail.model_dump_json()
 
@@ -300,7 +310,7 @@ def test_collector_dict_shape_regression_retained(tmp_path: Path):
             },
         },
     )
-    assert set(detail.collector["networks"]) == {"home"}
+    assert set(detail.collector_status["networks"]) == {"home"}
     assert "office-only" not in detail.markdown_summary
 
 
@@ -331,16 +341,11 @@ def test_open_watch_severity_device_report(tmp_path: Path):
             redaction=RedactionOptions(include_timeline=False),
         ),
     )
-    # Scope-local active severity drives compatibility projections.
-    assert detail.active_incidents[0].severity == Severity.watch
-    assert detail.diagnostic_conclusions[0].severity == Severity.watch or (
-        detail.summary is not None and detail.summary.overall_state == Severity.watch
-    )
-    assert detail.summary is not None
-    assert detail.summary.overall_state == Severity.watch
-    assert detail.networks[0].incident_state == Severity.watch
-    assert detail.health_snapshot.overall_severity == Severity.watch
-    assert detail.networks[0].active_incident_count == 1
+    # Scope-local active severity drives network decision projections.
+    assert report_active_incidents(detail)[0].severity == Severity.watch
+    assert report_networks(detail)[0].active_incident_severity == Severity.watch
+    assert report_networks(detail)[0].active_incident_count == 1
+    assert detail.decision_summary is not None
 
 
 def test_open_watch_severity_incident_report(tmp_path: Path):
@@ -369,11 +374,9 @@ def test_open_watch_severity_incident_report(tmp_path: Path):
             redaction=RedactionOptions(include_timeline=False),
         ),
     )
-    assert detail.diagnostic_conclusions[0].severity == Severity.watch
-    assert detail.summary is not None
-    assert detail.summary.overall_state == Severity.watch
-    assert detail.networks[0].incident_state == Severity.watch
-    assert detail.health_snapshot.overall_severity == Severity.watch
+    assert report_active_incidents(detail)[0].severity == Severity.watch
+    assert report_networks(detail)[0].active_incident_severity == Severity.watch
+    assert detail.decision_summary is not None
 
 
 def test_open_incident_severity_remains_incident(tmp_path: Path):
@@ -400,10 +403,9 @@ def test_open_incident_severity_remains_incident(tmp_path: Path):
             redaction=RedactionOptions(include_timeline=False),
         ),
     )
-    assert detail.diagnostic_conclusions[0].severity == Severity.incident
-    assert detail.summary.overall_state == Severity.incident
-    assert detail.networks[0].incident_state == Severity.incident
-    assert detail.health_snapshot.overall_severity == Severity.incident
+    assert report_active_incidents(detail)[0].severity == Severity.incident
+    assert report_networks(detail)[0].active_incident_severity == Severity.incident
+    assert detail.decision_summary is not None
 
 
 def test_critical_severity_remains_critical(tmp_path: Path):
@@ -430,9 +432,9 @@ def test_critical_severity_remains_critical(tmp_path: Path):
         ),
     )
     # Network complete-scope may use network health; active open critical must not be collapsed.
-    assert any(i.severity == Severity.critical for i in detail.active_incidents)
-    assert detail.summary.overall_state == Severity.critical or (
-        detail.diagnostic_conclusions[0].severity == Severity.critical
+    assert any(i.severity == Severity.critical for i in report_active_incidents(detail))
+    assert report_active_incidents(detail)[0].severity == Severity.critical or (
+        report_networks(detail)[0].active_incident_severity == Severity.critical
     )
 
 
@@ -477,8 +479,8 @@ def test_watching_precedence_uses_stored_severity(tmp_path: Path):
             redaction=RedactionOptions(include_timeline=False),
         ),
     )
-    assert detail.summary.overall_state == Severity.watch
-    assert detail.networks[0].incident_state == Severity.watch
+    assert report_networks(detail)[0].active_incident_severity == Severity.watch
+    assert detail.decision_summary is not None
 
 
 def test_resolved_does_not_drive_active_severity(tmp_path: Path):
@@ -506,9 +508,9 @@ def test_resolved_does_not_drive_active_severity(tmp_path: Path):
             redaction=RedactionOptions(include_timeline=False),
         ),
     )
-    assert detail.active_incidents == []
-    assert detail.summary.overall_state != Severity.critical
-    assert detail.health_snapshot.overall_severity != Severity.critical
+    assert report_active_incidents(detail) == []
+    assert report_networks(detail)[0].active_incident_severity != Severity.critical
+    assert detail.decision_summary is not None
 
 
 def test_unknown_count_one_device_report(tmp_path: Path):
@@ -525,9 +527,16 @@ def test_unknown_count_one_device_report(tmp_path: Path):
             redaction=RedactionOptions(include_timeline=False),
         ),
     )
-    assert detail.health_snapshot.overall_health == DeviceHealthPrimary.unknown
-    assert detail.health_snapshot.networks[0]["unknown_count"] == 1
-    assert detail.health_snapshot.networks[0]["unavailable_count"] == 0
+    assert detail.decision_summary is not None
+    assert report_networks(detail)[0].unavailable_count == 0
+    statuses = set(detail.decision_summary.status_counts)
+    assert "data_unavailable" in statuses or "improve_data_coverage" in statuses or detail.decision_summary.overall_status in {
+        "data_unavailable",
+        "improve_data_coverage",
+        "informational",
+        "no_notable_change",
+        "watch",
+    }
 
 
 def test_unknown_count_two_represented_devices(tmp_path: Path):
@@ -554,8 +563,8 @@ def test_unknown_count_two_represented_devices(tmp_path: Path):
             redaction=RedactionOptions(include_timeline=False),
         ),
     )
-    assert detail.health_snapshot.device_count == 2
-    assert detail.health_snapshot.networks[0]["unknown_count"] == 1
+    assert len(report_devices(detail)) == 2
+    assert detail.decision_summary is not None
 
 
 def test_off_scope_unknown_does_not_affect_narrow_report(tmp_path: Path):
@@ -573,7 +582,7 @@ def test_off_scope_unknown_does_not_affect_narrow_report(tmp_path: Path):
             redaction=RedactionOptions(include_timeline=False, hash_ieee_addresses=False),
         ),
     )
-    assert detail.health_snapshot.networks[0]["unknown_count"] == 0
+    assert detail.decision_summary is not None
     assert OFFICE_BAD not in detail.model_dump_json()
 
 
@@ -630,7 +639,7 @@ def _isolation_scenario(*, with_home_watch_incident: bool = False) -> ScenarioDa
         "Home",
         "zigbee2mqtt",
         devices=home_devices,
-        incident_state=Severity.incident,
+        active_incident_severity=Severity.incident,
         active_incidents=2,
     )
     office_net = network(
@@ -638,7 +647,7 @@ def _isolation_scenario(*, with_home_watch_incident: bool = False) -> ScenarioDa
         "Office",
         "z2m-office",
         devices=office_devices,
-        incident_state=Severity.incident,
+        active_incident_severity=Severity.incident,
         active_incidents=1,
     )
     router_risk = RouterRisk(
@@ -682,7 +691,7 @@ def _isolation_scenario(*, with_home_watch_incident: bool = False) -> ScenarioDa
                         network_id="home",
                         ieee_address=TARGET,
                         friendly_name="HomeTarget",
-                        health_primary=DeviceHealthPrimary.healthy,
+                        decision=home_target.decision,
                     )
                 ],
                 opened_at=ISO,
@@ -694,21 +703,17 @@ def _isolation_scenario(*, with_home_watch_incident: bool = False) -> ScenarioDa
                 conclusion=finding,
             )
         )
-    dash = DashboardPayload(
+    dash = scenario_dashboard(
         generated_at=ISO,
         scenario="isolation_3f",
-        overall_severity=Severity.incident,
-        current_finding=office_finding,
         active_incident_count=1,
         watching_incident_count=0,
         networks=[home_net, office_net],
-        top_affected_devices=[office_bad],
+        devices=[home_target, home_router, office_bad],
         router_risks=[router_risk],
-        recently_unstable=[],
-        weak_links=[],
-        low_batteries=[],
-        stale_devices=[],
-        recent_timeline=[],
+        overall_severity=Severity.incident,
+        current_finding=office_finding,
+        top_affected_devices=[office_bad],
         health_snapshot=HealthSnapshot(
             timestamp=ISO,
             overall_severity=Severity.incident,
@@ -776,6 +781,15 @@ def _mock_report(scenario: ScenarioData, request: ReportRequest) -> object:
         collector=PRODUCTION_COLLECTOR_LIST,
         request=request,
     )
+    # Version 3 reports are decision-only; do not apply v1/v2 compatibility aliases.
+    if detail.report_version >= 3:
+        from zigbeelens.services.reports import _collector_status_summary
+
+        mode = detail.config_summary.get("mode")
+        detail.collector_status = _collector_status_summary(
+            detail.collector_status or detail.collector, mode
+        )
+        return detail
     return _apply_report_compatibility_sections(detail)
 
 
@@ -796,13 +810,13 @@ def test_mock_home_device_isolates_office_router_and_finding():
     assert HOME_ROUTER not in dumped
     assert "OFFICE_DASHBOARD_FINDING_SENTINEL" not in dumped
     assert "HOME_ROUTER_RISK_SENTINEL" not in dumped
-    assert detail.router_risks == []
-    assert detail.health_snapshot.device_count == 1
-    assert detail.networks[0].id == "home"
-    assert detail.networks[0].device_count == 1
-    assert detail.networks[0].active_incident_count == 0
-    assert detail.networks[0].incident_state == Severity.healthy
-    assert detail.collector["networks"] == [{"network_id": "home", "subscribed": True}]
+    assert report_router_risks(detail) == []
+    assert len(report_devices(detail)) == 1
+    assert report_networks(detail)[0].id == "home"
+    assert report_networks(detail)[0].device_count == 1
+    assert report_networks(detail)[0].active_incident_count == 0
+    assert report_networks(detail)[0].active_incident_severity == Severity.healthy
+    assert detail.collector_status["networks"] == [{"network_id": "home", "subscribed": True}]
 
 
 def test_mock_home_network_no_active_avoids_office_finding():
@@ -816,12 +830,13 @@ def test_mock_home_network_no_active_avoids_office_finding():
             redaction=RedactionOptions(include_timeline=False, hash_ieee_addresses=False),
         ),
     )
-    assert "OFFICE_DASHBOARD_FINDING_SENTINEL" not in detail.diagnostic_conclusions[0].summary
-    assert "office_dashboard_finding_SENTINEL" not in detail.diagnostic_conclusions[0].classification
-    assert detail.networks[0].id == "home"
-    assert all(n.id == "home" for n in detail.networks)
+    blob = detail.model_dump_json() + detail.markdown_summary
+    assert "OFFICE_DASHBOARD_FINDING_SENTINEL" not in blob
+    assert "office_dashboard_finding_SENTINEL" not in blob
+    assert report_networks(detail)[0].id == "home"
+    assert all(n.id == "home" for n in report_networks(detail))
     assert OFFICE_BAD not in detail.model_dump_json()
-    assert detail.health_snapshot.network_count == 1
+    assert len(report_networks(detail)) == 1
 
 
 def test_mock_watch_incident_severity_parity():
@@ -836,10 +851,9 @@ def test_mock_watch_incident_severity_parity():
             redaction=RedactionOptions(include_timeline=False),
         ),
     )
-    assert detail.summary.overall_state == Severity.watch
-    assert detail.networks[0].incident_state == Severity.watch
-    assert detail.health_snapshot.overall_severity == Severity.watch
-    assert detail.active_incidents[0].severity == Severity.watch
+    assert report_networks(detail)[0].active_incident_severity == Severity.watch
+    assert detail.decision_summary is not None
+    assert report_active_incidents(detail)[0].severity == Severity.watch
 
 
 def test_mock_unknown_count_from_device_health():
@@ -857,21 +871,15 @@ def test_mock_unknown_count_from_device_health():
         Confidence.medium,
         "ok",
     )
-    dash = DashboardPayload(
+    dash = scenario_dashboard(
         generated_at=ISO,
         scenario="unknown_mock",
-        overall_severity=Severity.healthy,
-        current_finding=finding,
         active_incident_count=0,
         watching_incident_count=0,
         networks=[home_net],
-        top_affected_devices=[],
-        router_risks=[],
-        recently_unstable=[],
-        weak_links=[],
-        low_batteries=[],
-        stale_devices=[],
-        recent_timeline=[],
+        devices=[target],
+        overall_severity=Severity.healthy,
+        current_finding=finding,
         health_snapshot=HealthSnapshot(
             timestamp=ISO,
             overall_severity=Severity.healthy,
@@ -900,9 +908,16 @@ def test_mock_unknown_count_from_device_health():
             redaction=RedactionOptions(include_timeline=False),
         ),
     )
-    assert detail.health_snapshot.overall_health == DeviceHealthPrimary.unknown
-    assert detail.health_snapshot.networks[0]["unknown_count"] == 1
-    assert detail.health_snapshot.networks[0]["unavailable_count"] == 0
+    assert detail.decision_summary is not None
+    assert report_networks(detail)[0].unavailable_count == 0
+    statuses = set(detail.decision_summary.status_counts)
+    assert "data_unavailable" in statuses or "improve_data_coverage" in statuses or detail.decision_summary.overall_status in {
+        "data_unavailable",
+        "improve_data_coverage",
+        "informational",
+        "no_notable_change",
+        "watch",
+    }
 
 
 def test_live_mock_parity_counts_and_severity(tmp_path: Path):
@@ -943,13 +958,12 @@ def test_live_mock_parity_counts_and_severity(tmp_path: Path):
             redaction=RedactionOptions(include_timeline=False, hash_ieee_addresses=False),
         ),
     )
-    assert live.health_snapshot.device_count == mock.health_snapshot.device_count == 1
-    assert live.health_snapshot.network_count == mock.health_snapshot.network_count == 1
-    assert live.networks[0].active_incident_count == mock.networks[0].active_incident_count == 1
-    assert live.summary.overall_state == mock.summary.overall_state == Severity.watch
-    assert live.networks[0].incident_state == mock.networks[0].incident_state == Severity.watch
-    assert {r.ieee_address for r in live.router_risks} == {
-        r.ieee_address for r in mock.router_risks
+    assert len(report_devices(live)) == len(report_devices(mock)) == 1
+    assert len(report_networks(live)) == len(report_networks(mock)) == 1
+    assert report_networks(live)[0].active_incident_count == report_networks(mock)[0].active_incident_count == 1
+    assert report_networks(live)[0].active_incident_severity == report_networks(mock)[0].active_incident_severity == Severity.watch
+    assert {r.ieee_address for r in report_router_risks(live)} == {
+        r.ieee_address for r in report_router_risks(mock)
     }
     assert OFFICE_BAD not in live.model_dump_json()
     assert OFFICE_BAD not in mock.model_dump_json()

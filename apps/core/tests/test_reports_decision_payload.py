@@ -221,16 +221,15 @@ def test_report_device_context_builds_stories_once(monkeypatch, tmp_path):
 
 def test_full_report_decision_sections_present(mock_client: TestClient):
     detail = mock_client.get("/api/reports/preview", params={"scope": "full"}).json()
-    assert detail["report_version"] == 2
+    assert detail["report_version"] == 3
     assert detail["decision_summary"] is not None
-    assert detail["decision_summary"]["device_story_count"] == len(
-        detail["device_stories"]
-    )
+    assert detail["decision_summary"]["subject_count"] == len(detail["device_stories"])
     assert detail["device_stories"]
     status_total = sum(detail["decision_summary"]["status_counts"].values())
-    assert status_total == detail["decision_summary"]["device_story_count"]
+    assert status_total == detail["decision_summary"]["subject_count"]
     assert isinstance(detail["investigation_priorities"], list)
     assert isinstance(detail["data_coverage_warnings"], list)
+    assert detail["domain_details"]["devices"]
 
 
 def test_device_scoped_report_only_target_story(mock_client: TestClient):
@@ -246,11 +245,12 @@ def test_device_scoped_report_only_target_story(mock_client: TestClient):
             "preserve_friendly_names": "true",
         },
     ).json()
-    assert detail["report_version"] == 2
-    assert len(detail["devices"]) == 1
+    assert detail["report_version"] == 3
+    domain_devices = detail["domain_details"]["devices"]
+    assert len(domain_devices) == 1
     assert len(detail["device_stories"]) == 1
     story = detail["device_stories"][0]
-    device = detail["devices"][0]
+    device = domain_devices[0]
     assert story["ieee_address"] == device["ieee_address"]
     assert story["network_id"] == device["network_id"]
     assert story["friendly_name"] == device["friendly_name"]
@@ -427,7 +427,9 @@ def test_redaction_identity_consistent_across_decision_sections(tmp_path):
         repo=repo,
     )
     assert detail.device_stories
-    device = detail.devices[0]
+    domain_devices = detail.domain_details.devices
+    assert domain_devices
+    device = domain_devices[0]
     story = next(
         s
         for s in detail.device_stories
@@ -438,7 +440,7 @@ def test_redaction_identity_consistent_across_decision_sections(tmp_path):
     for priority in detail.investigation_priorities:
         for ieee in priority.device_ieees:
             assert ieee.startswith("ieee_")
-    for d in detail.devices:
+    for d in domain_devices:
         assert d.ieee_address.startswith("ieee_")
     for s in detail.device_stories:
         assert s.ieee_address.startswith("ieee_")

@@ -594,12 +594,12 @@ def list_reports(ctx: AppContext = Depends(ctx_dep)) -> list[ReportSummary]:
     return [summary_from_row(row) for row in ctx.repo.reports.list_reports()]
 
 
-@read_router.get("/reports/{report_id}", response_model=ReportDetail)
+@read_router.get("/reports/{report_id}")
 def get_report(
     report_id: str,
     scenario: str | None = Query(default=None),
     ctx: AppContext = Depends(ctx_dep),
-) -> ReportDetail:
+):
     report = ctx.data.get_stored_report(report_id, scenario)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -615,6 +615,28 @@ def download_report(
     detail = ctx.data.get_stored_report(report_id, scenario)
     if not detail:
         raise HTTPException(status_code=404, detail="Report not found")
+
+    # Legacy stored bodies (v1/v2) download exactly as stored.
+    if isinstance(detail, dict):
+        fmt = str(detail.get("format") or "json")
+        if fmt == "yaml":
+            import yaml
+
+            content = yaml.safe_dump(detail, sort_keys=False)
+            media_type = "application/x-yaml"
+        elif fmt == "markdown":
+            content = str(detail.get("markdown_summary") or "")
+            media_type = "text/markdown"
+        else:
+            content = json.dumps(detail, indent=2)
+            media_type = "application/json"
+        report_id_token = _sanitize_token(str(detail.get("id") or report_id))
+        filename = f"zigbeelens-report-{report_id_token}.{('md' if fmt == 'markdown' else fmt)}"
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     if detail.format == "yaml":
         content = report_body_as_yaml(detail)

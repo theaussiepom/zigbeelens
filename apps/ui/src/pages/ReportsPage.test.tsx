@@ -242,19 +242,31 @@ function makeDecisionReport(overrides: Partial<ReportDetail> = {}): ReportDetail
   const story = makeStory();
   return {
     ...makeLegacyReport(),
-    report_version: 2,
+    report_version: 3,
     summary: null,
     decision_summary: {
-      device_story_count: 1,
+      subject_count: 1,
+      overall_status: "watch",
+      highest_priority: "low",
       status_counts: { watch: 1 },
       priority_counts: { low: 1 },
+      coverage_warning_count: 0,
     },
     investigation_priorities: [makePriority()],
     device_stories: [story],
     data_coverage_warnings: [makeCoverageWarning()],
-    networks: [{ id: "home", name: "Home", base_topic: "zigbee2mqtt/home" }],
+    domain_details: {
+      networks: [
+        { id: "home", name: "Home", base_topic: "zigbee2mqtt/home" },
+      ] as NonNullable<ReportDetail["domain_details"]>["networks"],
+      devices: [],
+      device_details: [],
+      router_risks: [],
+      topology_snapshot_count: 0,
+    },
+    networks: [],
     raw_counts: { events_included: 0, devices_included: 1, incidents_included: 0 },
-    markdown_summary: "# ZigbeeLens evidence report\n\nGenerated: 2026-06-14",
+    markdown_summary: "# ZigbeeLens Evidence Report\n\nGenerated: 2026-06-14",
     ...overrides,
   };
 }

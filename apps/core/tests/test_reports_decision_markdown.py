@@ -117,35 +117,34 @@ def _v1_body() -> dict:
     }
 
 
-def test_version2_markdown_hierarchy_and_no_legacy(mock_client: TestClient):
+def test_version3_markdown_hierarchy_and_no_legacy(mock_client: TestClient):
     detail = mock_client.get("/api/reports/preview").json()
     md = detail["markdown_summary"]
-    assert md.startswith("# ZigbeeLens evidence report")
-    assert "## Summary" in md
+    assert detail["report_version"] == 3
+    assert md.startswith("# ZigbeeLens Evidence Report")
+    assert "## Decision summary" in md
     assert "## Executive summary" not in md
     assert "## Health summary" not in md
     assert "## Unhealthy devices" not in md
     assert "## Active incidents" not in md
     assert "Overall state:" not in md
     assert "Lens bucket" not in md
-    # Section order for present Decision sections
     positions = []
     for heading in (
-        "## Summary",
-        "## What to check first",
-        "## Device stories",
+        "## Decision summary",
+        "## What to review first",
+        "## Device Stories",
         "## Data coverage",
-        "## Evidence",
-        "## Incident records",
+        "## Incidents",
+        "## Scope details",
         "## Limitations",
         "## Suggested checks",
-        "## Collector status",
+        "## Redaction",
     ):
         idx = md.find(heading)
         if idx >= 0:
             positions.append(idx)
     assert positions == sorted(positions)
-    # No raw stable codes as primary user-facing tokens in common statuses
     if detail["device_stories"]:
         story = detail["device_stories"][0]
         assert decision_status_label(story["status"]) in md
@@ -181,33 +180,34 @@ def test_version1_stored_report_compatibility(tmp_path, mock_client: TestClient)
     data = DataService(config, repo)
     loaded = data.get_stored_report(row.id)
     assert loaded is not None
-    assert loaded.report_version == 1
-    assert loaded.markdown_summary == V1_MARKDOWN
-    assert loaded.summary is not None
-    assert loaded.summary.current_finding == "Legacy executive finding."
-    # Must not re-render stored Markdown — download uses stored markdown_summary.
-    assert loaded.markdown_summary == V1_MARKDOWN
-    assert loaded.markdown_summary.startswith("# ZigbeeLens diagnostic report")
-    assert "## Health summary" in loaded.markdown_summary
-    assert "# ZigbeeLens evidence report" not in loaded.markdown_summary
+    # Legacy v1 bodies remain opaque dicts — never revalidated as ReportDetail v3.
+    assert isinstance(loaded, dict)
+    assert loaded["report_version"] == 1
+    assert loaded["markdown_summary"] == V1_MARKDOWN
+    assert loaded["summary"]["current_finding"] == "Legacy executive finding."
+    assert loaded["markdown_summary"].startswith("# ZigbeeLens diagnostic report")
+    assert "## Health summary" in loaded["markdown_summary"]
+    assert "# ZigbeeLens evidence report" not in loaded["markdown_summary"]
+    assert "# ZigbeeLens Evidence Report" not in loaded["markdown_summary"]
 
     listed = summary_from_row(row)
     assert listed.summary == "Legacy executive finding."
 
 
-def test_version2_storage_round_trip(mock_client: TestClient):
+def test_version3_storage_round_trip(mock_client: TestClient):
     created = mock_client.post("/api/reports", json={"format": "json", "scope": "full"}).json()
     detail = mock_client.get(f"/api/reports/{created['id']}").json()
-    assert detail["report_version"] == 2
+    assert detail["report_version"] == 3
     assert detail["decision_summary"] is not None
     assert detail["device_stories"] is not None
-    assert detail["markdown_summary"].startswith("# ZigbeeLens evidence report")
+    assert detail["markdown_summary"].startswith("# ZigbeeLens Evidence Report")
     assert created["summary"]
     assert created["summary"] != "Legacy executive finding."
 
     body_md = detail["markdown_summary"]
     assert "## Health summary" not in body_md
     assert "## Unhealthy devices" not in body_md
+    assert "## Decision summary" in body_md
 
     created_md = mock_client.post(
         "/api/reports", json={"format": "markdown", "scope": "full"}
@@ -217,12 +217,12 @@ def test_version2_storage_round_trip(mock_client: TestClient):
     assert "markdown" in md_res.headers["content-type"]
     stored = mock_client.get(f"/api/reports/{created_md['id']}").json()
     assert md_res.text == stored["markdown_summary"]
-    assert md_res.text.startswith("# ZigbeeLens evidence report")
+    assert md_res.text.startswith("# ZigbeeLens Evidence Report")
 
     js = mock_client.get(f"/api/reports/{created['id']}/download")
     assert js.status_code == 200
     parsed = json.loads(js.text)
-    assert parsed["report_version"] == 2
+    assert parsed["report_version"] == 3
 
 
 def test_incident_records_use_recorded_interpretation(mock_client: TestClient):
@@ -235,6 +235,6 @@ def test_incident_records_use_recorded_interpretation(mock_client: TestClient):
     ).json()
     md = detail["markdown_summary"]
     if detail["incidents"]:
-        assert "## Incident records" in md
-        assert "Severity: Critical" not in md
-        assert "Recorded interpretation" in md or "Recorded summary" in md
+        assert "## Incidents" in md
+        assert "Lens bucket" not in md
+        assert "Summary:" in md

@@ -46,6 +46,15 @@ from zigbeelens.services.reports import (
 )
 from zigbeelens.storage.repository import Repository
 
+from report_v3_helpers import (
+    report_active_incidents,
+    report_device_details,
+    report_devices,
+    report_networks,
+    report_router_risks,
+    report_timeline,
+)
+
 NOW = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
 SENTINEL = "TIMELINE_SENTINEL_5D"
 SCENARIO = "four_devices_same_room_unavailable"
@@ -153,9 +162,9 @@ def test_device_scoped_report_stories_once_and_reuses_badges(monkeypatch, tmp_pa
     assert badge_spy.call_count == 0
     assert device_spy.call_count == 0
     assert len(detail.device_stories) == 1
-    assert len(detail.device_details) == 1
+    assert len(report_device_details(detail)) == 1
     story = detail.device_stories[0]
-    det = detail.device_details[0]
+    det = report_device_details(detail)[0]
     assert det.decision is not None
     # Reconstruct expected badge from report story fields via canonical payload.
     from zigbeelens.decisions.device_story import DeviceStory as DS
@@ -226,8 +235,8 @@ def test_incident_scoped_report_stories_once_for_multiple_devices(monkeypatch, t
     assert calls["n"] == 1
     assert device_spy.call_count == 0
     assert dashboard_spy.call_count == 0
-    assert detail.device_details
-    for det in detail.device_details:
+    assert report_device_details(detail)
+    for det in report_device_details(detail):
         key = (det.network_id, det.ieee_address)
         story = next(
             s
@@ -359,11 +368,11 @@ def test_include_timeline_false_absent_from_generated_markdown(tmp_path):
         scenario=SCENARIO,
         repo=repo,
     )
-    assert detail.timeline == []
+    assert report_timeline(detail) == []
     assert detail.events_or_timeline == []
     assert all(not s.timeline for s in detail.device_stories)
     assert all(not i.timeline for i in detail.incidents)
-    assert all(not d.recent_events for d in detail.device_details)
+    assert all(not d.recent_events for d in report_device_details(detail))
 
     with_timeline = generate_report(
         data=data,
@@ -718,15 +727,16 @@ def test_version1_download_uses_stored_markdown(tmp_path, mock_client):
     data = DataService(config, repo)
     loaded = data.get_stored_report(row.id)
     assert loaded is not None
-    assert loaded.report_version == 1
-    assert loaded.decision_summary is None
-    assert loaded.device_stories == []
-    assert loaded.investigation_priorities == []
-    assert loaded.data_coverage_warnings == []
-    assert loaded.markdown_summary == md
-    assert V1_SENTINEL in loaded.markdown_summary
-    assert loaded.markdown_summary.startswith("# ZigbeeLens diagnostic report")
-    assert "# ZigbeeLens evidence report" not in loaded.markdown_summary
+    assert isinstance(loaded, dict)
+    assert loaded["report_version"] == 1
+    assert loaded.get("decision_summary") is None
+    assert loaded.get("device_stories") in (None, [])
+    assert loaded.get("investigation_priorities") in (None, [])
+    assert loaded.get("data_coverage_warnings") in (None, [])
+    assert loaded["markdown_summary"] == md
+    assert V1_SENTINEL in loaded["markdown_summary"]
+    assert loaded["markdown_summary"].startswith("# ZigbeeLens diagnostic report")
+    assert "# ZigbeeLens evidence report" not in loaded["markdown_summary"]
     assert summary_from_row(row).summary == "Legacy executive finding."
 
 
@@ -903,8 +913,8 @@ def test_scoped_report_redacts_out_of_scope_configured_networks(tmp_path):
         for raw in _RAW_NETWORK_VALUES:
             assert raw not in blob, f"{profile.value}: leaked {raw!r}"
 
-        assert len(detail.networks) == 1
-        home_top = detail.networks[0]
+        assert len(report_networks(detail)) == 1
+        home_top = report_networks(detail)[0]
         assert home_top.id != HOME_PRIVATE_ID
         assert home_top.name != HOME_PRIVATE_NAME
         assert home_top.base_topic != HOME_PRIVATE_TOPIC
@@ -949,10 +959,10 @@ def test_scoped_report_redacts_out_of_scope_configured_networks(tmp_path):
         request=_home_scoped_request(RedactionProfile.standard, redact_networks=False),
         repo=repo,
     )
-    assert len(preserved.networks) == 1
-    assert preserved.networks[0].id == HOME_PRIVATE_ID
-    assert preserved.networks[0].name == HOME_PRIVATE_NAME
-    assert preserved.networks[0].base_topic == HOME_PRIVATE_TOPIC
+    assert len(report_networks(preserved)) == 1
+    assert report_networks(preserved)[0].id == HOME_PRIVATE_ID
+    assert report_networks(preserved)[0].name == HOME_PRIVATE_NAME
+    assert report_networks(preserved)[0].base_topic == HOME_PRIVATE_TOPIC
     assert len(preserved.config_summary["networks"]) == 1
     assert preserved.config_summary["networks"][0]["id"] == HOME_PRIVATE_ID
     assert preserved.config_summary["networks"][0]["name"] == HOME_PRIVATE_NAME

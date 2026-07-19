@@ -18,7 +18,7 @@ function baseReport(overrides: Partial<ReportDetail> = {}): ReportDetail {
   return {
     id: "report-preview",
     product: "ZigbeeLens",
-    report_version: 2,
+    report_version: 3,
     generated_at: "2026-06-14T15:30:00+00:00",
     version: "0.1.0",
     scope: "full",
@@ -35,37 +35,39 @@ function baseReport(overrides: Partial<ReportDetail> = {}): ReportDetail {
       network_names: "preserved",
     },
     decision_summary: {
-      device_story_count: 1,
+      subject_count: 1,
+      overall_status: "watch",
+      highest_priority: "low",
       status_counts: { watch: 1 },
       priority_counts: { low: 1 },
+      coverage_warning_count: 0,
     },
-    config_summary: {},
-    collector: {},
-    networks: [{ id: "home", name: "Home", base_topic: "zigbee2mqtt/home" }],
-    devices: [],
-    device_details: [],
-    router_risks: [],
+    config_summary: { mode: "mock" },
+    collector_status: {},
+    domain_details: {
+      networks: [
+        {
+          id: "home",
+          name: "Home",
+          base_topic: "zigbee2mqtt/home",
+        },
+      ] as NonNullable<ReportDetail["domain_details"]>["networks"],
+      devices: [],
+      device_details: [],
+      router_risks: [],
+      topology_snapshot_count: 0,
+    },
     incidents: [],
-    timeline: [],
-    health_snapshot: {
-      timestamp: "2026-06-14T15:30:00+00:00",
-      overall_health: "healthy",
-      network_count: 1,
-      device_count: 1,
-      unavailable_count: 0,
-      incident_count: 0,
-      networks: [],
-    },
-    diagnostic_conclusions: [],
+    events_or_timeline: [],
     limitations: [],
     raw_counts: {
       events_included: 0,
       devices_included: 1,
       incidents_included: 0,
     },
-    markdown_summary: "# ZigbeeLens evidence report",
+    markdown_summary: "# ZigbeeLens Evidence Report",
     ...overrides,
-  };
+  } as ReportDetail;
 }
 
 function makeStory(overrides: Partial<ReportDeviceStory> = {}): ReportDeviceStory {
@@ -263,15 +265,14 @@ describe("reportDecisionViewModel", () => {
     expect(vm.markdown).toContain("ZigbeeLens");
   });
 
-  it("marks v2 reports with no decision sections as legacy", () => {
+  it("marks stored v2 reports as legacy even when decision sections exist", () => {
     const report = baseReport({
       report_version: 2,
-      decision_summary: null,
-      device_stories: [],
     });
     const vm = buildReportDecisionViewModel(report);
     expect(vm.isLegacyFormat).toBe(true);
     expect(vm.legacyNotice).toBe(REPORT_LEGACY_NOTICE);
+    expect(vm.decisionSummaryItems).toEqual([]);
   });
 
   it("sorts device stories by decision rank then friendly name", () => {
@@ -316,7 +317,15 @@ describe("reportDecisionViewModel", () => {
         friendly_names: "preserved",
         network_names: "preserved",
       },
-      networks: [{ id: "home", name: "Home From Report", base_topic: "zigbee2mqtt/home" }],
+      domain_details: {
+        networks: [
+          { id: "home", name: "Home From Report", base_topic: "zigbee2mqtt/home" },
+        ] as NonNullable<ReportDetail["domain_details"]>["networks"],
+        devices: [],
+        device_details: [],
+        router_risks: [],
+        topology_snapshot_count: 0,
+      },
       investigation_priorities: [makePriority()],
       data_coverage_warnings: [makeCoverageWarning()],
       device_stories: [makeStory()],
@@ -341,7 +350,15 @@ describe("reportDecisionViewModel", () => {
         friendly_names: "labeled",
         network_names: "labeled",
       },
-      networks: [{ id: "network_001", name: "network_001", base_topic: "topic_001" }],
+      domain_details: {
+        networks: [
+          { id: "network_001", name: "network_001", base_topic: "topic_001" },
+        ] as NonNullable<ReportDetail["domain_details"]>["networks"],
+        devices: [],
+        device_details: [],
+        router_risks: [],
+        topology_snapshot_count: 0,
+      },
       investigation_priorities: [
         makePriority({ network_id: "network_001", title: "Anon priority" }),
       ],

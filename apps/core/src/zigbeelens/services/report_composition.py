@@ -691,9 +691,9 @@ def compose_live_report_scope(
     conclusions: list[DiagnosticConclusion]
     if plan.scope == ReportScope.incident and incidents:
         conclusions = [incidents[0].conclusion]
-    elif plan.scope == ReportScope.device and device_details:
-        conclusions = [device_details[0].diagnostic]
     else:
+        # Device-scoped reports no longer project a public health diagnostic on
+        # DeviceDetail; reuse the scoped finding for internal composition only.
         conclusions = [finding_conclusion]
 
     topology = _topology_count(repo, config, plan.network_ids)
@@ -856,10 +856,16 @@ def compose_mock_report_scope(
         for inc in active_incidents
         for ref in inc.affected_devices
     }
+    from zigbeelens.services.decision_summary import data_unavailable_device_badge
+
     devices = [
         d.model_copy(
             update={
-                "decision": badges.get((d.network_id, d.ieee_address)),
+                "decision": (
+                    badges.get((d.network_id, d.ieee_address))
+                    or d.decision
+                    or data_unavailable_device_badge()
+                ),
                 "incident_affected": (d.network_id, d.ieee_address) in active_affected,
             }
         )
@@ -953,7 +959,11 @@ def compose_mock_report_scope(
             detail = device_detail_from_summary(device, data)
             detail = detail.model_copy(
                 update={
-                    "decision": badges.get(key),
+                    "decision": (
+                        badges.get(key)
+                        or device.decision
+                        or data_unavailable_device_badge()
+                    ),
                     "incident_affected": device.incident_affected,
                     "recent_events": list(detail.recent_events) if include_timeline else [],
                 }
@@ -1009,6 +1019,7 @@ def compose_mock_report_scope(
                 1
                 for d in devices
                 if d.network_id == n.id
+                and d.decision is not None
                 and str(d.decision.status) == "data_unavailable"
             ),
         }
@@ -1021,7 +1032,8 @@ def compose_mock_report_scope(
     elif unavailable:
         scoped_severity = Severity.watch
     elif any(
-        str(d.decision.status)
+        d.decision is not None
+        and str(d.decision.status)
         in {"review_first", "worth_reviewing", "watch", "improve_data_coverage"}
         for d in devices
     ):
@@ -1190,7 +1202,7 @@ def project_report_detail(
     request: ReportRequest,
 ) -> ReportDetail:
     """Project ReportCompositionContext into ReportDetail (no further data loads)."""
-    from zigbeelens.services.reports import _summary_block, default_redaction_status
+    from zigbeelens.services.reports import default_redaction_status
 
     report_stories = []
     for device in ctx.devices:
@@ -1211,38 +1223,62 @@ def project_report_detail(
     decision_summary = report_decision_summary_from_stories(
         story_list if story_list else report_stories
     )
-    summary = _summary_block(
-        overall_state=ctx.overall_severity,
-        current_finding=ctx.finding,
+    from zigbeelens.services.decision_summary import decision_count_summary_from_badges
+    from zigbeelens.schemas import DecisionCountSummary
+
+    badges = [ctx.decision_badges_by_key[key] for key in ctx.decision_badges_by_key]
+    if not badges and ctx.devices:
+        badges = [d.decision for d in ctx.devices]
+    count_summary = decision_count_summary_from_badges(
+        badges,
+        coverage_warning_count=len(ctx.data_coverage_warnings),
+    )
+    # Preserve story-derived status_counts when present for Device Story parity.
+    if isinstance(decision_summary, object) and hasattr(decision_summary, "status_counts"):
+        if decision_summary.status_counts:
+            count_summary = DecisionCountSummary(
+                subject_count=max(
+                    count_summary.subject_count,
+                    getattr(decision_summary, "device_story_count", 0),
+                ),
+                overall_status=count_summary.overall_status,
+                highest_priority=count_summary.highest_priority,
+                status_counts=dict(decision_summary.status_counts),
+                priority_counts=dict(
+                    getattr(decision_summary, "priority_counts", {})
+                    or count_summary.priority_counts
+                ),
+                coverage_warning_count=len(ctx.data_coverage_warnings),
+            )
+
+    from zigbeelens.schemas import ReportDomainDetails
+
+    config_summary = _scoped_config_summary(config, ctx.plan.network_ids)
+    domain_details = ReportDomainDetails(
         networks=list(ctx.networks),
         devices=list(ctx.devices),
-        routers=list(ctx.router_risks),
-        incidents=list(ctx.incidents),
+        device_details=list(ctx.device_details),
+        router_risks=list(ctx.router_risks),
+        topology_snapshot_count=int(ctx.raw_counts.get("topology_snapshots", 0)),
     )
     return ReportDetail(
         id="report-preview",
-        report_version=2,
+        report_version=3,
         generated_at=_reference_iso(ctx.plan.reference_now),
         version=__version__,
         scope=request.scope.value,
         format=request.format.value,
         redaction=default_redaction_status(),
-        summary=summary,
-        decision_summary=decision_summary,
+        decision_summary=count_summary,
         investigation_priorities=list(ctx.investigation_priorities),
         device_stories=report_stories,
         data_coverage_warnings=list(ctx.data_coverage_warnings),
-        config_summary=_scoped_config_summary(config, ctx.plan.network_ids),
-        collector=_scoped_collector(collector, ctx.plan.network_ids),
-        networks=list(ctx.networks),
-        devices=list(ctx.devices),
-        device_details=list(ctx.device_details),
-        router_risks=list(ctx.router_risks),
+        config_summary=config_summary,
+        collector_status=_scoped_collector(collector, ctx.plan.network_ids),
         incidents=list(ctx.incidents),
-        timeline=list(ctx.timeline),
-        health_snapshot=ctx.health_snapshot,
-        diagnostic_conclusions=list(ctx.diagnostic_conclusions),
+        events_or_timeline=list(ctx.timeline),
         limitations=list(ctx.limitations),
+        domain_details=domain_details,
         raw_counts=dict(ctx.raw_counts),
         markdown_summary="",
     )

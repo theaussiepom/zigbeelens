@@ -427,6 +427,20 @@ export interface ReportDeviceStory {
   }>;
 }
 
+/** Canonical v3 report domain inventory */
+export interface ReportDomainDetails {
+  networks: NetworkSummary[];
+  devices: DeviceSummary[];
+  device_details: DeviceDetail[];
+  router_risks: RouterRisk[];
+  topology_snapshot_count: number;
+}
+
+/**
+ * Current report contract is version 3 (decision-only).
+ * Optional legacy fields remain so stored v1/v2 bodies can still be typed
+ * when loaded through the legacy reader path.
+ */
 export interface ReportDetail {
   id: string;
   product: string;
@@ -436,21 +450,34 @@ export interface ReportDetail {
   scope: ReportScope;
   format: ReportFormat;
   redaction: ReportRedactionStatus;
+  /** @deprecated v1/v2 health-count summary — absent on v3 */
   summary?: ReportSummaryBlock | null;
-  decision_summary?: ReportDecisionSummary | null;
+  /** v3 uses DecisionCountSummary; v2 used ReportDecisionSummary */
+  decision_summary?: DecisionCountSummary | ReportDecisionSummary | null;
   investigation_priorities?: InvestigationPrioritySummary[];
   device_stories?: ReportDeviceStory[];
   data_coverage_warnings?: DataCoverageWarningSummary[];
   config_summary: Record<string, unknown>;
-  collector: Record<string, unknown>;
-  networks: NetworkSummary[];
-  devices: DeviceSummary[];
-  device_details: DeviceDetail[];
-  router_risks: RouterRisk[];
+  /** @deprecated use collector_status on v3 */
+  collector?: Record<string, unknown>;
+  collector_status?: Record<string, unknown>;
+  /** @deprecated top-level domain arrays — use domain_details on v3 */
+  networks?: NetworkSummary[];
+  /** @deprecated use domain_details.devices on v3 */
+  devices?: DeviceSummary[];
+  /** @deprecated use domain_details.device_details on v3 */
+  device_details?: DeviceDetail[];
+  /** @deprecated use domain_details.router_risks on v3 */
+  router_risks?: RouterRisk[];
   incidents: Incident[];
-  timeline: TimelineEvent[];
-  health_snapshot: HealthSnapshot;
-  diagnostic_conclusions: DiagnosticConclusion[];
+  /** @deprecated use events_or_timeline on v3 */
+  timeline?: TimelineEvent[];
+  events_or_timeline?: TimelineEvent[];
+  /** @deprecated absent on v3 */
+  health_snapshot?: HealthSnapshot | null;
+  /** @deprecated absent on v3 */
+  diagnostic_conclusions?: DiagnosticConclusion[];
+  domain_details?: ReportDomainDetails;
   limitations: LimitationItem[];
   raw_counts: Record<string, number>;
   markdown_summary: string;
