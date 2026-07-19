@@ -51,7 +51,10 @@ def canonicalize_ingress_trusted_proxies(values: object) -> tuple[str, ...]:
 
 
 def normalize_ha_user_id(raw: str) -> str | None:
-    """Return lowercase 32-hex user ID, or None when structurally invalid."""
+    """Return lowercase exact 32-hex user ID, or None when structurally invalid.
+
+    Accepts only ``[0-9A-Fa-f]{32}``. Hyphenated UUID strings are rejected.
+    """
     if not isinstance(raw, str) or not raw:
         return None
     if raw != raw.strip():
@@ -62,19 +65,9 @@ def normalize_ha_user_id(raw: str) -> str | None:
         raw.encode("ascii")
     except UnicodeEncodeError:
         return None
-    if "," in raw or " " in raw or "\t" in raw:
+    if any(ch in raw for ch in ("-", ",", " ", "\t", "{", "}")):
         return None
-    if "-" in raw:
-        parts = raw.split("-")
-        if [len(p) for p in parts] != [8, 4, 4, 4, 12]:
-            return None
-        if any(c not in "0123456789abcdefABCDEF-" for c in raw):
-            return None
-        candidate = "".join(parts).lower()
-    else:
-        if any(c not in "0123456789abcdefABCDEF" for c in raw):
-            return None
-        candidate = raw.lower()
+    candidate = raw.lower()
     if _USER_ID_PATTERN.fullmatch(candidate) is None:
         return None
     return candidate

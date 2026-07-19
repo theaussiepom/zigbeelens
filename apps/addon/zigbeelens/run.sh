@@ -38,8 +38,6 @@ bearer_active = install_optional_api_token_file(
     secrets_dir=secrets_dir,
     token_file=token_file,
 )
-if bearer_active:
-    os.environ["ZIGBEELENS_SECURITY_API_TOKEN_FILE"] = str(token_file)
 for line in safe_startup_log_lines(
     options,
     bearer_fallback_configured=bearer_active,

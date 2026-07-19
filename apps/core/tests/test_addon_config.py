@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 from pathlib import Path
 
@@ -139,12 +140,19 @@ def test_optional_api_token_file_install_and_remove(tmp_path: Path):
     secrets = tmp_path / "secrets"
     token_file = secrets / "api_token"
     opts = _sample_options(security={"api_token": VALID_TOKEN})
-    assert install_optional_api_token_file(
-        opts, secrets_dir=secrets, token_file=token_file
-    )
+    old_umask = os.umask(0o000)
+    try:
+        assert install_optional_api_token_file(
+            opts, secrets_dir=secrets, token_file=token_file
+        )
+    finally:
+        os.umask(old_umask)
     assert token_file.read_text(encoding="utf-8") == VALID_TOKEN
+    assert "\n" not in token_file.read_text(encoding="utf-8")
     mode = stat.S_IMODE(token_file.stat().st_mode)
     assert mode == 0o600
+    dir_mode = stat.S_IMODE(secrets.stat().st_mode)
+    assert dir_mode == 0o700
 
     blank = _sample_options(security={"api_token": ""})
     assert not install_optional_api_token_file(
@@ -153,11 +161,27 @@ def test_optional_api_token_file_install_and_remove(tmp_path: Path):
     assert not token_file.exists()
 
 
+def test_optional_api_token_file_replaces_symlink(tmp_path: Path):
+    secrets = tmp_path / "secrets"
+    secrets.mkdir(mode=0o700)
+    outside = tmp_path / "outside_target"
+    outside.write_text("stale", encoding="utf-8")
+    token_file = secrets / "api_token"
+    token_file.symlink_to(outside)
+    opts = _sample_options(security={"api_token": VALID_TOKEN})
+    assert install_optional_api_token_file(
+        opts, secrets_dir=secrets, token_file=token_file
+    )
+    assert token_file.is_symlink() is False
+    assert token_file.read_text(encoding="utf-8") == VALID_TOKEN
+    assert outside.read_text(encoding="utf-8") == "stale"
+
+
 def test_malformed_optional_token_rejected_without_echo():
-    with pytest.raises(ValueError):
-        extract_optional_api_token(
-            _sample_options(security={"api_token": "short-bad-token"})
-        )
+    bad = "short-bad-token"
+    with pytest.raises(ValueError) as exc_info:
+        extract_optional_api_token(_sample_options(security={"api_token": bad}))
+    assert bad not in str(exc_info.value)
 
 
 def test_generated_config_is_live_mode():

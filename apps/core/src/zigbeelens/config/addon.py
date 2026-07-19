@@ -118,21 +118,54 @@ def install_optional_api_token_file(
 ) -> bool:
     """Atomically install or remove the optional bearer secret file.
 
-    Returns True when a token file is active.
+    Creates the secrets directory with mode ``0700`` and a temporary file with
+    mode ``0600`` from creation (independent of umask), then ``os.replace``s to
+    the final path. Returns True when a token file is active.
     """
+    import tempfile
+
     directory = secrets_dir or ADDON_SECRETS_DIR
     path = token_file or ADDON_API_TOKEN_FILE
     token = extract_optional_api_token(options)
     if not token:
-        if path.exists():
+        try:
             path.unlink()
+        except FileNotFoundError:
+            pass
         return False
+
     directory.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(token, encoding="utf-8")
-    os.chmod(tmp, 0o600)
-    tmp.replace(path)
-    os.chmod(path, 0o600)
+    os.chmod(directory, 0o700)
+
+    fd: int | None = None
+    tmp_name: str | None = None
+    try:
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=".api_token.",
+            suffix=".tmp",
+            dir=str(directory),
+        )
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            fd = None  # ownership transferred to the file object
+            handle.write(token.encode("utf-8"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp_name, 0o600)
+        os.replace(tmp_name, path)
+        tmp_name = None
+        os.chmod(path, 0o600)
+    finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if tmp_name is not None:
+            try:
+                os.unlink(tmp_name)
+            except FileNotFoundError:
+                pass
     return True
 
 

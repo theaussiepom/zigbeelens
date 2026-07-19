@@ -113,7 +113,10 @@ def get_auth_session(request: Request, response: Response) -> BrowserSessionStat
         browser_sessions_enabled,
         trusted_local_open,
     )
-    from zigbeelens.security.ingress import get_ingress_identity_from_request_state
+    from zigbeelens.security.ingress import (
+        get_ingress_identity_from_request_state,
+        trusted_ingress_peer_without_identity,
+    )
 
     ctx = get_context()
     manager = ctx.session_manager
@@ -141,7 +144,16 @@ def get_auth_session(request: Request, response: Response) -> BrowserSessionStat
         return _session_status_body(
             authenticated=True,
             auth_method="home_assistant_ingress",
-            browser_session_enabled=False,
+            browser_session_enabled=enabled,
+            home_assistant_ingress_enabled=True,
+        )
+
+    # Trusted peer without identity: report ingress-enabled before cookie checks.
+    if trusted_ingress_peer_without_identity(request.state):
+        return _session_status_body(
+            authenticated=False,
+            auth_method=None,
+            browser_session_enabled=enabled,
             home_assistant_ingress_enabled=True,
         )
 

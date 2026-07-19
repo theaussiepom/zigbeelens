@@ -23,7 +23,10 @@ from zigbeelens.security.browser_sessions import (
     BrowserSessionManager,
     SessionClaims,
 )
-from zigbeelens.security.ingress import get_ingress_identity_from_request_state
+from zigbeelens.security.ingress import (
+    get_ingress_identity_from_request_state,
+    trusted_ingress_peer_without_identity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -211,6 +214,10 @@ def authenticate_request(request: Request) -> AuthIdentity:
             request,
             AuthIdentity("home_assistant_ingress", ingress_user_id=ingress.user_id),
         )
+
+    # Trusted Supervisor peer without identity: never fall back to session/local.
+    if trusted_ingress_peer_without_identity(request.state):
+        raise _unauthorized()
 
     if trusted_local_open(ctx.config):
         return _store_auth_identity(request, AuthIdentity("trusted_local"))

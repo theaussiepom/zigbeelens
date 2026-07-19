@@ -94,13 +94,11 @@ def _assert_uniform_401(res) -> None:
     assert "X-Remote-User" not in res.text
 
 
-def test_normalize_ha_user_id_accepts_hex_and_uuid():
+def test_normalize_ha_user_id_accepts_exact_32_hex_only():
     assert normalize_ha_user_id(VALID_USER_ID) == VALID_USER_ID
     assert normalize_ha_user_id(VALID_USER_ID.upper()) == VALID_USER_ID
-    assert (
-        normalize_ha_user_id("01234567-89ab-cdef-0123-456789abcdef")
-        == "0123456789abcdef0123456789abcdef"
-    )
+    assert normalize_ha_user_id("01234567-89ab-cdef-0123-456789abcdef") is None
+    assert normalize_ha_user_id("{0123456789abcdef0123456789abcdef}") is None
     assert normalize_ha_user_id("") is None
     assert normalize_ha_user_id(" admin ") is None
     assert normalize_ha_user_id("not-a-uuid") is None
@@ -280,20 +278,92 @@ def test_bearer_precedence_over_ingress(tmp_path, monkeypatch):
         assert body["auth_method"] == "bearer"
 
 
-def test_malformed_bearer_does_not_fall_back_to_ingress(tmp_path, monkeypatch):
+def test_bearer_precedes_malformed_and_duplicate_ingress_identity(tmp_path, monkeypatch):
+    with _client(
+        tmp_path,
+        monkeypatch,
+        security=_ingress_security(token=VALID_TOKEN),
+        peer=(TRUSTED, 50000),
+    ) as client:
+        assert (
+            client.get(
+                "/api/dashboard",
+                headers={
+                    **_bearer(),
+                    "X-Remote-User-Id": "not-a-valid-user-id!!!!!!!!!!!!!",
+                },
+            ).status_code
+            == 200
+        )
+        # Duplicate identity headers: bearer still wins (middleware never parses them).
+        from zigbeelens.config import load_config
+        from zigbeelens.security.ingress import HomeAssistantIngressBoundaryMiddleware
+        import asyncio
+
+        cfg = load_config(tmp_path / "config.yaml")
+        seen: list[str] = []
+
+        async def inner(scope, receive, send):
+            seen.append("ok")
+            body = b'{"ok":true}'
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(body)).encode("ascii")),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": body})
+
+        mw = HomeAssistantIngressBoundaryMiddleware(inner, config=cfg)
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/dashboard",
+            "headers": [
+                (b"authorization", f"Bearer {VALID_TOKEN}".encode("ascii")),
+                (b"x-remote-user-id", VALID_USER_ID.encode("ascii")),
+                (b"x-remote-user-id", ("a" * 32).encode("ascii")),
+            ],
+            "client": (TRUSTED, 50000),
+            "query_string": b"",
+            "server": ("test", 80),
+            "scheme": "http",
+            "asgi": {"version": "3.0"},
+        }
+        sent: list[dict] = []
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            sent.append(message)
+
+        asyncio.run(mw(scope, receive, send))
+        assert seen == ["ok"]
+        assert any(
+            m.get("status") == 200 for m in sent if m["type"] == "http.response.start"
+        )
+
+
+def test_wrong_or_malformed_bearer_does_not_fall_back_to_ingress(tmp_path, monkeypatch):
     with _client(
         tmp_path,
         monkeypatch,
         security=_ingress_security(token=VALID_TOKEN),
     ) as client:
-        res = client.get(
-            "/api/dashboard",
-            headers={
-                **_identity_headers(),
-                "Authorization": "Bearer not-a-valid-token-shape!!!!!!!!!!!!",
-            },
-        )
-        _assert_uniform_401(res)
+        for auth in (
+            f"Bearer {'e' * 32}",
+            "Bearer not-a-valid-token-shape!!!!!!!!!!!!",
+        ):
+            res = client.get(
+                "/api/dashboard",
+                headers={**_identity_headers(), "Authorization": auth},
+            )
+            _assert_uniform_401(res)
 
 
 def test_proxy_only_denies_untrusted_static(tmp_path, monkeypatch):
@@ -309,7 +379,7 @@ def test_proxy_only_denies_untrusted_static(tmp_path, monkeypatch):
         assert client.get("/api/auth/session").status_code == 200
 
 
-def test_proxy_only_allows_valid_bearer_from_untrusted(tmp_path, monkeypatch):
+def test_proxy_only_allows_valid_bearer_api_not_static(tmp_path, monkeypatch):
     with _client(
         tmp_path,
         monkeypatch,
@@ -318,6 +388,13 @@ def test_proxy_only_allows_valid_bearer_from_untrusted(tmp_path, monkeypatch):
     ) as client:
         assert client.get("/api/dashboard", headers=_bearer()).status_code == 200
         _assert_uniform_401(client.get("/api/dashboard", headers=_identity_headers()))
+        _assert_uniform_401(client.get("/", headers=_bearer()))
+        _assert_uniform_401(client.get("/assets/app.js", headers=_bearer()))
+        _assert_uniform_401(client.get("/topology/home", headers=_bearer()))
+        _assert_uniform_401(client.get("/api-malicious", headers=_bearer()))
+        assert client.get("/healthz").status_code == 200
+        assert client.get("/api/version").status_code == 200
+        assert client.get("/api/auth/session").status_code == 200
 
 
 def test_ingress_mutation_without_csrf(tmp_path, monkeypatch):
@@ -525,3 +602,140 @@ def test_security_config_rejects_duplicate_proxies():
             mode=SecurityMode.home_assistant_ingress,
             ingress_trusted_proxies=["172.30.32.2", "172.30.32.2"],
         )
+
+
+def test_trusted_peer_without_identity_blocks_session_fallback(tmp_path, monkeypatch):
+    """Cookie must not rescue a trusted ingress peer that lacks X-Remote-User-Id."""
+    from performance.query_instrumentation import install_counter
+
+    session_secret = "s" * 32
+    security = (
+        "security:\n"
+        "  mode: home_assistant_ingress\n"
+        f"  api_token: {VALID_TOKEN}\n"
+        f"  session_secret: {session_secret}\n"
+        "  ingress_trusted_proxies:\n"
+        f"    - {TRUSTED}\n"
+        "  ingress_proxy_only: false\n"
+    )
+    # Bootstrap session from an untrusted peer (generic fallback allowed).
+    with _client(
+        tmp_path,
+        monkeypatch,
+        security=security,
+        peer=(NEAR_PEER, 50000),
+    ) as untrusted:
+        login = untrusted.post("/api/auth/session", headers=_bearer())
+        assert login.status_code == 200
+        assert untrusted.get("/api/dashboard").status_code == 200
+        cookies = untrusted.cookies
+
+    with _client(
+        tmp_path,
+        monkeypatch,
+        security=security,
+        peer=(TRUSTED, 50000),
+    ) as trusted:
+        trusted.cookies.update(cookies)
+        from zigbeelens.app import context as ctx_mod
+
+        ctx = ctx_mod.get_context()
+        ctx.data.dashboard = MagicMock(side_effect=AssertionError("dashboard"))
+        counter = install_counter(ctx.repo)
+        before = counter.stats.copy()
+        status = trusted.get("/api/auth/session").json()
+        assert status["authenticated"] is False
+        assert status["auth_method"] is None
+        assert status["home_assistant_ingress_enabled"] is True
+        _assert_uniform_401(trusted.get("/api/dashboard"))
+        delta = counter.stats.delta(before)
+        assert delta.execute_count == 0
+
+
+def test_untrusted_peer_may_use_session_when_not_proxy_only(tmp_path, monkeypatch):
+    session_secret = "s" * 32
+    security = (
+        "security:\n"
+        "  mode: home_assistant_ingress\n"
+        f"  api_token: {VALID_TOKEN}\n"
+        f"  session_secret: {session_secret}\n"
+        "  ingress_trusted_proxies:\n"
+        f"    - {TRUSTED}\n"
+        "  ingress_proxy_only: false\n"
+    )
+    with _client(
+        tmp_path,
+        monkeypatch,
+        security=security,
+        peer=(NEAR_PEER, 50000),
+    ) as client:
+        assert client.post("/api/auth/session", headers=_bearer()).status_code == 200
+        assert client.get("/api/dashboard").status_code == 200
+
+
+def test_ingress_cors_wraps_boundary_401(tmp_path, monkeypatch):
+    allowed = "https://ha.example"
+    security = (
+        "security:\n"
+        "  mode: home_assistant_ingress\n"
+        f"  api_token: {VALID_TOKEN}\n"
+        "  ingress_trusted_proxies:\n"
+        f"    - {TRUSTED}\n"
+        "  ingress_proxy_only: true\n"
+        "  cors_allowed_origins:\n"
+        f"    - {allowed}\n"
+    )
+    with _client(
+        tmp_path,
+        monkeypatch,
+        security=security,
+        peer=(NEAR_PEER, 50000),
+    ) as client:
+        from performance.query_instrumentation import install_counter
+        from zigbeelens.app import context as ctx_mod
+
+        ctx = ctx_mod.get_context()
+        counter = install_counter(ctx.repo)
+        before = counter.stats.copy()
+        preflight = client.options(
+            "/api/dashboard",
+            headers={
+                "Origin": allowed,
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        assert preflight.status_code in {200, 204}
+        assert preflight.headers.get("access-control-allow-origin") == allowed
+        assert preflight.headers.get("access-control-allow-credentials") == "true"
+        assert "nosniff" in (preflight.headers.get("x-content-type-options") or "").lower()
+        delta = counter.stats.delta(before)
+        assert delta.execute_count == 0
+
+        denied = client.get(
+            "/api/dashboard",
+            headers={"Origin": allowed, **_identity_headers()},
+        )
+        _assert_uniform_401(denied)
+        assert denied.headers.get("access-control-allow-origin") == allowed
+        assert denied.headers.get("access-control-allow-credentials") == "true"
+        assert "origin" in (denied.headers.get("vary") or "").lower()
+
+        other = client.get(
+            "/api/dashboard",
+            headers={"Origin": "https://evil.example", **_identity_headers()},
+        )
+        _assert_uniform_401(other)
+        assert other.headers.get("access-control-allow-origin") is None
+        assert other.headers.get("access-control-allow-credentials") is None
+
+
+def test_path_allows_direct_bearer_is_exact():
+    from zigbeelens.security.ingress import path_allows_direct_bearer
+
+    assert path_allows_direct_bearer("/api/dashboard") is True
+    assert path_allows_direct_bearer("/api/v1/dashboard") is True
+    assert path_allows_direct_bearer("/api") is True
+    assert path_allows_direct_bearer("/openapi.json") is True
+    assert path_allows_direct_bearer("/api-malicious") is False
+    assert path_allows_direct_bearer("/") is False
+    assert path_allows_direct_bearer("/topology/home") is False
