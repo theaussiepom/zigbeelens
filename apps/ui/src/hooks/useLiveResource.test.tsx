@@ -11,6 +11,7 @@ vi.mock("@/lib/events", () => ({
     },
     subscribeState: () => () => {},
     getState: () => "open",
+    isAccessEnabled: () => true,
   },
   LIVE_EVENTS: [],
 }));

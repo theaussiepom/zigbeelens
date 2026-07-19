@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **UI:** standalone browser authentication gate — session status before protected data, API-token unlock for HttpOnly sessions, in-memory CSRF on mutations, credentialed SSE and report downloads
 - **Security:** exact `cors_allowed_origins` / `frame_ancestor_origins` allowlists (canonical HTTP/HTTPS origins only)
 - **Security:** credentialed CORS without wildcards; pre-body Origin checks for cookie-authenticated mutations
 - **Security:** Content-Security-Policy on HTML documents, default same-origin framing, and general browser-safety headers

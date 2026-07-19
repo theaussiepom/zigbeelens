@@ -6,7 +6,13 @@ import type {
   ReportRequest,
   ReportScope,
 } from "@zigbeelens/shared";
-import { api, downloadReportUrl } from "@/lib/api";
+import {
+  api,
+  downloadStoredReport,
+  triggerBrowserDownload,
+  writeProtectedClipboardText,
+} from "@/lib/api";
+import { authRuntime } from "@/lib/authRuntime";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
 import {
@@ -341,23 +347,30 @@ export function ReportsPage() {
 
   async function copyMarkdown() {
     if (!preview.data) return;
-    await navigator.clipboard.writeText(preview.data.markdown_summary);
+    const accessGeneration = authRuntime.getAccessGeneration();
+    await writeProtectedClipboardText(preview.data.markdown_summary, accessGeneration);
     flash("Markdown summary copied.");
   }
 
   function clientDownload(filename: string, content: string, type: string) {
+    const accessGeneration = authRuntime.getAccessGeneration();
     const blob = new Blob([content], { type });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      if (accessGeneration !== authRuntime.getAccessGeneration()) return;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   }
 
   async function copyStored(id: string) {
+    const accessGeneration = authRuntime.getAccessGeneration();
     const detail = await api.report(id, scen);
-    await navigator.clipboard.writeText(detail.markdown_summary);
+    await writeProtectedClipboardText(detail.markdown_summary, accessGeneration);
     flash("Stored report markdown copied.");
   }
 
@@ -365,6 +378,12 @@ export function ReportsPage() {
     await api.deleteReport(id);
     setReloadKey((k) => k + 1);
     flash("Report deleted.");
+  }
+
+  async function downloadStored(id: string) {
+    const file = await downloadStoredReport(id, scen);
+    await triggerBrowserDownload(file);
+    flash("Report download started.");
   }
 
   const report = preview.data;
@@ -737,12 +756,13 @@ export function ReportsPage() {
                         {r.generated_at} · {r.scope} · {r.format.toUpperCase()} · {r.redaction_profile}
                       </p>
                     </div>
-                    <a
-                      href={downloadReportUrl(r.id, scen)}
+                    <button
+                      type="button"
+                      onClick={() => void downloadStored(r.id)}
                       className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 active:bg-zl-surface-2"
                     >
                       Download
-                    </a>
+                    </button>
                     <button
                       type="button"
                       onClick={() => copyStored(r.id)}

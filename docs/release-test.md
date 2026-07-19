@@ -31,7 +31,8 @@ Before release testing, confirm you understand:
 
 - Core may require `Authorization: Bearer` for protected API routes when an API token is configured
 - Optional browser sessions need both API token and session secret; cookie mutations need exact `Origin` and `X-ZigbeeLens-CSRF-Token`
-- Bundled UI login wiring, HACS token support, and ingress identity enforcement are not implemented yet
+- The bundled UI uses session login when both are configured; bearer-only Core shows a UI setup-required state
+- HACS token support and ingress identity enforcement are not implemented yet
 - ZigbeeLens is **read-only for Zigbee control** (no permit join, remove, reset, bind/unbind, OTA, or channel changes)
 - Some Core API routes modify **ZigbeeLens local data only** (reports, topology snapshots, HA enrichment)
 - If Core is reachable beyond users or networks you trust, **access-control decisions are your responsibility**
@@ -90,7 +91,7 @@ curl -s -b /tmp/zl-cookies.txt -X DELETE http://localhost:8377/api/auth/session 
 
 ### B. No-token release test (trusted-open; API routes intentionally open)
 
-Omit `ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` from `docker run`. In that configuration, protected API routes remain open — use only on a trusted local host. Note: the bundled UI and HACS integration do not yet attach bearer credentials, so token-enabled mode will block those clients until later UI/HACS work lands.
+Omit `ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` from `docker run`. In that configuration, protected API routes remain open — use only on a trusted local host. For token-enabled UI testing, also set `session_secret` so the standalone UI can create a browser session. HACS does not yet attach bearer credentials.
 
 Optional helper (creates dirs, copies template, refuses placeholder config):
 

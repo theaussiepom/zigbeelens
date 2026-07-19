@@ -1,7 +1,19 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { useAuth } from "@/context/BrowserAuthContext";
 import { useScenario } from "@/context/ScenarioContext";
 import { useConnection } from "@/hooks/useConnection";
 import { scenariosEnabled } from "@/lib/flags";
+
+function formatSessionExpiry(expiresAt: string | null): string | null {
+  if (!expiresAt) return null;
+  const ms = Date.parse(expiresAt);
+  if (Number.isNaN(ms)) return null;
+  try {
+    return new Date(ms).toLocaleString();
+  } catch {
+    return expiresAt;
+  }
+}
 
 const nav = [
   { to: "/", label: "Overview", end: true },
@@ -71,6 +83,8 @@ function ModeBanner() {
 
 export function AppShell() {
   const { scenario, setScenario, scenarios, status } = useScenario();
+  const auth = useAuth();
+  const sessionExpiryLabel = formatSessionExpiry(auth.expiresAt);
 
   return (
     <div className="flex min-h-screen flex-col lg:flex-row">
@@ -93,9 +107,29 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
-        <div className="border-t border-zl-border p-4 text-xs text-zl-muted">
-          <div className="mb-1">Mode: {status?.data_mode ?? "—"}</div>
+        <div className="border-t border-zl-border p-4 text-xs text-zl-muted space-y-1">
+          <div>Mode: {status?.data_mode ?? "—"}</div>
           <div>v{status?.version ?? "0.1.0"}</div>
+          {auth.authMethod === "trusted_local" && <div>Trusted local access</div>}
+          {auth.authMethod === "session" && sessionExpiryLabel && (
+            <div title={sessionExpiryLabel}>Session expires {sessionExpiryLabel}</div>
+          )}
+          {auth.authMethod === "session" && (
+            <button
+              type="button"
+              onClick={() => void auth.logout()}
+              disabled={auth.logoutBusy}
+              aria-busy={auth.logoutBusy}
+              className="mt-2 min-h-11 w-full rounded-lg border border-zl-border px-3 py-2 text-left text-xs text-zl-text hover:bg-zl-surface-2 disabled:opacity-50"
+            >
+              {auth.logoutBusy ? "Signing out…" : "Sign out"}
+            </button>
+          )}
+          {auth.logoutError && (
+            <p className="text-zl-critical" role="alert">
+              {auth.logoutError}
+            </p>
+          )}
         </div>
       </aside>
 
@@ -107,25 +141,46 @@ export function AppShell() {
               Zigbee2MQTT observability
             </h1>
             <ConnectionDot />
+            {auth.authMethod === "session" && (
+              <span className="hidden text-xs text-zl-muted sm:inline" title={sessionExpiryLabel ?? undefined}>
+                Browser session
+              </span>
+            )}
+            {auth.authMethod === "trusted_local" && (
+              <span className="hidden text-xs text-zl-muted sm:inline">Trusted local</span>
+            )}
           </div>
-          {scenariosEnabled() && (
-            <label className="flex items-center gap-2 text-sm">
-              <span className="text-zl-muted" id="scenario-label">Scenario</span>
-              <select
-                className="rounded-lg border border-zl-border bg-zl-bg px-3 py-2 text-sm text-zl-text w-full sm:w-auto"
-                value={scenario}
-                onChange={(e) => setScenario(e.target.value)}
-                aria-labelledby="scenario-label"
+          <div className="flex flex-wrap items-center gap-3">
+            {auth.authMethod === "session" && (
+              <button
+                type="button"
+                onClick={() => void auth.logout()}
+                disabled={auth.logoutBusy}
+                aria-busy={auth.logoutBusy}
+                className="min-h-11 rounded-lg border border-zl-border px-3 py-2 text-sm hover:bg-zl-surface-2 disabled:opacity-50 lg:hidden"
               >
-                <option value="">Live / Core default</option>
-                {scenarios.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
+                {auth.logoutBusy ? "Signing out…" : "Sign out"}
+              </button>
+            )}
+            {scenariosEnabled() && (
+              <label className="flex items-center gap-2 text-sm">
+                <span className="text-zl-muted" id="scenario-label">Scenario</span>
+                <select
+                  className="rounded-lg border border-zl-border bg-zl-bg px-3 py-2 text-sm text-zl-text w-full sm:w-auto"
+                  value={scenario}
+                  onChange={(e) => setScenario(e.target.value)}
+                  aria-labelledby="scenario-label"
+                >
+                  <option value="">Live / Core default</option>
+                  {scenarios.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
         </header>
 
         <nav className="flex gap-1 overflow-x-auto scroll-px-3 border-b border-zl-border bg-zl-surface px-3 py-2 lg:hidden" aria-label="Main navigation">

@@ -57,7 +57,16 @@ vi.mock("@/lib/api", () => ({
     report: vi.fn(),
     deleteReport: vi.fn(),
   },
-  downloadReportUrl: vi.fn(() => "/api/reports/r1/download"),
+  downloadStoredReport: vi.fn(async () => ({
+    blob: new Blob(["{}"], { type: "application/json" }),
+    filename: "report.json",
+    contentType: "application/json",
+    authGeneration: 1,
+  })),
+  triggerBrowserDownload: vi.fn(async () => {}),
+  writeProtectedClipboardText: vi.fn(async (text: string) => {
+    await navigator.clipboard.writeText(text);
+  }),
   ApiError: class ApiError extends Error {},
 }));
 
@@ -440,13 +449,12 @@ describe("ReportsPage", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining("ZigbeeLens")));
   });
 
-  it("renders stored reports with a download link", async () => {
-    listReports.mockResolvedValue([makeStored()]);
+  it("renders stored reports with an authenticated download button", async () => {
+    const stored = makeStored();
+    listReports.mockResolvedValue([stored]);
     renderReportsPage();
-    expect(await screen.findByRole("link", { name: /download/i })).toHaveAttribute(
-      "href",
-      "/api/reports/r1/download",
-    );
+    expect(await screen.findByText(stored.summary)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download" })).toBeInTheDocument();
   });
 
   it("shows an empty state when there are no stored reports", async () => {

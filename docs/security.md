@@ -93,8 +93,11 @@ Core sends Content-Security-Policy on HTML documents, plus `nosniff`,
 does **not** set HSTS (TLS proxies own that). Reverse proxies must not broaden
 Core’s CORS or frame policy with wildcards.
 
-Bundled UI login wiring, HACS API-token support, and Home Assistant ingress
-identity validation are **not** implemented yet.
+The bundled standalone UI checks public browser-session status before loading
+protected data. When browser sessions are enabled, the UI exchanges an API token
+once for an HttpOnly session cookie and does not persist the token. HACS
+API-token support and Home Assistant ingress identity validation are **not**
+implemented yet.
 
 Bearer and session authentication authenticate the HTTP request. They do **not**
 replace TLS on untrusted networks.
@@ -220,8 +223,10 @@ curl -s -b cookies.txt -X POST http://127.0.0.1:8377/api/reports \
 
 Logout clears the browser cookie. Stolen cookies remain usable until expiry
 unless `api_token` or `session_secret` is rotated. Rotating either invalidates
-all existing sessions. The bundled UI is not wired to login yet; HACS does not
-use browser sessions.
+all existing sessions. The standalone UI verifies the cookie round-trip after
+login, keeps CSRF only in memory for mutations, uses credentialed SSE and
+report downloads, and never places credentials in URLs. HACS does not yet use
+browser sessions or bearer tokens.
 
 ## Canonical secret environment variables
 
@@ -278,7 +283,7 @@ It **must not** be combined with `ZIGBEELENS_SECURITY_API_TOKEN` or `ZIGBEELENS_
 | Client | `local` without token | Token configured / `authenticated` |
 |--------|------------------------|------------------------------------|
 | Direct API (`curl`, scripts) | Open | Use `Authorization: Bearer` |
-| Bundled UI | Works | Login/token attachment not implemented yet |
+| Bundled UI | Trusted-open enters directly | Token login when `session_secret` is set; bearer-only Core shows setup-required |
 | HACS integration | Works | Token configuration not implemented yet |
 
 Do not weaken bearer protection to preserve unauthenticated clients in authenticated mode.
