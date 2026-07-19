@@ -134,7 +134,7 @@ def install_optional_api_token_file(
             pass
         return False
 
-    directory.mkdir(parents=True, exist_ok=True)
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(directory, 0o700)
 
     fd: int | None = None

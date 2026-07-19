@@ -41,6 +41,7 @@ _REMOTE_USER_HEADER_NAMES = frozenset(
 )
 
 _DOCS_PATHS = frozenset({"/openapi.json", "/docs", "/redoc"})
+_SESSION_BOOTSTRAP_PATHS = frozenset({"/api/auth/session", "/api/v1/auth/session"})
 
 
 class IngressPeerKind(str, Enum):
@@ -75,8 +76,15 @@ def peer_ip_from_scope(scope: Scope) -> str | None:
         return None
 
 
-def path_allows_direct_bearer(path: str) -> bool:
-    """True for reviewed machine API/docs paths (not static UI / SPA)."""
+def path_allows_direct_bearer(path: str, method: str = "GET") -> bool:
+    """True for reviewed machine API/docs paths (not static UI / SPA).
+
+    Session bootstrap ``POST /api/auth/session`` is excluded so proxy-only
+    untrusted peers cannot mint cookies that cannot authorize protected routes.
+    """
+    method_u = method.upper()
+    if path in _SESSION_BOOTSTRAP_PATHS and method_u == "POST":
+        return False
     if path in _DOCS_PATHS:
         return True
     if path == "/api" or path.startswith("/api/"):
@@ -222,7 +230,7 @@ class HomeAssistantIngressBoundaryMiddleware:
             # only — not static UI / SPA catch-all.
             allow_valid_bearer = (
                 trusted
-                or path_allows_direct_bearer(path)
+                or path_allows_direct_bearer(path, method)
                 or _path_is_public_machine_probe(path, method)
                 or _path_is_public_session_status(path, method)
                 or not self._proxy_only
@@ -304,3 +312,28 @@ def get_ingress_peer_kind(state: Any) -> IngressPeerKind | None:
 
 def trusted_ingress_peer_without_identity(state: Any) -> bool:
     return get_ingress_peer_kind(state) is IngressPeerKind.trusted_without_identity
+
+
+def browser_session_available_for_request(request: Any, config: AppConfig) -> bool:
+    """Whether a browser session can authorize later protected work from this peer.
+
+    In ``home_assistant_ingress`` mode this is the *effective* availability used by
+    public session status (not merely the configured ``api_token``+``session_secret``
+    fact). Peer IP and identity values are never returned.
+    """
+    from zigbeelens.config.security_types import browser_sessions_enabled
+
+    configured = browser_sessions_enabled(config)
+    if config.security.mode is not SecurityMode.home_assistant_ingress:
+        return configured
+
+    state = getattr(request, "state", request)
+    if get_ingress_identity_from_request_state(state) is not None:
+        return configured
+    if trusted_ingress_peer_without_identity(state):
+        return False
+    if config.security.ingress_proxy_only:
+        # Untrusted proxy-only (and any other non-identity path): cookies cannot
+        # authorize protected routes.
+        return False
+    return configured

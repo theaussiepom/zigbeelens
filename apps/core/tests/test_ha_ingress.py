@@ -644,9 +644,14 @@ def test_trusted_peer_without_identity_blocks_session_fallback(tmp_path, monkeyp
         counter = install_counter(ctx.repo)
         before = counter.stats.copy()
         status = trusted.get("/api/auth/session").json()
-        assert status["authenticated"] is False
-        assert status["auth_method"] is None
-        assert status["home_assistant_ingress_enabled"] is True
+        assert status == {
+            "authenticated": False,
+            "auth_method": None,
+            "browser_session_enabled": False,
+            "home_assistant_ingress_enabled": True,
+            "expires_at": None,
+            "csrf_token": None,
+        }
         _assert_uniform_401(trusted.get("/api/dashboard"))
         delta = counter.stats.delta(before)
         assert delta.execute_count == 0
@@ -739,3 +744,127 @@ def test_path_allows_direct_bearer_is_exact():
     assert path_allows_direct_bearer("/api-malicious") is False
     assert path_allows_direct_bearer("/") is False
     assert path_allows_direct_bearer("/topology/home") is False
+    assert path_allows_direct_bearer("/api/auth/session", "GET") is True
+    assert path_allows_direct_bearer("/api/auth/session", "POST") is False
+    assert path_allows_direct_bearer("/api/v1/auth/session", "POST") is False
+
+
+def test_untrusted_proxy_only_ignores_session_cookie(tmp_path, monkeypatch):
+    session_secret = "s" * 32
+    open_security = (
+        "security:\n"
+        "  mode: home_assistant_ingress\n"
+        f"  api_token: {VALID_TOKEN}\n"
+        f"  session_secret: {session_secret}\n"
+        "  ingress_trusted_proxies:\n"
+        f"    - {TRUSTED}\n"
+        "  ingress_proxy_only: false\n"
+    )
+    locked_security = (
+        "security:\n"
+        "  mode: home_assistant_ingress\n"
+        f"  api_token: {VALID_TOKEN}\n"
+        f"  session_secret: {session_secret}\n"
+        "  ingress_trusted_proxies:\n"
+        f"    - {TRUSTED}\n"
+        "  ingress_proxy_only: true\n"
+    )
+    with _client(
+        tmp_path,
+        monkeypatch,
+        security=open_security,
+        peer=(NEAR_PEER, 50000),
+    ) as open_client:
+        assert open_client.post("/api/auth/session", headers=_bearer()).status_code == 200
+        cookies = open_client.cookies
+
+    with _client(
+        tmp_path,
+        monkeypatch,
+        security=locked_security,
+        peer=(NEAR_PEER, 50000),
+    ) as locked:
+        locked.cookies.update(cookies)
+        status = locked.get("/api/auth/session").json()
+        assert status == {
+            "authenticated": False,
+            "auth_method": None,
+            "browser_session_enabled": False,
+            "home_assistant_ingress_enabled": True,
+            "expires_at": None,
+            "csrf_token": None,
+        }
+        _assert_uniform_401(locked.get("/api/dashboard"))
+
+
+def test_proxy_only_denies_direct_session_bootstrap_allows_api_bearer(
+    tmp_path, monkeypatch
+):
+    session_secret = "s" * 32
+    security = (
+        "security:\n"
+        "  mode: home_assistant_ingress\n"
+        f"  api_token: {VALID_TOKEN}\n"
+        f"  session_secret: {session_secret}\n"
+        "  ingress_trusted_proxies:\n"
+        f"    - {TRUSTED}\n"
+        "  ingress_proxy_only: true\n"
+    )
+    with _client(
+        tmp_path,
+        monkeypatch,
+        security=security,
+        peer=(NEAR_PEER, 50000),
+    ) as client:
+        _assert_uniform_401(
+            client.post("/api/auth/session", headers=_bearer())
+        )
+        _assert_uniform_401(
+            client.post("/api/v1/auth/session", headers=_bearer())
+        )
+        assert client.get("/api/dashboard", headers=_bearer()).status_code == 200
+
+
+def test_proxy_only_false_allows_direct_session_bootstrap(tmp_path, monkeypatch):
+    session_secret = "s" * 32
+    security = (
+        "security:\n"
+        "  mode: home_assistant_ingress\n"
+        f"  api_token: {VALID_TOKEN}\n"
+        f"  session_secret: {session_secret}\n"
+        "  ingress_trusted_proxies:\n"
+        f"    - {TRUSTED}\n"
+        "  ingress_proxy_only: false\n"
+    )
+    with _client(
+        tmp_path,
+        monkeypatch,
+        security=security,
+        peer=(NEAR_PEER, 50000),
+    ) as client:
+        res = client.post("/api/auth/session", headers=_bearer())
+        assert res.status_code == 200
+        body = res.json()
+        assert body["auth_method"] == "session"
+        assert body["csrf_token"]
+
+
+def test_valid_ingress_reports_configured_browser_session_fact(tmp_path, monkeypatch):
+    session_secret = "s" * 32
+    security = (
+        "security:\n"
+        "  mode: home_assistant_ingress\n"
+        f"  api_token: {VALID_TOKEN}\n"
+        f"  session_secret: {session_secret}\n"
+        "  ingress_trusted_proxies:\n"
+        f"    - {TRUSTED}\n"
+        "  ingress_proxy_only: true\n"
+    )
+    with _client(tmp_path, monkeypatch, security=security) as client:
+        status = client.get("/api/auth/session", headers=_identity_headers()).json()
+        assert status["authenticated"] is True
+        assert status["auth_method"] == "home_assistant_ingress"
+        assert status["browser_session_enabled"] is True
+        assert status["expires_at"] is None
+        assert status["csrf_token"] is None
+        assert client.get("/api/v1/auth/session", headers=_identity_headers()).json() == status
