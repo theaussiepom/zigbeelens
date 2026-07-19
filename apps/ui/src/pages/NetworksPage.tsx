@@ -9,17 +9,19 @@ import {
   ErrorState,
   LoadingState,
   MetricPill,
-  SeverityBadge,
   StatTile,
 } from "@/components/ui";
 import {
-  DeviceHealthCard,
+  DeviceDecisionCard,
   IncidentCard,
   NetworkHealthCard,
   RouterRiskCard,
   TimelineEventRow,
 } from "@/components/cards";
+import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
 import { bridgeStateLabel, compareDevices } from "@/lib/format";
+import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
+import { decisionStatusLabel } from "@/viewModels/decisionCopy";
 
 const NETWORK_EVENTS = [
   "network_health_updated",
@@ -69,14 +71,21 @@ export function NetworksPage() {
   );
 }
 
+const REVIEW_STATUSES = new Set([
+  "review_first",
+  "worth_reviewing",
+  "improve_data_coverage",
+  "watch",
+]);
+
 function networkStatusLine(net: NetworkSummary): string {
   if (net.device_count === 0 || net.bridge_state === "unknown") {
     return "ZigbeeLens has not observed enough data for this network yet.";
   }
-  if (net.incident_state !== "healthy" || net.active_incident_count > 0) {
-    return "This network has active health signals.";
+  if (net.active_incident_count > 0) {
+    return "This network has active incidents.";
   }
-  return "This network currently has no detected health concerns.";
+  return `Decision status: ${decisionStatusLabel(net.decision.status)}.`;
 }
 
 export function NetworkDetailPage() {
@@ -134,12 +143,13 @@ export function NetworkDetailPage() {
   if (net.loading || !net.data) return <LoadingState />;
   const n = net.data;
 
-  const affected = [...(devices.data ?? [])]
-    .filter((d) => d.health.primary !== "healthy")
+  const reviewDevices = [...(devices.data ?? [])]
+    .filter((d) => REVIEW_STATUSES.has(d.decision.status))
     .sort(compareDevices)
     .slice(0, 6);
   const activeIncidents = activeIncidentsResource.data ?? [];
   const resolvedIncidents = resolvedIncidentsResource.data ?? [];
+  const statusCounts = n.decision_summary.status_counts;
 
   return (
     <div className="max-w-5xl space-y-6">
@@ -149,7 +159,7 @@ export function NetworkDetailPage() {
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold">{n.name}</h1>
-          <SeverityBadge severity={n.incident_state} />
+          <DeviceDecisionBadge decision={buildDeviceDecisionBadgeViewModel(n.decision)} />
         </div>
         <p className="break-all font-mono text-sm text-zl-muted">{n.base_topic}</p>
         <p className="mt-2 text-zl-text">{networkStatusLine(n)}</p>
@@ -174,15 +184,25 @@ export function NetworkDetailPage() {
         />
       </div>
 
-      <Card title="Health breakdown">
+      <Card title="Inventory and decision counts">
         <div className="flex flex-wrap gap-2">
           <MetricPill label="Routers" value={n.router_count} />
           <MetricPill label="End devices" value={n.end_device_count} />
-          <MetricPill label="Recently unstable" value={n.recently_unstable_count} severity={n.recently_unstable_count ? "watch" : "healthy"} />
-          <MetricPill label="Weak link" value={n.weak_link_count} severity={n.weak_link_count ? "watch" : "healthy"} />
-          <MetricPill label="Low battery" value={n.low_battery_count} severity={n.low_battery_count ? "watch" : "healthy"} />
-          <MetricPill label="Stale" value={n.stale_count} severity={n.stale_count ? "watch" : "healthy"} />
-          <MetricPill label="Interview issues" value={n.interview_issue_count} severity={n.interview_issue_count ? "watch" : "healthy"} />
+          <MetricPill
+            label="Review first"
+            value={statusCounts.review_first ?? 0}
+            severity={(statusCounts.review_first ?? 0) ? "incident" : "healthy"}
+          />
+          <MetricPill
+            label="Worth reviewing"
+            value={statusCounts.worth_reviewing ?? 0}
+            severity={(statusCounts.worth_reviewing ?? 0) ? "watch" : "healthy"}
+          />
+          <MetricPill
+            label="Coverage warnings"
+            value={n.decision_summary.coverage_warning_count}
+            severity={n.decision_summary.coverage_warning_count ? "watch" : "healthy"}
+          />
           <MetricPill label="Bridge warnings" value={n.recent_bridge_warnings} severity={n.recent_bridge_warnings ? "watch" : "healthy"} />
           <MetricPill label="Bridge errors" value={n.recent_bridge_errors} severity={n.recent_bridge_errors ? "incident" : "healthy"} />
         </div>
@@ -216,14 +236,14 @@ export function NetworkDetailPage() {
         )}
       </section>
 
-      {affected.length > 0 && (
+      {reviewDevices.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
-            Top affected devices
+            Devices to review
           </h2>
           <div className="grid gap-3 md:grid-cols-2">
-            {affected.map((d) => (
-              <DeviceHealthCard key={`${d.network_id}-${d.ieee_address}`} device={d} />
+            {reviewDevices.map((d) => (
+              <DeviceDecisionCard key={`${d.network_id}-${d.ieee_address}`} device={d} />
             ))}
           </div>
         </section>

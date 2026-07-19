@@ -1,4 +1,4 @@
-import type { DeviceSummary, LensBucket } from "@zigbeelens/shared";
+import type { DeviceSummary } from "@zigbeelens/shared";
 import type {
   DeviceDiagnosticStats,
   DeviceStatsWindow,
@@ -68,15 +68,21 @@ function roleFromType(deviceType: string | null | undefined): MeshRole {
   }
 }
 
-function bucketFromLens(bucket: LensBucket | undefined): MeshHealthBucket {
-  switch (bucket) {
-    case "healthy":
-    case "needs_attention":
-    case "unavailable":
-    case "diagnostics_limited":
-    case "recently_unstable":
+function bucketFromDecision(status: string | undefined): MeshHealthBucket {
+  switch (status) {
+    case "no_notable_change":
     case "informational":
-      return bucket;
+      return "healthy";
+    case "review_first":
+    case "worth_reviewing":
+      return "needs_attention";
+    case "watch":
+    case "changed":
+      return "recently_unstable";
+    case "improve_data_coverage":
+      return "diagnostics_limited";
+    case "data_unavailable":
+      return "unknown";
     default:
       return "unknown";
   }
@@ -84,14 +90,24 @@ function bucketFromLens(bucket: LensBucket | undefined): MeshHealthBucket {
 
 function flagsForDevice(summary: DeviceSummary, role: MeshRole): MeshNodeFlag[] {
   const flags: MeshNodeFlag[] = [];
-  if (summary.lens_bucket === "unavailable" || summary.availability === "offline") {
+  const status = summary.decision?.status;
+  if (summary.availability === "offline" || status === "review_first") {
     flags.push("unavailable");
   }
-  if (summary.lens_bucket === "needs_attention") flags.push("needs_attention");
-  if (summary.lens_bucket === "diagnostics_limited") flags.push("diagnostics_limited");
+  if (status === "worth_reviewing" || status === "review_first") {
+    flags.push("needs_attention");
+  }
+  if (status === "improve_data_coverage" || status === "data_unavailable") {
+    flags.push("diagnostics_limited");
+  }
   if (summary.interview_state === "failed") flags.push("interview_failure");
-  if (summary.health.primary === "weak_link") flags.push("weak_link_candidate");
-  if (summary.health.primary === "router_risk") flags.push("router_risk_candidate");
+  const headline = summary.decision?.headline_code ?? "";
+  if (headline.includes("weak_link")) {
+    flags.push("weak_link_candidate");
+  }
+  if (headline.includes("router_risk")) {
+    flags.push("router_risk_candidate");
+  }
   if (summary.power_source === "Battery" && role === "end_device") flags.push("battery_sleepy");
   return flags;
 }
@@ -388,7 +404,7 @@ function buildDevice(
     in_inventory: Boolean(summary),
     in_latest_snapshot: Boolean(node),
     last_seen_at: summary?.last_seen ?? null,
-    health_bucket: summary ? bucketFromLens(summary.lens_bucket) : "unknown",
+    health_bucket: summary ? bucketFromDecision(summary.decision?.status) : "unknown",
     flags: summary ? flagsForDevice(summary, role) : [],
     inventory_status: summary
       ? "In Zigbee2MQTT device inventory"
@@ -396,7 +412,9 @@ function buildDevice(
         ? "Observed in topology snapshot only — not in the current device inventory"
         : "Referenced by topology links only — unknown to inventory and node list",
     topology_evidence_summary: topologySummary(node, neighborCount, sleepy),
-    passive_observation_summary: summary?.lens_bucket_reason || "",
+    passive_observation_summary: summary?.decision?.headline_code
+      ? summary.decision.headline_code.replace(/_/g, " ")
+      : "",
     open_issue: summary?.incident_affected
       ? {
           title: "Linked to an active incident",

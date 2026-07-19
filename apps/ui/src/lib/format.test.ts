@@ -22,15 +22,7 @@ function device(overrides: Partial<DeviceSummary> = {}): DeviceSummary {
     availability: "online",
     interview_state: "successful",
     incident_affected: false,
-    sort_priority: 100,
-    health: {
-      primary: "healthy",
-      severity: "healthy",
-      confidence: "high",
-      evidence: [],
-      counter_evidence: [],
-      limitations: [],
-    },
+    decision: { status: "no_notable_change", priority: "none", headline_code: "device_no_notable_change", coverage_label_codes: [] },
     ...overrides,
   };
 }
@@ -70,7 +62,7 @@ describe("compareDevices bad-first ordering", () => {
       device({ friendly_name: "ok", health: { ...device().health } }),
       device({
         friendly_name: "offline",
-        health: { ...device().health, primary: "unavailable", severity: "incident" },
+    decision: { status: "no_notable_change", priority: "none", headline_code: "device_no_notable_change", coverage_label_codes: [] },
       }),
     ];
     const sorted = [...list].sort(compareDevices);

@@ -15,7 +15,6 @@ import {
 function makeDashboard(overrides: Partial<DashboardPayload> = {}): DashboardPayload {
   return {
     generated_at: "2026-07-14T12:00:00+00:00",
-    overall_severity: "healthy",
     current_finding: {
       classification: "healthy",
       severity: "healthy",
@@ -29,16 +28,10 @@ function makeDashboard(overrides: Partial<DashboardPayload> = {}): DashboardPayl
     active_incident_count: 0,
     watching_incident_count: 0,
     networks: [{ id: "home", name: "Home" } as DashboardPayload["networks"][number]],
-    top_affected_devices: [],
     router_risks: [],
-    recently_unstable: [],
-    weak_links: [],
-    low_batteries: [],
-    stale_devices: [],
     recent_timeline: [],
     health_snapshot: {
       timestamp: "2026-07-14T12:00:00+00:00",
-      overall_severity: "healthy",
       overall_health: "healthy",
       network_count: 1,
       device_count: 0,

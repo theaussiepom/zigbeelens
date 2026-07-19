@@ -16,7 +16,10 @@ export type IncidentScope =
 /** Incident lifecycle state */
 export type IncidentStatus = "open" | "watching" | "resolved";
 
-/** Device health primary classification */
+/**
+ * Legacy health primary — retained only for historical report readers.
+ * Not part of the live decision-contract v2 public DTOs.
+ */
 export type DeviceHealthPrimary =
   | "healthy"
   | "unavailable"
@@ -26,16 +29,6 @@ export type DeviceHealthPrimary =
   | "stale_reporting"
   | "interview_issue"
   | "router_risk"
-  | "unknown";
-
-/** Lens family presentation-layer health bucket (shared across Lens tools) */
-export type LensBucket =
-  | "healthy"
-  | "recently_unstable"
-  | "needs_attention"
-  | "unavailable"
-  | "diagnostics_limited"
-  | "informational"
   | "unknown";
 
 /** Bridge online state */
@@ -83,7 +76,10 @@ export interface DiagnosticConclusion {
   limitations: LimitationItem[];
 }
 
-/** Device health classification result */
+/**
+ * Legacy device health classification — historical report readers only.
+ * Live APIs expose DeviceDecisionBadge instead.
+ */
 export interface DeviceHealth {
   primary: DeviceHealthPrimary;
   severity: Severity;
@@ -92,6 +88,24 @@ export interface DeviceHealth {
   counter_evidence: string[];
   limitations: string[];
   flags?: DeviceHealthPrimary[];
+}
+
+/** Compact Device Story projection for inventory badges */
+export interface DeviceDecisionBadge {
+  status: string;
+  priority: string;
+  headline_code: string;
+  coverage_label_codes: string[];
+}
+
+/** Aggregated decision counts for Dashboard / network / report / MQTT / HACS */
+export interface DecisionCountSummary {
+  subject_count: number;
+  overall_status: string;
+  highest_priority: string;
+  status_counts: Record<string, number>;
+  priority_counts: Record<string, number>;
+  coverage_warning_count: number;
 }
 
 /** Network summary for dashboard and network pages */
@@ -105,16 +119,12 @@ export interface NetworkSummary {
   router_count: number;
   end_device_count: number;
   unavailable_count: number;
-  recently_unstable_count: number;
-  weak_link_count: number;
-  low_battery_count: number;
-  stale_count: number;
-  interview_issue_count: number;
-  incident_state: Severity;
+  active_incident_severity: Severity;
   active_incident_count: number;
   recent_bridge_warnings: number;
   recent_bridge_errors: number;
-  health: DeviceHealth;
+  decision: DeviceDecisionBadge;
+  decision_summary: DecisionCountSummary;
 }
 
 /** Coordinator info */
@@ -126,14 +136,6 @@ export interface CoordinatorSummary {
   channel?: number;
   pan_id?: string;
   extended_pan_id?: string;
-}
-
-/** Compact Device Story projection for inventory badges (Phase 5B-1) */
-export interface DeviceDecisionBadge {
-  status: string;
-  priority: string;
-  headline_code: string;
-  coverage_label_codes: string[];
 }
 
 /** Device list row */
@@ -151,14 +153,8 @@ export interface DeviceSummary {
   manufacturer?: string | null;
   model?: string | null;
   interview_state: InterviewState;
-  health: DeviceHealth;
   incident_affected: boolean;
-  sort_priority: number;
-  lens_bucket: LensBucket;
-  lens_bucket_label: string;
-  lens_bucket_reason: string;
-  lens_reasons: string[];
-  decision?: DeviceDecisionBadge | null;
+  decision: DeviceDecisionBadge;
   /** Home Assistant area name when enrichment is linked */
   ha_area?: string | null;
 }
@@ -170,7 +166,6 @@ export interface DeviceDetail extends DeviceSummary {
   recent_availability_changes: AvailabilityChange[];
   recent_events: TimelineEvent[];
   recent_bridge_logs: BridgeLogEntry[];
-  diagnostic: DiagnosticConclusion;
   trends?: DeviceTrendPoint[];
 }
 
@@ -234,11 +229,7 @@ export interface IncidentDeviceRef {
   network_id: string;
   ieee_address: string;
   friendly_name: string;
-  health_primary: DeviceHealthPrimary;
-  lens_bucket: LensBucket;
-  lens_bucket_label: string;
-  lens_bucket_reason: string;
-  decision?: DeviceDecisionBadge | null;
+  decision: DeviceDecisionBadge;
 }
 
 /** Alias for clarity in API responses */
@@ -259,7 +250,10 @@ export interface TimelineEvent {
   incident_id?: string;
 }
 
-/** Point-in-time health snapshot */
+/**
+ * Point-in-time health snapshot — historical report bodies only.
+ * Not present on live DashboardPayload (decision contract v2).
+ */
 export interface HealthSnapshot {
   timestamp: string;
   overall_severity: Severity;
@@ -325,19 +319,15 @@ export interface DataCoverageWarningSummary {
 export interface DashboardPayload {
   generated_at: string;
   scenario?: string;
-  overall_severity: Severity;
-  current_finding: DiagnosticConclusion;
   active_incident_count: number;
   watching_incident_count: number;
+  network_count: number;
+  device_count: number;
+  unavailable_device_count: number;
   networks: NetworkSummary[];
-  top_affected_devices: DeviceSummary[];
   router_risks: RouterRisk[];
-  recently_unstable: DeviceSummary[];
-  weak_links: DeviceSummary[];
-  low_batteries: DeviceSummary[];
-  stale_devices: DeviceSummary[];
   recent_timeline: TimelineEvent[];
-  health_snapshot: HealthSnapshot;
+  decision_summary: DecisionCountSummary;
   shared_availability_events: SharedAvailabilityEventSummary[];
   model_patterns: ModelPatternSummary[];
   investigation_priorities: InvestigationPrioritySummary[];

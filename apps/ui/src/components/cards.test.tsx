@@ -51,19 +51,7 @@ function device(overrides: Partial<DeviceSummary> = {}): DeviceSummary {
     availability: "offline",
     interview_state: "successful",
     incident_affected: true,
-    sort_priority: 1,
-    lens_bucket: "unavailable",
-    lens_bucket_label: "Unavailable",
-    lens_bucket_reason: "Unavailable",
-    lens_reasons: ["Unavailable"],
-    health: {
-      primary: "unavailable",
-      severity: "incident",
-      confidence: "high",
-      evidence: [],
-      counter_evidence: [],
-      limitations: [],
-    },
+    decision: { status: "no_notable_change", priority: "none", headline_code: "device_no_notable_change", coverage_label_codes: [] },
     ...overrides,
   };
 }
@@ -90,10 +78,21 @@ describe("IncidentCard", () => {
   });
 });
 
-describe("DeviceHealthCard", () => {
+describe("DeviceDecisionCard", () => {
   it("flags incident-affected devices", () => {
-    wrap(<DeviceHealthCard device={device()} />);
+    wrap(
+      <DeviceHealthCard
+        device={device({
+          decision: {
+            status: "review_first",
+            priority: "high",
+            headline_code: "device_unavailable",
+            coverage_label_codes: [],
+          },
+        })}
+      />,
+    );
     expect(screen.getByText("In incident")).toBeInTheDocument();
-    expect(screen.getByText("Unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Review first")).toBeInTheDocument();
   });
 });

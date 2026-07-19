@@ -77,20 +77,8 @@ function makeDevice(overrides: Partial<DeviceSummary>): DeviceSummary {
     availability: "online",
     last_seen: "2026-07-06T01:00:00+00:00",
     interview_state: "successful",
-    health: {
-      primary: "healthy",
-      severity: "healthy",
-      confidence: "high",
-      evidence: [],
-      counter_evidence: [],
-      limitations: [],
-    },
+    decision: { status: "no_notable_change", priority: "none", headline_code: "device_no_notable_change", coverage_label_codes: [] },
     incident_affected: false,
-    sort_priority: 0,
-    lens_bucket: "healthy",
-    lens_bucket_label: "Healthy",
-    lens_bucket_reason: "Reporting normally on its expected cadence.",
-    lens_reasons: [],
     ...overrides,
   };
 }
@@ -455,9 +443,12 @@ function makeDenseNetwork(routerCount = 30): {
         device_type: "Router",
         ...(i === 7
           ? {
-              lens_bucket: "needs_attention" as const,
-              lens_bucket_label: "Needs attention",
-              lens_bucket_reason: "Reporting gaps observed.",
+              decision: {
+                status: "worth_reviewing",
+                priority: "high",
+                headline_code: "device_worth_reviewing",
+                coverage_label_codes: [],
+              },
             }
           : {}),
       }),

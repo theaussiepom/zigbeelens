@@ -16,10 +16,6 @@ function makeRef(overrides: Partial<IncidentDeviceRef> = {}): IncidentDeviceRef 
     network_id: "home",
     ieee_address: "0xa1",
     friendly_name: "Kitchen Plug",
-    health_primary: "unavailable",
-    lens_bucket: "needs_attention",
-    lens_bucket_label: "Needs attention",
-    lens_bucket_reason: "Legacy lens reason",
     decision: {
       status: "review_first",
       priority: "high",
@@ -85,8 +81,6 @@ describe("incidentViewModel", () => {
   it("does not use health/lens for decision presentation", () => {
     const item = buildIncidentDeviceDecisionViewModel(
       makeRef({
-        health_primary: "healthy",
-        lens_bucket_reason: "Looks fine in lens",
         decision: {
           status: "watch",
           priority: "low",

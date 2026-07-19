@@ -8,7 +8,6 @@ import type {
   IncidentScope,
   IncidentStatus,
   InterviewState,
-  LensBucket,
   PowerSource,
   RouterRisk,
   Severity,
@@ -194,43 +193,6 @@ export function healthSeverity(h: DeviceHealthPrimary): Severity {
   }
 }
 
-export function lensBucketLabel(bucket: LensBucket): string {
-  switch (bucket) {
-    case "healthy":
-      return "Healthy";
-    case "recently_unstable":
-      return "Recently unstable";
-    case "needs_attention":
-      return "Needs attention";
-    case "unavailable":
-      return "Unavailable";
-    case "diagnostics_limited":
-      return "Diagnostics limited";
-    case "informational":
-      return "Informational";
-    default:
-      return "Unknown";
-  }
-}
-
-export function lensBucketSeverity(bucket: LensBucket): Severity {
-  switch (bucket) {
-    case "healthy":
-      return "healthy";
-    case "informational":
-      return "watch";
-    case "recently_unstable":
-      return "watch";
-    case "needs_attention":
-      return "incident";
-    case "unavailable":
-      return "critical";
-    case "diagnostics_limited":
-    case "unknown":
-    default:
-      return "watch";
-  }
-}
 
 export function availabilityLabel(a: Availability): string {
   switch (a) {
@@ -315,14 +277,25 @@ export function healthRank(primary: DeviceHealthPrimary): number {
 }
 
 /** Comparator implementing bad-first device ordering. */
+const DECISION_STATUS_RANK: Record<string, number> = {
+  review_first: 0,
+  worth_reviewing: 1,
+  improve_data_coverage: 2,
+  watch: 3,
+  changed: 4,
+  informational: 5,
+  no_notable_change: 6,
+  data_unavailable: 7,
+};
+
 export function compareDevices(a: DeviceSummary, b: DeviceSummary): number {
   if (a.incident_affected !== b.incident_affected) {
     return a.incident_affected ? -1 : 1;
   }
-  const rank = healthRank(a.health.primary) - healthRank(b.health.primary);
+  const rank =
+    (DECISION_STATUS_RANK[a.decision.status] ?? 99) -
+    (DECISION_STATUS_RANK[b.decision.status] ?? 99);
   if (rank !== 0) return rank;
-  // Backend-provided priority as a secondary signal.
-  if (a.sort_priority !== b.sort_priority) return a.sort_priority - b.sort_priority;
   return a.friendly_name.localeCompare(b.friendly_name);
 }
 

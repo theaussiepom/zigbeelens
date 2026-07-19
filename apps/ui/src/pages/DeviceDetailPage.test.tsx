@@ -71,19 +71,7 @@ function makeDetail(overrides: Partial<DeviceDetail> = {}): DeviceDetail {
     availability: "online",
     interview_state: "successful",
     incident_affected: false,
-    sort_priority: 50,
-    lens_bucket: "healthy",
-    lens_bucket_label: "Healthy",
-    lens_bucket_reason: "Looks fine in lens",
-    lens_reasons: ["Looks fine in lens"],
-    health: {
-      primary: "healthy",
-      severity: "healthy",
-      confidence: "high",
-      evidence: ["Looks healthy"],
-      counter_evidence: [],
-      limitations: [],
-    },
+    decision: { status: "no_notable_change", priority: "none", headline_code: "device_no_notable_change", coverage_label_codes: [] },
     manufacturer: "IKEA",
     model: "TS011F",
     battery: 62,
@@ -160,14 +148,7 @@ function makeIncident(): Incident {
         ieee_address: "0xa1",
         friendly_name: "Kitchen Plug",
         availability: "offline",
-        health: {
-          primary: "unavailable",
-          severity: "incident",
-          confidence: "high",
-          evidence: [],
-          counter_evidence: [],
-          limitations: [],
-        },
+    decision: { status: "no_notable_change", priority: "none", headline_code: "device_no_notable_change", coverage_label_codes: [] },
       },
     ],
     opened_at: "2026-07-13T00:00:00Z",
@@ -222,21 +203,17 @@ describe("DeviceDetailPage decision authority", () => {
     expect(within(story).getByText(/Availability tracking off/i)).toBeInTheDocument();
   });
 
-  it("uses safe unknown copy for null decision and unknown future status", () => {
+  it("uses safe unknown copy for data_unavailable and unknown future status", () => {
     mockState.detail = makeDetail({
-      decision: null,
-      health: {
-        primary: "healthy",
-        severity: "healthy",
-        confidence: "high",
-        evidence: [],
-        counter_evidence: [],
-        limitations: [],
+      decision: {
+        status: "data_unavailable",
+        priority: "none",
+        headline_code: "device_data_unavailable",
+        coverage_label_codes: [],
       },
     });
     const { unmount } = renderDetail();
-    expect(screen.getByText("Status unknown")).toBeInTheDocument();
-    expect(screen.getByText("Device story summary unavailable.")).toBeInTheDocument();
+    expect(screen.getByText("Data unavailable")).toBeInTheDocument();
     unmount();
 
     mockState.detail = makeDetail({

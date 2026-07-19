@@ -224,7 +224,6 @@ function makeLegacyReport(): ReportDetail {
     timeline: [],
     health_snapshot: {
       timestamp: "2026-06-14T15:30:00+00:00",
-      overall_severity: "incident",
       overall_health: "unavailable",
       network_count: 2,
       device_count: 164,

@@ -49,7 +49,6 @@ function baseReport(overrides: Partial<ReportDetail> = {}): ReportDetail {
     timeline: [],
     health_snapshot: {
       timestamp: "2026-06-14T15:30:00+00:00",
-      overall_severity: "healthy",
       overall_health: "healthy",
       network_count: 1,
       device_count: 1,

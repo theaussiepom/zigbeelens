@@ -14,7 +14,6 @@ import {
   ConfidenceBadge,
   CounterEvidenceList,
   EvidenceList,
-  LensBucketBadge,
   LastSeenText,
   LimitationsList,
   LifecycleBadge,
@@ -27,12 +26,13 @@ import {
   confidenceLabel,
   devicePath,
   deviceTypeLabel,
-  healthLabel,
   incidentTypeLabel,
   relativeTime,
   scopeLabel,
   severityDot,
 } from "@/lib/format";
+import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
+import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
 
 /* ----------------------------------------------------------------------- */
 /* Current finding — the most important surface on the overview            */
@@ -124,11 +124,18 @@ export function IncidentCard({ incident }: { incident: Incident }) {
 }
 
 /* ----------------------------------------------------------------------- */
-/* Device health card (used in bad-first lists)                             */
+/* Device decision card (inventory / review lists)                          */
 /* ----------------------------------------------------------------------- */
 
-export function DeviceHealthCard({ device }: { device: DeviceSummary }) {
-  const flags = (device.health.flags ?? []).filter((f) => f !== device.health.primary);
+export function DeviceDecisionCard({ device }: { device: DeviceSummary }) {
+  const decisionVm = buildDeviceDecisionBadgeViewModel(
+    device.decision ?? {
+      status: "data_unavailable",
+      priority: "none",
+      headline_code: "device_data_unavailable",
+      coverage_label_codes: [],
+    },
+  );
   return (
     <Link
       to={devicePath(device.network_id, device.ieee_address)}
@@ -146,36 +153,25 @@ export function DeviceHealthCard({ device }: { device: DeviceSummary }) {
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <LensBucketBadge bucket={device.lens_bucket} />
-          {device.lens_bucket !== "healthy" && device.lens_bucket_reason && (
-            <p className="mt-1 text-xs text-zl-muted">Reason: {device.lens_bucket_reason}</p>
-          )}
+          <DeviceDecisionBadge decision={decisionVm} />
+          <p className="mt-1 text-xs text-zl-muted">{decisionVm.headline}</p>
         </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zl-muted">
         <AvailabilityBadge availability={device.availability} />
-        <span title={`Confidence: ${confidenceLabel(device.health.confidence)}`}>
-          {confidenceLabel(device.health.confidence)} confidence
-        </span>
         {device.linkquality != null && <MetricPill label="LQI" value={device.linkquality} />}
         {device.battery != null && <MetricPill label="Batt" value={`${device.battery}%`} />}
         <LastSeenText iso={device.last_seen} prefix="seen" />
       </div>
-      {flags.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {flags.map((f) => (
-            <span key={f} className="text-xs text-zl-muted">
-              · {healthLabel(f)}
-            </span>
-          ))}
-        </div>
-      )}
     </Link>
   );
 }
 
+/** @deprecated Use DeviceDecisionCard — kept as alias during Track 5 migration. */
+export const DeviceHealthCard = DeviceDecisionCard;
+
 /* ----------------------------------------------------------------------- */
-/* Network health card                                                      */
+/* Network decision card                                                    */
 /* ----------------------------------------------------------------------- */
 
 export function NetworkHealthCard({
@@ -185,6 +181,10 @@ export function NetworkHealthCard({
   network: NetworkSummary;
   topologyEnabled?: boolean;
 }) {
+  const summary = network.decision_summary;
+  const reviewFirst = summary?.status_counts?.review_first ?? 0;
+  const worthReviewing = summary?.status_counts?.worth_reviewing ?? 0;
+  const coverage = summary?.coverage_warning_count ?? 0;
   return (
     <div className="rounded-xl border border-zl-border bg-zl-surface p-5 transition-colors hover:border-zl-accent/40">
       <Link
@@ -197,7 +197,16 @@ export function NetworkHealthCard({
             <p className="mt-0.5 break-all font-mono text-xs text-zl-muted">{network.base_topic}</p>
           </div>
           <div className="flex flex-col items-end gap-1.5">
-            <SeverityBadge severity={network.incident_state} />
+            <DeviceDecisionBadge
+              decision={buildDeviceDecisionBadgeViewModel(
+                network.decision ?? {
+                  status: "data_unavailable",
+                  priority: "none",
+                  headline_code: "network_data_unavailable",
+                  coverage_label_codes: [],
+                },
+              )}
+            />
             <Badge severity={network.bridge_state === "online" ? "healthy" : "critical"}>
               Bridge: {bridgeStateLabel(network.bridge_state)}
             </Badge>
@@ -211,17 +220,14 @@ export function NetworkHealthCard({
           {network.unavailable_count > 0 && (
             <MetricPill label="Offline" value={network.unavailable_count} severity="incident" />
           )}
-          {network.recently_unstable_count > 0 && (
-            <MetricPill label="Unstable" value={network.recently_unstable_count} severity="watch" />
+          {reviewFirst > 0 && (
+            <MetricPill label="Review first" value={reviewFirst} severity="incident" />
           )}
-          {network.weak_link_count > 0 && (
-            <MetricPill label="Weak" value={network.weak_link_count} severity="watch" />
+          {worthReviewing > 0 && (
+            <MetricPill label="Worth reviewing" value={worthReviewing} severity="watch" />
           )}
-          {network.low_battery_count > 0 && (
-            <MetricPill label="Low batt" value={network.low_battery_count} severity="watch" />
-          )}
-          {network.stale_count > 0 && (
-            <MetricPill label="Stale" value={network.stale_count} severity="watch" />
+          {coverage > 0 && (
+            <MetricPill label="Coverage" value={coverage} severity="watch" />
           )}
         </div>
       </Link>
