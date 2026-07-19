@@ -21,7 +21,7 @@ All other public routes under `/api/` are also mounted at `/api/v1/` (devices, i
 
 ## Authentication
 
-When an API token is configured, protected routes under `/api` and `/api/v1` require `Authorization: Bearer <token>` and/or a valid browser session cookie. Public endpoints are `GET /healthz`, `GET /api/version`, `GET /api/v1/version`, and `GET /api/auth/session` (plus `/api/v1` aliases and static UI assets). Session login is `POST /api/auth/session` (bearer bootstrap). Cookie-authenticated mutations require an exact browser `Origin` and `X-ZigbeeLens-CSRF-Token`. The bundled UI calls `GET /api/auth/session` first, bootstraps with `POST` using a one-shot bearer token, then uses the cookie for ordinary requests (including SSE and report downloads). See [security.md](security.md).
+Protected routes under `/api` and `/api/v1` accept `Authorization: Bearer <token>`, a valid browser session cookie, or (in `home_assistant_ingress` mode) a Supervisor-injected ingress identity from an exact trusted ASGI peer. Public endpoints are `GET /healthz`, `GET /api/version`, `GET /api/v1/version`, and `GET /api/auth/session` (plus `/api/v1` aliases; static UI may be proxy-only in add-on posture). Session login is `POST /api/auth/session` (bearer bootstrap). Cookie-authenticated mutations require an exact browser `Origin` and `X-ZigbeeLens-CSRF-Token`; ingress-authenticated mutations do not. Do not send `X-Remote-User-*` as a client credential — OpenAPI does not advertise those headers. See [security.md](security.md).
 
 ## Core endpoints
 

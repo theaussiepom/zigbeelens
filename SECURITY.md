@@ -39,8 +39,10 @@ mutations require an exact browser `Origin` and `X-ZigbeeLens-CSRF-Token`. The
 former `X-ZigbeeLens-Api-Key` HTTP header is not accepted.
 
 `security.mode=local` without a token is a deliberate trusted-open compatibility
-mode (all API routes open). `authenticated` and `home_assistant_ingress` require
-an API token; ingress identity headers are not trusted yet.
+mode (all API routes open). `authenticated` requires an API token.
+`home_assistant_ingress` authenticates the add-on UI from the exact Supervisor
+ingress peer (`X-Remote-User-Id`); an API token is optional bearer fallback for
+HACS/direct clients only.
 
 Public without a token:
 
@@ -56,10 +58,11 @@ Some API routes can modify ZigbeeLens’ own local data. If you expose Core beyo
 Exact CORS and frame-ancestor allowlists, Content-Security-Policy on HTML, and
 canonical HACS Core URL validation are implemented. The bundled standalone UI
 uses browser-session login (HttpOnly cookie + in-memory CSRF) when both
-`api_token` and `session_secret` are configured. The HACS integration can store
-the same Core API token for server-side bearer reads. Home Assistant ingress
-identity enforcement is not implemented yet. HTTPS may help with the optional
-embedded dashboard view, but **HTTPS is not authentication**.
+`api_token` and `session_secret` are configured. The Home Assistant add-on UI
+uses Supervisor ingress identity (no browser token). The HACS integration can
+store the same optional Core API token for server-side bearer reads. HTTPS may
+help with the optional embedded dashboard view, but **HTTPS is not
+authentication**.
 
 See [docs/security.md](docs/security.md).
 

@@ -101,7 +101,7 @@ For rapid UI iteration without rebuilding the image, continue using `./scripts/d
 
 ## Config generation
 
-`run.sh` reads `/data/options.json` (written by the Supervisor from add-on options) and generates `/data/zigbeelens/config.yaml` using `zigbeelens.config.addon`.
+`run.sh` reads `/data/options.json` (written by the Supervisor from add-on options) and generates `/data/zigbeelens/config.yaml` using `zigbeelens.config.addon`. Generated security is always `home_assistant_ingress` with trusted peer `172.30.32.2` and `ingress_proxy_only: true`. Optional `security.api_token` is written to `/data/zigbeelens/secrets/api_token` (mode `0600`) and exposed via `ZIGBEELENS_SECURITY_API_TOKEN_FILE` — never embedded in the YAML.
 
 Test generation locally:
 

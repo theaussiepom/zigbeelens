@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any
 
 import yaml
 
+from zigbeelens.config.api_token import reject_invalid_api_token
+from zigbeelens.config.ingress_trust import ADDON_SUPERVISOR_INGRESS_PEER
 from zigbeelens.config.models import AppConfig
+
+ADDON_SECRETS_DIR = Path("/data/zigbeelens/secrets")
+ADDON_API_TOKEN_FILE = ADDON_SECRETS_DIR / "api_token"
 
 
 def mqtt_server_uri(host: str, port: int, *, tls_enabled: bool) -> str:
@@ -22,8 +29,20 @@ def build_mqtt_server(options: dict[str, Any]) -> str:
     return mqtt_server_uri(host, port, tls_enabled=bool(tls.get("enabled")))
 
 
+def _addon_security_block() -> dict[str, Any]:
+    return {
+        "mode": "home_assistant_ingress",
+        "ingress_trusted_proxies": [ADDON_SUPERVISOR_INGRESS_PEER],
+        "ingress_proxy_only": True,
+    }
+
+
 def options_to_config_dict(options: dict[str, Any]) -> dict[str, Any]:
-    """Map Home Assistant add-on options to a ZigbeeLens AppConfig-compatible dict."""
+    """Map Home Assistant add-on options to a ZigbeeLens AppConfig-compatible dict.
+
+    The optional security.api_token is never written into generated YAML; run.sh
+    installs it via ``ZIGBEELENS_SECURITY_API_TOKEN_FILE`` when present.
+    """
     mqtt = options.get("mqtt") or {}
     tls = mqtt.get("tls") or {}
     storage = options.get("storage") or {}
@@ -38,6 +57,7 @@ def options_to_config_dict(options: dict[str, Any]) -> dict[str, Any]:
     return {
         "server": {"host": "0.0.0.0", "port": 8377},
         "mode": {"mock": False},
+        "security": _addon_security_block(),
         "mqtt": {
             "server": build_mqtt_server(options),
             "username": mqtt.get("username") or "",
@@ -77,12 +97,61 @@ def options_to_app_config(options: dict[str, Any]) -> AppConfig:
     return AppConfig.model_validate(options_to_config_dict(options))
 
 
-def safe_startup_log_lines(options: dict[str, Any]) -> list[str]:
+def extract_optional_api_token(options: dict[str, Any]) -> str:
+    """Return validated token or \"\" without echoing rejected values."""
+    security = options.get("security") or {}
+    raw = security.get("api_token", "")
+    if raw is None:
+        return ""
+    if not isinstance(raw, str):
+        raise ValueError("security.api_token must be a string")
+    if raw == "":
+        return ""
+    return reject_invalid_api_token(raw).get_secret_value()
+
+
+def install_optional_api_token_file(
+    options: dict[str, Any],
+    *,
+    secrets_dir: Path | None = None,
+    token_file: Path | None = None,
+) -> bool:
+    """Atomically install or remove the optional bearer secret file.
+
+    Returns True when a token file is active.
+    """
+    directory = secrets_dir or ADDON_SECRETS_DIR
+    path = token_file or ADDON_API_TOKEN_FILE
+    token = extract_optional_api_token(options)
+    if not token:
+        if path.exists():
+            path.unlink()
+        return False
+    directory.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(token, encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    tmp.replace(path)
+    os.chmod(path, 0o600)
+    return True
+
+
+def safe_startup_log_lines(
+    options: dict[str, Any],
+    *,
+    bearer_fallback_configured: bool | None = None,
+) -> list[str]:
     """Startup log lines that never include secrets."""
     cfg = options_to_config_dict(options)
     networks = cfg.get("networks") or []
     mqtt = cfg.get("mqtt") or {}
     features = cfg.get("features") or {}
+    security = cfg.get("security") or {}
+    if bearer_fallback_configured is None:
+        try:
+            bearer_fallback_configured = bool(extract_optional_api_token(options))
+        except ValueError:
+            bearer_fallback_configured = False
     lines = [
         "ZigbeeLens add-on starting",
         f"MQTT server: {mqtt.get('server')}",
@@ -90,6 +159,9 @@ def safe_startup_log_lines(options: dict[str, Any]) -> list[str]:
         f"Storage path: {cfg['storage']['path']}",
         f"MQTT collector: {features.get('mqtt_collector', True)}",
         f"Report profile: {cfg.get('reporting', {}).get('default_profile', 'standard')}",
+        f"Security mode: {security.get('mode')}",
+        f"Ingress proxy-only: {security.get('ingress_proxy_only')}",
+        f"Direct bearer fallback configured: {bool(bearer_fallback_configured)}",
     ]
     for net in networks:
         lines.append(f"  - {net['id']} ({net['name']}) topic={net['base_topic']}")

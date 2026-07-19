@@ -175,7 +175,7 @@ If Zigbee2MQTT has just started, wait for telemetry to arrive. An empty network 
 
 ## Security
 
-The add-on dashboard is served through Home Assistant **Ingress**, which inherits your Home Assistant access controls. Core may require bearer authentication when an API token is configured; ingress identity enforcement is not active yet. If you expose Core directly on port 8377 outside Ingress, access-control decisions are your responsibility. See [docs/security.md](../../../docs/security.md).
+The add-on dashboard is served through Home Assistant **Ingress** (admin-only panel). Supervisor injects a validated user identity; ZigbeeLens Core trusts it only from the exact Supervisor ingress peer. No API token is required to open the ingress UI. An optional add-on `security.api_token` enables HACS/direct bearer API access and is stored in a secret file (never in generated `config.yaml`). Direct browser access outside ingress is denied. See [docs/security.md](../../../docs/security.md).
 
 ## Support
 

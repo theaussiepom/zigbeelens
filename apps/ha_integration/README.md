@@ -65,7 +65,7 @@ During setup you will be asked for:
 | Option | Description |
 |--------|-------------|
 | Core URL | Address of your ZigbeeLens Core dashboard — must be reachable **from Home Assistant**. HTTP is fine for the native panel and **Open Full Dashboard**. Use HTTPS if you want the optional embedded dashboard view inside Home Assistant. |
-| Core API token | Optional. Same value as Core `security.api_token` when Core protects its API. Leave blank for trusted-open Core. Stored in Home Assistant config-entry data; sent only as a server-side `Authorization: Bearer` header. |
+| Core API token | Optional. Same value as Core `security.api_token` (or the add-on optional bearer-fallback token) when Core protects its API. Leave blank for trusted-open Core or ingress-only add-on UI without HACS API access. Stored in Home Assistant config-entry data; sent only as a server-side `Authorization: Bearer` header. |
 | Verify SSL | Enable TLS certificate verification |
 | Panel enabled | Show the ZigbeeLens companion panel in the Home Assistant sidebar |
 
