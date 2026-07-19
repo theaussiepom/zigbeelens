@@ -19,6 +19,7 @@ from zigbeelens.mqtt_discovery.payloads import (
 from zigbeelens.mqtt_discovery.publisher import FakeDiscoveryPublisher, SafeMqttPublisher
 from zigbeelens.mqtt_discovery.topics import (
     LEGACY_DISCOVERY_TOPICS,
+    SUPERSEDED_LENS_DISCOVERY_TOPICS,
     availability_topic,
     summary_attributes_topic,
     summary_state_topic,
@@ -48,7 +49,7 @@ def discovery_enabled(config: AppConfig) -> bool:
 
 
 class MqttDiscoveryService:
-    """Publish Lens-family summary entities via Home Assistant MQTT Discovery."""
+    """Publish decision-contract summary entities via Home Assistant MQTT Discovery."""
 
     def __init__(
         self,
@@ -80,6 +81,7 @@ class MqttDiscoveryService:
             return
         try:
             self._publisher.connect()
+            self._tombstone_superseded_lens_configs()
             self._publish_availability("online")
             self._publish_all(force_discovery=True)
         except Exception as err:
@@ -155,6 +157,18 @@ class MqttDiscoveryService:
                 self._publisher.delete_retained(topic)
             except Exception:
                 logger.debug("Failed to delete legacy discovery topic %s", topic, exc_info=True)
+
+    def _tombstone_superseded_lens_configs(self) -> None:
+        """Retained-empty tombstones for superseded Lens nested discovery configs."""
+        for topic in SUPERSEDED_LENS_DISCOVERY_TOPICS:
+            try:
+                self._publisher.delete_retained(topic)
+            except Exception:
+                logger.debug(
+                    "Failed to tombstone superseded Lens discovery topic %s",
+                    topic,
+                    exc_info=True,
+                )
 
     def _publish_availability(self, state: str) -> None:
         topic = availability_topic(self._config.mqtt_discovery.state_topic_prefix)

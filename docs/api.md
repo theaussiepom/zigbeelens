@@ -94,20 +94,17 @@ See [hacs.md](hacs.md) and [hacs-embedded-view.md](hacs-embedded-view.md).
 
 ThreadLens uses the same `/api/v1` prefix pattern. Shared conventions: [lens-family.md](lens-family.md) (when present) or the ThreadLens [API docs](https://github.com/theaussiepom/threadlens/blob/main/docs/api.md).
 
-## Lens health buckets (presentation layer)
+## Decision-only diagnostic payloads (contract v2)
 
-Device entries in dashboard, device detail, and incident payloads include **Lens family** presentation fields:
+Current public device, network, Dashboard, and incident-reference payloads are
+**decision-led**. They expose a required compact `decision` badge (`DecisionStatus`,
+`DecisionPriority`, `headline_code`, coverage labels) and aggregate
+`DecisionCountSummary` where appropriate.
 
-| Field | Description |
-|-------|-------------|
-| `lens_bucket` | Shared high-level bucket (`healthy`, `recently_unstable`, `needs_attention`, `unavailable`, `diagnostics_limited`, `informational`, `unknown`) |
-| `lens_bucket_label` | Human-readable bucket label |
-| `lens_bucket_reason` | Primary reason for the bucket |
-| `lens_reasons` | Additional mapped reasons from existing Zigbee health flags |
-
-`lens_bucket` is a **presentation-layer** classification shared across Lens tools. It does **not** replace Zigbee-specific `health.primary`, `health.flags`, or domain reason codes — those remain the source of diagnostic detail.
-
-Mapping uses existing health engine output only; it does not change classification rules.
+Legacy Health/Lens presentation fields (`lens_bucket*`, public `health` as
+diagnostic authority, health-derived Dashboard collections) are **not** part of
+the current contract. The internal health classifier and operational
+`/api/health` / `/healthz` remain available for evaluation and liveness.
 
 ## OpenAPI
 

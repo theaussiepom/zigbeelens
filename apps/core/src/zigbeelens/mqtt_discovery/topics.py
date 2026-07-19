@@ -69,7 +69,17 @@ def summary_attributes_topic(state_topic_prefix: str, entity_key: str) -> str:
     return f"{prefix}/summary/{entity_key}/attributes"
 
 
-# Legacy discovery topics from the pre-clean Lens MQTT model (for manual cleanup).
+# Superseded Track-4 Lens nested discovery config topics (tombstone on start).
+# Do not reuse these entity keys for different semantics.
+SUPERSEDED_LENS_DISCOVERY_TOPICS: tuple[str, ...] = (
+    "homeassistant/sensor/zigbeelens/health/config",
+    "homeassistant/sensor/zigbeelens/issues/config",
+    "homeassistant/sensor/zigbeelens/needs_attention/config",
+    "homeassistant/sensor/zigbeelens/recently_unstable/config",
+    "homeassistant/sensor/zigbeelens/diagnostics_limited/config",
+)
+
+# Legacy discovery topics from the pre-clean flat MQTT model (for manual cleanup).
 LEGACY_DISCOVERY_TOPICS: tuple[str, ...] = (
     "homeassistant/sensor/zigbeelens_overall_health/config",
     "homeassistant/binary_sensor/zigbeelens_active_incident/config",

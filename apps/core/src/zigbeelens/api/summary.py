@@ -39,8 +39,7 @@ def capabilities_dict(ctx: AppContext) -> dict[str, Any]:
             # Companion may consume Overview-aligned decision summaries when True.
             "companion_decision_summary": True,
             "report_contract_v3": True,
-            # Bumped when MQTT decision summary lands (Commit 5).
-            "decision_mqtt_summary": False,
+            "decision_mqtt_summary": True,
             # Auth surface support (not whether a token is currently configured).
             "bearer_authentication": True,
             "browser_session_authentication": True,

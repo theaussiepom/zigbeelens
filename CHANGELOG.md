@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Decision contract v2:** public diagnostic DTOs are decision-only (`DecisionBadge`, `DecisionCountSummary`); capabilities advertise `decision_only_diagnostic_payloads`, `report_contract_v3`, `decision_mqtt_summary`
+- **Reports v3:** new reports use a single canonical decision-led body (`domain_details`, `collector_status`, `events_or_timeline`); stored v1/v2 remain readable/downloadable exactly as stored
+- **HACS:** requires exact decision contract v2; repair `core_decision_contract_incompatible`; new decision entity unique IDs (`overall_decision`, `review_first_devices`, …)
+- **MQTT Discovery:** decision-contract summary entities (`decision_status`, `review_first`, `worth_reviewing`, `coverage_warnings`, `active_incidents`, `unavailable`)
 - **Security:** Home Assistant ingress identity — exact ASGI peer trust, Supervisor `X-Remote-User-Id`, request-local identity, proxy-only add-on boundary
 - **Security:** `ingress_trusted_proxies` / `ingress_proxy_only` on `SecurityConfig`; optional `api_token` bearer fallback in ingress mode
 - **Add-on:** generates `security.mode=home_assistant_ingress` with Supervisor peer `172.30.32.2`, `ingress_proxy_only`, `panel_admin`, `ingress_stream`
@@ -41,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Public API:** removed Health/Lens presentation fields from current Dashboard, Networks, Devices, Incidents, and new reports (`lens_bucket*`, `health` diagnostic authority, health-derived Dashboard collections)
+- **HACS:** no Health/Lens diagnostic fallback when the decision contract is missing/older/newer/malformed; factual operational entities retained
+- **MQTT Discovery:** superseded Lens nested discovery configs are tombstoned on start; `unavailable` retained as a factual count
 - **Security:** when an API token is configured, all protected routes require Bearer (no mutation-only semantics; `X-ZigbeeLens-Api-Key` removed)
 - **Security:** `home_assistant_ingress` no longer requires `api_token`; ingress identity is the primary add-on UI auth method
 - **Security:** capabilities advertise ingress identity support as implemented
