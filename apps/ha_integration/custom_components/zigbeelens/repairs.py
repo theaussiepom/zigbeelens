@@ -19,6 +19,11 @@ from .coordinator import ZigbeeLensDataUpdateCoordinator
 
 def async_manage_repairs(hass: HomeAssistant, coordinator: ZigbeeLensDataUpdateCoordinator) -> None:
     """Create or clear repairs based on coordinator state."""
+    if getattr(coordinator, "auth_failed", False):
+        # Authentication failures use linked reauth, not an unreachable repair.
+        ir.async_delete_issue(hass, DOMAIN, ISSUE_CORE_UNREACHABLE)
+        return
+
     if not coordinator.last_update_success or coordinator.data is None:
         ir.async_create_issue(
             hass,

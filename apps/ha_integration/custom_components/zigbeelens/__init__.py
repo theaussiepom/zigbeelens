@@ -5,13 +5,14 @@ from __future__ import annotations
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryError
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZigbeeLensApiClient
+from .api_token import optional_core_api_token
 from .const import (
+    CONF_API_TOKEN,
     CONF_CORE_URL,
     CONF_PANEL_ENABLED,
     CONF_SCAN_INTERVAL,
@@ -21,11 +22,13 @@ from .const import (
     PLATFORMS,
 )
 from .coordinator import ZigbeeLensDataUpdateCoordinator
-from .exceptions import ZigbeeLensInvalidResponseError
-from .panel import async_register_panel, async_unregister_panel, async_update_panel_core_url
+from .exceptions import ZigbeeLensAuthError, ZigbeeLensInvalidResponseError
+from .panel import async_register_panel, async_unregister_panel
 from .repairs import async_clear_repairs, async_manage_repairs
 
 _LOGGER = logging.getLogger(__name__)
+
+_AUTH_FAILED_MESSAGE = "Core credentials need to be updated"
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -35,16 +38,25 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up ZigbeeLens from a config entry."""
+    try:
+        api_token = optional_core_api_token(entry.data.get(CONF_API_TOKEN, ""))
+    except ValueError:
+        raise ConfigEntryAuthFailed(_AUTH_FAILED_MESSAGE) from None
+
     session = async_get_clientsession(hass, verify_ssl=entry.data.get(CONF_VERIFY_SSL, False))
     try:
         client = ZigbeeLensApiClient(
             session,
             entry.data[CONF_CORE_URL],
             verify_ssl=entry.data.get(CONF_VERIFY_SSL, False),
+            api_token=api_token,
         )
+    except ZigbeeLensAuthError:
+        raise ConfigEntryAuthFailed(_AUTH_FAILED_MESSAGE) from None
     except ZigbeeLensInvalidResponseError:
         # Fail closed without initiating HTTP or logging credential-bearing URLs.
         raise ConfigEntryError("Invalid ZigbeeLens Core URL") from None
+
     scan_interval = int(entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
     coordinator = ZigbeeLensDataUpdateCoordinator(hass, client, scan_interval, entry)
 

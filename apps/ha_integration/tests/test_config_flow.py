@@ -1,22 +1,48 @@
-"""Config flow tests."""
+"""Config flow tests — user, reauth, reconfigure, and options."""
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from homeassistant.components import frontend
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.selector import TextSelector
 
 from zigbeelens.config_flow import (
     ZigbeeLensConfigFlow,
     ZigbeeLensOptionsFlow,
     _normalize_core_url,
+    _user_schema,
 )
-from zigbeelens.const import CONF_CORE_URL, CONF_PANEL_ENABLED, CONF_SCAN_INTERVAL, CONF_VERIFY_SSL
-from zigbeelens.exceptions import ZigbeeLensConnectionError
+from zigbeelens.const import (
+    CONF_API_TOKEN,
+    CONF_CORE_URL,
+    CONF_PANEL_ENABLED,
+    CONF_REMOVE_API_TOKEN,
+    CONF_SCAN_INTERVAL,
+    CONF_VERIFY_SSL,
+)
+from zigbeelens.exceptions import (
+    ZigbeeLensAuthError,
+    ZigbeeLensConnectionError,
+    ZigbeeLensInvalidResponseError,
+)
 from zigbeelens.panel import PANEL_URL_PATH, async_update_panel_core_url
+
+VALID_TOKEN = "a" * 32
+SENTINEL = "zl-hacs-flow-sentinel-token-aaaaaa"
+
+
+def _flow() -> ZigbeeLensConfigFlow:
+    flow = ZigbeeLensConfigFlow()
+    flow.hass = MagicMock()
+    flow.async_set_unique_id = AsyncMock()
+    flow._abort_if_unique_id_configured = MagicMock()
+    return flow
 
 
 def test_normalize_core_url():
@@ -28,58 +54,334 @@ def test_normalize_core_url_invalid():
         _normalize_core_url("not-a-url")
 
 
-@pytest.mark.asyncio
-async def test_config_flow_success():
-    flow = ZigbeeLensConfigFlow()
-    flow.hass = MagicMock()
-    flow.async_set_unique_id = AsyncMock()
-    flow._abort_if_unique_id_configured = MagicMock()
+def test_user_schema_uses_password_selector_without_default_token():
+    schema = _user_schema()
+    selectors = [v for v in schema.schema.values() if isinstance(v, TextSelector)]
+    assert selectors
+    assert SENTINEL not in str(schema)
 
+
+@pytest.mark.asyncio
+async def test_config_flow_trusted_open_blank_token():
+    flow = _flow()
     with patch(
         "zigbeelens.config_flow._validate_core",
         new=AsyncMock(return_value={"status": "ok"}),
+    ) as validate:
+        result = await flow.async_step_user(
+            {
+                CONF_CORE_URL: "http://localhost:8377",
+                CONF_API_TOKEN: "",
+                CONF_VERIFY_SSL: False,
+                CONF_PANEL_ENABLED: True,
+            }
+        )
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_API_TOKEN] == ""
+    validate.assert_awaited_once()
+    assert validate.await_args.args[3] == ""
+
+
+@pytest.mark.asyncio
+async def test_config_flow_protected_correct_token():
+    flow = _flow()
+    with patch(
+        "zigbeelens.config_flow._validate_core",
+        new=AsyncMock(return_value={"status": "ok"}),
+    ) as validate:
+        result = await flow.async_step_user(
+            {
+                CONF_CORE_URL: "http://localhost:8377",
+                CONF_API_TOKEN: VALID_TOKEN,
+                CONF_VERIFY_SSL: False,
+                CONF_PANEL_ENABLED: True,
+            }
+        )
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_API_TOKEN] == VALID_TOKEN
+    assert validate.await_args.args[3] == VALID_TOKEN
+
+
+@pytest.mark.asyncio
+async def test_config_flow_protected_blank_token_invalid_auth():
+    flow = _flow()
+    with patch(
+        "zigbeelens.config_flow._validate_core",
+        new=AsyncMock(side_effect=ZigbeeLensAuthError("Authentication required")),
     ):
         result = await flow.async_step_user(
             {
-                "core_url": "http://localhost:8377",
-                "verify_ssl": False,
-                "panel_enabled": True,
+                CONF_CORE_URL: "http://localhost:8377",
+                CONF_API_TOKEN: "",
+                CONF_VERIFY_SSL: False,
+                CONF_PANEL_ENABLED: True,
             }
         )
+    assert result["type"] == "form"
+    assert result["errors"]["base"] == "invalid_auth"
+    assert SENTINEL not in str(result)
 
-    assert result["type"] == "create_entry"
-    assert result["data"]["core_url"] == "http://localhost:8377"
+
+@pytest.mark.asyncio
+async def test_config_flow_malformed_token_zero_http():
+    flow = _flow()
+    with patch(
+        "zigbeelens.config_flow._validate_core",
+        new=AsyncMock(return_value={"status": "ok"}),
+    ) as validate:
+        result = await flow.async_step_user(
+            {
+                CONF_CORE_URL: "http://localhost:8377",
+                CONF_API_TOKEN: "too-short",
+                CONF_VERIFY_SSL: False,
+                CONF_PANEL_ENABLED: True,
+            }
+        )
+    assert result["type"] == "form"
+    assert result["errors"]["base"] == "invalid_auth"
+    validate.assert_not_awaited()
+    assert "too-short" not in str(result)
 
 
 @pytest.mark.asyncio
 async def test_config_flow_cannot_connect():
-    flow = ZigbeeLensConfigFlow()
-    flow.hass = MagicMock()
-    flow.async_set_unique_id = AsyncMock()
-    flow._abort_if_unique_id_configured = MagicMock()
-
+    flow = _flow()
     with patch(
         "zigbeelens.config_flow._validate_core",
         new=AsyncMock(side_effect=ZigbeeLensConnectionError("down")),
     ):
         result = await flow.async_step_user(
             {
-                "core_url": "http://localhost:8377",
-                "verify_ssl": False,
-                "panel_enabled": True,
+                CONF_CORE_URL: "http://localhost:8377",
+                CONF_API_TOKEN: "",
+                CONF_VERIFY_SSL: False,
+                CONF_PANEL_ENABLED: True,
             }
         )
-
     assert result["type"] == "form"
     assert result["errors"]["base"] == "cannot_connect"
 
 
 @pytest.mark.asyncio
-async def test_options_flow_updates_core_url_and_reloads():
+async def test_config_flow_invalid_response():
+    flow = _flow()
+    with patch(
+        "zigbeelens.config_flow._validate_core",
+        new=AsyncMock(side_effect=ZigbeeLensInvalidResponseError("bad")),
+    ):
+        result = await flow.async_step_user(
+            {
+                CONF_CORE_URL: "http://localhost:8377",
+                CONF_API_TOKEN: VALID_TOKEN,
+                CONF_VERIFY_SSL: False,
+                CONF_PANEL_ENABLED: True,
+            }
+        )
+    assert result["errors"]["base"] == "invalid_response"
+
+
+@pytest.mark.asyncio
+async def test_reauth_replaces_token_and_reloads_once():
+    flow = _flow()
+    entry = MagicMock()
+    entry.entry_id = "entry1"
+    entry.data = {
+        CONF_CORE_URL: "http://localhost:8377",
+        CONF_VERIFY_SSL: False,
+        CONF_PANEL_ENABLED: True,
+        CONF_API_TOKEN: "old" + ("x" * 29),
+    }
+    flow._get_reauth_entry = MagicMock(return_value=entry)
+    flow.async_update_reload_and_abort = MagicMock(
+        return_value={"type": "abort", "reason": "reauth_successful"}
+    )
+
+    with patch(
+        "zigbeelens.config_flow._validate_core",
+        new=AsyncMock(return_value={"status": "ok"}),
+    ) as validate:
+        result = await flow.async_step_reauth_confirm({CONF_API_TOKEN: VALID_TOKEN})
+
+    assert result["reason"] == "reauth_successful"
+    flow.async_update_reload_and_abort.assert_called_once()
+    kwargs = flow.async_update_reload_and_abort.call_args.kwargs
+    assert kwargs["data_updates"][CONF_API_TOKEN] == VALID_TOKEN
+    assert validate.await_args.args[3] == VALID_TOKEN
+    # Old token retained until success — entry data not mutated before helper.
+    assert entry.data[CONF_API_TOKEN].startswith("old")
+
+
+@pytest.mark.asyncio
+async def test_reauth_blank_clears_token_for_trusted_open():
+    flow = _flow()
+    entry = MagicMock()
+    entry.data = {
+        CONF_CORE_URL: "http://localhost:8377",
+        CONF_VERIFY_SSL: False,
+        CONF_API_TOKEN: VALID_TOKEN,
+    }
+    flow._get_reauth_entry = MagicMock(return_value=entry)
+    flow.async_update_reload_and_abort = MagicMock(
+        return_value={"type": "abort", "reason": "reauth_successful"}
+    )
+    with patch(
+        "zigbeelens.config_flow._validate_core",
+        new=AsyncMock(return_value={"status": "ok"}),
+    ):
+        result = await flow.async_step_reauth_confirm({CONF_API_TOKEN: ""})
+    assert result["reason"] == "reauth_successful"
+    assert (
+        flow.async_update_reload_and_abort.call_args.kwargs["data_updates"][CONF_API_TOKEN]
+        == ""
+    )
+
+
+@pytest.mark.asyncio
+async def test_reauth_failed_validation_keeps_old_token():
+    flow = _flow()
+    old = "old" + ("y" * 29)
+    entry = MagicMock()
+    entry.data = {
+        CONF_CORE_URL: "http://localhost:8377",
+        CONF_VERIFY_SSL: False,
+        CONF_API_TOKEN: old,
+    }
+    flow._get_reauth_entry = MagicMock(return_value=entry)
+    flow.async_update_reload_and_abort = MagicMock()
+    with patch(
+        "zigbeelens.config_flow._validate_core",
+        new=AsyncMock(side_effect=ZigbeeLensAuthError("Authentication required")),
+    ):
+        result = await flow.async_step_reauth_confirm({CONF_API_TOKEN: VALID_TOKEN})
+    assert result["type"] == "form"
+    assert result["errors"]["base"] == "invalid_auth"
+    flow.async_update_reload_and_abort.assert_not_called()
+    assert entry.data[CONF_API_TOKEN] == old
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_keeps_token_when_blank_and_not_removed():
+    flow = _flow()
+    entry = MagicMock()
+    entry.entry_id = "entry1"
+    entry.data = {
+        CONF_CORE_URL: "http://localhost:8377",
+        CONF_VERIFY_SSL: False,
+        CONF_PANEL_ENABLED: True,
+        CONF_API_TOKEN: VALID_TOKEN,
+    }
+    flow._get_reconfigure_entry = MagicMock(return_value=entry)
+    flow.hass.config_entries.async_entry_for_domain_unique_id = MagicMock(return_value=entry)
+    flow.async_update_reload_and_abort = MagicMock(
+        return_value={"type": "abort", "reason": "reconfigure_successful"}
+    )
+    with patch(
+        "zigbeelens.config_flow._validate_core",
+        new=AsyncMock(return_value={"status": "ok"}),
+    ) as validate:
+        result = await flow.async_step_reconfigure(
+            {
+                CONF_CORE_URL: "http://localhost:8377",
+                CONF_API_TOKEN: "",
+                CONF_REMOVE_API_TOKEN: False,
+                CONF_VERIFY_SSL: False,
+            }
+        )
+    assert result["reason"] == "reconfigure_successful"
+    assert validate.await_args.args[3] == VALID_TOKEN
+    assert (
+        flow.async_update_reload_and_abort.call_args.kwargs["data"][CONF_API_TOKEN]
+        == VALID_TOKEN
+    )
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_remove_token():
+    flow = _flow()
+    entry = MagicMock()
+    entry.entry_id = "entry1"
+    entry.data = {
+        CONF_CORE_URL: "http://localhost:8377",
+        CONF_VERIFY_SSL: False,
+        CONF_API_TOKEN: VALID_TOKEN,
+    }
+    flow._get_reconfigure_entry = MagicMock(return_value=entry)
+    flow.hass.config_entries.async_entry_for_domain_unique_id = MagicMock(return_value=entry)
+    flow.async_update_reload_and_abort = MagicMock(
+        return_value={"type": "abort", "reason": "reconfigure_successful"}
+    )
+    with patch(
+        "zigbeelens.config_flow._validate_core",
+        new=AsyncMock(return_value={"status": "ok"}),
+    ):
+        result = await flow.async_step_reconfigure(
+            {
+                CONF_CORE_URL: "http://localhost:8377",
+                CONF_API_TOKEN: "",
+                CONF_REMOVE_API_TOKEN: True,
+                CONF_VERIFY_SSL: False,
+            }
+        )
+    assert result["reason"] == "reconfigure_successful"
+    assert flow.async_update_reload_and_abort.call_args.kwargs["data"][CONF_API_TOKEN] == ""
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_token_and_remove_conflict():
+    flow = _flow()
+    entry = MagicMock()
+    entry.data = {
+        CONF_CORE_URL: "http://localhost:8377",
+        CONF_VERIFY_SSL: False,
+        CONF_API_TOKEN: VALID_TOKEN,
+    }
+    flow._get_reconfigure_entry = MagicMock(return_value=entry)
+    flow.async_update_reload_and_abort = MagicMock()
+    result = await flow.async_step_reconfigure(
+        {
+            CONF_CORE_URL: "http://localhost:8377",
+            CONF_API_TOKEN: VALID_TOKEN,
+            CONF_REMOVE_API_TOKEN: True,
+            CONF_VERIFY_SSL: False,
+        }
+    )
+    assert result["errors"]["base"] == "token_conflict"
+    flow.async_update_reload_and_abort.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_duplicate_core_url_rejected():
+    flow = _flow()
+    entry = MagicMock()
+    entry.entry_id = "entry1"
+    entry.data = {
+        CONF_CORE_URL: "http://localhost:8377",
+        CONF_VERIFY_SSL: False,
+        CONF_API_TOKEN: "",
+    }
+    other = MagicMock()
+    other.entry_id = "entry2"
+    flow._get_reconfigure_entry = MagicMock(return_value=entry)
+    flow.hass.config_entries.async_entry_for_domain_unique_id = MagicMock(return_value=other)
+    result = await flow.async_step_reconfigure(
+        {
+            CONF_CORE_URL: "http://192.168.1.10:8377",
+            CONF_API_TOKEN: "",
+            CONF_REMOVE_API_TOKEN: False,
+            CONF_VERIFY_SSL: False,
+        }
+    )
+    assert result["type"] == "abort"
+    assert result["reason"] == "already_configured"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_updates_panel_and_scan_only():
     hass = MagicMock(spec=HomeAssistant)
     hass.config_entries = MagicMock()
     hass.config_entries.async_update_entry = MagicMock()
     hass.config_entries.async_reload = AsyncMock()
+    hass.config_entries.async_get_known_entry = MagicMock()
 
     entry = MagicMock()
     entry.entry_id = "entry1"
@@ -87,48 +389,47 @@ async def test_options_flow_updates_core_url_and_reloads():
         CONF_CORE_URL: "http://192.168.100.5:8377",
         CONF_VERIFY_SSL: False,
         CONF_PANEL_ENABLED: True,
+        CONF_API_TOKEN: SENTINEL,
     }
     entry.options = {CONF_SCAN_INTERVAL: 60}
+    hass.config_entries.async_get_known_entry.return_value = entry
 
-    flow = ZigbeeLensOptionsFlow(entry)
+    flow = ZigbeeLensOptionsFlow()
     flow.hass = hass
+    flow.handler = "entry1"
 
-    with patch(
-        "zigbeelens.config_flow._validate_core",
-        new=AsyncMock(return_value={"status": "ok"}),
-    ):
-        result = await flow.async_step_init(
-            {
-                "core_url": "https://zigbeelens.theaussiepom.me",
-                "verify_ssl": True,
-                "panel_enabled": True,
-                "scan_interval": 90,
-            }
-        )
+    result = await flow.async_step_init(
+        {
+            CONF_PANEL_ENABLED: False,
+            CONF_SCAN_INTERVAL: 90,
+        }
+    )
 
     assert result["type"] == "create_entry"
-    hass.config_entries.async_update_entry.assert_called_once()
     update_kwargs = hass.config_entries.async_update_entry.call_args.kwargs
-    assert update_kwargs["unique_id"] == "https://zigbeelens.theaussiepom.me"
-    assert update_kwargs["data"][CONF_CORE_URL] == "https://zigbeelens.theaussiepom.me"
+    assert update_kwargs["data"][CONF_PANEL_ENABLED] is False
+    assert update_kwargs["data"][CONF_CORE_URL] == "http://192.168.100.5:8377"
+    assert update_kwargs["data"][CONF_API_TOKEN] == SENTINEL
     assert update_kwargs["options"][CONF_SCAN_INTERVAL] == 90
+    assert CONF_CORE_URL not in update_kwargs.get("options", {})
     hass.config_entries.async_reload.assert_awaited_once_with("entry1")
 
 
 def test_translation_strings_mention_https_embed_guidance():
-    import json
-    from pathlib import Path
-
     strings = json.loads(
-        (Path(__file__).resolve().parents[1] / "custom_components/zigbeelens/strings.json").read_text(
-            encoding="utf-8"
-        )
+        (
+            Path(__file__).resolve().parents[1]
+            / "custom_components/zigbeelens/strings.json"
+        ).read_text(encoding="utf-8")
     )
     user_desc = strings["config"]["step"]["user"]["description"]
-    options_desc = strings["options"]["step"]["init"]["description"]
     assert "HTTP is fine" in user_desc
     assert "embedded dashboard view" in user_desc
-    assert "HTTPS Core URL" in options_desc or "HTTPS address" in options_desc
+    assert "api_token" in strings["config"]["step"]["user"]["data"]
+    assert "invalid_auth" in strings["config"]["error"]
+    assert "reauth_confirm" in strings["config"]["step"]
+    assert "reconfigure" in strings["config"]["step"]
+    assert SENTINEL not in json.dumps(strings)
 
 
 def test_update_panel_core_url():

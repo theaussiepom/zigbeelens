@@ -9,6 +9,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import ZigbeeLensApiClient
@@ -19,9 +20,16 @@ from .compatibility import (
     supports_companion_decisions,
 )
 from .const import DOMAIN
-from .exceptions import ZigbeeLensApiError, ZigbeeLensInvalidResponseError
+from .exceptions import (
+    ZigbeeLensApiError,
+    ZigbeeLensAuthError,
+    ZigbeeLensInvalidResponseError,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+_AUTH_REQUIRED = "Authentication required"
+_AUTH_FAILED_MESSAGE = "Core credentials need to be updated"
 
 
 @dataclass
@@ -61,20 +69,32 @@ class ZigbeeLensDataUpdateCoordinator(DataUpdateCoordinator[ZigbeeLensCoordinato
         self.client = client
         self.last_update_success = False
         self.last_exception: str | None = None
+        self.auth_failed = False
+
+    def _raise_auth_failed(self) -> None:
+        self.last_update_success = False
+        self.last_exception = _AUTH_REQUIRED
+        self.auth_failed = True
+        raise ConfigEntryAuthFailed(_AUTH_FAILED_MESSAGE) from None
 
     async def _async_update_data(self) -> ZigbeeLensCoordinatorData:
         try:
             health = await self.client.async_get_health()
             dashboard = await self.client.async_get_dashboard()
             config_status = await self.client.async_get_config_status()
+        except ZigbeeLensAuthError:
+            self._raise_auth_failed()
         except ZigbeeLensApiError as err:
             self.last_update_success = False
             self.last_exception = str(err)
-            raise UpdateFailed(str(err)) from err
+            self.auth_failed = False
+            raise UpdateFailed(str(err)) from None
 
         capabilities: dict[str, Any] = {}
         try:
             capabilities = await self.client.async_get_capabilities()
+        except ZigbeeLensAuthError:
+            self._raise_auth_failed()
         except ZigbeeLensInvalidResponseError as err:
             # Older Core without capabilities / decision contract — soft degrade.
             _LOGGER.debug("Core capabilities unavailable: %s", err)
@@ -89,6 +109,7 @@ class ZigbeeLensDataUpdateCoordinator(DataUpdateCoordinator[ZigbeeLensCoordinato
         decision_payload_valid = dashboard_decision_payload_valid(dashboard)
         self.last_update_success = True
         self.last_exception = None
+        self.auth_failed = False
 
         return ZigbeeLensCoordinatorData(
             health=health,

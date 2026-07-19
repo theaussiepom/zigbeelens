@@ -6,11 +6,34 @@
         "description": "Enter the address of your ZigbeeLens Core dashboard. HTTP is fine for the native Home Assistant panel and Open Full Dashboard. Use an HTTPS address if you want the optional embedded dashboard view inside Home Assistant.",
         "data": {
           "core_url": "Core URL",
+          "api_token": "Core API token",
           "verify_ssl": "Verify SSL certificate",
           "panel_enabled": "Show ZigbeeLens companion panel in the sidebar"
         },
         "data_description": {
-          "core_url": "For example http://192.168.1.10:8377 or https://zigbeelens.example.com"
+          "core_url": "For example http://192.168.1.10:8377 or https://zigbeelens.example.com",
+          "api_token": "Required when ZigbeeLens Core protects its API with bearer authentication. Leave blank for trusted-open Core."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate ZigbeeLens",
+        "description": "ZigbeeLens Core rejected the stored API token. Enter the current Core API token, or leave blank if Core now uses trusted-open access.",
+        "data": {
+          "api_token": "Core API token"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure ZigbeeLens",
+        "description": "Update the ZigbeeLens Core URL, TLS verification, or API token. Leave the token blank to keep the current credential, or enable Remove API token to clear it.",
+        "data": {
+          "core_url": "Core URL",
+          "api_token": "Core API token",
+          "remove_api_token": "Remove API token",
+          "verify_ssl": "Verify SSL certificate"
+        },
+        "data_description": {
+          "core_url": "For example http://192.168.1.10:8377 or https://zigbeelens.example.com",
+          "api_token": "Enter a new token to replace the stored credential. Leave blank to keep the current token unless Remove API token is enabled."
         }
       }
     },
@@ -18,25 +41,24 @@
       "cannot_connect": "Cannot connect to ZigbeeLens Core at the configured URL.",
       "invalid_url": "Enter a valid URL including http:// or https://.",
       "invalid_response": "The endpoint did not return a valid ZigbeeLens response.",
+      "invalid_auth": "ZigbeeLens Core rejected the API token, or the token format is invalid.",
+      "token_conflict": "Enter a new token or enable Remove API token, not both.",
       "unknown": "Unexpected error."
     },
     "abort": {
-      "already_configured": "This ZigbeeLens Core URL is already configured."
+      "already_configured": "This ZigbeeLens Core URL is already configured.",
+      "reauth_successful": "ZigbeeLens credentials were updated.",
+      "reconfigure_successful": "ZigbeeLens connection settings were updated."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "ZigbeeLens options",
-        "description": "Change the ZigbeeLens Core URL or panel options. HTTP is fine for the native panel and Open Full Dashboard. Use an HTTPS Core URL if you want the optional embedded dashboard view inside Home Assistant.",
+        "description": "Adjust panel visibility and polling. To change the Core URL, TLS verification, or API token, use Reconfigure on the integration.",
         "data": {
-          "core_url": "Core URL",
-          "verify_ssl": "Verify SSL certificate",
           "panel_enabled": "Show ZigbeeLens companion panel in the sidebar",
           "scan_interval": "Polling interval (seconds)"
-        },
-        "data_description": {
-          "core_url": "For example http://192.168.1.10:8377 or https://zigbeelens.example.com"
         }
       }
     }
