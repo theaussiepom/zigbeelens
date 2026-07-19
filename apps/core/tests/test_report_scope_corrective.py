@@ -202,7 +202,7 @@ def test_resolved_only_device_report_keeps_history_out_of_active(tmp_path: Path)
     assert detail.decision_summary is not None
     dumped = detail.model_dump_json()
     assert OFF_SCOPE not in dumped
-    assert "office" not in (detail.collector.get("networks") or {})
+    assert "office" not in (detail.collector_status.get("networks") or {})
 
 
 def test_resolved_incident_report_preserves_record_not_current_finding(tmp_path: Path):
@@ -268,12 +268,8 @@ def test_network_resolved_history_not_in_current_finding(tmp_path: Path):
     assert any(i.id == "inc-net-resolved" for i in detail.incidents)
     assert report_active_incidents(detail) == []
     assert report_networks(detail)[0].active_incident_count == 0
-    # Resolved history must not appear as an open/critical active severity.
-    assert report_networks(detail)[0].active_incident_severity in {
-        Severity.healthy,
-        Severity.watch,
-    }
-    assert report_networks(detail)[0].active_incident_severity != Severity.critical
+    # Resolved history must not appear as an active severity.
+    assert report_networks(detail)[0].active_incident_severity is None
     # Historical incident titles may appear in the incidents section; they must not
     # drive the current network active-severity projection above.
     assert report_active_incidents(detail) == []

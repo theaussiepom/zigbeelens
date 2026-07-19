@@ -52,10 +52,7 @@ from zigbeelens.services.report_composition import (
     compose_mock_report_scope,
     project_report_detail,
 )
-from zigbeelens.services.reports import (
-    _apply_report_compatibility_sections,
-    generate_report,
-)
+from zigbeelens.services.reports import generate_report
 from zigbeelens.storage.repository import Repository
 
 from report_v3_helpers import (
@@ -778,16 +775,11 @@ def _mock_report(scenario: ScenarioData, request: ReportRequest) -> object:
         collector=PRODUCTION_COLLECTOR_LIST,
         request=request,
     )
-    # Version 3 reports are decision-only; do not apply v1/v2 compatibility aliases.
-    if detail.report_version >= 3:
-        from zigbeelens.services.reports import _collector_status_summary
+    from zigbeelens.services.reports import _collector_status_summary
 
-        mode = detail.config_summary.get("mode")
-        detail.collector_status = _collector_status_summary(
-            detail.collector_status or detail.collector, mode
-        )
-        return detail
-    return _apply_report_compatibility_sections(detail)
+    mode = detail.config_summary.get("mode")
+    detail.collector_status = _collector_status_summary(detail.collector_status, mode)
+    return detail
 
 
 def test_mock_home_device_isolates_office_router_and_finding():
@@ -812,7 +804,7 @@ def test_mock_home_device_isolates_office_router_and_finding():
     assert report_networks(detail)[0].id == "home"
     assert report_networks(detail)[0].device_count == 1
     assert report_networks(detail)[0].active_incident_count == 0
-    assert report_networks(detail)[0].active_incident_severity == Severity.healthy
+    assert report_networks(detail)[0].active_incident_severity is None
     assert detail.collector_status["networks"] == [{"network_id": "home", "subscribed": True}]
 
 

@@ -18,10 +18,10 @@ from zigbeelens.schemas import (
     LimitationItem,
     ReportDetail,
     ReportRedactionStatus,
-    ReportSummaryBlock,
     Severity,
     Confidence,
 )
+from legacy_report_shapes import ReportSummaryBlock
 from zigbeelens.services.data_service import DataService
 from zigbeelens.services.reports import (
     summary_from_row,
@@ -157,12 +157,11 @@ def test_version1_stored_report_compatibility(tmp_path, mock_client: TestClient)
     db.migrate()
     repo = Repository(db)
     body = _v1_body()
-    detail = ReportDetail.model_validate(body)
-    assert detail.report_version == 1
-    assert detail.decision_summary is None
-    assert detail.device_stories == []
-    assert detail.investigation_priorities == []
-    assert detail.data_coverage_warnings == []
+    # Legacy bodies are opaque dicts — never revalidated as ReportDetailV3.
+    assert body["report_version"] == 1
+    assert "decision_summary" not in body or body.get("decision_summary") is None
+    assert body.get("device_stories", []) == []
+    assert "executive_summary" in body or "summary" in body
 
     row = repo.reports.save_report(
         report_id="stored-v1",

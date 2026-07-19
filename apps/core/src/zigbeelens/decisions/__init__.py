@@ -1,105 +1,13 @@
 """Shared decision-engine primitives.
 
-Product judgement types live here so topology, devices, incidents and reports
-can share one vocabulary without coupling to any single surface.
+Eager exports are limited to lightweight type modules so public schemas can
+import DecisionStatus without pulling topology/device-story composition.
 """
 
-from zigbeelens.decisions.coverage import (
-    availability_available,
-    availability_history_building,
-    availability_status_unknown,
-    availability_tracking_off,
-    battery_history_available,
-    battery_history_sparse,
-    ha_area_linked,
-    ha_areas_not_linked,
-    last_payload_available,
-    last_payload_unknown,
-    last_seen_available,
-    last_seen_unknown,
-    lqi_history_available,
-    lqi_history_sparse,
-    route_hints_unavailable,
-    snapshot_stale,
-    topology_history_available,
-    topology_history_not_observed,
-    topology_history_sparse,
-)
-from zigbeelens.decisions.device_coverage import (
-    DeviceCoverageEvidence,
-    build_device_coverage,
-    build_device_coverage_evidence,
-    device_coverage_for_device,
-    load_device_coverage_evidence,
-)
-from zigbeelens.decisions.device_story import (
-    DEVICE_STORY_HEADLINE_CODES,
-    DeviceStory,
-    DeviceStoryEvidence,
-    DeviceStoryNetworkContext,
-    HeadlineCode,
-    build_device_story,
-    device_stories_for_devices,
-    device_story_for_device,
-    device_story_report_payload,
-    load_device_story_evidence,
-    load_device_story_network_context,
-)
-from zigbeelens.decisions.availability_event_groups import (
-    SharedAvailabilityEvent,
-    SharedAvailabilityEventGroups,
-    SharedAvailabilityEventState,
-    build_shared_availability_event_groups,
-    shared_availability_event_groups_for_network,
-)
-from zigbeelens.decisions.model_pattern import (
-    ModelPatternSignal,
-    ObservedModelPattern,
-    ObservedModelPatternState,
-    ObservedModelPatterns,
-    build_observed_model_patterns,
-    observed_model_patterns_for_network,
-)
-from zigbeelens.decisions.router_area import (
-    ObservedRouterArea,
-    ObservedRouterAreaState,
-    ObservedRouterAreas,
-    RouterAreaHAAreaContext,
-    build_observed_router_areas,
-    ha_area_context_for_members,
-    observed_router_areas_for_network,
-)
-from zigbeelens.decisions.lqi_trend import (
-    LqiTrend,
-    LqiTrendState,
-    build_lqi_trend,
-    lqi_trend_for_device,
-)
-from zigbeelens.decisions.reporting_rhythm import (
-    ReportingRhythm,
-    ReportingRhythmState,
-    build_reporting_rhythm,
-    is_sleepy_device_candidate,
-    reporting_rhythm_for_device,
-)
-from zigbeelens.decisions.reporting_silence import (
-    ReportingSilence,
-    SilenceState,
-    build_reporting_silence,
-)
-from zigbeelens.decisions.reasons import REASON_CODES, ReasonCode
-from zigbeelens.decisions.topology_facts import (
-    TOPOLOGY_FACT_CODES,
-    TopologyFactCode,
-    TopologyFacts,
-    build_device_latest_topology_facts,
-    build_device_snapshot_comparison_facts,
-    build_network_topology_facts,
-    build_topology_facts_from_evidence_graph,
-    normalize_device_ieee,
-    topology_device_facts_payload,
-    topology_network_facts_payload,
-)
+from __future__ import annotations
+
+from typing import Any
+
 from zigbeelens.decisions.types import (
     CoverageDimension,
     CoverageLabelCode,
@@ -208,3 +116,155 @@ __all__ = [
     "route_hints_unavailable",
     "snapshot_stale",
 ]
+
+_LAZY_EXPORTS: dict[str, tuple[str, str]] = {
+    "DEVICE_STORY_HEADLINE_CODES": ("zigbeelens.decisions.device_story", "DEVICE_STORY_HEADLINE_CODES"),
+    "DeviceStory": ("zigbeelens.decisions.device_story", "DeviceStory"),
+    "DeviceStoryEvidence": ("zigbeelens.decisions.device_story", "DeviceStoryEvidence"),
+    "DeviceStoryNetworkContext": ("zigbeelens.decisions.device_story", "DeviceStoryNetworkContext"),
+    "HeadlineCode": ("zigbeelens.decisions.device_story", "HeadlineCode"),
+    "build_device_story": ("zigbeelens.decisions.device_story", "build_device_story"),
+    "device_story_for_device": ("zigbeelens.decisions.device_story", "device_story_for_device"),
+    "device_stories_for_devices": ("zigbeelens.decisions.device_story", "device_stories_for_devices"),
+    "device_story_report_payload": ("zigbeelens.decisions.device_story", "device_story_report_payload"),
+    "load_device_story_evidence": ("zigbeelens.decisions.device_story", "load_device_story_evidence"),
+    "load_device_story_network_context": (
+        "zigbeelens.decisions.device_story",
+        "load_device_story_network_context",
+    ),
+    "DeviceCoverageEvidence": ("zigbeelens.decisions.device_coverage", "DeviceCoverageEvidence"),
+    "build_device_coverage": ("zigbeelens.decisions.device_coverage", "build_device_coverage"),
+    "build_device_coverage_evidence": (
+        "zigbeelens.decisions.device_coverage",
+        "build_device_coverage_evidence",
+    ),
+    "device_coverage_for_device": ("zigbeelens.decisions.device_coverage", "device_coverage_for_device"),
+    "load_device_coverage_evidence": (
+        "zigbeelens.decisions.device_coverage",
+        "load_device_coverage_evidence",
+    ),
+    "ModelPatternSignal": ("zigbeelens.decisions.model_pattern", "ModelPatternSignal"),
+    "ObservedModelPattern": ("zigbeelens.decisions.model_pattern", "ObservedModelPattern"),
+    "ObservedModelPatternState": ("zigbeelens.decisions.model_pattern", "ObservedModelPatternState"),
+    "ObservedModelPatterns": ("zigbeelens.decisions.model_pattern", "ObservedModelPatterns"),
+    "build_observed_model_patterns": (
+        "zigbeelens.decisions.model_pattern",
+        "build_observed_model_patterns",
+    ),
+    "observed_model_patterns_for_network": (
+        "zigbeelens.decisions.model_pattern",
+        "observed_model_patterns_for_network",
+    ),
+    "ObservedRouterArea": ("zigbeelens.decisions.router_area", "ObservedRouterArea"),
+    "ObservedRouterAreaState": ("zigbeelens.decisions.router_area", "ObservedRouterAreaState"),
+    "ObservedRouterAreas": ("zigbeelens.decisions.router_area", "ObservedRouterAreas"),
+    "RouterAreaHAAreaContext": ("zigbeelens.decisions.router_area", "RouterAreaHAAreaContext"),
+    "build_observed_router_areas": ("zigbeelens.decisions.router_area", "build_observed_router_areas"),
+    "ha_area_context_for_members": ("zigbeelens.decisions.router_area", "ha_area_context_for_members"),
+    "observed_router_areas_for_network": (
+        "zigbeelens.decisions.router_area",
+        "observed_router_areas_for_network",
+    ),
+    "REASON_CODES": ("zigbeelens.decisions.reasons", "REASON_CODES"),
+    "ReasonCode": ("zigbeelens.decisions.reasons", "ReasonCode"),
+    "LqiTrend": ("zigbeelens.decisions.lqi_trend", "LqiTrend"),
+    "LqiTrendState": ("zigbeelens.decisions.lqi_trend", "LqiTrendState"),
+    "build_lqi_trend": ("zigbeelens.decisions.lqi_trend", "build_lqi_trend"),
+    "lqi_trend_for_device": ("zigbeelens.decisions.lqi_trend", "lqi_trend_for_device"),
+    "ReportingRhythm": ("zigbeelens.decisions.reporting_rhythm", "ReportingRhythm"),
+    "ReportingRhythmState": ("zigbeelens.decisions.reporting_rhythm", "ReportingRhythmState"),
+    "build_reporting_rhythm": ("zigbeelens.decisions.reporting_rhythm", "build_reporting_rhythm"),
+    "is_sleepy_device_candidate": (
+        "zigbeelens.decisions.reporting_rhythm",
+        "is_sleepy_device_candidate",
+    ),
+    "reporting_rhythm_for_device": (
+        "zigbeelens.decisions.reporting_rhythm",
+        "reporting_rhythm_for_device",
+    ),
+    "ReportingSilence": ("zigbeelens.decisions.reporting_silence", "ReportingSilence"),
+    "SilenceState": ("zigbeelens.decisions.reporting_silence", "SilenceState"),
+    "build_reporting_silence": ("zigbeelens.decisions.reporting_silence", "build_reporting_silence"),
+    "SharedAvailabilityEvent": (
+        "zigbeelens.decisions.availability_event_groups",
+        "SharedAvailabilityEvent",
+    ),
+    "SharedAvailabilityEventGroups": (
+        "zigbeelens.decisions.availability_event_groups",
+        "SharedAvailabilityEventGroups",
+    ),
+    "SharedAvailabilityEventState": (
+        "zigbeelens.decisions.availability_event_groups",
+        "SharedAvailabilityEventState",
+    ),
+    "build_shared_availability_event_groups": (
+        "zigbeelens.decisions.availability_event_groups",
+        "build_shared_availability_event_groups",
+    ),
+    "shared_availability_event_groups_for_network": (
+        "zigbeelens.decisions.availability_event_groups",
+        "shared_availability_event_groups_for_network",
+    ),
+    "TOPOLOGY_FACT_CODES": ("zigbeelens.decisions.topology_facts", "TOPOLOGY_FACT_CODES"),
+    "TopologyFactCode": ("zigbeelens.decisions.topology_facts", "TopologyFactCode"),
+    "TopologyFacts": ("zigbeelens.decisions.topology_facts", "TopologyFacts"),
+    "build_device_latest_topology_facts": (
+        "zigbeelens.decisions.topology_facts",
+        "build_device_latest_topology_facts",
+    ),
+    "build_device_snapshot_comparison_facts": (
+        "zigbeelens.decisions.topology_facts",
+        "build_device_snapshot_comparison_facts",
+    ),
+    "build_network_topology_facts": (
+        "zigbeelens.decisions.topology_facts",
+        "build_network_topology_facts",
+    ),
+    "build_topology_facts_from_evidence_graph": (
+        "zigbeelens.decisions.topology_facts",
+        "build_topology_facts_from_evidence_graph",
+    ),
+    "normalize_device_ieee": ("zigbeelens.decisions.topology_facts", "normalize_device_ieee"),
+    "topology_device_facts_payload": (
+        "zigbeelens.decisions.topology_facts",
+        "topology_device_facts_payload",
+    ),
+    "topology_network_facts_payload": (
+        "zigbeelens.decisions.topology_facts",
+        "topology_network_facts_payload",
+    ),
+    "availability_history_building": ("zigbeelens.decisions.coverage", "availability_history_building"),
+    "availability_status_unknown": ("zigbeelens.decisions.coverage", "availability_status_unknown"),
+    "availability_tracking_off": ("zigbeelens.decisions.coverage", "availability_tracking_off"),
+    "availability_available": ("zigbeelens.decisions.coverage", "availability_available"),
+    "battery_history_sparse": ("zigbeelens.decisions.coverage", "battery_history_sparse"),
+    "battery_history_available": ("zigbeelens.decisions.coverage", "battery_history_available"),
+    "ha_area_linked": ("zigbeelens.decisions.coverage", "ha_area_linked"),
+    "ha_areas_not_linked": ("zigbeelens.decisions.coverage", "ha_areas_not_linked"),
+    "last_payload_available": ("zigbeelens.decisions.coverage", "last_payload_available"),
+    "last_payload_unknown": ("zigbeelens.decisions.coverage", "last_payload_unknown"),
+    "last_seen_available": ("zigbeelens.decisions.coverage", "last_seen_available"),
+    "last_seen_unknown": ("zigbeelens.decisions.coverage", "last_seen_unknown"),
+    "lqi_history_sparse": ("zigbeelens.decisions.coverage", "lqi_history_sparse"),
+    "lqi_history_available": ("zigbeelens.decisions.coverage", "lqi_history_available"),
+    "topology_history_available": ("zigbeelens.decisions.coverage", "topology_history_available"),
+    "topology_history_sparse": ("zigbeelens.decisions.coverage", "topology_history_sparse"),
+    "topology_history_not_observed": (
+        "zigbeelens.decisions.coverage",
+        "topology_history_not_observed",
+    ),
+    "route_hints_unavailable": ("zigbeelens.decisions.coverage", "route_hints_unavailable"),
+    "snapshot_stale": ("zigbeelens.decisions.coverage", "snapshot_stale"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    target = _LAZY_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attr = target
+    from importlib import import_module
+
+    value = getattr(import_module(module_name), attr)
+    globals()[name] = value
+    return value

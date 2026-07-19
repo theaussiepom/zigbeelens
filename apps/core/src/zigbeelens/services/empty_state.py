@@ -59,15 +59,15 @@ def empty_finding() -> DiagnosticConclusion:
 def _empty_network_decision() -> tuple[DeviceDecisionBadge, DecisionCountSummary]:
     summary = DecisionCountSummary(
         subject_count=0,
-        overall_status=DecisionStatus.data_unavailable.value,
-        highest_priority=DecisionPriority.none.value,
+        overall_status=DecisionStatus.data_unavailable,
+        highest_priority=DecisionPriority.none,
         status_counts={},
         priority_counts={},
         coverage_warning_count=0,
     )
     decision = DeviceDecisionBadge(
-        status=DecisionStatus.data_unavailable.value,
-        priority=DecisionPriority.none.value,
+        status=DecisionStatus.data_unavailable,
+        priority=DecisionPriority.none,
         headline_code="network_data_unavailable",
         coverage_label_codes=[],
     )
@@ -87,7 +87,7 @@ def network_summary_from_row(row: NetworkRow) -> NetworkSummary:
         router_count=0,
         end_device_count=0,
         unavailable_count=0,
-        active_incident_severity=Severity.watch,
+        active_incident_severity=None,
         active_incident_count=0,
         recent_bridge_warnings=0,
         recent_bridge_errors=0,
@@ -110,7 +110,7 @@ def build_empty_dashboard(config: AppConfig, networks: list[NetworkRow]) -> Dash
                 router_count=0,
                 end_device_count=0,
                 unavailable_count=0,
-                active_incident_severity=Severity.watch,
+                active_incident_severity=None,
                 active_incident_count=0,
                 decision=decision,
                 decision_summary=decision_summary,
@@ -120,8 +120,8 @@ def build_empty_dashboard(config: AppConfig, networks: list[NetworkRow]) -> Dash
 
     empty_summary = DecisionCountSummary(
         subject_count=0,
-        overall_status=DecisionStatus.data_unavailable.value,
-        highest_priority=DecisionPriority.none.value,
+        overall_status=DecisionStatus.data_unavailable,
+        highest_priority=DecisionPriority.none,
         status_counts={},
         priority_counts={},
         coverage_warning_count=0,

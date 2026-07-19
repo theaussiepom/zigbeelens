@@ -3,9 +3,21 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    field_validator,
+    model_validator,
+)
 
 from zigbeelens.config.security_types import SecurityMode
+from zigbeelens.decisions.types import (
+    CoverageLabelCode,
+    DecisionPriority,
+    DecisionStatus,
+)
 
 
 class Severity(str, Enum):
@@ -130,10 +142,12 @@ class CoordinatorSummary(BaseModel):
 class DeviceDecisionBadge(BaseModel):
     """Compact decision projection for inventory/list surfaces."""
 
-    status: str
-    priority: str
+    model_config = ConfigDict(extra="forbid", use_enum_values=False)
+
+    status: DecisionStatus
+    priority: DecisionPriority
     headline_code: str
-    coverage_label_codes: list[str] = Field(default_factory=list)
+    coverage_label_codes: list[CoverageLabelCode] = Field(default_factory=list)
 
 
 # Public alias — same compact badge shape for devices and networks.
@@ -143,12 +157,45 @@ DecisionBadge = DeviceDecisionBadge
 class DecisionCountSummary(BaseModel):
     """Aggregated decision counts for Dashboard / network / report / MQTT / HACS."""
 
-    subject_count: int
-    overall_status: str
-    highest_priority: str
-    status_counts: dict[str, int] = Field(default_factory=dict)
-    priority_counts: dict[str, int] = Field(default_factory=dict)
-    coverage_warning_count: int = 0
+    model_config = ConfigDict(extra="forbid", use_enum_values=False)
+
+    subject_count: int = Field(ge=0)
+    overall_status: DecisionStatus
+    highest_priority: DecisionPriority
+    status_counts: dict[DecisionStatus, int] = Field(default_factory=dict)
+    priority_counts: dict[DecisionPriority, int] = Field(default_factory=dict)
+    coverage_warning_count: int = Field(default=0, ge=0)
+
+    @field_validator("subject_count", "coverage_warning_count", mode="before")
+    @classmethod
+    def _reject_bool_as_int(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("boolean is not a valid count")
+        return value
+
+    @field_validator("status_counts", "priority_counts", mode="before")
+    @classmethod
+    def _reject_bool_counts(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        for key, count in value.items():
+            if isinstance(count, bool) or (isinstance(count, int) and count < 0):
+                raise ValueError(f"invalid count for {key!r}")
+        return value
+
+    @model_validator(mode="after")
+    def _counts_match_subjects(self) -> DecisionCountSummary:
+        status_total = sum(self.status_counts.values())
+        priority_total = sum(self.priority_counts.values())
+        if self.subject_count == 0:
+            if self.status_counts or self.priority_counts:
+                raise ValueError("empty subject_count requires empty count maps")
+            return self
+        if status_total != self.subject_count:
+            raise ValueError("sum(status_counts) must equal subject_count")
+        if priority_total != self.subject_count:
+            raise ValueError("sum(priority_counts) must equal subject_count")
+        return self
 
 
 class NetworkSummary(BaseModel):
@@ -161,7 +208,7 @@ class NetworkSummary(BaseModel):
     router_count: int
     end_device_count: int
     unavailable_count: int
-    active_incident_severity: Severity
+    active_incident_severity: Severity | None = None
     active_incident_count: int
     recent_bridge_warnings: int = 0
     recent_bridge_errors: int = 0
@@ -408,27 +455,6 @@ class ReportRedactionStatus(BaseModel):
     network_names: str = "preserved"
 
 
-class ReportSummaryBlock(BaseModel):
-    overall_state: Severity
-    current_finding: str
-    networks_monitored: int
-    total_devices: int
-    active_incidents: int
-    watching_incidents: int
-    unavailable_devices: int
-    router_risks: int
-    stale_devices: int
-    weak_links: int
-    low_battery_devices: int
-
-
-class LensHealthSummary(BaseModel):
-    vocabulary: str = "lens_family"
-    overall_state: str | None = None
-    bucket_counts: dict[str, int] = Field(default_factory=dict)
-    bucket_labels: dict[str, str] = Field(default_factory=dict)
-
-
 class ReportSummary(BaseModel):
     id: str
     generated_at: str
@@ -459,7 +485,9 @@ class ReportStoryTimelineItem(BaseModel):
 
 
 class ReportDeviceStory(BaseModel):
-    """Canonical Device Story payload plus report identity fields (Phase 5D)."""
+    """Canonical Device Story payload plus report identity fields."""
+
+    model_config = ConfigDict(extra="forbid", use_enum_values=False)
 
     network_id: str
     ieee_address: str
@@ -467,8 +495,8 @@ class ReportDeviceStory(BaseModel):
 
     subject_type: str = "device"
     subject_id: str
-    status: str
-    priority: str
+    status: DecisionStatus
+    priority: DecisionPriority
     headline_code: str
 
     reasons: list[dict[str, Any]] = Field(default_factory=list)
@@ -480,8 +508,10 @@ class ReportDeviceStory(BaseModel):
     timeline: list[ReportStoryTimelineItem] = Field(default_factory=list)
 
 
-class ReportDomainDetails(BaseModel):
-    """Canonical v3 domain inventory for one report scope."""
+class ReportDomainDetailsV3(BaseModel):
+    """Exact v3 domain inventory for one report scope."""
+
+    model_config = ConfigDict(extra="forbid")
 
     networks: list[NetworkSummary] = Field(default_factory=list)
     devices: list[DeviceSummary] = Field(default_factory=list)
@@ -490,50 +520,39 @@ class ReportDomainDetails(BaseModel):
     topology_snapshot_count: int = 0
 
 
-class ReportDetail(BaseModel):
-    """Current report contract (v3) with optional legacy fields for stored v1/v2 reads.
+# Compatibility alias used by helpers during the Track 5 seal.
+ReportDomainDetails = ReportDomainDetailsV3
 
-    New writers must populate the v3 canonical locations only and set
-    ``report_version = 3``. Legacy fields remain optional so historical bodies
-    can still be modeled when explicitly loaded through the legacy reader.
-    """
+
+class ReportDetailV3(BaseModel):
+    """Exact current report contract (version 3). No legacy aliases."""
+
+    model_config = ConfigDict(extra="forbid")
 
     id: str
     product: str = "ZigbeeLens"
-    report_version: int = 3
+    report_version: Literal[3] = 3
     generated_at: str
     version: str
-    site: str | None = None
-    mode: str | None = None
-    redaction_profile: str | None = None
     scope: str = "full"
     format: str = "json"
     redaction: ReportRedactionStatus
-    executive_summary: str | None = None
-    summary: ReportSummaryBlock | None = None
-    health_summary: LensHealthSummary | None = None
-    decision_summary: DecisionCountSummary | ReportDecisionSummary | None = None
+    config_summary: dict[str, Any] = Field(default_factory=dict)
+    decision_summary: DecisionCountSummary
     investigation_priorities: list[InvestigationPrioritySummary] = Field(default_factory=list)
     device_stories: list[ReportDeviceStory] = Field(default_factory=list)
     data_coverage_warnings: list[DataCoverageWarningSummary] = Field(default_factory=list)
-    active_incidents: list[Incident] = Field(default_factory=list)
-    config_summary: dict[str, Any] = Field(default_factory=dict)
-    collector: dict[str, Any] = Field(default_factory=dict)
-    collector_status: dict[str, Any] = Field(default_factory=dict)
-    # Top-level domain arrays are legacy (v1/v2). Prefer domain_details for v3.
-    networks: list[NetworkSummary] = Field(default_factory=list)
-    devices: list[DeviceSummary] = Field(default_factory=list)
-    device_details: list[DeviceDetail] = Field(default_factory=list)
-    router_risks: list[RouterRisk] = Field(default_factory=list)
     incidents: list[Incident] = Field(default_factory=list)
-    timeline: list[TimelineEvent] = Field(default_factory=list)
+    collector_status: dict[str, Any] = Field(default_factory=dict)
+    domain_details: ReportDomainDetailsV3 = Field(default_factory=ReportDomainDetailsV3)
     events_or_timeline: list[TimelineEvent] = Field(default_factory=list)
-    health_snapshot: HealthSnapshot | None = None
-    diagnostic_conclusions: list[DiagnosticConclusion] = Field(default_factory=list)
     limitations: list[LimitationItem] = Field(default_factory=list)
-    domain_details: ReportDomainDetails = Field(default_factory=ReportDomainDetails)
     raw_counts: dict[str, int] = Field(default_factory=dict)
     markdown_summary: str = ""
+
+
+# Current writers and OpenAPI advertise ReportDetail as the exact v3 model.
+ReportDetail = ReportDetailV3
 
 
 class BrowserSessionStatus(BaseModel):

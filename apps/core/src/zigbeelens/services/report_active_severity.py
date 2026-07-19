@@ -1,7 +1,8 @@
-"""Canonical active-incident severity for report compatibility projections.
+"""Factual active-incident severity for network and report projections.
 
-Mirrors IncidentDiagnosticService.current_finding precedence:
+Describes open/watching incident rows only. Mirrors current-finding precedence:
 open before watching, then stored severity rank. Resolved rows never participate.
+Bridge health and device health flags never invent an active incident severity.
 """
 
 from __future__ import annotations

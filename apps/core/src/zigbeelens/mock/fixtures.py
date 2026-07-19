@@ -10,7 +10,6 @@ from zigbeelens.schemas import (
     Confidence,
     CoordinatorSummary,
     DashboardPayload,
-    DecisionCountSummary,
     DeviceDecisionBadge,
     DeviceDetail,
     DeviceHealth,
@@ -175,23 +174,18 @@ def network(
     warnings: int = 0,
     errors: int = 0,
 ) -> NetworkSummary:
-    from zigbeelens.services.decision_summary import (
-        decision_count_summary_from_badges,
-        network_decision_badge_from_summary,
-    )
+    from zigbeelens.services.network_decision import compose_network_decision
 
     routers = sum(1 for d in devices if d.device_type == DeviceType.Router)
     ends = sum(1 for d in devices if d.device_type == DeviceType.EndDevice)
     unavail = sum(1 for d in devices if d.availability == Availability.offline)
-    decision_summary = decision_count_summary_from_badges(d.decision for d in devices)
-    decision = network_decision_badge_from_summary(decision_summary)
-    severity = (
-        active_incident_severity
-        if active_incident_severity is not None
-        else incident_state
-        if incident_state is not None
-        else Severity.healthy
+    decision, decision_summary = compose_network_decision(
+        device_badges=[d.decision for d in devices],
+        has_active_incident=active_incidents > 0,
     )
+    # Factual: only explicit active-incident severity (legacy incident_state ignored).
+    del incident_state
+    severity = active_incident_severity
     return NetworkSummary(
         id=net_id,
         name=name,
@@ -257,27 +251,10 @@ def scenario_dashboard(
     device_list = list(devices or [])
     if not device_list:
         # Fall back to network rollups when callers omit the device list.
-        decision_summary = DecisionCountSummary(
-            subject_count=sum(n.decision_summary.subject_count for n in networks),
-            overall_status=(
-                networks[0].decision_summary.overall_status
-                if networks
-                else "data_unavailable"
-            ),
-            highest_priority=(
-                networks[0].decision_summary.highest_priority
-                if networks
-                else "none"
-            ),
-            status_counts={},
-            priority_counts={},
+        decision_summary = decision_count_summary_from_badges(
+            (n.decision for n in networks),
             coverage_warning_count=len(data_coverage_warnings or []),
         )
-        if networks:
-            decision_summary = decision_count_summary_from_badges(
-                (n.decision for n in networks),
-                coverage_warning_count=len(data_coverage_warnings or []),
-            )
     else:
         decision_summary = decision_count_summary_from_badges(
             (d.decision for d in device_list),

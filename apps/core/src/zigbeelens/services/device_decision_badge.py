@@ -33,18 +33,18 @@ MAX_BADGE_COVERAGE_LABELS = 3
 
 def device_decision_badge_from_story(story: DeviceStory) -> DeviceDecisionBadge:
     """Project a Device Story onto the inventory badge DTO."""
-    coverage_label_codes: list[str] = []
+    coverage_label_codes = []
     for item in story.coverage:
         if item.state in _LIMITING_COVERAGE_STATES:
-            code = str(item.label_code)
+            code = item.label_code
             if code not in coverage_label_codes:
                 coverage_label_codes.append(code)
         if len(coverage_label_codes) >= MAX_BADGE_COVERAGE_LABELS:
             break
 
     return DeviceDecisionBadge(
-        status=str(story.status),
-        priority=str(story.priority),
+        status=story.status,
+        priority=story.priority,
         headline_code=str(story.headline_code),
         coverage_label_codes=coverage_label_codes,
     )

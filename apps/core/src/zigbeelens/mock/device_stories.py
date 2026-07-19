@@ -324,9 +324,11 @@ def finalize_scenario_device_stories(
     now: datetime,
 ) -> ScenarioData:
     """Attach canonical Device Stories and project decision badges onto devices."""
-    from zigbeelens.services.decision_summary import (
-        decision_count_summary_from_badges,
-        network_decision_badge_from_summary,
+    from zigbeelens.services.decision_summary import decision_count_summary_from_badges
+    from zigbeelens.services.network_decision import compose_network_decision
+    from zigbeelens.services.report_active_severity import (
+        active_severity_by_network_id,
+        mock_networks_by_incident_id,
     )
 
     stories = build_device_stories_for_scenario(data, now=now)
@@ -336,14 +338,45 @@ def finalize_scenario_device_stories(
     devices_by_network: dict[str, list] = {}
     for device in devices:
         devices_by_network.setdefault(device.network_id, []).append(device)
+
+    active_incidents = [
+        inc
+        for inc in incidents
+        if str(getattr(inc.status, "value", inc.status)) in {"open", "watching"}
+    ]
+    networks_by_incident = mock_networks_by_incident_id(active_incidents)
+    network_ids = tuple(net.id for net in data.dashboard.networks)
+    severity_by_network = active_severity_by_network_id(
+        active_incidents, networks_by_incident, network_ids
+    )
+    coverage_by_network: dict[str, int] = {}
+    for warning in data.dashboard.data_coverage_warnings or []:
+        coverage_by_network[warning.network_id] = (
+            coverage_by_network.get(warning.network_id, 0) + 1
+        )
+    priorities_by_network: dict[str, list] = {}
+    for priority in data.dashboard.investigation_priorities or []:
+        priorities_by_network.setdefault(priority.network_id, []).append(priority)
+
     networks = []
     for net in data.dashboard.networks:
         scoped = devices_by_network.get(net.id, [])
-        summary = decision_count_summary_from_badges(d.decision for d in scoped)
+        active_count = sum(1 for inc in active_incidents if net.id in inc.network_ids)
+        coverage_count = coverage_by_network.get(net.id, 0)
+        has_review_first = any(
+            str(p.priority) == "Review first"
+            for p in priorities_by_network.get(net.id, [])
+        )
+        decision, summary = compose_network_decision(
+            device_badges=[d.decision for d in scoped],
+            coverage_warning_count=coverage_count,
+            has_active_incident=active_count > 0,
+            has_review_first_priority=has_review_first,
+        )
         networks.append(
             net.model_copy(
                 update={
-                    "decision": network_decision_badge_from_summary(summary),
+                    "decision": decision,
                     "decision_summary": summary,
                     "device_count": len(scoped) if scoped else net.device_count,
                     "unavailable_count": (
@@ -351,10 +384,15 @@ def finalize_scenario_device_stories(
                         if scoped
                         else net.unavailable_count
                     ),
+                    "active_incident_count": active_count,
+                    "active_incident_severity": severity_by_network.get(net.id),
                 }
             )
         )
-    estate_summary = decision_count_summary_from_badges(d.decision for d in devices)
+    estate_summary = decision_count_summary_from_badges(
+        (d.decision for d in devices),
+        coverage_warning_count=len(data.dashboard.data_coverage_warnings or []),
+    )
     dashboard = data.dashboard.model_copy(
         update={
             "networks": networks,
@@ -367,6 +405,7 @@ def finalize_scenario_device_stories(
     return replace(
         data,
         devices=devices,
+        networks=networks,
         device_stories=stories,
         incidents=incidents,
         dashboard=dashboard,

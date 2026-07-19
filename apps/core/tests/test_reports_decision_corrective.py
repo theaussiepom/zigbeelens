@@ -41,12 +41,13 @@ from zigbeelens.services.reports import (
     _recorded_incident_interpretation,
     _without_timelines,
     generate_report,
-    render_markdown_v2,
+    render_markdown_v3,
     summary_from_row,
 )
 from zigbeelens.storage.repository import Repository
 
 from report_v3_helpers import (
+    minimal_report_v3,
     report_device_details,
     report_networks,
     report_timeline,
@@ -286,11 +287,7 @@ def test_include_timeline_false_clears_all_timeline_collections():
         interpretation="Interpretation",
         timeline=[sent_event],
     )
-    from zigbeelens.schemas import (
-        DeviceHealthPrimary,
-        ReportRedactionStatus,
-        HealthSnapshot,
-    )
+    from zigbeelens.schemas import ReportDomainDetailsV3
     from zigbeelens.services.mock_provider import MockProvider
 
     sample = MockProvider(SCENARIO).devices()[0]
@@ -304,45 +301,19 @@ def test_include_timeline_false_clears_all_timeline_collections():
             "recent_events": [sent_event],
         }
     )
-    detail = ReportDetail(
-        id="r",
-        report_version=2,
-        generated_at="2026-01-01T00:00:00+00:00",
-        version="0.1.0",
-        redaction=ReportRedactionStatus(applied=True, profile="standard", mqtt_credentials=True),
-        config_summary={"mode": "mock"},
-        networks=[],
-        devices=[],
-        device_details=[det],
-        router_risks=[],
+    detail = minimal_report_v3(
         incidents=[inc],
-        active_incidents=[inc],
-        timeline=[sent_event],
         events_or_timeline=[sent_event],
         device_stories=[story],
-        health_snapshot=HealthSnapshot(
-            timestamp="2026-01-01T00:00:00+00:00",
-            overall_severity=Severity.healthy,
-            overall_health=DeviceHealthPrimary.healthy,
-            network_count=0,
-            device_count=0,
-            unavailable_count=0,
-            incident_count=0,
-            networks=[],
-        ),
-        diagnostic_conclusions=[],
-        limitations=[],
-        markdown_summary="",
+        domain_details=ReportDomainDetailsV3(device_details=[det]),
     )
     cleared = _without_timelines(detail)
     blob = json.dumps(cleared.model_dump(mode="json"))
     assert SENTINEL not in blob
-    assert cleared.timeline == []
     assert cleared.events_or_timeline == []
     assert all(not s.timeline for s in cleared.device_stories)
     assert all(not i.timeline for i in cleared.incidents)
-    assert all(not i.timeline for i in cleared.active_incidents)
-    assert all(not d.recent_events for d in cleared.device_details)
+    assert all(not d.recent_events for d in cleared.domain_details.device_details)
 
 
 def test_include_timeline_false_absent_from_generated_markdown(tmp_path):
@@ -384,7 +355,7 @@ def test_include_timeline_false_absent_from_generated_markdown(tmp_path):
         repo=repo,
     )
     has_any = (
-        bool(with_timeline.timeline)
+        bool(with_timeline.events_or_timeline)
         or any(s.timeline for s in with_timeline.device_stories)
         or any(i.timeline for i in with_timeline.incidents)
         or any(d.recent_events for d in with_timeline.device_details)
@@ -426,65 +397,34 @@ def test_recorded_incident_interpretation_helper():
     )
     assert _recorded_incident_interpretation(blank) is None
 
-    from zigbeelens.schemas import ReportRedactionStatus, HealthSnapshot, DeviceHealthPrimary
-
-    detail = ReportDetail(
-        id="r",
-        report_version=2,
-        generated_at="2026-01-01T00:00:00+00:00",
-        version="0.1.0",
-        redaction=ReportRedactionStatus(applied=True, profile="standard", mqtt_credentials=True),
-        config_summary={"mode": "mock"},
-        networks=[],
-        devices=[],
-        router_risks=[],
-        incidents=[distinct],
-        health_snapshot=HealthSnapshot(
-            timestamp="2026-01-01T00:00:00+00:00",
-            overall_severity=Severity.incident,
-            overall_health=DeviceHealthPrimary.unavailable,
-            network_count=0,
-            device_count=0,
-            unavailable_count=0,
-            incident_count=1,
-            networks=[],
-        ),
-        diagnostic_conclusions=[],
-        limitations=[],
-        markdown_summary="",
-    )
-    md = render_markdown_v2(detail)
+    detail = minimal_report_v3(incidents=[distinct])
+    md = render_markdown_v3(detail)
     assert "Recorded event summary" in md
-    assert "Historical explanatory text" in md
-    assert md.count("Historical explanatory text") == 1
-    # Conclusion duplicate must not appear under Recorded interpretation.
-    recorded_section = md.split("Recorded interpretation:")[1]
-    lines = [ln for ln in recorded_section.splitlines() if ln.strip()]
-    assert lines[0] == "Historical explanatory text"
+    # Distinct historical interpretation remains available via the helper;
+    # current v3 Markdown presents the incident summary without a separate
+    # "Recorded interpretation" legacy section.
+    assert _recorded_incident_interpretation(distinct) == "Historical explanatory text"
+    assert "Status: open" in md
+    assert "Severity: incident" in md
 
 
 def test_orphan_network_id_redaction_public_safe_and_strict():
+    from zigbeelens.decisions.types import DecisionPriority, DecisionStatus
     from zigbeelens.schemas import (
         DataCoverageWarningSummary,
+        DecisionCountSummary,
         InvestigationPrioritySummary,
-        ReportDecisionSummary,
+        ReportDomainDetailsV3,
         ReportRedactionStatus,
-        HealthSnapshot,
-        DeviceHealthPrimary,
     )
     from zigbeelens.services.mock_provider import MockProvider
 
     home = MockProvider(SCENARIO).networks()[0]
-    detail = ReportDetail(
-        id="r",
-        report_version=2,
-        generated_at="2026-01-01T00:00:00+00:00",
-        version="0.1.0",
-        redaction=ReportRedactionStatus(applied=True, profile="public_safe", mqtt_credentials=True),
-        config_summary={"mode": "mock"},
-        networks=[home],
-        devices=[],
-        router_risks=[],
+    detail = minimal_report_v3(
+        redaction=ReportRedactionStatus(
+            applied=True, profile="public_safe", mqtt_credentials=True
+        ),
+        domain_details=ReportDomainDetailsV3(networks=[home]),
         incidents=[
             _incident(
                 id="inc-retired",
@@ -530,25 +470,19 @@ def test_orphan_network_id_redaction_public_safe_and_strict():
                 ieee_address="0xa",
                 friendly_name="Plug",
                 subject_id="retired-network:0xa",
-                status="watch",
-                priority="low",
+                status=DecisionStatus.watch,
+                priority=DecisionPriority.low,
                 headline_code="no_notable_signals",
             )
         ],
-        decision_summary=ReportDecisionSummary(device_story_count=1, status_counts={"watch": 1}),
-        health_snapshot=HealthSnapshot(
-            timestamp="2026-01-01T00:00:00+00:00",
-            overall_severity=Severity.healthy,
-            overall_health=DeviceHealthPrimary.healthy,
-            network_count=1,
-            device_count=0,
-            unavailable_count=0,
-            incident_count=1,
-            networks=[],
+        decision_summary=DecisionCountSummary(
+            subject_count=1,
+            overall_status=DecisionStatus.watch,
+            highest_priority=DecisionPriority.low,
+            status_counts={DecisionStatus.watch: 1},
+            priority_counts={DecisionPriority.low: 1},
+            coverage_warning_count=1,
         ),
-        diagnostic_conclusions=[],
-        limitations=[],
-        markdown_summary="",
     )
 
     for profile in (RedactionProfile.public_safe, RedactionProfile.strict):
@@ -576,54 +510,24 @@ def test_orphan_network_id_redaction_public_safe_and_strict():
 
 
 def test_decision_list_summary_selection_order():
-    from zigbeelens.schemas import (
-        InvestigationPrioritySummary,
-        ReportRedactionStatus,
-        HealthSnapshot,
-        DeviceHealthPrimary,
-    )
+    from zigbeelens.decisions.types import DecisionPriority, DecisionStatus
+    from zigbeelens.schemas import InvestigationPrioritySummary
 
-    base_kwargs = dict(
-        id="r",
-        report_version=2,
-        generated_at="2026-01-01T00:00:00+00:00",
-        version="0.1.0",
-        redaction=ReportRedactionStatus(applied=True, profile="standard", mqtt_credentials=True),
-        config_summary={},
-        networks=[],
-        devices=[],
-        router_risks=[],
-        incidents=[],
-        health_snapshot=HealthSnapshot(
-            timestamp="2026-01-01T00:00:00+00:00",
-            overall_severity=Severity.healthy,
-            overall_health=DeviceHealthPrimary.healthy,
-            network_count=0,
-            device_count=0,
-            unavailable_count=0,
-            incident_count=0,
-            networks=[],
-        ),
-        diagnostic_conclusions=[],
-        limitations=[],
-        markdown_summary="",
-    )
-    empty = ReportDetail(**base_kwargs)
+    empty = minimal_report_v3()
     assert (
         _decision_list_summary(empty)
         == "No notable Device Story decisions in this report scope."
     )
 
-    with_story = ReportDetail(
-        **base_kwargs,
+    with_story = minimal_report_v3(
         device_stories=[
             ReportDeviceStory(
                 network_id="home",
                 ieee_address="0xa",
                 friendly_name="Kitchen Plug",
                 subject_id="0xa",
-                status="review_first",
-                priority="high",
+                status=DecisionStatus.review_first,
+                priority=DecisionPriority.high,
                 headline_code="current_issue_present",
             )
         ],
@@ -632,8 +536,7 @@ def test_decision_list_summary_selection_order():
         f"Kitchen Plug — {headline_text('current_issue_present')}"
     )
 
-    with_priority = ReportDetail(
-        **base_kwargs,
+    with_priority = minimal_report_v3(
         investigation_priorities=[
             InvestigationPrioritySummary(
                 id="p1",
@@ -653,7 +556,8 @@ def test_decision_list_summary_selection_order():
 
 
 def test_version1_download_uses_stored_markdown(tmp_path, mock_client):
-    from zigbeelens.schemas import ReportRedactionStatus, ReportSummaryBlock
+    from zigbeelens.schemas import ReportRedactionStatus
+    from legacy_report_shapes import ReportSummaryBlock
 
     db = Database(tmp_path / "v1dl.sqlite")
     db.migrate()

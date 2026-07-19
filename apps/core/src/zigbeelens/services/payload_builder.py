@@ -462,6 +462,7 @@ class PayloadBuilder:
                     if (row.network_id, row.ieee_address) in badges
                 ],
                 coverage_warning_count=coverage_by_network.get(net_row.id, 0),
+                investigation_priorities=investigation_priorities,
             )
             for net_row in network_rows
         ]
@@ -513,14 +514,36 @@ class PayloadBuilder:
         incident_context: ActiveIncidentReadContext | None,
     ) -> list:
         """Build NetworkSummary list with one Device Story badge batch."""
+        from zigbeelens.services.network_evidence import DASHBOARD_EVIDENCE_REQUIREMENTS
+        from zigbeelens.services.network_evidence_composition import (
+            compose_network_evidence_contexts,
+        )
+        from zigbeelens.services.topology_facts_composition import (
+            topology_stale_threshold_hours,
+        )
+
         reference_now = datetime.now(timezone.utc)
         composition = self._device_composition_context(
             device_rows,
             include_related_incidents=True,
             incident_context=incident_context,
         )
-        evidence_map = self._device_story_evidence_contexts(
-            device_rows, now=reference_now, complete_inventory=True
+        devices_by_network = _group_devices_by_network(device_rows)
+        devices_by_network_id = {
+            network.id: devices_by_network.get(network.id, []) for network in network_rows
+        }
+        evidence_map = dict(
+            compose_network_evidence_contexts(
+                self.repo,
+                [network.id for network in network_rows],
+                reference_now=reference_now,
+                requirements_by_network={
+                    network.id: DASHBOARD_EVIDENCE_REQUIREMENTS for network in network_rows
+                },
+                network_rows_by_id={network.id: network for network in network_rows},
+                complete_device_rows_by_network=devices_by_network_id,
+                stale_after_hours=topology_stale_threshold_hours(self.config),
+            )
         )
         badges = device_decision_badges_for_devices(
             self.repo,
@@ -530,7 +553,29 @@ class PayloadBuilder:
             related_incident_ids_by_key=composition.related_incident_ids_by_key,
             network_evidence_contexts=evidence_map,
         )
-        devices_by_network = _group_devices_by_network(device_rows)
+        investigation_priorities = compose_dashboard_investigation_priorities(
+            self.repo,
+            network_rows,
+            now=reference_now,
+            network_evidence_contexts=evidence_map,
+        )
+        data_coverage_warnings = compose_dashboard_coverage_warnings(
+            self.repo,
+            network_rows,
+            self.config,
+            route_hint_relevant_network_ids={
+                item.network_id
+                for item in investigation_priorities
+                if item.card_type == "router_neighbourhood_review"
+            },
+            now=reference_now,
+            network_evidence_contexts=evidence_map,
+        )
+        coverage_by_network: dict[str, int] = {}
+        for warning in data_coverage_warnings:
+            coverage_by_network[warning.network_id] = (
+                coverage_by_network.get(warning.network_id, 0) + 1
+            )
         return [
             build_network_summary(
                 self.repo,
@@ -549,6 +594,8 @@ class PayloadBuilder:
                     for dev in devices_by_network.get(row.id, [])
                     if (dev.network_id, dev.ieee_address) in badges
                 ],
+                coverage_warning_count=coverage_by_network.get(row.id, 0),
+                investigation_priorities=investigation_priorities,
             )
             for row in network_rows
         ]

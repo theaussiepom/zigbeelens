@@ -49,8 +49,8 @@ def test_full_json_report(mock_client: TestClient):
     assert detail["limitations"]
     domain_devices = detail["domain_details"]["devices"]
     assert detail["raw_counts"]["devices_included"] == len(domain_devices)
-    assert detail.get("health_snapshot") in (None, {})
-    assert not detail.get("executive_summary")
+    assert "health_snapshot" not in detail
+    assert "executive_summary" not in detail
 
 
 def test_full_yaml_report_downloads(mock_client: TestClient):
@@ -349,9 +349,24 @@ def test_v3_report_canonical_fields(mock_client: TestClient):
     assert detail["redaction"]["profile"] == "public_safe"
     assert detail["config_summary"]["mode"] in {"mock", "live"}
     assert detail["report_version"] == 3
-    assert detail.get("executive_summary") in (None, "")
-    assert detail.get("health_summary") in (None, {})
-    assert detail.get("summary") in (None, {})
+    for forbidden in (
+        "executive_summary",
+        "health_summary",
+        "summary",
+        "timeline",
+        "networks",
+        "devices",
+        "health_snapshot",
+        "diagnostic_conclusions",
+        "site",
+        "mode",
+        "redaction_profile",
+        "active_incidents",
+        "collector",
+        "router_risks",
+        "device_details",
+    ):
+        assert forbidden not in detail
     assert detail["decision_summary"] is not None
     assert detail["device_stories"]
     assert detail["collector_status"]["mqtt_collector"] in {
@@ -361,9 +376,6 @@ def test_v3_report_canonical_fields(mock_client: TestClient):
     }
     assert detail["domain_details"]["networks"]
     assert detail["events_or_timeline"] is not None
-    assert not detail.get("timeline")
-    assert not detail.get("networks")
-    assert not detail.get("devices")
     if detail["incidents"]:
         entity = detail["incidents"][0]["affected_devices"][0]
         assert entity.get("decision")

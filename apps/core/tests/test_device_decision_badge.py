@@ -287,7 +287,7 @@ def test_device_summary_does_not_compose_decision_badge(tmp_path: Path):
     assert row is not None
     explicit = DeviceDecisionBadge(
         status="review_first",
-        priority="p1",
+        priority="high",
         headline_code="current_issue_present",
         coverage_label_codes=[],
     )

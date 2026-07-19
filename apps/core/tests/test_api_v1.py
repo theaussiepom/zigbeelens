@@ -89,9 +89,10 @@ def test_v1_capabilities(mock_client: TestClient):
     assert "device_stories" in report
     assert isinstance(report["device_stories"], list)
     assert "domain_details" in report
-    assert "health_snapshot" not in report or report["health_snapshot"] is None
-    assert "executive_summary" not in report or report["executive_summary"] is None
-    assert report.get("networks") in ([], None) or "networks" in report["domain_details"]
+    assert "health_snapshot" not in report
+    assert "executive_summary" not in report
+    assert "networks" not in report
+    assert "networks" in report["domain_details"]
 
 
 def test_v1_status(mock_client: TestClient):
