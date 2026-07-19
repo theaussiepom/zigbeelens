@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN
+from .const import CONF_API_TOKEN, DOMAIN
 from .coordinator import ZigbeeLensDataUpdateCoordinator
 from .core_origin import InvalidCoreOrigin, canonicalize_core_origin
 
@@ -54,9 +54,13 @@ async def async_get_config_entry_diagnostics(
     registry = er.async_get(hass)
     entity_count = len(er.async_entries_for_config_entry(registry, entry.entry_id))
 
+    token = entry.data.get(CONF_API_TOKEN, "")
+    api_token_configured = isinstance(token, str) and bool(token)
+
     return {
         "integration_version": entry.version,
         "core_url": _diagnostic_core_url(entry.data.get("core_url", "")),
+        "api_token_configured": api_token_configured,
         "core_reachable": bool(coordinator and coordinator.last_update_success),
         "core_version": data.core_version if data else None,
         "decision_contract_version": data.decision_contract_version if data else 0,

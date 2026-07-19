@@ -95,9 +95,10 @@ Core’s CORS or frame policy with wildcards.
 
 The bundled standalone UI checks public browser-session status before loading
 protected data. When browser sessions are enabled, the UI exchanges an API token
-once for an HttpOnly session cookie and does not persist the token. HACS
-API-token support and Home Assistant ingress identity validation are **not**
-implemented yet.
+once for an HttpOnly session cookie and does not persist the token. The HACS
+integration may store the same Core API token and send it only from Home
+Assistant’s server-side HTTP client (never in panel/iframe URLs). Home
+Assistant ingress identity validation is **not** implemented yet.
 
 Bearer and session authentication authenticate the HTTP request. They do **not**
 replace TLS on untrusted networks.
@@ -225,8 +226,9 @@ Logout clears the browser cookie. Stolen cookies remain usable until expiry
 unless `api_token` or `session_secret` is rotated. Rotating either invalidates
 all existing sessions. The standalone UI verifies the cookie round-trip after
 login, keeps CSRF only in memory for mutations, uses credentialed SSE and
-report downloads, and never places credentials in URLs. HACS does not yet use
-browser sessions or bearer tokens.
+report downloads, and never places credentials in URLs. HACS uses bearer
+authentication for its server-side Core client; browser Open Full Dashboard /
+embedded view still use standalone session login.
 
 ## Canonical secret environment variables
 
@@ -307,7 +309,5 @@ For broader access today, consider firewall rules, Home Assistant Ingress, netwo
 
 ## Not yet implemented
 
-- Bundled UI authentication / locked-state wiring
-- HACS token configuration
 - Home Assistant ingress identity validation
 - Trusted reverse-proxy / forwarded-header identity

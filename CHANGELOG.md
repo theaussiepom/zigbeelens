@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **HACS:** optional Core API token on the config entry; server-side `Authorization: Bearer` on protected Core reads after public `/api/version` product proof
+- **HACS:** linked reauthentication and reconfigure flows for token replace/clear; `ConfigEntryAuthFailed` instead of unreachable-repair loops on HTTP 401
+- **HACS:** diagnostics expose only `api_token_configured`; token never enters panel config, websocket summary, or Open Full Dashboard / iframe URLs
 - **UI:** standalone browser authentication gate — session status before protected data, API-token unlock for HttpOnly sessions, in-memory CSRF on mutations, credentialed SSE and report downloads
 - **Security:** exact `cors_allowed_origins` / `frame_ancestor_origins` allowlists (canonical HTTP/HTTPS origins only)
 - **Security:** credentialed CORS without wildcards; pre-body Origin checks for cookie-authenticated mutations

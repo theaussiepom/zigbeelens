@@ -30,7 +30,7 @@ Run all automated checks:
 - [ ] I have decided whether to configure an API token (`ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` or legacy `ZIGBEELENS_API_KEY` config alias).
 - [ ] If a token is set, I understand protected reads, mutations, SSE, and downloads require `Authorization: Bearer` (not `X-ZigbeeLens-Api-Key`).
 - [ ] If I also set `session_secret`, I understand browser sessions use an HttpOnly cookie and cookie mutations need `X-ZigbeeLens-CSRF-Token`.
-- [ ] I understand `local` without a token is trusted-open; the bundled UI uses session login when both token and session secret are set; HACS is not yet wired to bearer credentials.
+- [ ] I understand `local` without a token is trusted-open; the bundled UI uses session login when both token and session secret are set; HACS may store the Core API token for server-side bearer reads (never in panel/iframe URLs).
 - [ ] Standalone UI: trusted-open enters directly; existing session reloads; wrong token stays locked; correct token cookie round-trip unlocks; mutations send CSRF; SSE and report download use cookies; expiry/logout return to login; API token is absent from browser storage.
 - [ ] I have checked logs/config status for accidental secret leakage.
 - [ ] If Core is reachable beyond users/networks I trust, I have intentionally added a trusted proxy/firewall (or accepted the risk).
