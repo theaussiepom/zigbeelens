@@ -28,6 +28,7 @@ from zigbeelens.security.headers import (
     SecurityHeadersMiddleware,
     cors_middleware_kwargs,
 )
+from zigbeelens.security.ingress import HomeAssistantIngressBoundaryMiddleware
 from zigbeelens.static import mount_static_ui
 
 logger = logging.getLogger(__name__)
@@ -130,9 +131,10 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
     )
-    # Last added = outermost. Security headers wrap CORS so OPTIONS preflight
-    # also receives nosniff/referrer/permissions. CORS still annotates allowed
-    # auth/CSRF/error responses before the outer header pass.
+    # Last added = outermost:
+    #   SecurityHeaders → ExactCORS → IngressBoundary → app
+    # CORS wraps ingress-boundary 401s; security headers wrap preflight and 401.
+    app.add_middleware(HomeAssistantIngressBoundaryMiddleware, config=cfg)
     app.add_middleware(ExactCORSMiddleware, **cors_middleware_kwargs(cfg))
     app.add_middleware(SecurityHeadersMiddleware, config=cfg)
 

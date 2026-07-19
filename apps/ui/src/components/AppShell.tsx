@@ -111,6 +111,7 @@ export function AppShell() {
           <div>Mode: {status?.data_mode ?? "—"}</div>
           <div>v{status?.version ?? "0.1.0"}</div>
           {auth.authMethod === "trusted_local" && <div>Trusted local access</div>}
+          {auth.authMethod === "home_assistant_ingress" && <div>Home Assistant ingress</div>}
           {auth.authMethod === "session" && sessionExpiryLabel && (
             <div title={sessionExpiryLabel}>Session expires {sessionExpiryLabel}</div>
           )}
@@ -148,6 +149,9 @@ export function AppShell() {
             )}
             {auth.authMethod === "trusted_local" && (
               <span className="hidden text-xs text-zl-muted sm:inline">Trusted local</span>
+            )}
+            {auth.authMethod === "home_assistant_ingress" && (
+              <span className="hidden text-xs text-zl-muted sm:inline">Home Assistant ingress</span>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-3">

@@ -537,6 +537,7 @@ def test_invalid_cookie_status_vs_protected(tmp_path, monkeypatch):
             "authenticated",
             "auth_method",
             "browser_session_enabled",
+            "home_assistant_ingress_enabled",
             "expires_at",
             "csrf_token",
         }
@@ -672,9 +673,11 @@ def test_typed_session_status_contract(tmp_path, monkeypatch):
             "authenticated",
             "auth_method",
             "browser_session_enabled",
+            "home_assistant_ingress_enabled",
             "expires_at",
             "csrf_token",
         }
+        assert bare["home_assistant_ingress_enabled"] is False
         assert bare["csrf_token"] is None
         assert bare["expires_at"] is None
         csrf = _login(client)

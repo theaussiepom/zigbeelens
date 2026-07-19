@@ -15,6 +15,10 @@ from zigbeelens.config.http_origin import (
 from zigbeelens.config.secret_validation import contains_control_characters
 from zigbeelens.config.security_types import SecurityMode
 from zigbeelens.mock.fixtures import DEFAULT_SCENARIO
+from zigbeelens.config.ingress_trust import (
+    InvalidIngressTrustedProxy,
+    canonicalize_ingress_trusted_proxies,
+)
 
 MIN_SECURITY_SECRET_LENGTH = API_TOKEN_MIN_LENGTH
 
@@ -51,6 +55,10 @@ class SecurityConfig(BaseModel):
     cors_allowed_origins: tuple[str, ...] = ()
     # Exact external frame ancestors. 'self' is always implied separately.
     frame_ancestor_origins: tuple[str, ...] = ()
+    # Exact ASGI peer IPs allowed to assert Home Assistant ingress identity.
+    ingress_trusted_proxies: tuple[str, ...] = ()
+    # When true, browser/static UI is available only via a trusted ingress peer.
+    ingress_proxy_only: bool = False
 
     @field_validator("api_token", mode="before")
     @classmethod
@@ -80,14 +88,32 @@ class SecurityConfig(BaseModel):
         except InvalidHttpOrigin as exc:
             raise ValueError(str(exc)) from None
 
+    @field_validator("ingress_trusted_proxies", mode="before")
+    @classmethod
+    def validate_ingress_trusted_proxies(cls, value: object) -> tuple[str, ...]:
+        try:
+            return canonicalize_ingress_trusted_proxies(value)
+        except InvalidIngressTrustedProxy as exc:
+            raise ValueError(str(exc)) from None
+
     @model_validator(mode="after")
     def validate_mode_requirements(self) -> SecurityConfig:
         if self.mode is SecurityMode.authenticated and self.api_token is None:
             raise ValueError("api_token is required when mode is authenticated")
-        if self.mode is SecurityMode.home_assistant_ingress and self.api_token is None:
-            # Temporary fail-closed bearer fallback until ingress identity lands.
+        if self.mode is SecurityMode.home_assistant_ingress:
+            if not self.ingress_trusted_proxies:
+                raise ValueError(
+                    "ingress_trusted_proxies is required when mode is "
+                    "home_assistant_ingress"
+                )
+        elif self.ingress_trusted_proxies or self.ingress_proxy_only:
             raise ValueError(
-                "api_token is required when mode is home_assistant_ingress"
+                "ingress_trusted_proxies and ingress_proxy_only require "
+                "mode=home_assistant_ingress"
+            )
+        if self.ingress_proxy_only and self.mode is not SecurityMode.home_assistant_ingress:
+            raise ValueError(
+                "ingress_proxy_only requires mode=home_assistant_ingress"
             )
         return self
 

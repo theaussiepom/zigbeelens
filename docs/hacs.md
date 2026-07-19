@@ -8,10 +8,13 @@ The Core dashboard is **canonical**. HACS does not collect MQTT or replace the d
 
 HACS can store an optional **Core API token** and sends it only as
 `Authorization: Bearer <token>` from Home Assistant’s server-side HTTP client.
-Leave the token blank for trusted-open Core. The token is never placed in the
-Core URL, panel config, websocket summary, iframe URL, or **Open Full Dashboard**
-href — those browser paths still use standalone UI session login when Core is
-protected.
+Leave the token blank for trusted-open Core. Against the Home Assistant add-on,
+configure the same optional add-on bearer-fallback token if you want HACS
+entities/native panel; the add-on ingress UI does not use that token and does
+not transfer it into HACS automatically. The token is never placed in the Core
+URL, panel config, websocket summary, iframe URL, or **Open Full Dashboard**
+href — those browser paths use ingress identity (add-on) or standalone UI
+session login (Docker/standalone).
 
 ## Install via HACS (recommended)
 

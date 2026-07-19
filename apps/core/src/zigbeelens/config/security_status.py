@@ -22,9 +22,14 @@ def build_security_config_status(config: AppConfig) -> SecurityConfigStatus:
     token_configured = config.security.api_token is not None
     bearer_enabled = bearer_auth_enabled(config)
     sessions_enabled = browser_sessions_enabled(config)
-    auth_required = bearer_enabled
-    # Deprecated fields: bearer-only when sessions are not an alternative.
-    bearer_only_required = auth_required and not sessions_enabled
+    ingress_enforced = (
+        config.security.mode is SecurityMode.home_assistant_ingress
+        and bool(config.security.ingress_trusted_proxies)
+    )
+    # Auth required when bearer, sessions, or ingress identity is active.
+    auth_required = bearer_enabled or sessions_enabled or ingress_enforced
+    # Deprecated fields: bearer-only when sessions/ingress are not alternatives.
+    bearer_only_required = auth_required and not sessions_enabled and not ingress_enforced
     cors_count = len(config.security.cors_allowed_origins)
     frame_count = len(config.security.frame_ancestor_origins)
     return SecurityConfigStatus(
@@ -40,7 +45,10 @@ def build_security_config_status(config: AppConfig) -> SecurityConfigStatus:
         mutation_routes_require_authentication=auth_required,
         read_routes_require_bearer=bearer_only_required,
         mutation_routes_require_bearer=bearer_only_required,
-        ingress_identity_enforced=False,
+        ingress_identity_enforced=ingress_enforced,
+        ingress_trusted_proxy_count=len(config.security.ingress_trusted_proxies),
+        ingress_proxy_only=bool(config.security.ingress_proxy_only),
+        ingress_bearer_fallback_enabled=ingress_enforced and token_configured,
         trusted_local_open=trusted_local_open(config),
         legacy_mutation_guard_enabled=False,
         cors_allowed_origins_count=cors_count,
@@ -60,7 +68,9 @@ def log_security_posture(config: AppConfig) -> None:
         "session_secret_configured=%s bearer_auth_enabled=%s "
         "browser_session_enabled=%s csrf_protection_enabled=%s "
         "session_cookie_secure=%s session_ttl_seconds=%s trusted_local_open=%s "
-        "ingress_identity_enforced=%s cors_allowed_origins_count=%s "
+        "ingress_identity_enforced=%s ingress_trusted_proxy_count=%s "
+        "ingress_proxy_only=%s ingress_bearer_fallback_enabled=%s "
+        "cors_allowed_origins_count=%s "
         "credentialed_cors_enabled=%s frame_ancestor_origins_count=%s "
         "external_framing_enabled=%s content_security_policy_enabled=%s "
         "session_origin_validation_enabled=%s",
@@ -75,6 +85,9 @@ def log_security_posture(config: AppConfig) -> None:
         config.security.session_ttl_seconds,
         status.trusted_local_open,
         status.ingress_identity_enforced,
+        status.ingress_trusted_proxy_count,
+        status.ingress_proxy_only,
+        status.ingress_bearer_fallback_enabled,
         status.cors_allowed_origins_count,
         status.credentialed_cors_enabled,
         status.frame_ancestor_origins_count,
@@ -148,7 +161,7 @@ def log_security_posture(config: AppConfig) -> None:
             status.session_cookie_secure,
             config.security.session_ttl_seconds,
         )
-    elif status.bearer_auth_enabled:
+    elif status.bearer_auth_enabled and not status.ingress_identity_enforced:
         logger.info(
             "Bearer authentication is enabled: protected reads, mutations, SSE, and "
             "report downloads require Authorization: Bearer. Browser sessions are "
@@ -160,10 +173,23 @@ def log_security_posture(config: AppConfig) -> None:
             "security.mode=authenticated: protected routes require Authorization: Bearer."
         )
 
-    if status.mode is SecurityMode.home_assistant_ingress:
-        logger.warning(
-            "security.mode=home_assistant_ingress: temporary bearer/session "
-            "authentication fallback may operate; Home Assistant ingress identity "
-            "validation is not active. Do not treat arbitrary reverse-proxy headers "
-            "as authenticated."
+    if status.ingress_identity_enforced:
+        logger.info(
+            "Home Assistant ingress identity is enforced for exact trusted peers. "
+            "Protected ingress requests require a Supervisor-provided user identity. "
+            "ingress_trusted_proxy_count=%s ingress_proxy_only=%s "
+            "ingress_bearer_fallback_enabled=%s.",
+            status.ingress_trusted_proxy_count,
+            status.ingress_proxy_only,
+            status.ingress_bearer_fallback_enabled,
         )
+        if not status.ingress_bearer_fallback_enabled:
+            logger.info(
+                "Direct bearer API/HACS access is disabled because no API token is "
+                "configured in home_assistant_ingress mode."
+            )
+        else:
+            logger.info(
+                "Direct bearer fallback is enabled for API/HACS clients; the ingress "
+                "UI does not use that token."
+            )

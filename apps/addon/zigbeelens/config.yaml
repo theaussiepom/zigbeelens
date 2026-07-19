@@ -12,6 +12,8 @@ boot: auto
 init: false
 ingress: true
 ingress_port: 8377
+ingress_stream: true
+panel_admin: true
 panel_icon: mdi:zigbee
 panel_title: ZigbeeLens
 webui: null
@@ -21,6 +23,8 @@ hassio_api: false
 homeassistant_api: false
 host_network: false
 options:
+  security:
+    api_token: ""
   mqtt:
     host: core-mosquitto
     port: 1883
@@ -84,6 +88,8 @@ options:
     max_snapshots_per_network: 30
     warn_before_capture: true
 schema:
+  security:
+    api_token: password?
   mqtt:
     host: str
     port: port

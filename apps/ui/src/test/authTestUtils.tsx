@@ -29,6 +29,7 @@ export function sessionStatus(overrides: Record<string, unknown> = {}) {
     authenticated: false,
     auth_method: null,
     browser_session_enabled: true,
+    home_assistant_ingress_enabled: false,
     expires_at: null,
     csrf_token: null,
     ...overrides,
@@ -89,6 +90,11 @@ export function seedSessionAuth(csrf = testCsrf("seed")): void {
 export function seedTrustedLocal(): void {
   clearSessionTransportCredentials();
   authRuntime.setTrustedLocal(false);
+}
+
+export function seedHomeAssistantIngress(): void {
+  clearSessionTransportCredentials();
+  authRuntime.setHomeAssistantIngress();
 }
 
 type Options = Omit<RenderOptions, "wrapper"> & {

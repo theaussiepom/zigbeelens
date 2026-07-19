@@ -48,6 +48,9 @@ def test_security_status_booleans_only():
         "read_routes_require_bearer": False,
         "mutation_routes_require_bearer": False,
         "ingress_identity_enforced": False,
+        "ingress_trusted_proxy_count": 0,
+        "ingress_proxy_only": False,
+        "ingress_bearer_fallback_enabled": False,
         "trusted_local_open": False,
         "legacy_mutation_guard_enabled": False,
         "cors_allowed_origins_count": 0,
@@ -148,17 +151,38 @@ def test_startup_posture_authenticated_bearer_enforced(caplog):
     assert VALID_TOKEN not in caplog.text
 
 
-def test_startup_posture_ingress_bearer_fallback_warning(caplog):
+def test_startup_posture_ingress_identity_enforced(caplog):
+    config = AppConfig(
+        security=SecurityConfig(
+            mode=SecurityMode.home_assistant_ingress,
+            ingress_trusted_proxies=["172.30.32.2"],
+            ingress_proxy_only=True,
+        )
+    )
+    with caplog.at_level(logging.INFO):
+        log_security_posture(config)
+    assert "Home Assistant ingress identity is enforced" in caplog.text
+    assert "ingress_trusted_proxy_count=1" in caplog.text
+    assert "ingress_proxy_only=True" in caplog.text
+    assert "Direct bearer API/HACS access is disabled" in caplog.text
+    assert "temporary bearer/session" not in caplog.text
+    assert "172.30.32.2" not in caplog.text
+
+
+def test_startup_posture_ingress_bearer_fallback_enabled(caplog):
     config = AppConfig(
         security=SecurityConfig(
             mode=SecurityMode.home_assistant_ingress,
             api_token=VALID_TOKEN,
+            ingress_trusted_proxies=["172.30.32.2"],
         )
     )
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.INFO):
         log_security_posture(config)
-    assert "temporary bearer/session" in caplog.text
-    assert "ingress identity validation is not" in caplog.text
+    assert "ingress_bearer_fallback_enabled=True" in caplog.text
+    assert "Direct bearer fallback is enabled" in caplog.text
+    assert VALID_TOKEN not in caplog.text
+    assert "172.30.32.2" not in caplog.text
 
 
 def test_bootstrap_logs_posture_without_secrets(tmp_path, monkeypatch, caplog):

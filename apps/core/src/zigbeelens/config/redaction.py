@@ -31,6 +31,13 @@ _EXACT_SECRET_KEYS = frozenset(
         "install_code",
         # Fixed browser-session authentication cookie / query key.
         SESSION_COOKIE_NAME,
+        # Private Home Assistant ingress identity metadata (not bearer secrets).
+        "x_remote_user_id",
+        "x_remote_user_name",
+        "x_remote_user_display_name",
+        "remote_user_id",
+        "remote_user_name",
+        "remote_user_display_name",
     }
 )
 

@@ -108,6 +108,96 @@ describe("BrowserAuthGate", () => {
     expect("applySessionCsrf" in authRuntime).toBe(false);
   });
 
+  it("home_assistant_ingress unlocks without Sign out", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          sessionStatus({
+            authenticated: true,
+            auth_method: "home_assistant_ingress",
+            browser_session_enabled: false,
+            home_assistant_ingress_enabled: true,
+          }),
+        ),
+      ),
+    );
+    renderWithAuth(
+      <>
+        <AuthProbe />
+        <ProtectedMarker />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId("phase")).toHaveTextContent("authenticated"));
+    expect(screen.getByTestId("method")).toHaveTextContent("home_assistant_ingress");
+    expect(screen.getByTestId("protected-data")).toBeInTheDocument();
+    expect(isSessionTransportActive()).toBe(false);
+    expect(screen.queryByRole("button", { name: /Sign out/i })).not.toBeInTheDocument();
+  });
+
+  it("ingress required when unauthenticated with sessions disabled and ingress enabled", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(
+        sessionStatus({
+          authenticated: false,
+          browser_session_enabled: false,
+          home_assistant_ingress_enabled: true,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithAuth(<ProtectedMarker />);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: /Open ZigbeeLens through Home Assistant/i }),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/API token/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Sign in|Unlock|Continue/i })).not.toBeInTheDocument();
+    expect(isSessionTransportActive()).toBe(false);
+    // No session bootstrap POST and no protected API reads after the public probe.
+    expect(
+      fetchMock.mock.calls.some(([, init]) => String(init?.method || "GET").toUpperCase() === "POST"),
+    ).toBe(false);
+    expect(
+      fetchMock.mock.calls.some(([url]) => {
+        const href = String(url);
+        return (
+          href.includes("/api/dashboard") ||
+          href.includes("/api/events") ||
+          href.includes("/api/reports")
+        );
+      }),
+    ).toBe(false);
+  });
+
+  it("ingress required for untrusted proxy-only effective status shape", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          sessionStatus({
+            authenticated: false,
+            auth_method: null,
+            browser_session_enabled: false,
+            home_assistant_ingress_enabled: true,
+            expires_at: null,
+            csrf_token: null,
+          }),
+        ),
+      ),
+    );
+    renderWithAuth(<ProtectedMarker />);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: /Open ZigbeeLens through Home Assistant/i }),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByLabelText(/API token/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("protected-data")).not.toBeInTheDocument();
+  });
+
   it("valid session unlocks and keeps CSRF transport-private", async () => {
     const expiry = futureExpiry();
     vi.stubGlobal(
@@ -192,6 +282,7 @@ describe("BrowserAuthGate", () => {
           authenticated: true,
           auth_method: "bearer",
           browser_session_enabled: false,
+          home_assistant_ingress_enabled: false,
           expires_at: null,
           csrf_token: null,
         }),

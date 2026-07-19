@@ -90,6 +90,7 @@ def _session_status_body(
     authenticated: bool,
     auth_method: str | None,
     browser_session_enabled: bool,
+    home_assistant_ingress_enabled: bool = False,
     expires_at: str | None = None,
     csrf_token: str | None = None,
 ) -> BrowserSessionStatus:
@@ -97,6 +98,7 @@ def _session_status_body(
         authenticated=authenticated,
         auth_method=auth_method,  # type: ignore[arg-type]
         browser_session_enabled=browser_session_enabled,
+        home_assistant_ingress_enabled=home_assistant_ingress_enabled,
         expires_at=expires_at,
         csrf_token=csrf_token,
     )
@@ -106,11 +108,22 @@ def _session_status_body(
 def get_auth_session(request: Request, response: Response) -> BrowserSessionStatus:
     """Public session status — never requires bearer merely to inspect state."""
     from zigbeelens.api.auth import _extract_bearer_token, _token_matches, _unauthorized
-    from zigbeelens.config.security_types import browser_sessions_enabled, trusted_local_open
+    from zigbeelens.config.security_types import (
+        SecurityMode,
+        browser_sessions_enabled,
+        trusted_local_open,
+    )
+    from zigbeelens.security.ingress import (
+        browser_session_available_for_request,
+        get_ingress_identity_from_request_state,
+        trusted_ingress_peer_without_identity,
+    )
 
     ctx = get_context()
     manager = ctx.session_manager
-    enabled = browser_sessions_enabled(ctx.config)
+    configured_sessions = browser_sessions_enabled(ctx.config)
+    effective_sessions = browser_session_available_for_request(request, ctx.config)
+    ingress_enabled = ctx.config.security.mode is SecurityMode.home_assistant_ingress
     apply_no_store(response)
 
     # Malformed/wrong Authorization still fails closed with uniform 401.
@@ -124,7 +137,35 @@ def get_auth_session(request: Request, response: Response) -> BrowserSessionStat
         return _session_status_body(
             authenticated=True,
             auth_method="bearer",
-            browser_session_enabled=enabled,
+            browser_session_enabled=configured_sessions,
+            home_assistant_ingress_enabled=ingress_enabled,
+        )
+
+    ingress = get_ingress_identity_from_request_state(request.state)
+    if ingress is not None:
+        return _session_status_body(
+            authenticated=True,
+            auth_method="home_assistant_ingress",
+            browser_session_enabled=configured_sessions,
+            home_assistant_ingress_enabled=True,
+        )
+
+    # Trusted peer without identity: ingress-required; ignore any Core cookie.
+    if trusted_ingress_peer_without_identity(request.state):
+        return _session_status_body(
+            authenticated=False,
+            auth_method=None,
+            browser_session_enabled=False,
+            home_assistant_ingress_enabled=True,
+        )
+
+    # Untrusted proxy-only: cookies cannot authorize protected routes.
+    if ingress_enabled and ctx.config.security.ingress_proxy_only:
+        return _session_status_body(
+            authenticated=False,
+            auth_method=None,
+            browser_session_enabled=False,
+            home_assistant_ingress_enabled=True,
         )
 
     if trusted_local_open(ctx.config):
@@ -132,6 +173,15 @@ def get_auth_session(request: Request, response: Response) -> BrowserSessionStat
             authenticated=True,
             auth_method="trusted_local",
             browser_session_enabled=False,
+            home_assistant_ingress_enabled=False,
+        )
+
+    if ingress_enabled and not effective_sessions:
+        return _session_status_body(
+            authenticated=False,
+            auth_method=None,
+            browser_session_enabled=False,
+            home_assistant_ingress_enabled=True,
         )
 
     try:
@@ -141,7 +191,8 @@ def get_auth_session(request: Request, response: Response) -> BrowserSessionStat
         return _session_status_body(
             authenticated=False,
             auth_method=None,
-            browser_session_enabled=enabled,
+            browser_session_enabled=effective_sessions,
+            home_assistant_ingress_enabled=ingress_enabled,
         )
 
     claims = try_load_session_claims(request)
@@ -151,13 +202,15 @@ def get_auth_session(request: Request, response: Response) -> BrowserSessionStat
         return _session_status_body(
             authenticated=False,
             auth_method=None,
-            browser_session_enabled=enabled,
+            browser_session_enabled=effective_sessions,
+            home_assistant_ingress_enabled=ingress_enabled,
         )
 
     return _session_status_body(
         authenticated=True,
         auth_method="session",
-        browser_session_enabled=enabled,
+        browser_session_enabled=effective_sessions,
+        home_assistant_ingress_enabled=ingress_enabled,
         expires_at=manager.expires_at_iso(claims),
         csrf_token=manager.issue_csrf_token(claims.session_id),
     )

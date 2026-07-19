@@ -32,7 +32,8 @@ Before release testing, confirm you understand:
 - Core may require `Authorization: Bearer` for protected API routes when an API token is configured
 - Optional browser sessions need both API token and session secret; cookie mutations need exact `Origin` and `X-ZigbeeLens-CSRF-Token`
 - The bundled UI uses session login when both are configured; bearer-only Core shows a UI setup-required state
-- Ingress identity enforcement is not implemented yet
+- Add-on ingress identity: open UI through HA panel without API token; SSE and report download work; spoofed identity from another peer fails; optional bearer token enables HACS/direct API
+- Diagnostics/logs contain neither API token nor Home Assistant user ID
 - ZigbeeLens is **read-only for Zigbee control** (no permit join, remove, reset, bind/unbind, OTA, or channel changes)
 - Some Core API routes modify **ZigbeeLens local data only** (reports, topology snapshots, HA enrichment)
 - If Core is reachable beyond users or networks you trust, **access-control decisions are your responsibility**

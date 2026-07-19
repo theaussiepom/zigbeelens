@@ -105,6 +105,7 @@ describe("credential-aware Core fetch", () => {
         authenticated: true,
         auth_method: "session",
         browser_session_enabled: true,
+        home_assistant_ingress_enabled: false,
         expires_at: futureExpiry(),
         csrf_token: "e30.new",
       }),

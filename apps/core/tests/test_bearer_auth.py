@@ -122,20 +122,27 @@ def test_authenticated_mode_enforces_bearer(tmp_path, monkeypatch):
         assert client.get("/healthz").status_code == 200
 
 
-def test_ingress_mode_requires_token_and_uses_bearer_fallback(tmp_path, monkeypatch):
+def test_ingress_mode_requires_trusted_proxies_and_allows_bearer_fallback(
+    tmp_path, monkeypatch
+):
     cfg = tmp_path / "config.yaml"
     _write_config(cfg, security="security:\n  mode: home_assistant_ingress\n")
     monkeypatch.setenv("ZIGBEELENS_CONFIG", str(cfg))
     from zigbeelens.config import ConfigError, load_config
 
-    with pytest.raises(ConfigError, match="api_token"):
+    with pytest.raises(ConfigError, match="ingress_trusted_proxies"):
         load_config(cfg)
 
     with _client(
         tmp_path,
         monkeypatch,
         security=(
-            f"security:\n  mode: home_assistant_ingress\n  api_token: {VALID_TOKEN}\n"
+            "security:\n"
+            "  mode: home_assistant_ingress\n"
+            f"  api_token: {VALID_TOKEN}\n"
+            "  ingress_trusted_proxies:\n"
+            "    - 172.30.32.2\n"
+            "  ingress_proxy_only: false\n"
         ),
     ) as client:
         _assert_uniform_401(
@@ -146,8 +153,14 @@ def test_ingress_mode_requires_token_and_uses_bearer_fallback(tmp_path, monkeypa
         )
         assert client.get("/api/dashboard", headers=_bearer()).status_code == 200
         status = client.get("/api/config/status", headers=_bearer()).json()["security"]
-        assert status["ingress_identity_enforced"] is False
+        assert status["ingress_identity_enforced"] is True
+        assert status["ingress_trusted_proxy_count"] == 1
+        assert status["ingress_bearer_fallback_enabled"] is True
         assert status["bearer_auth_enabled"] is True
+        assert status["read_routes_require_bearer"] is False
+        assert "172.30.32.2" not in client.get(
+            "/api/config/status", headers=_bearer()
+        ).text
 
 
 @pytest.mark.parametrize(
@@ -323,7 +336,9 @@ def test_capabilities_advertise_auth_support_not_token_state(mock_client: TestCl
     assert caps["content_security_policy"] is True
     assert caps["frame_ancestor_allowlist"] is True
     assert caps["browser_origin_validation"] is True
-    assert caps["home_assistant_ingress_identity"] is False
+    assert caps["home_assistant_ingress_identity"] is True
+    assert caps["trusted_ingress_peer_enforcement"] is True
+    assert caps["ingress_browser_authentication"] is True
 
 
 def test_openapi_protected_when_enabled(tmp_path, monkeypatch):

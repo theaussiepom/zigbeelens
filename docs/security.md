@@ -52,8 +52,9 @@ trust disabled (`proxy_headers=False`). `X-Forwarded-Proto`,
 `X-Forwarded-For`, and `Forwarded` do **not** rewrite the ASGI request scheme,
 client, or Host used for Origin validation. External ASGI runners must likewise
 disable forwarding-header rewriting unless they intentionally own a reviewed
-proxy-trust policy. Trusted reverse-proxy networks and Home Assistant ingress
-identity remain deferred.
+proxy-trust policy. Generic reverse-proxy / `X-Forwarded-*` trust remains
+disabled. The only reviewed peer trust is exact Home Assistant Supervisor
+ingress identity (see below).
 
 Behind a TLS-terminating proxy, Core commonly sees:
 
@@ -97,8 +98,9 @@ The bundled standalone UI checks public browser-session status before loading
 protected data. When browser sessions are enabled, the UI exchanges an API token
 once for an HttpOnly session cookie and does not persist the token. The HACS
 integration may store the same Core API token and send it only from Home
-Assistant’s server-side HTTP client (never in panel/iframe URLs). Home
-Assistant ingress identity validation is **not** implemented yet.
+Assistant’s server-side HTTP client (never in panel/iframe URLs). The Home
+Assistant add-on UI authenticates through Supervisor ingress identity (exact
+trusted peer + `X-Remote-User-Id`); no API token is required to open that UI.
 
 Bearer and session authentication authenticate the HTTP request. They do **not**
 replace TLS on untrusted networks.
@@ -113,7 +115,23 @@ Configured under `security.mode` (or `ZIGBEELENS_SECURITY_MODE`):
 | `local` with `api_token` only | Bearer-only | Bearer required for protected routes |
 | `local` with `api_token` + `session_secret` | Bearer + browser sessions | Bearer or HttpOnly session; CSRF on cookie mutations |
 | `authenticated` | Credentials required in config | `api_token` mandatory; optional `session_secret` enables browser sessions |
-| `home_assistant_ingress` | Intended HA ingress deploy | Temporary bearer/session fallback (`api_token` mandatory). Ingress identity headers are **not** trusted yet. |
+| `home_assistant_ingress` | HA add-on / ingress deploy | Exact ASGI peer trust + Supervisor `X-Remote-User-Id`. `api_token` optional (bearer fallback for HACS/direct API). |
+
+### Home Assistant ingress identity
+
+When `security.mode=home_assistant_ingress`:
+
+- Configure exact `ingress_trusted_proxies` IP literals (add-on uses `172.30.32.2` only).
+- Core trusts Supervisor-injected `X-Remote-User-Id` **only** from that immediate ASGI peer.
+- Client-supplied remote-user headers from any other peer are stripped and never authenticate.
+- `X-Forwarded-For`, `X-Real-IP`, and `Forwarded` never change peer trust.
+- Username / display-name headers are not authentication inputs and are stripped.
+- Home Assistant user IDs never appear in status, logs, reports, or UI responses.
+- Add-on posture sets `ingress_proxy_only: true` so the browser UI is ingress-only; public `/healthz` and `/api/version` remain available; optional bearer still works for HACS/direct clients.
+- Ingress-authenticated mutations do not use Core browser-session CSRF (identity is server-asserted by Supervisor). Session CSRF is unchanged for `auth_method=session`.
+- Authorization header presence always takes precedence (valid bearer → bearer; malformed/wrong → 401 with no ingress fallback).
+
+The Supervisor panel remains admin-only (`panel_admin: true`). Core validates the trusted user ID and does not query Home Assistant roles.
 
 Missing required credentials fail closed at config load. Core does **not** auto-generate secrets at startup and does not persist generated secrets into SQLite or YAML.
 
@@ -282,13 +300,13 @@ It **must not** be combined with `ZIGBEELENS_SECURITY_API_TOKEN` or `ZIGBEELENS_
 
 ## Client compatibility notes
 
-| Client | `local` without token | Token configured / `authenticated` |
-|--------|------------------------|------------------------------------|
-| Direct API (`curl`, scripts) | Open | Use `Authorization: Bearer` |
-| Bundled UI | Trusted-open enters directly | Token login when `session_secret` is set; bearer-only Core shows setup-required |
-| HACS integration | Works | Token configuration not implemented yet |
+| Client | `local` without token | Token / sessions | Add-on ingress mode |
+|--------|------------------------|------------------|---------------------|
+| Direct API (`curl`, scripts) | Open | Use `Authorization: Bearer` | Bearer only when optional add-on token is set |
+| Bundled UI | Trusted-open enters directly | Token login when `session_secret` is set | Opens through HA ingress; no token form |
+| HACS integration | Works | Configure the same Core API token | Configure the same optional add-on bearer token separately |
 
-Do not weaken bearer protection to preserve unauthenticated clients in authenticated mode.
+Do not weaken bearer protection to preserve unauthenticated clients in authenticated mode. The add-on does not auto-copy tokens into HACS.
 
 ## Health probes
 
@@ -301,13 +319,12 @@ Do not weaken bearer protection to preserve unauthenticated clients in authentic
 
 | Install | Exposure |
 |---------|----------|
-| HAOS add-on | Via Home Assistant Ingress — inherits HA access controls; Core ingress-identity enforcement is not active yet |
-| Docker standalone | Port 8377 when published — prefer loopback publish or a trusted authenticated reverse proxy |
+| HAOS add-on | Via Home Assistant Ingress — Supervisor panel admin-only; Core enforces exact Supervisor peer identity |
+| Docker standalone | Port 8377 when published — prefer loopback publish or a reviewed authenticated reverse proxy |
 | Dev | Loopback by default |
 
 For broader access today, consider firewall rules, Home Assistant Ingress, network isolation, or an authenticated reverse proxy. HTTPS may help with embedding, but **HTTPS is not authentication**.
 
 ## Not yet implemented
 
-- Home Assistant ingress identity validation
-- Trusted reverse-proxy / forwarded-header identity
+- Generic trusted reverse-proxy / forwarded-header identity (intentionally out of scope)

@@ -3,18 +3,27 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
+from pathlib import Path
 
 import pytest
 import yaml
 
 from zigbeelens.config.addon import (
     build_mqtt_server,
+    extract_optional_api_token,
+    install_optional_api_token_file,
     mqtt_server_uri,
     options_to_app_config,
     options_to_config_dict,
     options_to_yaml,
     safe_startup_log_lines,
 )
+from zigbeelens.config.ingress_trust import ADDON_SUPERVISOR_INGRESS_PEER
+from zigbeelens.config.security_types import SecurityMode
+
+VALID_TOKEN = "d" * 32
 
 
 def _sample_options(**overrides) -> dict:
@@ -71,21 +80,37 @@ def test_options_to_config_dict_maps_networks_and_storage():
     assert cfg["reporting"]["default_profile"] == "public_safe"
 
 
-def test_options_to_yaml_roundtrip():
-    opts = _sample_options()
-    parsed = yaml.safe_load(options_to_yaml(opts))
+def test_generated_security_is_home_assistant_ingress():
+    cfg = options_to_config_dict(_sample_options())
+    assert cfg["security"]["mode"] == "home_assistant_ingress"
+    assert cfg["security"]["ingress_trusted_proxies"] == [ADDON_SUPERVISOR_INGRESS_PEER]
+    assert cfg["security"]["ingress_proxy_only"] is True
+    assert "api_token" not in cfg["security"]
+    assert ADDON_SUPERVISOR_INGRESS_PEER == "172.30.32.2"
+
+
+def test_options_to_yaml_roundtrip_omits_api_token():
+    opts = _sample_options(security={"api_token": VALID_TOKEN})
+    raw = options_to_yaml(opts)
+    parsed = yaml.safe_load(raw)
     assert parsed["mqtt"]["password"] == "secret-pass"
     assert parsed["networks"][1]["id"] == "shed"
+    assert "api_token" not in raw
+    assert VALID_TOKEN not in raw
+    assert parsed["security"]["mode"] == "home_assistant_ingress"
+    assert parsed["security"]["ingress_trusted_proxies"] == ["172.30.32.2"]
 
 
-def test_options_to_app_config_validates():
+def test_options_to_app_config_validates_ingress():
     cfg = options_to_app_config(_sample_options())
     assert cfg.mode.mock is False
     assert cfg.mqtt.password.get_secret_value() == "secret-pass"
     assert len(cfg.networks) == 2
     assert cfg.server.host == "0.0.0.0"
-    assert cfg.security.mode.value == "local"
+    assert cfg.security.mode is SecurityMode.home_assistant_ingress
     assert cfg.security.api_token is None
+    assert cfg.security.ingress_trusted_proxies == ("172.30.32.2",)
+    assert cfg.security.ingress_proxy_only is True
 
 
 def test_requires_at_least_one_network():
@@ -93,12 +118,70 @@ def test_requires_at_least_one_network():
         options_to_config_dict(_sample_options(networks=[]))
 
 
-def test_safe_startup_log_never_includes_password():
-    logs = "\n".join(safe_startup_log_lines(_sample_options()))
+def test_safe_startup_log_never_includes_password_or_token():
+    logs = "\n".join(
+        safe_startup_log_lines(
+            _sample_options(security={"api_token": VALID_TOKEN}),
+            bearer_fallback_configured=True,
+        )
+    )
     assert "secret-pass" not in logs
+    assert VALID_TOKEN not in logs
     assert "core-mosquitto" in logs
     assert "/data/zigbeelens/zigbeelens.sqlite" in logs
     assert "home" in logs
+    assert "Security mode: home_assistant_ingress" in logs
+    assert "Ingress proxy-only: True" in logs
+    assert "Direct bearer fallback configured: True" in logs
+    assert "172.30.32.2" not in logs
+
+
+def test_optional_api_token_file_install_and_remove(tmp_path: Path):
+    secrets = tmp_path / "secrets"
+    token_file = secrets / "api_token"
+    opts = _sample_options(security={"api_token": VALID_TOKEN})
+    old_umask = os.umask(0o000)
+    try:
+        assert install_optional_api_token_file(
+            opts, secrets_dir=secrets, token_file=token_file
+        )
+    finally:
+        os.umask(old_umask)
+    assert token_file.read_text(encoding="utf-8") == VALID_TOKEN
+    assert "\n" not in token_file.read_text(encoding="utf-8")
+    mode = stat.S_IMODE(token_file.stat().st_mode)
+    assert mode == 0o600
+    dir_mode = stat.S_IMODE(secrets.stat().st_mode)
+    assert dir_mode == 0o700
+
+    blank = _sample_options(security={"api_token": ""})
+    assert not install_optional_api_token_file(
+        blank, secrets_dir=secrets, token_file=token_file
+    )
+    assert not token_file.exists()
+
+
+def test_optional_api_token_file_replaces_symlink(tmp_path: Path):
+    secrets = tmp_path / "secrets"
+    secrets.mkdir(mode=0o700)
+    outside = tmp_path / "outside_target"
+    outside.write_text("stale", encoding="utf-8")
+    token_file = secrets / "api_token"
+    token_file.symlink_to(outside)
+    opts = _sample_options(security={"api_token": VALID_TOKEN})
+    assert install_optional_api_token_file(
+        opts, secrets_dir=secrets, token_file=token_file
+    )
+    assert token_file.is_symlink() is False
+    assert token_file.read_text(encoding="utf-8") == VALID_TOKEN
+    assert outside.read_text(encoding="utf-8") == "stale"
+
+
+def test_malformed_optional_token_rejected_without_echo():
+    bad = "short-bad-token"
+    with pytest.raises(ValueError) as exc_info:
+        extract_optional_api_token(_sample_options(security={"api_token": bad}))
+    assert bad not in str(exc_info.value)
 
 
 def test_generated_config_is_live_mode():
@@ -110,3 +193,18 @@ def test_options_json_fixture():
     raw = json.dumps(_sample_options())
     cfg = options_to_config_dict(json.loads(raw))
     assert cfg["mqtt"]["username"] == "zigbeelens"
+
+
+def test_addon_config_yaml_panel_admin_and_ingress_stream():
+    addon_cfg = Path(__file__).resolve().parents[2] / "addon" / "zigbeelens" / "config.yaml"
+    raw = yaml.safe_load(addon_cfg.read_text(encoding="utf-8"))
+    assert raw["panel_admin"] is True
+    assert raw["ingress"] is True
+    assert raw["ingress_stream"] is True
+    assert raw["ingress_port"] == 8377
+    assert raw["ports"] == {}
+    assert raw["host_network"] is False
+    assert raw["hassio_api"] is False
+    assert raw["homeassistant_api"] is False
+    assert raw["options"]["security"]["api_token"] == ""
+    assert "api_token" in raw["schema"]["security"]

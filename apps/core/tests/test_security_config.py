@@ -54,6 +54,11 @@ def test_default_security_mode_and_host():
 def test_security_modes_parse(value: str, expected: SecurityMode):
     if expected is SecurityMode.local:
         cfg = SecurityConfig(mode=value)
+    elif expected is SecurityMode.home_assistant_ingress:
+        cfg = SecurityConfig(
+            mode=value,
+            ingress_trusted_proxies=["172.30.32.2"],
+        )
     else:
         cfg = SecurityConfig(mode=value, api_token=VALID_TOKEN)
     assert cfg.mode is expected
@@ -71,9 +76,36 @@ def test_authenticated_mode_requires_token():
         SecurityConfig(mode=SecurityMode.authenticated)
 
 
-def test_home_assistant_ingress_mode_requires_token():
-    with pytest.raises(ValidationError, match="api_token is required"):
+def test_home_assistant_ingress_mode_requires_trusted_proxies():
+    with pytest.raises(ValidationError, match="ingress_trusted_proxies"):
         SecurityConfig(mode=SecurityMode.home_assistant_ingress)
+
+
+def test_home_assistant_ingress_mode_allows_optional_token():
+    cfg = SecurityConfig(
+        mode=SecurityMode.home_assistant_ingress,
+        ingress_trusted_proxies=["172.30.32.2"],
+    )
+    assert cfg.api_token is None
+    assert cfg.ingress_trusted_proxies == ("172.30.32.2",)
+    cfg_with_token = SecurityConfig(
+        mode=SecurityMode.home_assistant_ingress,
+        api_token=VALID_TOKEN,
+        ingress_trusted_proxies=["172.30.32.2"],
+        ingress_proxy_only=True,
+    )
+    assert cfg_with_token.api_token is not None
+    assert cfg_with_token.ingress_proxy_only is True
+
+
+def test_ingress_proxies_rejected_outside_ingress_mode():
+    with pytest.raises(ValidationError, match="ingress_trusted_proxies"):
+        SecurityConfig(
+            mode=SecurityMode.local,
+            ingress_trusted_proxies=["172.30.32.2"],
+        )
+    with pytest.raises(ValidationError, match="ingress_proxy_only"):
+        SecurityConfig(mode=SecurityMode.local, ingress_proxy_only=True)
 
 
 def test_valid_token_accepted_and_masked():
@@ -280,12 +312,20 @@ def test_legacy_api_key_alone_resolves(tmp_path: Path, monkeypatch):
 
 def test_security_mode_environment_override(tmp_path: Path, monkeypatch):
     cfg_file = tmp_path / "config.yaml"
-    _write_base_config(cfg_file)
+    _write_base_config(
+        cfg_file,
+        """
+security:
+  ingress_trusted_proxies:
+    - 172.30.32.2
+""",
+    )
     monkeypatch.setenv("ZIGBEELENS_SECURITY_MODE", "home_assistant_ingress")
     monkeypatch.setenv("ZIGBEELENS_SECURITY_API_TOKEN", VALID_TOKEN)
     config = load_config(cfg_file)
     assert config.security.mode is SecurityMode.home_assistant_ingress
     assert config.security.api_token is not None
+    assert config.security.ingress_trusted_proxies == ("172.30.32.2",)
 
 
 def test_authenticated_mode_env_without_token_fails(tmp_path: Path, monkeypatch):
@@ -298,13 +338,13 @@ def test_authenticated_mode_env_without_token_fails(tmp_path: Path, monkeypatch)
     assert VALID_TOKEN not in str(exc_info.value)
 
 
-def test_ingress_mode_env_without_token_fails(tmp_path: Path, monkeypatch):
+def test_ingress_mode_env_without_trusted_proxies_fails(tmp_path: Path, monkeypatch):
     cfg_file = tmp_path / "config.yaml"
     _write_base_config(cfg_file)
     monkeypatch.setenv("ZIGBEELENS_SECURITY_MODE", "home_assistant_ingress")
     with pytest.raises(ConfigError) as exc_info:
         load_config(cfg_file)
-    assert "api_token" in str(exc_info.value)
+    assert "ingress_trusted_proxies" in str(exc_info.value)
     assert VALID_TOKEN not in str(exc_info.value)
 
 

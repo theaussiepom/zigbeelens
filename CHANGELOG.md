@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Security:** Home Assistant ingress identity — exact ASGI peer trust, Supervisor `X-Remote-User-Id`, request-local identity, proxy-only add-on boundary
+- **Security:** `ingress_trusted_proxies` / `ingress_proxy_only` on `SecurityConfig`; optional `api_token` bearer fallback in ingress mode
+- **Add-on:** generates `security.mode=home_assistant_ingress` with Supervisor peer `172.30.32.2`, `ingress_proxy_only`, `panel_admin`, `ingress_stream`
+- **Add-on:** optional `security.api_token` via secret file + `ZIGBEELENS_SECURITY_API_TOKEN_FILE` (never in generated YAML)
+- **UI:** Home Assistant ingress auth method unlocks without token/CSRF/Sign out; ingress-required guidance when opened outside ingress
+- **Capabilities / status:** `home_assistant_ingress_identity`, trusted-peer enforcement, ingress browser authentication; secret-free ingress posture fields
 - **HACS:** optional Core API token on the config entry; server-side `Authorization: Bearer` on protected Core reads after public `/api/version` product proof
 - **HACS:** linked reauthentication and reconfigure flows for token replace/clear; `ConfigEntryAuthFailed` instead of unreachable-repair loops on HTTP 401
 - **HACS:** diagnostics expose only `api_token_configured`; token never enters panel config, websocket summary, or Open Full Dashboard / iframe URLs
@@ -36,7 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Security:** when an API token is configured, all protected routes require Bearer (no mutation-only semantics; `X-ZigbeeLens-Api-Key` removed)
-- **Security:** `home_assistant_ingress` requires `api_token` as a temporary fail-closed bearer fallback
+- **Security:** `home_assistant_ingress` no longer requires `api_token`; ingress identity is the primary add-on UI auth method
+- **Security:** capabilities advertise ingress identity support as implemented
 - **Security:** source/default `server.host` is loopback (`127.0.0.1`); Docker/add-on configs keep explicit `0.0.0.0`
 - **Security:** canonical `zigbeelens` launcher owns the Uvicorn bind from one effective AppConfig (including `ZIGBEELENS_PORT`)
 - **Docker:** HEALTHCHECK probes `ZIGBEELENS_PORT` (default 8377) via `/healthz` without loading AppConfig or secrets

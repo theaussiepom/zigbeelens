@@ -484,8 +484,9 @@ export type SecurityMode = "local" | "authenticated" | "home_assistant_ingress";
 /** Public browser-session status from GET/POST /api/auth/session */
 export interface BrowserSessionStatus {
   authenticated: boolean;
-  auth_method: "trusted_local" | "bearer" | "session" | null;
+  auth_method: "trusted_local" | "bearer" | "session" | "home_assistant_ingress" | null;
   browser_session_enabled: boolean;
+  home_assistant_ingress_enabled: boolean;
   expires_at: string | null;
   csrf_token: string | null;
 }
@@ -512,6 +513,9 @@ export interface SecurityConfigStatus {
    */
   mutation_routes_require_bearer: boolean;
   ingress_identity_enforced: boolean;
+  ingress_trusted_proxy_count: number;
+  ingress_proxy_only: boolean;
+  ingress_bearer_fallback_enabled: boolean;
   trusted_local_open: boolean;
   /** @deprecated Always false under bearer policy; retained for compatibility. */
   legacy_mutation_guard_enabled: boolean;

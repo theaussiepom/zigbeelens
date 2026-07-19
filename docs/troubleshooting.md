@@ -199,6 +199,9 @@ See [topology.md](topology.md).
 | `Secret file is empty` | File contains only newlines/whitespace after CR/LF strip | Put a non-empty secret in the file |
 | `must be at least 32 characters` | Token/session secret too short | Generate a longer secret (`openssl rand -base64 48`) |
 | `api_token is required when mode is authenticated` | `security.mode=authenticated` without token | Set `ZIGBEELENS_SECURITY_API_TOKEN` or `_FILE` |
+| `ingress_trusted_proxies is required when mode is home_assistant_ingress` | Ingress mode without exact peer list | Add exact IP literals (add-on sets `172.30.32.2`) |
+| UI: “Open ZigbeeLens through Home Assistant” | Direct URL to add-on Core outside ingress | Open the ZigbeeLens add-on panel from Home Assistant |
+| HACS 401 against add-on Core | Optional bearer fallback not configured | Set the same token in add-on `security.api_token` and HACS credential (never in URLs) |
 | Warning: non-loopback bind with `mode=local` and no API token | Remotely reachable Core in trusted-open mode | Bind loopback, restrict network access, or configure an API token for bearer auth |
 
 Config validation errors intentionally omit rejected secret values. See [security.md](security.md).
