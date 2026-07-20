@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from zigbeelens.storage.access.availability import AvailabilityRepository
     from zigbeelens.storage.access.devices import DeviceRepository
     from zigbeelens.storage.access.incidents import IncidentRepository
+    from zigbeelens.storage.access.maintenance import MaintenanceRepository
     from zigbeelens.storage.access.metrics import MetricRepository
     from zigbeelens.storage.access.network import NetworkRepository
     from zigbeelens.storage.access.reports import ReportRepository
@@ -160,6 +161,12 @@ class Repository:
         from zigbeelens.storage.access.reports import ReportRepository
 
         return ReportRepository(self)
+
+    @cached_property
+    def maintenance(self) -> "MaintenanceRepository":
+        from zigbeelens.storage.access.maintenance import MaintenanceRepository
+
+        return MaintenanceRepository(self)
 
     def sync_networks(self, networks: list[NetworkConfig]) -> None:
         now = utc_now_iso()
@@ -2169,23 +2176,12 @@ class Repository:
         self.db.conn.commit()
 
     def enforce_topology_retention(self, network_id: str, max_snapshots: int) -> None:
-        cur = self.db.conn.execute(
-            """
-            SELECT snapshot_id FROM topology_snapshots
-            WHERE network_id = ?
-            ORDER BY captured_at DESC
-            """,
-            (network_id,),
-        )
-        rows = [row[0] for row in cur.fetchall()]
-        for snapshot_id in rows[max_snapshots:]:
-            self.delete_topology_snapshot(snapshot_id)
+        """Retain newest terminal snapshots per network; exclude active pending."""
+        self.maintenance.enforce_topology_count_retention(network_id, max_snapshots)
 
     def delete_topology_snapshot(self, snapshot_id: str) -> None:
-        self.db.conn.execute("DELETE FROM topology_links WHERE snapshot_id = ?", (snapshot_id,))
-        self.db.conn.execute("DELETE FROM topology_nodes WHERE snapshot_id = ?", (snapshot_id,))
-        self.db.conn.execute("DELETE FROM topology_snapshots WHERE snapshot_id = ?", (snapshot_id,))
-        self.db.conn.commit()
+        with self.transaction():
+            self.maintenance.purge_topology_batch([snapshot_id])
 
     def _has_table(self, name: str) -> bool:
         cur = self.db.conn.execute(
@@ -2418,46 +2414,37 @@ class Repository:
         return cur.fetchone() is not None
 
     def purge_collected_data_before(self, cutoff_iso: str) -> dict[str, int]:
-        """Remove collected telemetry older than *cutoff_iso* (UTC ISO timestamp)."""
+        """Compatibility helper: purge telemetry older than *cutoff_iso*.
+
+        Reports and resolved incidents are not governed by this helper; use the
+        Track 6 maintenance executor with an explicit StorageRetentionPolicy.
+        Topology deletes terminal rows only (complete/error).
+        """
+        from zigbeelens.storage.retention_policy import TELEMETRY_CATEGORIES
+
         counts: dict[str, int] = {}
-
-        def _delete(table: str, where: str) -> None:
-            cur = self.db.conn.execute(f"DELETE FROM {table} WHERE {where}", (cutoff_iso,))
-            counts[table] = cur.rowcount
-
-        _delete("metric_samples", "sampled_at < ?")
-        _delete("availability_changes", "changed_at < ?")
-        _delete("device_snapshots", "captured_at < ?")
-        _delete("bridge_snapshots", "captured_at < ?")
-        _delete("health_snapshots", "captured_at < ?")
-        _delete("events", "occurred_at < ?")
-        _delete("reports", "generated_at < ?")
-        if self._has_table("unresolved_device_messages"):
-            _delete("unresolved_device_messages", "received_at < ?")
-
-        cur = self.db.conn.execute(
-            """
-            DELETE FROM incidents
-            WHERE lifecycle_state = 'resolved'
-              AND resolved_at IS NOT NULL
-              AND resolved_at < ?
-            """,
-            (cutoff_iso,),
-        )
-        counts["incidents_resolved"] = cur.rowcount
-
-        if self._has_table("topology_snapshots"):
-            cur = self.db.conn.execute(
-                """
-                SELECT snapshot_id FROM topology_snapshots
-                WHERE captured_at < ?
-                """,
-                (cutoff_iso,),
-            )
-            stale_ids = [row[0] for row in cur.fetchall()]
-            for snapshot_id in stale_ids:
-                self.delete_topology_snapshot(snapshot_id)
-            counts["topology_snapshots"] = len(stale_ids)
-
-        self.db.conn.commit()
+        maint = self.maintenance
+        with self.transaction():
+            for table, column, pk in TELEMETRY_CATEGORIES:
+                if not self._has_table(table):
+                    counts[table] = 0
+                    continue
+                deleted = 0
+                while True:
+                    batch = maint.purge_telemetry_batch(
+                        table, column, pk, cutoff_iso, limit=500
+                    )
+                    deleted += batch
+                    if batch < 500:
+                        break
+                counts[table] = deleted
+            topology_deleted = 0
+            while True:
+                batch = maint.purge_topology_age_batch(cutoff_iso, limit=500)
+                topology_deleted += batch
+                if batch < 500:
+                    break
+            counts["topology_snapshots"] = topology_deleted
+            counts["reports"] = 0
+            counts["incidents_resolved"] = 0
         return counts

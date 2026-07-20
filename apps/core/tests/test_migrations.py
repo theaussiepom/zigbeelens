@@ -34,7 +34,7 @@ def test_migrations_idempotent(tmp_path: Path):
     db = Database(db_path)
     version1 = db.migrate()
     version2 = db.migrate()
-    assert version1 == version2 == 11
+    assert version1 == version2 == 12
 
     tables = {
         row[0]
@@ -153,7 +153,7 @@ def test_upgrade_v10_to_v11_incident_networks_backfill(tmp_path: Path):
         )
     }
 
-    assert db.migrate() == 11
+    assert db.migrate() == 12
     assert "incident_networks" in {
         row[0]
         for row in db.conn.execute(
@@ -189,11 +189,11 @@ def test_upgrade_v10_to_v11_incident_networks_backfill(tmp_path: Path):
     assert after == before
 
     # Idempotent migrate + Python multi-network backfill retry path.
-    assert db.migrate() == 11
+    assert db.migrate() == 12
     assert networks_for("inc-multi") == ["home", "home2"]
     assert networks_for("inc-unprovable") == []
     count = db.conn.execute("SELECT COUNT(*) FROM incident_networks").fetchone()[0]
-    assert db.migrate() == 11
+    assert db.migrate() == 12
     assert db.conn.execute("SELECT COUNT(*) FROM incident_networks").fetchone()[0] == count
     db.close()
 
@@ -250,7 +250,7 @@ def test_friendly_name_not_globally_unique(tmp_path: Path):
 
 def test_composition_read_indexes_exist(tmp_path: Path):
     db = Database(tmp_path / "indexes.sqlite")
-    assert db.migrate() == 11
+    assert db.migrate() == 12
     indexes = {
         row[0]
         for row in db.conn.execute(
@@ -262,5 +262,9 @@ def test_composition_read_indexes_exist(tmp_path: Path):
     assert "idx_incident_devices_device" in indexes
     assert "idx_incidents_collection_order" in indexes
     assert "idx_incidents_lifecycle" in indexes
+    assert "idx_events_retention" in indexes
+    assert "idx_metric_samples_retention" in indexes
+    assert "idx_incidents_resolved_retention" in indexes
+    assert "idx_topology_snapshots_retention" in indexes
     assert "idx_incident_networks_network" in indexes
     db.close()

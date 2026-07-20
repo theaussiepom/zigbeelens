@@ -19,7 +19,7 @@ def _config(db_path: Path, retention_days: int = 7) -> AppConfig:
     )
 
 
-def test_purge_removes_old_events_and_reports(tmp_path: Path):
+def test_purge_removes_old_events_keeps_reports_by_default(tmp_path: Path):
     db = Database(tmp_path / "retention.sqlite")
     db.migrate()
     repo = Repository(db)
@@ -51,12 +51,15 @@ def test_purge_removes_old_events_and_reports(tmp_path: Path):
     counts = enforce_storage_retention(repo, retention_days=7)
 
     assert counts["events"] == 1
-    assert counts["reports"] == 1
+    assert counts.get("reports", 0) == 0
     remaining_events = repo.db.conn.execute("SELECT id FROM events").fetchall()
     assert [row[0] for row in remaining_events] == ["evt-new"]
+    remaining_reports = repo.db.conn.execute("SELECT id FROM reports").fetchall()
+    assert [row[0] for row in remaining_reports] == ["rep-old"]
 
 
-def test_purge_keeps_active_incidents(tmp_path: Path):
+def test_purge_keeps_active_and_recent_resolved_incidents(tmp_path: Path):
+    """Telemetry bootstrap purge does not delete resolved incidents."""
     db = Database(tmp_path / "incidents.sqlite")
     db.migrate()
     repo = Repository(db)
@@ -104,9 +107,9 @@ def test_purge_keeps_active_incidents(tmp_path: Path):
     )
     counts = enforce_storage_retention(repo, retention_days=7)
 
-    assert counts["incidents_resolved"] == 1
+    assert counts.get("incidents_resolved", 0) == 0
     remaining = {row["id"] for row in repo.list_incidents()}
-    assert remaining == {"inc-open"}
+    assert remaining == {"inc-open", "inc-old-resolved"}
 
 
 def test_bootstrap_runs_retention(tmp_path: Path, monkeypatch):

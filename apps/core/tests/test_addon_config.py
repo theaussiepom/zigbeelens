@@ -80,6 +80,23 @@ def test_options_to_config_dict_maps_networks_and_storage():
     assert cfg["reporting"]["default_profile"] == "public_safe"
 
 
+def test_addon_storage_zero_maps_to_null_retention():
+    opts = _sample_options()
+    opts["storage"] = {
+        "retention_days": 7,
+        "resolved_incident_retention_days": 0,
+        "report_retention_days": 0,
+        "maintenance_interval_hours": 24,
+    }
+    cfg = options_to_config_dict(opts)
+    assert cfg["storage"]["resolved_incident_retention_days"] is None
+    assert cfg["storage"]["report_retention_days"] is None
+    assert cfg["storage"]["maintenance_interval_hours"] == 24
+    app = options_to_app_config(opts)
+    assert app.storage.resolved_incident_retention_days is None
+    assert app.storage.report_retention_days is None
+
+
 def test_generated_security_is_home_assistant_ingress():
     cfg = options_to_config_dict(_sample_options())
     assert cfg["security"]["mode"] == "home_assistant_ingress"
