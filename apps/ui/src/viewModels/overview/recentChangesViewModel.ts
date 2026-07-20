@@ -88,7 +88,7 @@ function fromSharedEvent(
     summary: sharedEventSummary(event),
     timingLabel: timingLabel(event.ended_at || event.started_at),
     occurredAt: event.ended_at || event.started_at,
-    href: `/topology/${event.network_id}`,
+    href: `/investigate/${event.network_id}`,
     linkLabel: "Review Mesh evidence →",
   };
 }
@@ -102,7 +102,7 @@ function fromModelPattern(pattern: ModelPatternSummary): RecentChangeViewModel {
     summary: modelPatternSummary(pattern),
     timingLabel: timingLabel(occurredAt),
     occurredAt,
-    href: `/topology/${pattern.network_id}`,
+    href: `/investigate/${pattern.network_id}`,
     linkLabel: "Review Mesh evidence →",
   };
 }
@@ -125,7 +125,7 @@ function fromInvestigation(
     summary: priority.summary,
     timingLabel: timingLabel(occurredAt),
     occurredAt,
-    href: `/topology/${priority.network_id}`,
+    href: `/investigate/${priority.network_id}`,
     linkLabel: "Investigate in Mesh →",
   };
 }
@@ -151,7 +151,7 @@ function fromTimeline(event: TimelineEvent): RecentChangeViewModel {
       : event.network_id && event.ieee_address
         ? `/devices/${event.network_id}/${encodeURIComponent(event.ieee_address)}`
         : event.network_id
-          ? `/topology/${event.network_id}`
+          ? `/investigate/${event.network_id}`
           : undefined;
   return {
     id: event.id,

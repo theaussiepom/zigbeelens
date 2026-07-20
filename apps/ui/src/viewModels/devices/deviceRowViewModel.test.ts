@@ -162,7 +162,7 @@ describe("deviceRowViewModel", () => {
   it("builds device and mesh hrefs from existing route helpers", () => {
     const row = buildDeviceRowViewModel(makeDevice());
     expect(row.deviceHref).toBe("/devices/home/0xa1");
-    expect(row.meshHref).toBe("/topology/home");
+    expect(row.meshHref).toBe("/investigate/home");
   });
 
   it("sorts by decision priority then friendly name", () => {

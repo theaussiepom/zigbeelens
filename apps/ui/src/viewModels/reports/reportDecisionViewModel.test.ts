@@ -348,7 +348,7 @@ describe("reportDecisionViewModel", () => {
     const vm = buildReportDecisionViewModel(report);
     expect(vm.meshNavigationAvailable).toBe(true);
     expect(vm.investigationPriorities[0]!.networkLabel).toBe("Home From Report");
-    expect(vm.investigationPriorities[0]!.meshHref).toBe("/topology/home");
+    expect(vm.investigationPriorities[0]!.meshHref).toBe("/investigate/home");
     expect(vm.networkCoverage[0]!.networkLabel).toBe("Home From Report");
   });
 

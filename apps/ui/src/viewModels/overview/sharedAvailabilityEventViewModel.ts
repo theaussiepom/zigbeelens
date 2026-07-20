@@ -69,7 +69,7 @@ export function buildSharedAvailabilityEventViewModel(
     deviceCountLabel: `${deviceCount} device${deviceCount === 1 ? "" : "s"}`,
     limitation: SHARED_AVAILABILITY_EVENT_LIMITATION,
     suggestedChecks: [...SHARED_AVAILABILITY_EVENT_CHECKS],
-    meshHref: `/topology/${event.network_id}`,
+    meshHref: `/investigate/${event.network_id}`,
     meshLinkLabel: "Review Mesh evidence →",
   };
 }

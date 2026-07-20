@@ -23,7 +23,7 @@ describe("dataCoverageViewModel", () => {
     expect(vm.title).toBe("Availability tracking off");
     expect(vm.summary).toMatch(/not being collected for Home/i);
     expect(vm.check).toMatch(/Zigbee2MQTT availability configuration/i);
-    expect(vm.meshHref).toBe("/topology/home");
+    expect(vm.meshHref).toBe("/investigate/home");
     const userFacing = [vm.title, vm.summary, vm.check, vm.networkLabel, vm.meshLinkLabel].join(" ");
     expect(userFacing).not.toContain("availability_tracking_off");
   });

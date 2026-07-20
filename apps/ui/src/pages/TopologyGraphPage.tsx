@@ -10,6 +10,7 @@ import { useGraphSelection } from "@/hooks/useGraphSelection";
 import { useTopologyGraphData } from "@/hooks/useTopologyGraphData";
 import { relativeTime } from "@/lib/format";
 import { topologyStatusLabel } from "@/lib/topologyLabels";
+import { topologySnapshotPath } from "@/lib/routes";
 import { GRAPH_SAFETY_COPY_LIVE, EVIDENCE_COVERAGE_STRIP_TITLE } from "@/lib/meshGraphCopy";
 import { buildEvidenceCoverageStripViewModel } from "@/viewModels/coverage/coverageStripViewModel";
 
@@ -49,11 +50,12 @@ export function TopologyGraphPage() {
     <div className="max-w-7xl space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Mesh evidence graph</h1>
+          <h1 className="text-2xl font-semibold">Mesh / Investigate</h1>
           <p className="mt-1 text-zl-muted">
-            Latest topology snapshot evidence for network{" "}
+            Evidence graph for network{" "}
             <span className="font-mono">{networkId ?? "—"}</span>
-            {detail.data?.network_name ? ` (${detail.data.network_name})` : ""}.
+            {detail.data?.network_name ? ` (${detail.data.network_name})` : ""}. Topology links are
+            evidence from the latest snapshot, not proof of current routing.
           </p>
         </div>
         <span
@@ -78,11 +80,11 @@ export function TopologyGraphPage() {
       {!networkId ? (
         <Card title="No network selected">
           <p className="text-sm text-zl-muted">
-            Open the graph from a network on the{" "}
-            <Link to="/topology" className="text-zl-accent">
-              Topology page
+            Choose a network from{" "}
+            <Link to="/investigate" className="text-zl-accent">
+              Mesh / Investigate
             </Link>{" "}
-            to see live snapshot evidence.
+            to open its evidence graph.
           </p>
         </Card>
       ) : !topologyEnabled ? (
@@ -111,8 +113,8 @@ export function TopologyGraphPage() {
               updates.
             </p>
             <p>
-              <Link to={`/topology/${networkId}`} className="text-zl-accent">
-                Open snapshot view
+              <Link to={topologySnapshotPath(networkId)} className="text-zl-accent">
+                Raw snapshot
               </Link>{" "}
               ·{" "}
               <Link to="/devices" className="text-zl-accent">
@@ -151,8 +153,8 @@ export function TopologyGraphPage() {
             </div>
             <p className="text-zl-muted">
               Missing topology data is not an incident by itself.{" "}
-              <Link to={`/topology/${networkId}`} className="text-zl-accent">
-                Open snapshot view
+              <Link to={topologySnapshotPath(networkId)} className="text-zl-accent">
+                Raw snapshot
               </Link>{" "}
               ·{" "}
               <Link to="/devices" className="text-zl-accent">

@@ -48,7 +48,7 @@ export function buildInvestigationPriorityViewModel(
     title: priority.title,
     summary: priority.summary,
     networkLabel,
-    meshHref: `/topology/${priority.network_id}`,
+    meshHref: `/investigate/${priority.network_id}`,
     meshLinkLabel: INVESTIGATION_PRIORITY_MESH_LINK_LABEL,
   };
 }

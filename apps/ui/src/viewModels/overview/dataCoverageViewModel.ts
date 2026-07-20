@@ -75,7 +75,7 @@ export function buildDataCoverageWarningViewModel(
       check: UNKNOWN_CHECK,
       tone: "muted",
       networkLabel,
-      meshHref: `/topology/${warning.network_id}`,
+      meshHref: `/investigate/${warning.network_id}`,
       meshLinkLabel: "Review Mesh evidence →",
     };
   }
@@ -87,7 +87,7 @@ export function buildDataCoverageWarningViewModel(
     check,
     tone: coverageTone(labelCode),
     networkLabel,
-    meshHref: `/topology/${warning.network_id}`,
+    meshHref: `/investigate/${warning.network_id}`,
     meshLinkLabel: "Review Mesh evidence →",
   };
 }

@@ -596,9 +596,9 @@ function nodePosition(container: HTMLElement, ieee: string): string {
 
 function renderGraphPage(networkId = "home") {
   return render(
-    <MemoryRouter initialEntries={[`/topology/${networkId}/graph`]}>
+    <MemoryRouter initialEntries={[`/investigate/${networkId}`]}>
       <Routes>
-        <Route path="/topology/:networkId/graph" element={<TopologyGraphPage />} />
+        <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -1047,9 +1047,9 @@ describe("TopologyGraphPage layout stability", () => {
     // Simulate a routine API refetch: identical content, fresh object identity.
     mockDetail = JSON.parse(JSON.stringify(liveDetailHome)) as TopologyNetworkDetail;
     view.rerender(
-      <MemoryRouter initialEntries={["/topology/home/graph"]}>
+      <MemoryRouter initialEntries={["/investigate/home"]}>
         <Routes>
-          <Route path="/topology/:networkId/graph" element={<TopologyGraphPage />} />
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
         </Routes>
       </MemoryRouter>,
     );
