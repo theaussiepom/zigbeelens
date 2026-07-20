@@ -4,98 +4,81 @@ import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import type { DashboardPayload, DiagnosticConclusion, Incident } from "@zigbeelens/shared";
+import type { DashboardPayload, Incident } from "@zigbeelens/shared";
 import { OVERVIEW_LAST_VIEWED_STORAGE_KEY } from "@/lib/overviewVisitStorage";
+import { makeDashboardPayload, makeNetworkSummary } from "@/test/decisionFixtures";
 import { OverviewPage } from "./OverviewPage";
-
-const finding: DiagnosticConclusion = {
-  classification: "healthy",
-  severity: "healthy",
-  scope: "network",
-  confidence: "high",
-  summary: "No notable issues right now.",
-  evidence: [],
-  counter_evidence: [],
-  limitations: [],
-};
 
 function makeDashboard(
   overrides: Partial<DashboardPayload> = {},
 ): DashboardPayload {
-  return {
+  return makeDashboardPayload({
     generated_at: "2026-07-06T12:00:00+00:00",
-    overall_severity: "healthy",
-    current_finding: finding,
-    active_incident_count: 0,
-    watching_incident_count: 0,
-    networks: [{ id: "home", name: "Home" } as DashboardPayload["networks"][number]],
-    top_affected_devices: [],
-    router_risks: [],
-    recently_unstable: [],
-    weak_links: [],
-    low_batteries: [],
-    stale_devices: [],
-    recent_timeline: [],
-    health_snapshot: {
-      timestamp: "2026-07-06T12:00:00+00:00",
-      overall_severity: "healthy",
-      overall_health: "healthy",
-      network_count: 1,
-      device_count: 0,
-      unavailable_count: 0,
-      incident_count: 0,
-      networks: [],
+    networks: [makeNetworkSummary({ id: "home", name: "Home" })],
+    decision_summary: {
+      subject_count: 0,
+      overall_status: "data_unavailable",
+      highest_priority: "none",
+      status_counts: {},
+      priority_counts: {},
+      coverage_warning_count: 0,
     },
-    shared_availability_events: [],
-    model_patterns: [],
-    investigation_priorities: [],
-    data_coverage_warnings: [],
     ...overrides,
-  };
+  });
 }
 
-const mockState = vi.hoisted(() => ({
-  dashboard: {
-    generated_at: "2026-07-06T12:00:00+00:00",
-    overall_severity: "healthy",
-    current_finding: {
-      classification: "healthy",
-      severity: "healthy",
-      scope: "network",
-      confidence: "high",
-      summary: "No notable issues right now.",
-      evidence: [],
-      counter_evidence: [],
-      limitations: [],
-    },
-    active_incident_count: 0,
-    watching_incident_count: 0,
-    networks: [{ id: "home", name: "Home" }],
-    top_affected_devices: [],
-    router_risks: [],
-    recently_unstable: [],
-    weak_links: [],
-    low_batteries: [],
-    stale_devices: [],
-    recent_timeline: [],
-    health_snapshot: {
-      timestamp: "2026-07-06T12:00:00+00:00",
-      overall_severity: "healthy",
-      overall_health: "healthy",
+const mockState = vi.hoisted(() => {
+  const decision_summary = {
+    subject_count: 0,
+    overall_status: "data_unavailable",
+    highest_priority: "none",
+    status_counts: {} as Record<string, number>,
+    priority_counts: {} as Record<string, number>,
+    coverage_warning_count: 0,
+  };
+  return {
+    dashboard: {
+      generated_at: "2026-07-06T12:00:00+00:00",
+      active_incident_count: 0,
+      watching_incident_count: 0,
       network_count: 1,
       device_count: 0,
-      unavailable_count: 0,
-      incident_count: 0,
-      networks: [],
-    },
-    shared_availability_events: [],
-    model_patterns: [],
-    investigation_priorities: [],
-    data_coverage_warnings: [],
-  } as DashboardPayload,
-  activeIncidents: [] as Incident[],
-  recentIncidents: [] as Incident[],
-}));
+      unavailable_device_count: 0,
+      networks: [
+        {
+          id: "home",
+          name: "Home",
+          base_topic: "zigbee2mqtt",
+          bridge_state: "online" as const,
+          device_count: 0,
+          router_count: 0,
+          end_device_count: 0,
+          unavailable_count: 0,
+          active_incident_severity: "healthy" as const,
+          active_incident_count: 0,
+          recent_bridge_warnings: 0,
+          recent_bridge_errors: 0,
+          decision: {
+            status: "data_unavailable",
+            priority: "none",
+            headline_code: "network_data_unavailable",
+            coverage_label_codes: [] as string[],
+          },
+          decision_summary,
+        },
+      ],
+      router_risks: [],
+      recent_timeline: [],
+      decision_summary,
+      shared_availability_events: [],
+      model_patterns: [],
+      investigation_priorities: [],
+      data_coverage_warnings: [],
+    } as DashboardPayload,
+    activeIncidents: [] as Incident[],
+    recentIncidents: [] as Incident[],
+  };
+});
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -152,6 +135,7 @@ function makeOverviewIncident(overrides: Partial<Incident> = {}): Incident {
     affected_devices: [],
     opened_at: "2026-07-16T10:00:00Z",
     updated_at: "2026-07-16T12:00:00Z",
+    resolved_at: null,
     evidence: [],
     counter_evidence: [],
     limitations: [],
@@ -355,7 +339,7 @@ describe("OverviewPage investigation priorities", () => {
     expect(screen.queryByText(/score 12/i)).not.toBeInTheDocument();
   });
 
-  it("keeps a healthy finding alongside stored investigation priorities without contradiction", () => {
+  it("keeps a calm decision status alongside stored investigation priorities", () => {
     mockState.dashboard = makeDashboard({
       investigation_priorities: [
         {
@@ -373,7 +357,7 @@ describe("OverviewPage investigation priorities", () => {
       ],
     });
     renderOverview();
-    expect(screen.getByText("No notable issues right now.")).toBeInTheDocument();
+    expect(screen.getAllByText("Data unavailable").length).toBeGreaterThan(0);
     expect(screen.getByText("Historical shared event worth reviewing")).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -386,16 +370,8 @@ describe("OverviewPage investigation priorities", () => {
     mockState.dashboard = makeDashboard({
       active_incident_count: 2,
       watching_incident_count: 1,
-      health_snapshot: {
-        timestamp: "2026-07-06T12:00:00+00:00",
-        overall_severity: "watch",
-        overall_health: "recently_unstable",
-        network_count: 1,
-        device_count: 40,
-        unavailable_count: 3,
-        incident_count: 2,
-        networks: [],
-      },
+      device_count: 40,
+      unavailable_device_count: 3,
       investigation_priorities: [
         {
           id: "pri-1",
@@ -425,12 +401,13 @@ describe("OverviewPage investigation priorities", () => {
     renderOverview();
 
     expect(headingIndex("What needs attention now")).toBeLessThan(
-      headingIndex("System summary"),
+      headingIndex("Networks"),
     );
     expect(headingIndex("What needs attention now")).toBeLessThan(
       headingIndex("Active incidents"),
     );
     expect(screen.queryByText("Router risks")).not.toBeInTheDocument();
+    expect(screen.queryByText("Health signal summaries")).not.toBeInTheDocument();
   });
 });
 
@@ -563,15 +540,13 @@ describe("OverviewPage server incident order", () => {
   beforeEach(() => {
     localStorage.clear();
     mockState.dashboard = makeDashboard({
-      current_finding: {
-        classification: "single_device_unavailable",
-        severity: "incident",
-        scope: "device",
-        confidence: "medium",
-        summary: "Something needs attention.",
-        evidence: [],
-        counter_evidence: [],
-        limitations: [],
+      decision_summary: {
+        subject_count: 2,
+        overall_status: "review_first",
+        highest_priority: "high",
+        status_counts: { review_first: 2 },
+        priority_counts: { high: 2 },
+        coverage_warning_count: 0,
       },
       active_incident_count: 2,
     });
@@ -599,10 +574,10 @@ describe("OverviewPage server incident order", () => {
 
     renderOverview();
 
-    expect(screen.getByRole("link", { name: /view incident detail/i })).toHaveAttribute(
-      "href",
-      "/incidents/newer-open",
+    const incidentLinks = screen.getAllByRole("link").filter((node) =>
+      (node.getAttribute("href") || "").startsWith("/incidents/"),
     );
+    expect(incidentLinks[0]).toHaveAttribute("href", "/incidents/newer-open");
 
     const titles = screen.getAllByRole("heading", { level: 3 }).map((node) => node.textContent);
     expect(titles.indexOf("Newer open incident")).toBeGreaterThanOrEqual(0);

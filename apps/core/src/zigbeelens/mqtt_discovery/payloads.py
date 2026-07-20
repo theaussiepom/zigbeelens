@@ -12,16 +12,16 @@ from zigbeelens.mqtt_discovery.topics import (
     summary_attributes_topic,
     summary_state_topic,
 )
-from zigbeelens.presentation.lens_mqtt import SummaryEntityState, build_summary_entities
+from zigbeelens.presentation.decision_mqtt import SummaryEntityState, build_summary_entities
 from zigbeelens.schemas import DashboardPayload
 
 SUMMARY_ENTITY_DEFINITIONS: tuple[tuple[str, str], ...] = (
-    ("health", "ZigbeeLens Health"),
-    ("issues", "ZigbeeLens Issues"),
+    ("decision_status", "ZigbeeLens Decision Status"),
+    ("review_first", "ZigbeeLens Review First"),
+    ("worth_reviewing", "ZigbeeLens Worth Reviewing"),
+    ("coverage_warnings", "ZigbeeLens Coverage Warnings"),
+    ("active_incidents", "ZigbeeLens Active Incidents"),
     ("unavailable", "ZigbeeLens Unavailable Devices"),
-    ("needs_attention", "ZigbeeLens Needs Attention"),
-    ("recently_unstable", "ZigbeeLens Recently Unstable"),
-    ("diagnostics_limited", "ZigbeeLens Diagnostics Limited"),
 )
 
 

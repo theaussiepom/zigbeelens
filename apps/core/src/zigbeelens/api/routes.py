@@ -518,10 +518,12 @@ def _report_filename(detail: ReportDetail) -> str:
     parts = ["zigbeelens-report"]
     if detail.scope != "full":
         parts.append(_sanitize_token(detail.scope))
-        if detail.scope == "device" and detail.devices:
-            parts.append(_sanitize_token(detail.devices[0].friendly_name))
-        elif detail.networks:
-            parts.append(_sanitize_token(detail.networks[0].id))
+        devices = detail.domain_details.devices
+        networks = detail.domain_details.networks
+        if detail.scope == "device" and devices:
+            parts.append(_sanitize_token(devices[0].friendly_name))
+        elif networks:
+            parts.append(_sanitize_token(networks[0].id))
     parts.append(timestamp)
     ext = {"yaml": "yaml", "markdown": "md"}.get(detail.format, "json")
     return f"{'-'.join(p for p in parts if p)}.{ext}"
@@ -594,12 +596,12 @@ def list_reports(ctx: AppContext = Depends(ctx_dep)) -> list[ReportSummary]:
     return [summary_from_row(row) for row in ctx.repo.reports.list_reports()]
 
 
-@read_router.get("/reports/{report_id}", response_model=ReportDetail)
+@read_router.get("/reports/{report_id}")
 def get_report(
     report_id: str,
     scenario: str | None = Query(default=None),
     ctx: AppContext = Depends(ctx_dep),
-) -> ReportDetail:
+):
     report = ctx.data.get_stored_report(report_id, scenario)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -615,6 +617,42 @@ def download_report(
     detail = ctx.data.get_stored_report(report_id, scenario)
     if not detail:
         raise HTTPException(status_code=404, detail="Report not found")
+
+    # Legacy stored bodies (v1/v2) download exactly as stored — no mutation.
+    if isinstance(detail, dict):
+        from zigbeelens.services.report_storage import load_stored_report_envelope
+
+        row = ctx.repo.reports.get_report(report_id)
+        envelope = load_stored_report_envelope(row) if row else None
+        fmt = (
+            envelope.format
+            if envelope is not None
+            else str(detail.get("format") or "json")
+        )
+        if fmt == "yaml":
+            import yaml
+
+            # Immutable parsed body — do not inject row id or v3 fields.
+            content = yaml.safe_dump(detail, sort_keys=False)
+            media_type = "application/x-yaml"
+        elif fmt == "markdown":
+            content = (
+                envelope.markdown
+                if envelope is not None
+                else str(detail.get("markdown_summary") or "")
+            )
+            media_type = "text/markdown"
+        else:
+            raw = envelope.raw_body_json if envelope is not None else None
+            content = raw if raw is not None else json.dumps(detail, indent=2)
+            media_type = "application/json"
+        report_id_token = _sanitize_token(report_id)
+        filename = f"zigbeelens-report-{report_id_token}.{('md' if fmt == 'markdown' else fmt)}"
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     if detail.format == "yaml":
         content = report_body_as_yaml(detail)

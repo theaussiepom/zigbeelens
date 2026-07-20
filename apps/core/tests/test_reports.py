@@ -44,10 +44,13 @@ def test_full_json_report(mock_client: TestClient):
     assert summary["format"] == "json"
     detail = mock_client.get(f"/api/reports/{summary['id']}").json()
     assert detail["product"] == "ZigbeeLens"
-    assert detail["report_version"] == 2
-    assert detail["summary"]["networks_monitored"] >= 1
+    assert detail["report_version"] == 3
+    assert detail["decision_summary"]["subject_count"] >= 0
     assert detail["limitations"]
-    assert detail["raw_counts"]["devices_included"] == len(detail["devices"])
+    domain_devices = detail["domain_details"]["devices"]
+    assert detail["raw_counts"]["devices_included"] == len(domain_devices)
+    assert "health_snapshot" not in detail
+    assert "executive_summary" not in detail
 
 
 def test_full_yaml_report_downloads(mock_client: TestClient):
@@ -65,8 +68,8 @@ def test_markdown_report_downloads(mock_client: TestClient):
     res = mock_client.get(f"/api/reports/{summary['id']}/download")
     assert res.status_code == 200
     assert "markdown" in res.headers["content-type"]
-    assert res.text.startswith("# ZigbeeLens evidence report")
-    assert "## Summary" in res.text
+    assert res.text.startswith("# ZigbeeLens Evidence Report")
+    assert "## Decision summary" in res.text
     assert "## Executive summary" not in res.text
     assert "## Health summary" not in res.text
     assert "## Unhealthy devices" not in res.text
@@ -104,8 +107,10 @@ def test_network_scoped_report(mock_client: TestClient):
         params={"scope": "network", "network_id": network_id},
     ).json()
     assert detail["scope"] == "network"
-    assert all(n["id"] == network_id for n in detail["networks"])
-    assert all(d["network_id"] == network_id for d in detail["devices"])
+    networks = detail["domain_details"]["networks"]
+    devices = detail["domain_details"]["devices"]
+    assert all(n["id"] == network_id for n in networks)
+    assert all(d["network_id"] == network_id for d in devices)
 
 
 def test_device_scoped_report(mock_client: TestClient):
@@ -120,8 +125,8 @@ def test_device_scoped_report(mock_client: TestClient):
         },
     ).json()
     assert detail["scope"] == "device"
-    assert len(detail["devices"]) == 1
-    assert len(detail["device_details"]) == 1
+    assert len(detail["domain_details"]["devices"]) == 1
+    assert len(detail["domain_details"]["device_details"]) == 1
 
 
 # -- persistence ---------------------------------------------------------
@@ -151,7 +156,7 @@ def test_standard_redaction_hashes_ieee_preserves_names(mock_client: TestClient)
     assert detail["redaction"]["profile"] == "standard"
     assert detail["redaction"]["ieee_addresses_hashed"] is True
     assert detail["redaction"]["friendly_names"] == "preserved"
-    for d in detail["devices"]:
+    for d in detail["domain_details"]["devices"]:
         assert d["ieee_address"].startswith("ieee_")
 
 
@@ -160,10 +165,10 @@ def test_public_safe_redacts_identifiers(mock_client: TestClient):
     assert detail["redaction"]["profile"] == "public_safe"
     assert detail["redaction"]["friendly_names"] == "labeled"
     assert detail["redaction"]["network_names"] == "labeled"
-    for d in detail["devices"]:
+    for d in detail["domain_details"]["devices"]:
         assert d["friendly_name"].startswith("device_")
         assert d["ieee_address"].startswith("ieee_")
-    for n in detail["networks"]:
+    for n in detail["domain_details"]["networks"]:
         assert n["name"].startswith("network_")
 
 
@@ -174,7 +179,7 @@ def test_strict_redacts_host_ip_friendly_network(mock_client: TestClient):
     assert red["ip_addresses"] is True
     assert red["friendly_names"] == "hashed"
     assert red["network_names"] == "hashed"
-    for d in detail["devices"]:
+    for d in detail["domain_details"]["devices"]:
         assert d["friendly_name"].startswith("device_")
 
 
@@ -184,7 +189,11 @@ def test_stable_hashes_consistent_within_report(mock_client: TestClient):
     if not incidents or not incidents[0]["affected_devices"]:
         return
     affected = incidents[0]["affected_devices"][0]
-    matching = [d for d in detail["devices"] if d["ieee_address"] == affected["ieee_address"]]
+    matching = [
+        d
+        for d in detail["domain_details"]["devices"]
+        if d["ieee_address"] == affected["ieee_address"]
+    ]
     assert matching, "hashed ieee in incident should match the device's hashed ieee"
 
 
@@ -312,17 +321,19 @@ def test_report_limits_enforced(tmp_path):
         request=ReportRequest(),
         scenario=DEFAULT,
     )
-    assert len(detail.timeline) <= 1
+    timeline = detail.events_or_timeline or []
+    assert len(timeline) <= 1
 
 
 def test_mock_mode_report_still_works(mock_client: TestClient):
     detail = mock_client.get("/api/reports/preview", params={"scenario": DEFAULT}).json()
-    assert detail["summary"]["total_devices"] >= 1
+    assert detail["raw_counts"]["devices_included"] >= 1
+    assert detail["decision_summary"] is not None
 
 
 def test_empty_state_report_valid(live_client: TestClient):
     preview = live_client.get("/api/reports/preview").json()
-    assert preview["summary"]["overall_state"]
+    assert preview["decision_summary"]["overall_status"]
     assert preview["limitations"]
     created = live_client.post("/api/reports", json={"format": "json"}).json()
     assert created["id"]
@@ -330,17 +341,32 @@ def test_empty_state_report_valid(live_client: TestClient):
     assert fetched.status_code == 200
 
 
-def test_lens_report_alignment_fields(mock_client: TestClient):
+def test_v3_report_canonical_fields(mock_client: TestClient):
     detail = mock_client.get("/api/reports/preview", params={"profile": "public_safe"}).json()
     assert detail["product"] == "ZigbeeLens"
     assert detail["version"]
     assert detail["generated_at"]
-    assert detail["redaction_profile"] == "public_safe"
-    assert detail["mode"] in {"mock", "live"}
-    assert detail["report_version"] == 2
-    # Phase 5D: Version 2 reports do not use Lens/executive prose as authority.
-    assert detail["executive_summary"] is None
-    assert detail["health_summary"] is None
+    assert detail["redaction"]["profile"] == "public_safe"
+    assert detail["config_summary"]["mode"] in {"mock", "live"}
+    assert detail["report_version"] == 3
+    for forbidden in (
+        "executive_summary",
+        "health_summary",
+        "summary",
+        "timeline",
+        "networks",
+        "devices",
+        "health_snapshot",
+        "diagnostic_conclusions",
+        "site",
+        "mode",
+        "redaction_profile",
+        "active_incidents",
+        "collector",
+        "router_risks",
+        "device_details",
+    ):
+        assert forbidden not in detail
     assert detail["decision_summary"] is not None
     assert detail["device_stories"]
     assert detail["collector_status"]["mqtt_collector"] in {
@@ -349,11 +375,12 @@ def test_lens_report_alignment_fields(mock_client: TestClient):
         "disabled",
     }
     assert detail["domain_details"]["networks"]
-    assert detail["events_or_timeline"] == detail["timeline"]
-    if detail["active_incidents"]:
-        entity = detail["active_incidents"][0]["affected_devices"][0]
-        assert entity.get("name")
-        assert entity.get("classification") or entity.get("lens_bucket")
+    assert detail["events_or_timeline"] is not None
+    if detail["incidents"]:
+        entity = detail["incidents"][0]["affected_devices"][0]
+        assert entity.get("decision")
+        assert "lens_bucket" not in entity
+        assert "health_primary" not in entity
     blob = json.dumps(detail)
     assert '"secret"' not in blob
     assert ":secret@" not in blob

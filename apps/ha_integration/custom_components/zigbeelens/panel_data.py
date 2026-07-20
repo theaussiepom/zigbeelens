@@ -6,14 +6,15 @@ credentials, passwords, tokens, or raw broker URLs) — only safe summary counts
 states, and the user-configured Core URL.
 
 Shared Decision fields are projected from the Dashboard payload only when the
-exact companion decision contract is available. Titles/summaries/priority labels
-are passed through unchanged from Core.
+exact companion decision contract v2 is available. Titles/summaries/priority
+labels are passed through unchanged from Core.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from .compatibility import nonneg_int_not_bool
 from .coordinator import ZigbeeLensCoordinatorData
 from .core_origin import InvalidCoreOrigin, canonicalize_core_origin
 
@@ -27,25 +28,9 @@ def _safe_core_url(core_url: str) -> str:
         return ""
 
 
-def _severity_label(value: Any) -> str:
-    """Map Core severity/health values onto the panel's three calm states."""
-    text = str(value or "").lower()
-    if text in ("healthy", "ok"):
-        return "ok"
-    if text == "watch":
-        return "watch"
-    if text in ("incident", "critical"):
-        return "incident"
-    return "unknown"
-
-
-def _safe_int(value: Any, default: int = 0) -> int:
-    try:
-        if value is None:
-            return default
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+def _safe_int(value: Any, default: int | None = None) -> int | None:
+    parsed = nonneg_int_not_bool(value)
+    return parsed if parsed is not None else default
 
 
 def _nonempty_str(value: Any) -> str | None:
@@ -138,18 +123,14 @@ def build_panel_summary(
         "connected": bool(connected and data is not None),
         "core_url": _safe_core_url(core_url),
         "core_version": None,
-        "overall_health": "unknown",
-        "overall_severity": "unknown",
-        "current_finding": None,
-        "active_incident_count": 0,
-        "watching_incident_count": 0,
-        "network_count": 0,
-        "device_count": 0,
-        "unavailable_devices": 0,
-        "router_risks": 0,
-        "stale_devices": 0,
-        "weak_link_devices": 0,
-        "low_battery_devices": 0,
+        "overall_decision_status": None,
+        "decision_summary": None,
+        "active_incident_count": None,
+        "watching_incident_count": None,
+        "network_count": None,
+        "device_count": None,
+        "unavailable_devices": None,
+        "router_risks": None,
         "collector_connected": False,
         "last_update": None,
         "mock_mode": False,
@@ -157,11 +138,13 @@ def build_panel_summary(
         "error": last_exception if not connected else None,
         "shared_decisions_available": False,
         "decision_contract_version": 0,
+        "decision_contract_compatible": False,
+        "core_update_required": False,
         "core_version_compatible": None,
-        "investigation_priority_count": 0,
+        "investigation_priority_count": None,
         "investigation_priorities": [],
-        "more_investigation_priority_count": 0,
-        "data_coverage_warning_count": 0,
+        "more_investigation_priority_count": None,
+        "data_coverage_warning_count": None,
     }
 
     if data is None:
@@ -169,40 +152,59 @@ def build_panel_summary(
 
     dashboard = data.dashboard or {}
     health = data.health or {}
-    snapshot = dashboard.get("health_snapshot") or {}
     collector = health.get("collector") or {}
 
     summary["core_version"] = data.core_version or str(health.get("version") or "") or None
     summary["shared_decisions_available"] = bool(data.shared_decisions_available)
     summary["decision_contract_version"] = int(data.decision_contract_version or 0)
-    summary["core_version_compatible"] = data.core_version_compatible
-    summary["overall_severity"] = _severity_label(dashboard.get("overall_severity"))
-    summary["overall_health"] = summary["overall_severity"]
-
-    finding = dashboard.get("current_finding") or {}
-    summary["current_finding"] = finding.get("summary")
-
-    summary["active_incident_count"] = _safe_int(dashboard.get("active_incident_count"))
-    summary["watching_incident_count"] = _safe_int(dashboard.get("watching_incident_count"))
-    summary["network_count"] = _safe_int(
-        snapshot.get("network_count"), default=len(dashboard.get("networks") or [])
+    summary["decision_contract_compatible"] = bool(data.shared_decisions_available)
+    summary["core_update_required"] = bool(
+        connected
+        and data is not None
+        and not data.shared_decisions_available
+        and data.core_version_compatible is not False
     )
-    summary["device_count"] = _safe_int(snapshot.get("device_count"))
-    summary["unavailable_devices"] = _safe_int(snapshot.get("unavailable_count"))
-    summary["router_risks"] = len(dashboard.get("router_risks") or [])
-    summary["stale_devices"] = len(dashboard.get("stale_devices") or [])
-    summary["weak_link_devices"] = len(dashboard.get("weak_links") or [])
-    summary["low_battery_devices"] = len(dashboard.get("low_batteries") or [])
+    summary["core_version_compatible"] = data.core_version_compatible
+
     summary["collector_connected"] = bool(data.collector_connected)
     summary["mock_mode"] = bool(health.get("mock_mode"))
     summary["last_update"] = dashboard.get("generated_at") or collector.get("last_message_at")
 
-    decision_mode = (
-        data.shared_decisions_available is True and data.core_version_compatible is True
-    )
+    decision_mode = data.shared_decisions_available is True
+    if decision_mode:
+        summary["active_incident_count"] = _safe_int(dashboard.get("active_incident_count"))
+        summary["watching_incident_count"] = _safe_int(dashboard.get("watching_incident_count"))
+        summary["network_count"] = _safe_int(dashboard.get("network_count"))
+        summary["device_count"] = _safe_int(dashboard.get("device_count"))
+        summary["unavailable_devices"] = _safe_int(dashboard.get("unavailable_device_count"))
+        router_risks = dashboard.get("router_risks")
+        summary["router_risks"] = (
+            len(router_risks) if isinstance(router_risks, list) else None
+        )
     valid_priorities: list[dict[str, Any]] = []
     projected_priorities: list[dict[str, Any]] = []
     if decision_mode:
+        decision_summary = dashboard.get("decision_summary")
+        if isinstance(decision_summary, dict):
+            summary["decision_summary"] = {
+                "subject_count": _safe_int(decision_summary.get("subject_count")),
+                "overall_status": _optional_str(decision_summary.get("overall_status")),
+                "highest_priority": _optional_str(decision_summary.get("highest_priority")),
+                "status_counts": (
+                    decision_summary.get("status_counts")
+                    if isinstance(decision_summary.get("status_counts"), dict)
+                    else {}
+                ),
+                "priority_counts": (
+                    decision_summary.get("priority_counts")
+                    if isinstance(decision_summary.get("priority_counts"), dict)
+                    else {}
+                ),
+                "coverage_warning_count": _safe_int(
+                    decision_summary.get("coverage_warning_count")
+                ),
+            }
+            summary["overall_decision_status"] = summary["decision_summary"]["overall_status"]
         valid_priorities, projected_priorities, warning_count = _project_priorities(dashboard)
         summary["investigation_priority_count"] = len(valid_priorities)
         summary["investigation_priorities"] = projected_priorities
@@ -217,33 +219,32 @@ def build_panel_summary(
         if isinstance(nid, str) and nid:
             per_network_priority_counts[nid] = per_network_priority_counts.get(nid, 0) + 1
 
-    router_risks = dashboard.get("router_risks") or []
     networks: list[dict[str, Any]] = []
-    for net in dashboard.get("networks") or []:
-        if not isinstance(net, dict):
-            continue
-        network_id = net.get("id")
-        per_network_router_risks = len(
-            [r for r in router_risks if isinstance(r, dict) and r.get("network_id") == network_id]
-        )
-        network_health = net.get("health") or {}
-        net_row: dict[str, Any] = {
-            "id": network_id,
-            "name": net.get("name") or network_id,
-            "bridge_state": str(net.get("bridge_state") or "unknown"),
-            "device_count": _safe_int(net.get("device_count")),
-            "unavailable_devices": _safe_int(net.get("unavailable_count")),
-            "router_risks": per_network_router_risks,
-            "health": _severity_label(
-                net.get("incident_state")
-                or (network_health.get("severity") if isinstance(network_health, dict) else None)
-            ),
-            "investigation_priority_count": (
-                per_network_priority_counts.get(str(network_id), 0)
-                if isinstance(network_id, str) and decision_mode
-                else 0
-            ),
-        }
-        networks.append(net_row)
+    if decision_mode:
+        for net in dashboard.get("networks") or []:
+            if not isinstance(net, dict):
+                continue
+            network_id = net.get("id")
+            decision = net.get("decision") if isinstance(net.get("decision"), dict) else {}
+            decision_summary = (
+                net.get("decision_summary") if isinstance(net.get("decision_summary"), dict) else {}
+            )
+            net_row: dict[str, Any] = {
+                "id": network_id,
+                "name": net.get("name") or network_id,
+                "bridge_state": str(net.get("bridge_state") or "unknown"),
+                "device_count": _safe_int(net.get("device_count")),
+                "unavailable_devices": _safe_int(net.get("unavailable_count")),
+                "decision_status": (
+                    _optional_str(decision.get("status"))
+                    or _optional_str(decision_summary.get("overall_status"))
+                ),
+                "investigation_priority_count": (
+                    per_network_priority_counts.get(str(network_id), 0)
+                    if isinstance(network_id, str)
+                    else 0
+                ),
+            }
+            networks.append(net_row)
     summary["networks"] = networks
     return summary

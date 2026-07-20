@@ -5,7 +5,7 @@
  * Components render ViewModels; they do not decide diagnostic meaning.
  */
 
-import type { DecisionStatus } from "@/types/decisions";
+import type { DecisionStatus } from "@zigbeelens/shared";
 
 export type DecisionPillTone =
   | "neutral"

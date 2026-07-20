@@ -133,10 +133,6 @@ function makeIncident(overrides: Partial<Incident> = {}): Incident {
         network_id: "home",
         ieee_address: "0xa1",
         friendly_name: "Kitchen Plug",
-        health_primary: "unavailable",
-        lens_bucket: "needs_attention",
-        lens_bucket_label: "Needs attention",
-        lens_bucket_reason: "Looks offline in lens",
         decision: {
           status: "worth_reviewing",
           priority: "high",
@@ -147,6 +143,7 @@ function makeIncident(overrides: Partial<Incident> = {}): Incident {
     ],
     opened_at: "2026-07-13T00:00:00Z",
     updated_at: "2026-07-13T01:00:00Z",
+    resolved_at: null,
     evidence: [{ id: "e1", kind: "stored", summary: "First stored evidence" }],
     counter_evidence: [{ id: "c1", kind: "stored", summary: "Counter evidence" }],
     limitations: [{ id: "l1", summary: "First stored limitation" }],
@@ -304,11 +301,12 @@ describe("IncidentsPage list", () => {
             network_id: "office",
             ieee_address: "0xb1",
             friendly_name: "Office motion",
-            health_primary: "unavailable",
-            lens_bucket: "needs_attention",
-            lens_bucket_label: "Needs attention",
-            lens_bucket_reason: "",
-            decision: null,
+            decision: {
+              status: "watch",
+              priority: "medium",
+              headline_code: "stale_last_seen",
+              coverage_label_codes: [],
+            },
           },
         ],
       }),
@@ -373,18 +371,19 @@ describe("IncidentDetailPage", () => {
     expect(screen.queryByText("Related router candidates")).not.toBeInTheDocument();
   });
 
-  it("uses safe unknown for null decision", () => {
+  it("uses safe unknown for unknown future status", () => {
     mockState.detail = makeIncident({
       affected_devices: [
         {
           network_id: "home",
           ieee_address: "0xa1",
           friendly_name: "Kitchen Plug",
-          health_primary: "healthy",
-          lens_bucket: "healthy",
-          lens_bucket_label: "Healthy",
-          lens_bucket_reason: "Looks fine",
-          decision: null,
+          decision: {
+            status: "future_status_v2",
+            priority: "high",
+            headline_code: "future_headline_v2",
+            coverage_label_codes: [],
+          },
         },
       ],
     });
@@ -423,10 +422,6 @@ describe("IncidentDetailPage", () => {
           network_id: "home",
           ieee_address: "0xa1",
           friendly_name: "Kitchen Plug",
-          health_primary: "healthy",
-          lens_bucket: "healthy",
-          lens_bucket_label: "Healthy",
-          lens_bucket_reason: "Live-looking lens",
           decision: {
             status: "review_first",
             priority: "high",

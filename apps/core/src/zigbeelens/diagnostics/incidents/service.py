@@ -33,9 +33,13 @@ class ActiveIncidentReadContext:
     affected_keys: frozenset[tuple[str, str]]
     incident_ids_by_device_key: Mapping[tuple[str, str], tuple[str, ...]]
     active_count_by_network_id: Mapping[str, int]
+    network_ids_by_incident_id: Mapping[str, tuple[str, ...]]
+    active_severity_by_network_id: Mapping[str, Severity]
 
 
 def build_active_incident_read_context(repo: Repository) -> ActiveIncidentReadContext:
+    from zigbeelens.services.report_active_severity import active_severity_by_network_id
+
     incidents = tuple(repo.incidents.list_incidents(status_filter=("open", "watching")))
     incident_ids = [row["id"] for row in incidents]
     refs_map = repo.incidents.list_incident_devices_for_incidents(incident_ids)
@@ -48,6 +52,10 @@ def build_active_incident_read_context(repo: Repository) -> ActiveIncidentReadCo
     incident_ids_by_device: dict[tuple[str, str], list[str]] = {}
     active_count_by_network: dict[str, int] = {}
     networks_map = repo.incidents.list_incident_networks_for_incidents(incident_ids)
+    network_ids_by_incident = {
+        incident_id: tuple(networks_map.get(incident_id, []))
+        for incident_id in incident_ids
+    }
 
     for row in incidents:
         refs = refs_by_incident_id[row["id"]]
@@ -59,6 +67,12 @@ def build_active_incident_read_context(repo: Repository) -> ActiveIncidentReadCo
         for network_id in networks_for_incident:
             active_count_by_network[network_id] = active_count_by_network.get(network_id, 0) + 1
 
+    severity_by_network = active_severity_by_network_id(
+        list(incidents),
+        network_ids_by_incident,
+        tuple(active_count_by_network),
+    )
+
     return ActiveIncidentReadContext(
         incidents=incidents,
         incidents_by_id=incidents_by_id,
@@ -68,6 +82,8 @@ def build_active_incident_read_context(repo: Repository) -> ActiveIncidentReadCo
             {key: tuple(ids) for key, ids in incident_ids_by_device.items()}
         ),
         active_count_by_network_id=MappingProxyType(active_count_by_network),
+        network_ids_by_incident_id=MappingProxyType(network_ids_by_incident),
+        active_severity_by_network_id=MappingProxyType(severity_by_network),
     )
 
 

@@ -103,7 +103,11 @@ class SafeMqttPublisher:
             self._connected = False
 
     def publish(self, topic: str, payload: str, *, retain: bool = False) -> None:
-        validate_publish_topic(topic, zigbee_base_topics=self._base_topics)
+        validate_publish_topic(
+            topic,
+            zigbee_base_topics=self._base_topics,
+            discovery_topic_prefix=self._config.mqtt_discovery.topic_prefix,
+        )
         with self._lock:
             self._records.append(PublishRecord(topic=topic, payload=payload, retain=retain))
         result = self._client.publish(topic, payload=payload, retain=retain, qos=0)
@@ -142,7 +146,11 @@ class FakeDiscoveryPublisher:
         self._connected = False
 
     def publish(self, topic: str, payload: str, *, retain: bool = False) -> None:
-        validate_publish_topic(topic, zigbee_base_topics=self._base_topics)
+        validate_publish_topic(
+            topic,
+            zigbee_base_topics=self._base_topics,
+            discovery_topic_prefix=self.config.mqtt_discovery.topic_prefix,
+        )
         self.published.append(PublishRecord(topic=topic, payload=payload, retain=retain))
 
     def publish_json(self, topic: str, payload: dict, *, retain: bool = False) -> None:

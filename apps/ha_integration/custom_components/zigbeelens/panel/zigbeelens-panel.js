@@ -189,6 +189,11 @@ function esc(value) {
     .replace(/'/g, "&#39;");
 }
 
+function formatCount(value) {
+  if (value === null || value === undefined) return "—";
+  return String(value);
+}
+
 function relativeTime(iso) {
   if (!iso) return "unknown";
   const then = Date.parse(iso);
@@ -378,9 +383,9 @@ class ZigbeeLensPanel extends HTMLElement {
             ? this._decisionPrioritiesCard(s)
             : ""
         }
-        ${!this._loading && connected && !decisionMode ? this._findingCard(s) : ""}
-        ${!this._loading && connected ? this._statsCard(s) : ""}
-        ${!this._loading && connected ? this._networksCard(s) : ""}
+        ${!this._loading && connected && !decisionMode ? this._contractIncompatibleCard() : ""}
+        ${!this._loading && connected && decisionMode ? this._statsCard(s) : ""}
+        ${!this._loading && connected && decisionMode ? this._networksCard(s) : ""}
         ${!this._loading ? this._integrationCard(s, coreUrl, connected) : ""}
         <p class="note">
           The native summary is the default view. Use Try Embedded View when you want the
@@ -441,7 +446,6 @@ class ZigbeeLensPanel extends HTMLElement {
 
   _heroCard(s, coreUrl, connected) {
     const decisionMode = this._decisionMode(s);
-    const sev = SEVERITY[s.overall_health] || SEVERITY.unknown;
     const connBadge = connected
       ? `<span class="badge ok">Connected to Core</span>`
       : `<span class="badge off">Not connected</span>`;
@@ -450,9 +454,14 @@ class ZigbeeLensPanel extends HTMLElement {
       const contract = s.decision_contract_version
         ? `Decision contract v${esc(s.decision_contract_version)}`
         : "Shared decisions";
-      modeBadge = `<span class="badge ok">${contract}</span>`;
-    } else if (connected && s.overall_health) {
-      modeBadge = `<span class="badge" style="--badge:${sev.color}">Health: ${esc(sev.label)}</span>`;
+      const status = s.overall_decision_status
+        ? ` · ${esc(s.overall_decision_status)}`
+        : "";
+      modeBadge = `<span class="badge ok">${contract}${status}</span>`;
+    } else if (connected && s.core_update_required) {
+      modeBadge = `<span class="badge watch">Core update required</span>`;
+    } else if (connected && !decisionMode) {
+      modeBadge = `<span class="badge watch">Decision contract incompatible</span>`;
     }
     const mockBadge = s.mock_mode ? `<span class="badge watch">Mock data</span>` : "";
     return `
@@ -490,6 +499,18 @@ class ZigbeeLensPanel extends HTMLElement {
           ${coreUrl ? this._tryEmbedButton() : ""}
           <button type="button" class="btn" id="reload">Reload status</button>
         </div>
+      </section>
+    `;
+  }
+
+  _contractIncompatibleCard() {
+    return `
+      <section class="card">
+        <h2>Update required</h2>
+        <p class="muted">
+          ZigbeeLens Core decision contract is incompatible.
+          Update Core and reload the integration.
+        </p>
       </section>
     `;
   }
@@ -533,65 +554,33 @@ class ZigbeeLensPanel extends HTMLElement {
     `;
   }
 
-  _findingCard(s) {
-    const finding = s.current_finding;
-    const incidents = s.active_incident_count || 0;
-    const incidentLine =
-      incidents > 0
-        ? `<span class="badge incident">${incidents} active incident${incidents === 1 ? "" : "s"}</span>`
-        : `<span class="badge ok">No active incidents</span>`;
-    return `
-      <section class="card">
-        <div class="card-head">
-          <h2>Current finding</h2>
-          ${incidentLine}
-        </div>
-        <p class="finding">${finding ? esc(finding) : "No active findings. ZigbeeLens is monitoring your networks."}</p>
-      </section>
-    `;
-  }
-
   _stat(label, value, accent) {
     return `
       <div class="stat">
-        <div class="stat-value" ${accent ? `style="color:${accent}"` : ""}>${esc(value)}</div>
+        <div class="stat-value" ${accent ? `style="color:${accent}"` : ""}>${esc(formatCount(value))}</div>
         <div class="stat-label">${esc(label)}</div>
       </div>
     `;
   }
 
   _statsCard(s) {
-    if (this._decisionMode(s)) {
-      const incidentAccent =
-        (s.active_incident_count || 0) > 0 ? SEVERITY.incident.color : undefined;
-      const unavailAccent =
-        (s.unavailable_devices || 0) > 0 ? SEVERITY.watch.color : undefined;
-      return `
-        <section class="card">
-          <div class="grid">
-            ${this._stat("Investigation priorities", s.investigation_priority_count || 0)}
-            ${this._stat("Data coverage warnings", s.data_coverage_warning_count || 0)}
-            ${this._stat("Active incidents", s.active_incident_count || 0, incidentAccent)}
-            ${this._stat("Networks", s.network_count || 0)}
-            ${this._stat("Devices", s.device_count || 0)}
-            ${this._stat("Unavailable", s.unavailable_devices || 0, unavailAccent)}
-          </div>
-        </section>
-      `;
-    }
     const incidentAccent =
-      (s.active_incident_count || 0) > 0 ? SEVERITY.incident.color : undefined;
+      typeof s.active_incident_count === "number" && s.active_incident_count > 0
+        ? SEVERITY.incident.color
+        : undefined;
     const unavailAccent =
-      (s.unavailable_devices || 0) > 0 ? SEVERITY.watch.color : undefined;
-    const routerAccent = (s.router_risks || 0) > 0 ? SEVERITY.watch.color : undefined;
+      typeof s.unavailable_devices === "number" && s.unavailable_devices > 0
+        ? SEVERITY.watch.color
+        : undefined;
     return `
       <section class="card">
         <div class="grid">
-          ${this._stat("Active incidents", s.active_incident_count || 0, incidentAccent)}
-          ${this._stat("Networks", s.network_count || 0)}
-          ${this._stat("Devices", s.device_count || 0)}
-          ${this._stat("Unavailable", s.unavailable_devices || 0, unavailAccent)}
-          ${this._stat("Router risks", s.router_risks || 0, routerAccent)}
+          ${this._stat("Investigation priorities", s.investigation_priority_count)}
+          ${this._stat("Data coverage warnings", s.data_coverage_warning_count)}
+          ${this._stat("Active incidents", s.active_incident_count, incidentAccent)}
+          ${this._stat("Networks", s.network_count)}
+          ${this._stat("Devices", s.device_count)}
+          ${this._stat("Unavailable", s.unavailable_devices, unavailAccent)}
         </div>
       </section>
     `;
@@ -602,7 +591,6 @@ class ZigbeeLensPanel extends HTMLElement {
     if (!networks.length) {
       return `<section class="card"><h2>Networks</h2><p class="muted">No networks reported yet.</p></section>`;
     }
-    const decisionMode = this._decisionMode(s);
     const rows = networks
       .map((n) => {
         const online = String(n.bridge_state || "").toLowerCase() === "online";
@@ -612,28 +600,29 @@ class ZigbeeLensPanel extends HTMLElement {
           : offline
             ? SEVERITY.incident.color
             : SEVERITY.unknown.color;
-        const sev = SEVERITY[n.health] || SEVERITY.unknown;
-        const dotColor = decisionMode ? bridgeColor : sev.color;
-        const priorityCount = Number(n.investigation_priority_count || 0);
-        const meta = decisionMode
-          ? `
-              <span>${esc(n.device_count || 0)} devices</span>
-              ${(n.unavailable_devices || 0) > 0 ? `<span class="warn">${esc(n.unavailable_devices)} unavailable</span>` : ""}
+        const priorityCount =
+          typeof n.investigation_priority_count === "number"
+            ? n.investigation_priority_count
+            : null;
+        const unavailable =
+          typeof n.unavailable_devices === "number" ? n.unavailable_devices : null;
+        const meta = `
+              <span>${esc(formatCount(n.device_count))} devices</span>
               ${
-                priorityCount > 0
+                unavailable !== null && unavailable > 0
+                  ? `<span class="warn">${esc(unavailable)} unavailable</span>`
+                  : ""
+              }
+              ${
+                priorityCount !== null && priorityCount > 0
                   ? `<span>${esc(priorityCount)} investigation priorit${priorityCount === 1 ? "y" : "ies"}</span>`
                   : ""
               }
-            `
-          : `
-              <span>${esc(n.device_count || 0)} devices</span>
-              ${(n.unavailable_devices || 0) > 0 ? `<span class="warn">${esc(n.unavailable_devices)} unavailable</span>` : ""}
-              ${(n.router_risks || 0) > 0 ? `<span class="warn">${esc(n.router_risks)} router risk${n.router_risks === 1 ? "" : "s"}</span>` : ""}
             `;
         return `
           <div class="net-row">
             <div class="net-main">
-              <span class="dot" style="background:${dotColor}"></span>
+              <span class="dot" style="background:${bridgeColor}"></span>
               <div>
                 <div class="net-name">${esc(n.name)}</div>
                 <div class="net-sub ${online ? "" : "warn"}">${esc(bridgeLabel(n.bridge_state))}</div>

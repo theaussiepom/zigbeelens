@@ -42,7 +42,7 @@ echo "Checking /healthz..."
 curl -sf "${BASE}/healthz" | grep -q '"status"' || { echo "FAIL: /healthz"; exit 1; }
 
 echo "Checking /api/dashboard..."
-curl -sf "${BASE}/api/dashboard" | grep -q '"overall_severity"' || { echo "FAIL: /api/dashboard"; exit 1; }
+curl -sf "${BASE}/api/dashboard" | grep -q '"decision_summary"' || { echo "FAIL: /api/dashboard"; exit 1; }
 
 echo "Checking /api/version..."
 curl -sf "${BASE}/api/version" | grep -q '"version"' || { echo "FAIL: /api/version"; exit 1; }

@@ -8,17 +8,15 @@ import {
   EmptyState,
   ErrorState,
   LoadingState,
-  SeverityBadge,
   StatTile,
 } from "@/components/ui";
 import {
-  CurrentFindingCard,
-  DeviceHealthCard,
   IncidentCard,
-  NetworkHealthCard,
+  NetworkDecisionCard,
   RouterRiskCard,
   TimelineEventRow,
 } from "@/components/cards";
+import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
 import { SharedAvailabilityEventCard } from "@/components/overview/SharedAvailabilityEventCard";
 import { ModelPatternCard } from "@/components/overview/ModelPatternCard";
 import { InvestigationPriorityCard } from "@/components/overview/InvestigationPriorityCard";
@@ -41,6 +39,8 @@ import {
   readOverviewLastViewedAt,
   writeOverviewLastViewedAt,
 } from "@/lib/overviewVisitStorage";
+import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
+
 const DASHBOARD_EVENTS = [
   "dashboard_update",
   "dashboard_updated",
@@ -123,19 +123,28 @@ export function OverviewPage() {
   const dataCoverageWarnings = (data.data_coverage_warnings ?? []).map((warning) =>
     buildDataCoverageWarningViewModel(warning, networkNames[warning.network_id]),
   );
-  const topOpenIncidentId = active.find((i) => i.status === "open")?.id ?? active[0]?.id;
+  const estateDecision = buildDeviceDecisionBadgeViewModel({
+    status: data.decision_summary.overall_status,
+    priority: data.decision_summary.highest_priority,
+    headline_code: `estate_${data.decision_summary.overall_status}`,
+    coverage_label_codes: [],
+  });
+  const reviewFirst = data.decision_summary.status_counts.review_first ?? 0;
+  const worthReviewing = data.decision_summary.status_counts.worth_reviewing ?? 0;
 
   return (
     <div className="max-w-7xl space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
-          <p className="mt-1 text-zl-muted">Is anything broken, where, and what does the evidence say?</p>
+          <p className="mt-1 text-zl-muted">
+            What needs review first, what changed, and where coverage is limited?
+          </p>
         </div>
-        <SeverityBadge severity={data.overall_severity} />
+        <DeviceDecisionBadge decision={estateDecision} />
       </header>
 
-      <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
         <StatTile
           label="Active incidents"
           value={data.active_incident_count}
@@ -143,17 +152,37 @@ export function OverviewPage() {
         />
         <StatTile
           label="Unavailable"
-          value={data.health_snapshot.unavailable_count}
-          severity={data.health_snapshot.unavailable_count ? "incident" : "healthy"}
+          value={data.unavailable_device_count}
+          severity={data.unavailable_device_count ? "incident" : "healthy"}
         />
         <StatTile
           label="Watching"
           value={data.watching_incident_count}
           severity={data.watching_incident_count ? "watch" : "healthy"}
         />
+        <StatTile label="Networks" value={data.network_count} />
+        <StatTile label="Devices" value={data.device_count} />
       </div>
 
-      <CurrentFindingCard finding={data.current_finding} incidentId={topOpenIncidentId} />
+      {(reviewFirst > 0 || worthReviewing > 0 || data.decision_summary.coverage_warning_count > 0) && (
+        <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-3">
+          <StatTile
+            label="Review first"
+            value={reviewFirst}
+            severity={reviewFirst ? "incident" : "healthy"}
+          />
+          <StatTile
+            label="Worth reviewing"
+            value={worthReviewing}
+            severity={worthReviewing ? "watch" : "healthy"}
+          />
+          <StatTile
+            label="Coverage warnings"
+            value={data.decision_summary.coverage_warning_count}
+            severity={data.decision_summary.coverage_warning_count ? "watch" : "healthy"}
+          />
+        </div>
+      )}
 
       <section className="space-y-3" aria-label={INVESTIGATION_PRIORITY_SECTION_TITLE}>
         <div>
@@ -222,7 +251,7 @@ export function OverviewPage() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">Networks</h2>
         <div className="grid gap-4 md:grid-cols-2">
           {data.networks.map((n) => (
-            <NetworkHealthCard
+            <NetworkDecisionCard
               key={n.id}
               network={n}
               topologyEnabled={status?.topology?.enabled ?? false}
@@ -253,21 +282,6 @@ export function OverviewPage() {
         )}
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
-          Top affected devices
-        </h2>
-        {data.top_affected_devices.length === 0 ? (
-          <EmptyState title="No current device health concerns" />
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {data.top_affected_devices.map((d) => (
-              <DeviceHealthCard key={`${d.network_id}-${d.ieee_address}`} device={d} />
-            ))}
-          </div>
-        )}
-      </section>
-
       {data.router_risks.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
@@ -280,48 +294,6 @@ export function OverviewPage() {
           </div>
         </section>
       )}
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
-          System summary
-        </h2>
-        <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-          <StatTile label="Networks" value={data.networks.length} />
-          <StatTile label="Devices" value={data.health_snapshot.device_count} />
-          <StatTile
-            label="Recently unstable"
-            value={data.recently_unstable.length}
-            severity={data.recently_unstable.length ? "watch" : "healthy"}
-          />
-          <StatTile
-            label="Stale"
-            value={data.stale_devices.length}
-            severity={data.stale_devices.length ? "watch" : "healthy"}
-          />
-          <StatTile
-            label="Weak links"
-            value={data.weak_links.length}
-            severity={data.weak_links.length ? "watch" : "healthy"}
-          />
-          <StatTile
-            label="Low battery"
-            value={data.low_batteries.length}
-            severity={data.low_batteries.length ? "watch" : "healthy"}
-          />
-        </div>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
-          Health signal summaries
-        </h2>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          <SignalGroup title="Recently unstable" devices={data.recently_unstable} />
-          <SignalGroup title="Weak links" devices={data.weak_links} />
-          <SignalGroup title="Low battery" devices={data.low_batteries} />
-          <SignalGroup title="Stale reporting" devices={data.stale_devices} />
-        </div>
-      </section>
 
       <Card
         title="Recent timeline"
@@ -343,27 +315,5 @@ export function OverviewPage() {
         )}
       </Card>
     </div>
-  );
-}
-
-function SignalGroup({
-  title,
-  devices,
-}: {
-  title: string;
-  devices: import("@zigbeelens/shared").DeviceSummary[];
-}) {
-  return (
-    <Card title={title}>
-      {devices.length === 0 ? (
-        <p className="text-sm text-zl-muted">None detected.</p>
-      ) : (
-        <div className="space-y-2">
-          {devices.slice(0, 5).map((d) => (
-            <DeviceHealthCard key={`${d.network_id}-${d.ieee_address}`} device={d} />
-          ))}
-        </div>
-      )}
-    </Card>
   );
 }

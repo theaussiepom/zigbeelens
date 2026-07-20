@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import {
-  ConfidenceBadge,
-  CounterEvidenceList,
-  HealthBadge,
-  LimitationsList,
-  SeverityBadge,
-} from "./ui";
+import { ConfidenceBadge, CounterEvidenceList, LimitationsList, SeverityBadge } from "./ui";
 
 describe("badges", () => {
   it("renders calm severity labels", () => {
@@ -17,11 +11,6 @@ describe("badges", () => {
   it("renders incident severity label", () => {
     render(<SeverityBadge severity="incident" />);
     expect(screen.getByText("Incident")).toBeInTheDocument();
-  });
-
-  it("renders human health labels", () => {
-    render(<HealthBadge primary="recently_unstable" />);
-    expect(screen.getByText("Recently Unstable")).toBeInTheDocument();
   });
 
   it("renders confidence with text, not colour alone", () => {
@@ -37,7 +26,11 @@ describe("evidence lists", () => {
   });
 
   it("renders limitation items", () => {
-    render(<LimitationsList items={["ZigbeeLens cannot prove physical route without topology data"]} />);
+    render(
+      <LimitationsList
+        items={["ZigbeeLens cannot prove physical route without topology data"]}
+      />,
+    );
     expect(
       screen.getByText("ZigbeeLens cannot prove physical route without topology data"),
     ).toBeInTheDocument();

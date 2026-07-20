@@ -1,41 +1,42 @@
 # MQTT Discovery
 
-ZigbeeLens can optionally publish **Lens-family summary Home Assistant entities** using [MQTT Discovery](https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery).
+ZigbeeLens can optionally publish **decision-contract-v2 summary Home Assistant entities** using [MQTT Discovery](https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery).
 
-**Backward compatibility:** Phase 3C intentionally replaces the previous MQTT entity model. After deploying, delete stale retained discovery configs and remove old HA entities (see [Migration](#migration)).
+**Breaking change (Track 5):** the previous Lens-bucket summary entities (`health`, `issues`, `needs_attention`, `recently_unstable`, `diagnostics_limited`) are superseded. On start, ZigbeeLens publishes retained empty tombstones for those discovery config topics. The factual `unavailable` entity key is retained with identical semantics.
 
-## Lens family MQTT conventions
-
-Shared rules across [ZigbeeLens](https://github.com/theaussiepom/zigbeelens) and [ThreadLens](https://github.com/theaussiepom/threadlens). See [lens-family.md](lens-family.md).
+## Decision MQTT conventions
 
 | Rule | Detail |
 |------|--------|
 | **Global summary by default** | Six summary sensors on one HA device |
 | **No per-device spam** | No per-Zigbee-device entities by default |
 | **Unknown vs zero** | `unknown` when not observable; `0` only for observed zero |
-| **Diagnostic naming** | Names describe status, not control |
+| **Decision vocabulary** | States use canonical `DecisionStatus` / counts — not Lens buckets |
 | **Availability** | `zigbeelens/status` with `online` / `offline` |
-| **No secrets** | Passwords and keys never appear in discovery payloads |
+| **No secrets** | Passwords, tokens, IEEE addresses, and names never appear in payloads |
 
-ThreadLens equivalent: [mqtt-home-assistant.md](https://github.com/theaussiepom/threadlens/blob/main/docs/mqtt-home-assistant.md).
-
-## Clean summary entities (default)
+## Decision summary entities (default)
 
 All entities group under one Home Assistant device: **ZigbeeLens**.
 
-| HA entity | State topic | Purpose |
-|-----------|-------------|---------|
-| ZigbeeLens Health | `zigbeelens/summary/health/state` | Overall Lens bucket |
-| ZigbeeLens Issues | `zigbeelens/summary/issues/state` | Total issue count |
-| ZigbeeLens Unavailable Devices | `zigbeelens/summary/unavailable/state` | Unavailable device count |
-| ZigbeeLens Needs Attention | `zigbeelens/summary/needs_attention/state` | Needs attention count |
-| ZigbeeLens Recently Unstable | `zigbeelens/summary/recently_unstable/state` | Recently unstable count |
-| ZigbeeLens Diagnostics Limited | `zigbeelens/summary/diagnostics_limited/state` | Diagnostics limited count |
+| HA entity | Entity key | State topic | Purpose |
+|-----------|------------|-------------|---------|
+| ZigbeeLens Decision Status | `decision_status` | `zigbeelens/summary/decision_status/state` | Canonical `DecisionStatus` |
+| ZigbeeLens Review First | `review_first` | `zigbeelens/summary/review_first/state` | Count of `review_first` subjects |
+| ZigbeeLens Worth Reviewing | `worth_reviewing` | `zigbeelens/summary/worth_reviewing/state` | Count of `worth_reviewing` subjects |
+| ZigbeeLens Coverage Warnings | `coverage_warnings` | `zigbeelens/summary/coverage_warnings/state` | Data coverage warning count |
+| ZigbeeLens Active Incidents | `active_incidents` | `zigbeelens/summary/active_incidents/state` | Active incident count |
+| ZigbeeLens Unavailable Devices | `unavailable` | `zigbeelens/summary/unavailable/state` | Factual unavailable device count |
 
-Attributes publish to matching `.../attributes` topics and include:
+Attributes publish to matching `.../attributes` topics and may include:
 
-- `product`, `version`, `lens_bucket`, `lens_bucket_label`
-- `issue_count`, bucket counts, `generated_at`, `redaction_profile`
+- `product`, `version`, `decision_contract_version`
+- `overall_decision_status`, `highest_priority`
+- `status_counts`, `priority_counts`
+- `coverage_warning_count`, `active_incident_count`, `unavailable_device_count`
+- `generated_at`, `collector_connected`, `observation_reliable`, `redaction_profile`
+
+They do **not** include health primary, Lens buckets, device identifiers, names, tokens, or raw evidence.
 
 ## Topic patterns
 
@@ -50,11 +51,11 @@ Attributes publish to matching `.../attributes` topics and include:
 
 | Situation | MQTT state |
 |-----------|------------|
-| Live mode, MQTT collector disconnected | Count entities → `unknown` |
+| Live mode, MQTT collector disconnected | Decision status → `data_unavailable`; count entities → `unknown` |
 | Mock mode or collector connected, observed zero | `0` |
 | Observed count | integer string |
 
-Health entity state uses Lens bucket strings (`healthy`, `recently_unstable`, `needs_attention`, etc.).
+Never convert unobservable data to zero.
 
 ## Configuration
 
@@ -74,35 +75,15 @@ mqtt_discovery:
 
 ## Migration
 
-After deploying the clean Lens MQTT model:
+After deploying decision-contract MQTT:
 
-1. Stop ZigbeeLens (publishes `offline` on `zigbeelens/status`).
-2. Clear stale retained discovery configs for old entities, for example:
+1. ZigbeeLens automatically tombstones superseded Lens discovery configs on start:
+   - `homeassistant/sensor/zigbeelens/health/config`
+   - `homeassistant/sensor/zigbeelens/issues/config`
+   - `homeassistant/sensor/zigbeelens/needs_attention/config`
+   - `homeassistant/sensor/zigbeelens/recently_unstable/config`
+   - `homeassistant/sensor/zigbeelens/diagnostics_limited/config`
+2. Older pre-clean flat discovery topics remain listed in `LEGACY_DISCOVERY_TOPICS` for optional manual cleanup via `cleanup_legacy_discovery_configs()`.
+3. In Home Assistant, remove any unavailable superseded entities from the entity registry if they remain after the tombstones.
 
-```bash
-mosquitto_pub -h broker.mqtt -t 'homeassistant/sensor/zigbeelens_overall_health/config' -r -n
-mosquitto_pub -h broker.mqtt -t 'homeassistant/binary_sensor/zigbeelens_active_incident/config' -r -n
-# repeat for other old zigbeelens_* discovery topics
-```
-
-Or call `cleanup_legacy_discovery_configs()` from the discovery service when connected.
-
-3. In Home Assistant: **Settings → Devices & services → MQTT → Entities** — delete stale ZigbeeLens entities.
-4. Restart ZigbeeLens and reload the MQTT integration if needed.
-
-Old discovery topics are listed in `zigbeelens.mqtt_discovery.topics.LEGACY_DISCOVERY_TOPICS`.
-
-## What it does not do
-
-- Does **not** publish Zigbee2MQTT commands or request topics
-- Does **not** mutate Zigbee state
-- Does **not** expose every Zigbee device
-- Does **not** replace the HACS integration or dashboard
-
-## HACS vs MQTT Discovery
-
-Use the [HACS integration](hacs.md) for native Home Assistant polish. Enable MQTT Discovery only when you want summary entities without HACS.
-
-## Safety
-
-The collector remains subscribe-only. The discovery publisher validates topics and rejects Zigbee2MQTT base topics, wildcards, and `/set` paths.
+ZigbeeLens never publishes under Zigbee2MQTT base topics or `/set`.

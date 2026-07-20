@@ -83,12 +83,21 @@ Run all automated checks:
 - [ ] Spoofed ingress identity from a non-Supervisor peer fails
 - [ ] HAOS manual install smoke test (optional before v0.1.0 tag; required before add-on publish)
 
+## Decision contract / Track 5
+
+- [ ] Capabilities advertise `decision_contract_version: 2` and `legacy_health_lens_payloads: false`
+- [ ] Current Dashboard/Devices/Networks/Incidents payloads have no Lens/health presentation fields
+- [ ] New reports are `report_version: 3`; stored v1/v2 download unchanged
+- [ ] HACS requires exact contract v2; incompatible Core shows repair (not reauth) and no health fallback
+- [ ] MQTT Discovery publishes decision summary entities; superseded Lens configs tombstoned
+- [ ] Operational `/healthz` and `/api/health` unchanged (no decision payload)
+
 ## Runtime verification
 
 - [ ] Core starts in mock mode
 - [ ] Core starts in live empty mode (valid unknown payloads)
 - [ ] Docker Compose starts
-- [ ] Reports generate and redact correctly
+- [ ] Reports generate and redact correctly (v3)
 - [ ] MQTT Discovery **disabled** by default
 - [ ] Topology **enabled** by default with startup scan only (no periodic refresh unless configured)
 - [ ] No unsafe MQTT topics published with default config

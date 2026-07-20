@@ -6,7 +6,8 @@ import { MemoryRouter } from "react-router-dom";
 import type {
   DataCoverageWarningSummary,
   InvestigationPrioritySummary,
-  ReportDetail,
+  LegacyStoredReportBody,
+  ReportDetailV3,
   ReportDeviceStory,
   ReportSummary,
 } from "@zigbeelens/shared";
@@ -90,6 +91,7 @@ function makePickerIncident(overrides: Partial<Incident> = {}): Incident {
     affected_devices: [],
     opened_at: "2026-07-16T00:00:00Z",
     updated_at: "2026-07-16T00:00:00Z",
+    resolved_at: null,
     evidence: [],
     counter_evidence: [],
     limitations: [],
@@ -144,6 +146,7 @@ function makeStory(overrides: Partial<ReportDeviceStory> = {}): ReportDeviceStor
         params: {},
       },
     ],
+    related_unresolved_incident_ids: [],
     timeline: [],
     ...overrides,
   };
@@ -181,7 +184,7 @@ function makeCoverageWarning(
   };
 }
 
-function makeLegacyReport(): ReportDetail {
+function makeLegacyReport(): LegacyStoredReportBody {
   return {
     id: "report-preview",
     product: "ZigbeeLens",
@@ -224,7 +227,6 @@ function makeLegacyReport(): ReportDetail {
     timeline: [],
     health_snapshot: {
       timestamp: "2026-06-14T15:30:00+00:00",
-      overall_severity: "incident",
       overall_health: "unavailable",
       network_count: 2,
       device_count: 164,
@@ -239,23 +241,54 @@ function makeLegacyReport(): ReportDetail {
   };
 }
 
-function makeDecisionReport(overrides: Partial<ReportDetail> = {}): ReportDetail {
+function makeDecisionReport(overrides: Partial<ReportDetailV3> = {}): ReportDetailV3 {
   const story = makeStory();
   return {
-    ...makeLegacyReport(),
-    report_version: 2,
-    summary: null,
+    id: "report-preview",
+    product: "ZigbeeLens",
+    report_version: 3,
+    generated_at: "2026-06-14T15:30:00+00:00",
+    version: "0.1.0",
+    scope: "full",
+    format: "json",
+    redaction: {
+      applied: true,
+      profile: "standard",
+      mqtt_credentials: true,
+      secrets: true,
+      hostnames: false,
+      ip_addresses: false,
+      ieee_addresses_hashed: true,
+      friendly_names: "preserved",
+      network_names: "preserved",
+    },
     decision_summary: {
-      device_story_count: 1,
+      subject_count: 1,
+      overall_status: "watch",
+      highest_priority: "low",
       status_counts: { watch: 1 },
       priority_counts: { low: 1 },
+      coverage_warning_count: 0,
     },
     investigation_priorities: [makePriority()],
     device_stories: [story],
     data_coverage_warnings: [makeCoverageWarning()],
-    networks: [{ id: "home", name: "Home", base_topic: "zigbee2mqtt/home" }],
+    config_summary: {},
+    collector_status: {},
+    domain_details: {
+      networks: [
+        { id: "home", name: "Home", base_topic: "zigbee2mqtt/home" },
+      ] as ReportDetailV3["domain_details"]["networks"],
+      devices: [],
+      device_details: [],
+      router_risks: [],
+      topology_snapshot_count: 0,
+    },
+    incidents: [],
+    events_or_timeline: [],
+    limitations: [],
     raw_counts: { events_included: 0, devices_included: 1, incidents_included: 0 },
-    markdown_summary: "# ZigbeeLens evidence report\n\nGenerated: 2026-06-14",
+    markdown_summary: "# ZigbeeLens Evidence Report\n\nGenerated: 2026-06-14",
     ...overrides,
   };
 }

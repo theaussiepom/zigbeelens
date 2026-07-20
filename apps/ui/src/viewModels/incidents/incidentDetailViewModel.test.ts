@@ -24,10 +24,6 @@ function makeIncident(overrides: Partial<Incident> = {}): Incident {
         network_id: "home",
         ieee_address: "0xa1",
         friendly_name: "Kitchen Plug",
-        health_primary: "unavailable",
-        lens_bucket: "needs_attention",
-        lens_bucket_label: "Needs attention",
-        lens_bucket_reason: "Legacy lens",
         decision: {
           status: "no_notable_change",
           priority: "none",

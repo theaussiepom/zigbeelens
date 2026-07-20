@@ -4,13 +4,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Callable
 
-from zigbeelens.presentation.lens_buckets import enrich_device_summary
 from zigbeelens.schemas import (
     Availability,
     BridgeState,
     Confidence,
     CoordinatorSummary,
     DashboardPayload,
+    DeviceDecisionBadge,
     DeviceDetail,
     DeviceHealth,
     DeviceHealthPrimary,
@@ -49,12 +49,76 @@ def ago(**kwargs: float | int) -> str:
 
 
 def healthy_health() -> DeviceHealth:
+    """Internal fixture helper — not serialized on public DeviceSummary."""
     return DeviceHealth(
         primary=DeviceHealthPrimary.healthy,
         severity=Severity.healthy,
         confidence=Confidence.high,
         evidence=["Device is available and reporting normally"],
         limitations=["Topology route is not verified from MQTT data alone"],
+    )
+
+
+_HEALTH_TO_DECISION: dict[DeviceHealthPrimary, tuple[str, str, str]] = {
+    DeviceHealthPrimary.healthy: (
+        "no_notable_change",
+        "none",
+        "device_no_notable_change",
+    ),
+    DeviceHealthPrimary.unavailable: (
+        "review_first",
+        "high",
+        "device_unavailable",
+    ),
+    DeviceHealthPrimary.recently_unstable: (
+        "worth_reviewing",
+        "medium",
+        "device_recently_unstable",
+    ),
+    DeviceHealthPrimary.weak_link: (
+        "watch",
+        "medium",
+        "device_weak_link",
+    ),
+    DeviceHealthPrimary.low_battery: (
+        "watch",
+        "low",
+        "device_low_battery",
+    ),
+    DeviceHealthPrimary.stale_reporting: (
+        "improve_data_coverage",
+        "low",
+        "device_stale_reporting",
+    ),
+    DeviceHealthPrimary.interview_issue: (
+        "worth_reviewing",
+        "medium",
+        "device_interview_issue",
+    ),
+    DeviceHealthPrimary.router_risk: (
+        "worth_reviewing",
+        "high",
+        "device_router_risk",
+    ),
+    DeviceHealthPrimary.unknown: (
+        "data_unavailable",
+        "none",
+        "device_data_unavailable",
+    ),
+}
+
+
+def badge_from_health(health: DeviceHealth | None) -> DeviceDecisionBadge:
+    primary = (health or healthy_health()).primary
+    status, priority, headline = _HEALTH_TO_DECISION.get(
+        primary,
+        ("data_unavailable", "none", "device_data_unavailable"),
+    )
+    return DeviceDecisionBadge(
+        status=status,
+        priority=priority,
+        headline_code=headline,
+        coverage_label_codes=[],
     )
 
 
@@ -70,11 +134,15 @@ def device(
     battery: int | None = None,
     last_seen: str | None = None,
     health: DeviceHealth | None = None,
+    decision: DeviceDecisionBadge | None = None,
     incident_affected: bool = False,
-    sort_priority: int = 100,
+    sort_priority: int = 100,  # accepted for call-site compatibility; unused
     interview_state: InterviewState = InterviewState.successful,
+    manufacturer: str | None = None,
+    model: str | None = None,
 ) -> DeviceSummary:
-    summary = DeviceSummary(
+    del sort_priority  # fixtures previously ordered by health priority
+    return DeviceSummary(
         network_id=network_id,
         ieee_address=ieee,
         friendly_name=name,
@@ -85,12 +153,12 @@ def device(
         last_payload_at=ago(minutes=3),
         linkquality=linkquality,
         battery=battery,
+        manufacturer=manufacturer,
+        model=model,
         interview_state=interview_state,
-        health=health or healthy_health(),
         incident_affected=incident_affected,
-        sort_priority=sort_priority,
+        decision=decision or badge_from_health(health),
     )
-    return enrich_device_summary(summary)
 
 
 def network(
@@ -100,33 +168,24 @@ def network(
     *,
     bridge: BridgeState = BridgeState.online,
     devices: list[DeviceSummary],
-    incident_state: Severity = Severity.healthy,
+    incident_state: Severity | None = None,
+    active_incident_severity: Severity | None = None,
     active_incidents: int = 0,
     warnings: int = 0,
     errors: int = 0,
 ) -> NetworkSummary:
+    from zigbeelens.services.network_decision import compose_network_decision
+
     routers = sum(1 for d in devices if d.device_type == DeviceType.Router)
     ends = sum(1 for d in devices if d.device_type == DeviceType.EndDevice)
     unavail = sum(1 for d in devices if d.availability == Availability.offline)
-    unstable = sum(
-        1 for d in devices if d.health.primary == DeviceHealthPrimary.recently_unstable
+    decision, decision_summary = compose_network_decision(
+        device_badges=[d.decision for d in devices],
+        has_active_incident=active_incidents > 0,
     )
-    weak = sum(1 for d in devices if d.health.primary == DeviceHealthPrimary.weak_link)
-    low_bat = sum(1 for d in devices if d.health.primary == DeviceHealthPrimary.low_battery)
-    stale = sum(1 for d in devices if d.health.primary == DeviceHealthPrimary.stale_reporting)
-    interview = sum(
-        1 for d in devices if d.health.primary == DeviceHealthPrimary.interview_issue
-    )
-    health = DeviceHealth(
-        primary=DeviceHealthPrimary.healthy if unavail == 0 else DeviceHealthPrimary.unavailable,
-        severity=incident_state if incident_state != Severity.healthy else Severity.healthy,
-        confidence=Confidence.high if bridge == BridgeState.online else Confidence.medium,
-        evidence=[f"{unavail} unavailable devices on {name}"],
-        limitations=["Per-device routing paths are not available from MQTT alone"],
-    )
-    if unavail == 0 and incident_state == Severity.healthy:
-        health = healthy_health()
-
+    # Factual: only explicit active-incident severity (legacy incident_state ignored).
+    del incident_state
+    severity = active_incident_severity
     return NetworkSummary(
         id=net_id,
         name=name,
@@ -144,16 +203,79 @@ def network(
         router_count=routers,
         end_device_count=ends,
         unavailable_count=unavail,
-        recently_unstable_count=unstable,
-        weak_link_count=weak,
-        low_battery_count=low_bat,
-        stale_count=stale,
-        interview_issue_count=interview,
-        incident_state=incident_state,
+        active_incident_severity=severity,
         active_incident_count=active_incidents,
         recent_bridge_warnings=warnings,
         recent_bridge_errors=errors,
-        health=health,
+        decision=decision,
+        decision_summary=decision_summary,
+    )
+
+
+def scenario_dashboard(
+    *,
+    generated_at: str,
+    scenario: str | None = None,
+    active_incident_count: int = 0,
+    watching_incident_count: int = 0,
+    networks: list[NetworkSummary],
+    router_risks: list[RouterRisk] | None = None,
+    recent_timeline: list[TimelineEvent] | None = None,
+    devices: list[DeviceSummary] | None = None,
+    shared_availability_events: list | None = None,
+    model_patterns: list | None = None,
+    investigation_priorities: list | None = None,
+    data_coverage_warnings: list | None = None,
+    # Legacy kwargs accepted so existing scenario builders compile; ignored.
+    overall_severity: Severity | None = None,
+    current_finding: DiagnosticConclusion | None = None,
+    top_affected_devices: list | None = None,
+    recently_unstable: list | None = None,
+    weak_links: list | None = None,
+    low_batteries: list | None = None,
+    stale_devices: list | None = None,
+    health_snapshot: HealthSnapshot | None = None,
+) -> DashboardPayload:
+    from zigbeelens.services.decision_summary import decision_count_summary_from_badges
+
+    del (
+        overall_severity,
+        current_finding,
+        top_affected_devices,
+        recently_unstable,
+        weak_links,
+        low_batteries,
+        stale_devices,
+        health_snapshot,
+    )
+    device_list = list(devices or [])
+    if not device_list:
+        # Fall back to network rollups when callers omit the device list.
+        decision_summary = decision_count_summary_from_badges(
+            (n.decision for n in networks),
+            coverage_warning_count=len(data_coverage_warnings or []),
+        )
+    else:
+        decision_summary = decision_count_summary_from_badges(
+            (d.decision for d in device_list),
+            coverage_warning_count=len(data_coverage_warnings or []),
+        )
+    return DashboardPayload(
+        generated_at=generated_at,
+        scenario=scenario,
+        active_incident_count=active_incident_count,
+        watching_incident_count=watching_incident_count,
+        network_count=len(networks),
+        device_count=len(device_list) if device_list else sum(n.device_count for n in networks),
+        unavailable_device_count=sum(n.unavailable_count for n in networks),
+        networks=networks,
+        router_risks=list(router_risks or []),
+        recent_timeline=list(recent_timeline or []),
+        decision_summary=decision_summary,
+        shared_availability_events=list(shared_availability_events or []),
+        model_patterns=list(model_patterns or []),
+        investigation_priorities=list(investigation_priorities or []),
+        data_coverage_warnings=list(data_coverage_warnings or []),
     )
 
 
@@ -245,7 +367,7 @@ def _build_all_ok_single() -> ScenarioData:
         evidence=[("Bridge is online", "Last bridge state seen 30 seconds ago")],
         limitations=[("No topology map captured", "Router relationships are inferred only")],
     )
-    dash = DashboardPayload(
+    dash = scenario_dashboard(
         generated_at=iso(NOW),
         scenario="all_ok_single_network",
         overall_severity=Severity.healthy,
@@ -297,7 +419,7 @@ def _build_all_ok_multi() -> ScenarioData:
         Confidence.high,
         "Both configured Zigbee2MQTT networks are healthy with no active incidents.",
     )
-    dash = DashboardPayload(
+    dash = scenario_dashboard(
         generated_at=iso(NOW),
         scenario="all_ok_multi_network",
         overall_severity=Severity.healthy,
@@ -389,7 +511,15 @@ def _build_single_device_unavailable() -> ScenarioData:
                 network_id="home",
                 ieee_address="0x00158d0004d5e6f7",
                 friendly_name="bedroom_sensor",
-                health_primary=DeviceHealthPrimary.unavailable,
+                decision=badge_from_health(
+                    DeviceHealth(
+                        primary=DeviceHealthPrimary.unavailable,
+                        severity=Severity.incident,
+                        confidence=Confidence.high,
+                        evidence=[],
+                        limitations=[],
+                    )
+                ),
             )
         ],
         opened_at=ago(minutes=18),
@@ -413,7 +543,7 @@ def _build_single_device_unavailable() -> ScenarioData:
         ],
         conclusion=finding,
     )
-    dash = DashboardPayload(
+    dash = scenario_dashboard(
         generated_at=iso(NOW),
         scenario="single_device_unavailable",
         overall_severity=Severity.incident,
@@ -516,7 +646,7 @@ def _build_four_devices_same_room() -> ScenarioData:
             network_id="home2",
             ieee_address=d.ieee_address,
             friendly_name=d.friendly_name,
-            health_primary=DeviceHealthPrimary.unavailable,
+            decision=d.decision,
         )
         for d in affected
     ]
@@ -557,7 +687,7 @@ def _build_four_devices_same_room() -> ScenarioData:
         ],
         conclusion=finding,
     )
-    dash = DashboardPayload(
+    dash = scenario_dashboard(
         generated_at=iso(NOW),
         scenario="four_devices_same_room_unavailable",
         overall_severity=Severity.incident,
@@ -660,7 +790,7 @@ def _build_bridge_offline() -> ScenarioData:
         ],
         conclusion=finding,
     )
-    dash = DashboardPayload(
+    dash = scenario_dashboard(
         generated_at=iso(NOW),
         scenario="bridge_offline",
         overall_severity=Severity.critical,
@@ -694,9 +824,6 @@ def _build_one_network_incident_other_ok() -> ScenarioData:
     data.id = "one_network_incident_other_network_ok"
     data.label = "One network incident, other OK"
     data.dashboard.scenario = data.id
-    data.dashboard.current_finding.summary = (
-        "Home 2 has an active incident affecting 4 devices. Home remains healthy."
-    )
     return data
 
 
@@ -751,7 +878,7 @@ def _build_router_risk() -> ScenarioData:
     )
     nets = [network("home2", "Home 2", "zigbee2mqtt-home2", devices=devices, incident_state=Severity.incident, active_incidents=1)]
     finding = risk.risk
-    dash = DashboardPayload(
+    dash = scenario_dashboard(
         generated_at=iso(NOW),
         scenario="router_risk_candidate",
         overall_severity=Severity.incident,
@@ -787,7 +914,7 @@ def _build_stale_battery() -> ScenarioData:
     ]
     nets = [network("home", "Home", "zigbee2mqtt", devices=devices, incident_state=Severity.watch)]
     finding = conclusion("stale_reporting", Severity.watch, IncidentScope.device, Confidence.medium, "One battery device has stale reporting on Home.")
-    dash = DashboardPayload(
+    dash = scenario_dashboard(
         generated_at=iso(NOW),
         scenario="stale_battery_devices",
         overall_severity=Severity.watch,
@@ -824,7 +951,7 @@ def _build_low_battery_cluster() -> ScenarioData:
     ]
     nets = [network("home", "Home", "zigbee2mqtt", devices=devices, incident_state=Severity.watch)]
     finding = conclusion("low_battery_cluster", Severity.watch, IncidentScope.network, Confidence.high, "4 battery devices report low battery on Home.")
-    dash = DashboardPayload(
+    dash = scenario_dashboard(
         generated_at=iso(NOW),
         scenario="low_battery_cluster",
         overall_severity=Severity.watch,
@@ -860,7 +987,7 @@ def _build_interview_failures() -> ScenarioData:
     ]
     nets = [network("home", "Home", "zigbee2mqtt", devices=devices, incident_state=Severity.watch)]
     finding = conclusion("interview_failure", Severity.watch, IncidentScope.device, Confidence.high, "One device failed interview on Home.")
-    dash = DashboardPayload(
+    dash = scenario_dashboard(
         generated_at=iso(NOW),
         scenario="interview_failures",
         overall_severity=Severity.watch,
@@ -912,7 +1039,7 @@ def _build_unknown_insufficient() -> ScenarioData:
         "There is not enough recent history to classify device health confidently.",
         limitations=[("Limited MQTT payloads", "Availability topic may not be enabled")],
     )
-    dash = DashboardPayload(
+    dash = scenario_dashboard(
         generated_at=iso(NOW),
         scenario="unknown_insufficient_data",
         overall_severity=Severity.watch,
@@ -962,7 +1089,7 @@ def _build_multi_unstable() -> ScenarioData:
         Confidence.medium,
         "Similar instability patterns detected on both Home and Home 2 within the same window.",
     )
-    dash = DashboardPayload(
+    dash = scenario_dashboard(
         generated_at=iso(NOW),
         scenario="multiple_networks_unstable",
         overall_severity=Severity.incident,
@@ -1002,7 +1129,7 @@ def _build_weak_link() -> ScenarioData:
     ]
     nets = [network("home", "Home", "zigbee2mqtt", devices=devices, incident_state=Severity.watch)]
     finding = conclusion("weak_link_devices", Severity.watch, IncidentScope.network, Confidence.high, "2 devices report weak link quality on Home.")
-    dash = DashboardPayload(
+    dash = scenario_dashboard(
         generated_at=iso(NOW),
         scenario="weak_link_devices",
         overall_severity=Severity.watch,
@@ -1039,7 +1166,7 @@ def _build_stale_cluster() -> ScenarioData:
     ]
     nets = [network("home2", "Home 2", "zigbee2mqtt-home2", devices=devices, incident_state=Severity.watch)]
     finding = conclusion("stale_reporting_cluster", Severity.watch, IncidentScope.network, Confidence.medium, "3 devices on Home 2 have stale reporting.")
-    dash = DashboardPayload(
+    dash = scenario_dashboard(
         generated_at=iso(NOW),
         scenario="stale_reporting_cluster",
         overall_severity=Severity.watch,
@@ -1102,19 +1229,6 @@ def list_scenarios() -> list[dict[str, str]]:
 
 
 def device_detail_from_summary(summary: DeviceSummary, scenario: ScenarioData) -> DeviceDetail:
-    inc = next((i for i in scenario.incidents if any(
-        d.ieee_address == summary.ieee_address and d.network_id == summary.network_id
-        for d in i.affected_devices
-    )), None)
-    diag = inc.conclusion if inc else conclusion(
-        summary.health.primary.value,
-        summary.health.severity,
-        IncidentScope.device,
-        summary.health.confidence,
-        f"{summary.friendly_name} is classified as {summary.health.primary.value}.",
-        evidence=[(e, "") for e in summary.health.evidence],
-        limitations=[(lim, "") for lim in summary.health.limitations],
-    )
     return DeviceDetail(
         **{
             **summary.model_dump(),
@@ -1124,27 +1238,67 @@ def device_detail_from_summary(summary: DeviceSummary, scenario: ScenarioData) -
         recent_availability_changes=[],
         recent_events=[e for e in scenario.timeline if e.ieee_address == summary.ieee_address],
         recent_bridge_logs=[],
-        diagnostic=diag,
         trends=[],
     )
 
 
 def build_report_preview(scenario: ScenarioData) -> ReportDetail:
+    """Legacy mock helper retained for MockProvider; prefer generate_report."""
+    from zigbeelens.schemas import (
+        RedactionMode,
+        RedactionProfile,
+        ReportDomainDetailsV3,
+        ReportFormat,
+        ReportScope,
+    )
+
+    dash = scenario.dashboard
     return ReportDetail(
         id="report-preview",
+        product="ZigbeeLens",
+        report_version=3,
         generated_at=iso(NOW),
         version="0.1.0",
-        redaction=ReportRedactionStatus(applied=True, mqtt_credentials=True),
+        scope=ReportScope.full,
+        format=ReportFormat.json,
+        redaction=ReportRedactionStatus(
+            applied=True,
+            profile=RedactionProfile.standard,
+            mqtt_credentials=True,
+            secrets=True,
+            hostnames=False,
+            ip_addresses=False,
+            ieee_addresses_hashed=False,
+            friendly_names=RedactionMode.preserved,
+            network_names=RedactionMode.preserved,
+        ),
         config_summary={
-            "networks": [{"id": n.id, "name": n.name, "base_topic": n.base_topic} for n in scenario.networks],
+            "networks": [
+                {"id": n.id, "name": n.name, "base_topic": n.base_topic}
+                for n in scenario.networks
+            ],
             "retention_days": 7,
         },
-        networks=scenario.networks,
-        devices=scenario.devices,
-        router_risks=scenario.router_risks or scenario.dashboard.router_risks,
-        incidents=scenario.incidents,
-        health_snapshot=scenario.dashboard.health_snapshot,
-        diagnostic_conclusions=[scenario.dashboard.current_finding],
+        decision_summary=dash.decision_summary,
+        investigation_priorities=list(dash.investigation_priorities or []),
+        device_stories=[],
+        data_coverage_warnings=list(dash.data_coverage_warnings or []),
+        incidents=list(scenario.incidents),
+        collector_status={},
+        domain_details=ReportDomainDetailsV3(
+            networks=list(scenario.networks),
+            devices=list(scenario.devices),
+            device_details=[],
+            router_risks=list(scenario.router_risks or dash.router_risks),
+            topology_snapshot_count=0,
+        ),
+        events_or_timeline=list(scenario.timeline or dash.recent_timeline or []),
+        limitations=[],
+        raw_counts={
+            "networks_included": len(scenario.networks),
+            "devices_included": len(scenario.devices),
+            "incidents_included": len(scenario.incidents),
+        },
         markdown_summary=_markdown_summary(scenario),
     )
 
@@ -1157,20 +1311,15 @@ def _markdown_summary(scenario: ScenarioData) -> str:
         f"Generated: {d.generated_at}",
         f"Scenario: {scenario.id}",
         "",
-        "## Current finding",
-        d.current_finding.summary,
-        "",
-        f"**Scope:** {d.current_finding.scope.value}",
-        f"**Confidence:** {d.current_finding.confidence.value}",
+        "## Decision summary",
+        f"Overall status: {d.decision_summary.overall_status}",
+        f"Highest priority: {d.decision_summary.highest_priority}",
         "",
         "## Networks",
     ]
     for n in scenario.networks:
-        lines.append(f"- **{n.name}**: bridge {n.bridge_state.value}, {n.unavailable_count} unavailable")
-    lines.extend(["", "## Evidence", ""])
-    for ev in d.current_finding.evidence:
-        lines.append(f"- {ev.summary}")
-    lines.extend(["", "## Limitations", ""])
-    for lim in d.current_finding.limitations:
-        lines.append(f"- {lim.summary}")
+        lines.append(
+            f"- **{n.name}**: bridge {n.bridge_state.value}, "
+            f"{n.unavailable_count} unavailable, decision {n.decision.status}"
+        )
     return "\n".join(lines)

@@ -133,7 +133,8 @@ class ZigbeeLensApiClient:
 
     @staticmethod
     def _validate_dashboard(payload: dict[str, Any]) -> None:
-        if "overall_severity" not in payload or "health_snapshot" not in payload:
+        # Contract-v2 dashboards are decision-led; keep validation factual/shape-light.
+        if "generated_at" not in payload or "networks" not in payload:
             raise ZigbeeLensInvalidResponseError("Dashboard response missing required fields")
 
     async def async_get_health(self) -> dict[str, Any]:

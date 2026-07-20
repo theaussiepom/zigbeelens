@@ -39,6 +39,7 @@ from .expected_baselines import (
     TRACK_3E_REPORT_EXECUTE_TOTALS,
     TRACK_3F_READ_EXECUTE_TOTALS,
     TRACK_3G_READ_EXECUTE_TOTALS,
+    TRACK_5_READ_EXECUTE_TOTALS,
 )
 from .query_instrumentation import OperationMeasurement, PhaseAccumulator, install_counter, measure_operation
 
@@ -1018,11 +1019,13 @@ def test_markdown_baseline_table_matches_structured_snapshot():
         "report_network": "Network report preview",
         "report_network_beast": "Network report preview",
     }
-    assert "## Track 3G total baseline table" in doc
+    assert "## Track 5 total baseline table" in doc
+    assert "## Track 3G total baseline table (historical)" in doc
     assert "## Track 3F total baseline table (historical)" in doc
     assert "## Track 3E total baseline table (historical)" in doc
     assert "## Track 3E → Track 3F report execute comparison" in doc
     assert "## Track 3F → Track 3G execute comparison" in doc
+    assert "## Track 3G → Track 5 execute comparison" in doc
     for key, baseline in EXPECTED_BASELINES.items():
         other = baseline["category_counts"].get("other", 0)
         row_fragment = (
@@ -1194,7 +1197,8 @@ def test_markdown_baseline_table_matches_structured_snapshot():
         t3d = track_3d_historical[key]
         assert f"| {label} | {t3c} | {t3d} | {t3d - t3c} |" in doc
     for key, old in TRACK_3E_REPORT_EXECUTE_TOTALS.items():
-        new = EXPECTED_BASELINES[key]["execute_count"]
+        # Historical Track 3E → Track 3G compact report deltas (tip is Track 5).
+        new = TRACK_3G_READ_EXECUTE_TOTALS[key]
         assert f"| {old} | {new} | {new - old} |" in doc
 
 
@@ -1431,11 +1435,24 @@ def test_track_3g_context_construction_invariants(tmp_path: Path):
 
 
 def test_track_3f_to_3g_execute_reductions_preserved():
+    """Historical Track 3F → 3G reductions remain frozen (tip is Track 5)."""
     for key, old in TRACK_3F_READ_EXECUTE_TOTALS.items():
         new = TRACK_3G_READ_EXECUTE_TOTALS[key]
-        assert new == EXPECTED_BASELINES[key]["execute_count"]
         assert new <= old
     assert TRACK_3G_READ_EXECUTE_TOTALS["evidence_graph"] <= int(99 * 0.70)
     assert TRACK_3G_READ_EXECUTE_TOTALS["dashboard"] <= int(110 * 0.85)
     assert TRACK_3G_READ_EXECUTE_TOTALS["dashboard_beast"] <= int(282 * 0.85)
     assert TRACK_3G_READ_EXECUTE_TOTALS["report_full"] <= int(187 * 0.85)
+
+
+def test_track_3g_to_5_execute_reductions_preserved():
+    for key, old in TRACK_3G_READ_EXECUTE_TOTALS.items():
+        new = TRACK_5_READ_EXECUTE_TOTALS[key]
+        assert new == EXPECTED_BASELINES[key]["execute_count"]
+        # Dashboard gains required decision badge batch (+2 bulk reads) vs Track 3G.
+        if key in {"dashboard", "dashboard_beast"}:
+            assert new <= old + 2
+        else:
+            assert new <= old
+    assert TRACK_5_READ_EXECUTE_TOTALS["devices_beast"] <= int(345 * 0.20)
+    assert TRACK_5_READ_EXECUTE_TOTALS["report_full_beast"] <= int(358 * 0.20)

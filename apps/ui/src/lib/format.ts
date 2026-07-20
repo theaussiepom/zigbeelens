@@ -1,14 +1,12 @@
 import type {
   Availability,
   Confidence,
-  DeviceHealthPrimary,
   DeviceSummary,
   DeviceType,
   Incident,
   IncidentScope,
   IncidentStatus,
   InterviewState,
-  LensBucket,
   PowerSource,
   RouterRisk,
   Severity,
@@ -118,11 +116,6 @@ export function lifecycleSeverity(status: IncidentStatus): Severity {
   }
 }
 
-export function healthLabel(h: DeviceHealthPrimary): string {
-  if (h === "unknown") return "No health signal";
-  return titleCase(h.replace(/_/g, " "));
-}
-
 /** Human label for a Zigbee device type; disambiguates the "Unknown" case. */
 export function deviceTypeLabel(t: DeviceType | string): string {
   switch (t) {
@@ -172,63 +165,6 @@ export function bridgeStateLabel(state: string): string {
       return "Offline";
     default:
       return "No bridge signal";
-  }
-}
-
-/** Map a device health primary to a severity for consistent colouring. */
-export function healthSeverity(h: DeviceHealthPrimary): Severity {
-  switch (h) {
-    case "healthy":
-      return "healthy";
-    case "unavailable":
-      return "incident";
-    case "router_risk":
-    case "recently_unstable":
-    case "interview_issue":
-    case "stale_reporting":
-    case "weak_link":
-    case "low_battery":
-      return "watch";
-    default:
-      return "watch";
-  }
-}
-
-export function lensBucketLabel(bucket: LensBucket): string {
-  switch (bucket) {
-    case "healthy":
-      return "Healthy";
-    case "recently_unstable":
-      return "Recently unstable";
-    case "needs_attention":
-      return "Needs attention";
-    case "unavailable":
-      return "Unavailable";
-    case "diagnostics_limited":
-      return "Diagnostics limited";
-    case "informational":
-      return "Informational";
-    default:
-      return "Unknown";
-  }
-}
-
-export function lensBucketSeverity(bucket: LensBucket): Severity {
-  switch (bucket) {
-    case "healthy":
-      return "healthy";
-    case "informational":
-      return "watch";
-    case "recently_unstable":
-      return "watch";
-    case "needs_attention":
-      return "incident";
-    case "unavailable":
-      return "critical";
-    case "diagnostics_limited":
-    case "unknown":
-    default:
-      return "watch";
   }
 }
 
@@ -296,33 +232,28 @@ export function severityRank(severity: Severity): number {
 }
 
 /**
- * Bad-first ordering rank for a device primary health.
+ * Bad-first ordering rank for a device decision status.
  * Mirrors the Phase 5 device list ordering specification.
  */
-export function healthRank(primary: DeviceHealthPrimary): number {
-  const order: Record<DeviceHealthPrimary, number> = {
-    unavailable: 1,
-    router_risk: 2,
-    recently_unstable: 3,
-    interview_issue: 4,
-    stale_reporting: 5,
-    weak_link: 6,
-    low_battery: 7,
-    unknown: 8,
-    healthy: 9,
-  };
-  return order[primary] ?? 8;
-}
+const DECISION_STATUS_RANK: Record<string, number> = {
+  review_first: 0,
+  worth_reviewing: 1,
+  improve_data_coverage: 2,
+  watch: 3,
+  changed: 4,
+  informational: 5,
+  no_notable_change: 6,
+  data_unavailable: 7,
+};
 
-/** Comparator implementing bad-first device ordering. */
 export function compareDevices(a: DeviceSummary, b: DeviceSummary): number {
   if (a.incident_affected !== b.incident_affected) {
     return a.incident_affected ? -1 : 1;
   }
-  const rank = healthRank(a.health.primary) - healthRank(b.health.primary);
+  const rank =
+    (DECISION_STATUS_RANK[a.decision.status] ?? 99) -
+    (DECISION_STATUS_RANK[b.decision.status] ?? 99);
   if (rank !== 0) return rank;
-  // Backend-provided priority as a secondary signal.
-  if (a.sort_priority !== b.sort_priority) return a.sort_priority - b.sort_priority;
   return a.friendly_name.localeCompare(b.friendly_name);
 }
 

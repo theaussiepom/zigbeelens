@@ -6,7 +6,7 @@
  * in components — map it here instead.
  */
 
-import type { CoverageLabelCode, DecisionStatus } from "@/types/decisions";
+import type { CoverageLabelCode, DecisionStatus } from "@zigbeelens/shared";
 import type { DecisionPillTone } from "@/viewModels/types";
 
 export const REASON_CODES = [

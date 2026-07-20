@@ -273,6 +273,8 @@ def load_device_story_evidence(
     related_unresolved_incident_ids: list[str] | tuple[str, ...] | None = None,
     ha_enrichment: Mapping[str, Any] | None = None,
     ha_enrichment_loaded: bool = False,
+    device_snapshots: list[Mapping[str, Any]] | None = None,
+    availability_changes: list[Mapping[str, Any]] | None = None,
 ) -> DeviceStoryEvidence | None:
     """Load bounded stored evidence for one device. Returns None when unknown."""
     device = normalize_device_ieee(device_ieee)
@@ -318,12 +320,18 @@ def load_device_story_evidence(
         links=latest_links,
     )
 
-    device_snapshots = repo.devices.list_device_snapshots(
-        network_id, device, limit=REPORTING_SNAPSHOT_LIMIT
-    )
-    availability_changes = repo.availability.list_availability_changes(
-        network_id, device, limit=AVAILABILITY_LOOKUP_LIMIT
-    )
+    if device_snapshots is None:
+        device_snapshots = repo.devices.list_device_snapshots(
+            network_id, device, limit=REPORTING_SNAPSHOT_LIMIT
+        )
+    else:
+        device_snapshots = list(device_snapshots)
+    if availability_changes is None:
+        availability_changes = repo.availability.list_availability_changes(
+            network_id, device, limit=AVAILABILITY_LOOKUP_LIMIT
+        )
+    else:
+        availability_changes = list(availability_changes)
 
     history = build_device_snapshot_history(
         repo,
@@ -905,8 +913,11 @@ def device_stories_for_devices(
     if ha_enrichment_by_key is None:
         ha_enrichment_by_key = repo.list_ha_device_enrichment_for_devices(keys)
 
-    stories: dict[tuple[str, str], DeviceStory] = {}
-    for network_id, network_rows in by_network.items():
+    # Resolve/validate network evidence before any per-device story SQL so a
+    # missing mapped context fails with zero fallback reads.
+    evidence_by_network: dict[str, Any] = {}
+    reference_by_network: dict[str, datetime] = {}
+    for network_id in by_network:
         if network_evidence_contexts is not None:
             evidence_ctx = require_mapped_network_evidence_context(
                 network_evidence_contexts, network_id
@@ -927,6 +938,21 @@ def device_stories_for_devices(
                 reference_now=reference_now,
                 requirements=DEVICE_STORY_EVIDENCE_REQUIREMENTS,
             )
+        evidence_by_network[network_id] = evidence_ctx
+        reference_by_network[network_id] = reference_now
+
+    # One bounded bulk read each — avoids per-device snapshot/availability N+1.
+    snapshots_by_key = repo.devices.list_device_snapshots_for_devices(
+        keys, limit=REPORTING_SNAPSHOT_LIMIT
+    )
+    availability_by_key = repo.availability.list_availability_changes_for_devices(
+        keys, limit=AVAILABILITY_LOOKUP_LIMIT
+    )
+
+    stories: dict[tuple[str, str], DeviceStory] = {}
+    for network_id, network_rows in by_network.items():
+        evidence_ctx = evidence_by_network[network_id]
+        reference_now = reference_by_network[network_id]
         context = device_story_network_context_from_evidence(evidence_ctx)
         for row in network_rows:
             key = (network_id, row.ieee_address)
@@ -948,6 +974,8 @@ def device_stories_for_devices(
                 related_unresolved_incident_ids=related_incident_ids_by_key.get(key, ()),
                 ha_enrichment=ha_enrichment_by_key.get(key),
                 ha_enrichment_loaded=True,
+                device_snapshots=snapshots_by_key.get(key, []),
+                availability_changes=availability_by_key.get(key, []),
             )
             if evidence is None:
                 continue

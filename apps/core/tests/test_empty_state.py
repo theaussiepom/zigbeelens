@@ -14,10 +14,11 @@ def test_empty_dashboard_unknown_state(tmp_path):
     repo.sync_networks(config.networks)
 
     dash = build_empty_dashboard(config, repo.list_networks())
-    assert dash.overall_severity.value == "watch"
-    assert "No Zigbee2MQTT data has been collected yet" in dash.current_finding.summary
-    assert dash.current_finding.limitations
+    assert dash.decision_summary.overall_status == "data_unavailable"
+    assert dash.device_count == 0
+    assert dash.unavailable_device_count == 0
     assert len(dash.networks) == 1
+    assert dash.networks[0].decision.status == "data_unavailable"
 
     db.close()
 

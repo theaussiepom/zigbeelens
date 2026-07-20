@@ -171,13 +171,9 @@ def test_shared_events_do_not_change_dashboard_severity_or_incident_counts(tmp_p
     assert baseline.shared_availability_events == []
     assert with_events.shared_availability_events
     assert with_events.shared_availability_events[0].device_count >= SHARED_EVENT_MIN_DEVICES
-    assert with_events.overall_severity == baseline.overall_severity
-    assert with_events.current_finding == baseline.current_finding
+    assert with_events.decision_summary == baseline.decision_summary
     assert with_events.active_incident_count == baseline.active_incident_count
     assert with_events.watching_incident_count == baseline.watching_incident_count
-    assert with_events.top_affected_devices == baseline.top_affected_devices
     assert with_events.router_risks == baseline.router_risks
-    assert with_events.recently_unstable == baseline.recently_unstable
-    assert with_events.weak_links == baseline.weak_links
-    assert with_events.low_batteries == baseline.low_batteries
-    assert with_events.stale_devices == baseline.stale_devices
+    assert with_events.device_count == baseline.device_count
+    assert with_events.unavailable_device_count == baseline.unavailable_device_count

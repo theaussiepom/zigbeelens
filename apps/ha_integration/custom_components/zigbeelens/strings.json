@@ -70,15 +70,14 @@
       "mqtt_collector_connected": { "name": "MQTT collector connected" }
     },
     "sensor": {
-      "overall_health": { "name": "Overall health" },
+      "overall_decision": { "name": "Overall decision" },
+      "review_first_devices": { "name": "Review first devices" },
+      "worth_reviewing_devices": { "name": "Worth reviewing devices" },
+      "coverage_warning_count": { "name": "Coverage warnings" },
+      "watch_devices": { "name": "Watch devices" },
       "incident_state": { "name": "Incident state" },
       "unavailable_devices": { "name": "Unavailable devices" },
-      "recently_unstable_devices": { "name": "Recently unstable devices" },
       "router_risks": { "name": "Router risks" },
-      "stale_devices": { "name": "Stale devices" },
-      "weak_link_devices": { "name": "Weak link devices" },
-      "low_battery_devices": { "name": "Low battery devices" },
-      "unknown_devices": { "name": "Unknown devices" },
       "network_count": { "name": "Network count" },
       "device_count": { "name": "Device count" }
     }
@@ -107,6 +106,10 @@
     "incompatible_core_version": {
       "title": "ZigbeeLens Core version is incompatible",
       "description": "Connected ZigbeeLens Core reports version {version}, which is below the minimum this integration supports. Upgrade Core, then reload the integration."
+    },
+    "core_decision_contract_incompatible": {
+      "title": "ZigbeeLens decision contract incompatible",
+      "description": "ZigbeeLens Core reports decision contract version {version}, which this companion does not support. Upgrade ZigbeeLens Core to a release that advertises decision contract v2. This is not an authentication failure."
     }
   }
 }

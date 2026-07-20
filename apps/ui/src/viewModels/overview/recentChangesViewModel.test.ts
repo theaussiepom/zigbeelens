@@ -4,6 +4,7 @@ import type {
   Incident,
   InvestigationPrioritySummary,
 } from "@zigbeelens/shared";
+import { makeDashboardPayload, makeNetworkSummary } from "@/test/decisionFixtures";
 import {
   MAX_OVERVIEW_RECENT_CHANGES,
   RECENT_CHANGES_FIRST_VISIT_COPY,
@@ -13,45 +14,11 @@ import {
 } from "./recentChangesViewModel";
 
 function makeDashboard(overrides: Partial<DashboardPayload> = {}): DashboardPayload {
-  return {
+  return makeDashboardPayload({
     generated_at: "2026-07-14T12:00:00+00:00",
-    overall_severity: "healthy",
-    current_finding: {
-      classification: "healthy",
-      severity: "healthy",
-      scope: "network",
-      confidence: "high",
-      summary: "No notable issues right now.",
-      evidence: [],
-      counter_evidence: [],
-      limitations: [],
-    },
-    active_incident_count: 0,
-    watching_incident_count: 0,
-    networks: [{ id: "home", name: "Home" } as DashboardPayload["networks"][number]],
-    top_affected_devices: [],
-    router_risks: [],
-    recently_unstable: [],
-    weak_links: [],
-    low_batteries: [],
-    stale_devices: [],
-    recent_timeline: [],
-    health_snapshot: {
-      timestamp: "2026-07-14T12:00:00+00:00",
-      overall_severity: "healthy",
-      overall_health: "healthy",
-      network_count: 1,
-      device_count: 0,
-      unavailable_count: 0,
-      incident_count: 0,
-      networks: [],
-    },
-    shared_availability_events: [],
-    model_patterns: [],
-    investigation_priorities: [],
-    data_coverage_warnings: [],
+    networks: [makeNetworkSummary({ id: "home", name: "Home" })],
     ...overrides,
-  };
+  });
 }
 
 function makePriority(
@@ -226,7 +193,7 @@ describe("recentChangesViewModel", () => {
   });
 
   it("links incidents and mesh contexts with existing routes", () => {
-    const incident = {
+    const incident: Incident = {
       id: "inc-1",
       type: "group_offline",
       status: "open",
@@ -241,6 +208,7 @@ describe("recentChangesViewModel", () => {
       affected_devices: [],
       opened_at: "2026-07-13T08:00:00+00:00",
       updated_at: "2026-07-13T09:00:00+00:00",
+      resolved_at: null,
       evidence: [],
       counter_evidence: [],
       limitations: [],
@@ -255,7 +223,7 @@ describe("recentChangesViewModel", () => {
         counter_evidence: [],
         limitations: [],
       },
-    } as Incident;
+    };
     const section = buildRecentChangesSectionViewModel({
       previousLastViewedAt: "2026-07-12T00:00:00+00:00",
       dashboard: makeDashboard({

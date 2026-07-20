@@ -24,7 +24,6 @@ from zigbeelens.diagnostics.service import HealthDiagnosticService
 from zigbeelens.mqtt.client import FakeMqttClient
 from zigbeelens.mqtt.collector import build_collector
 from zigbeelens.mqtt.ingestion import MqttIngestionService
-from zigbeelens.schemas import DeviceHealthPrimary
 from zigbeelens.services.payload_builder import PayloadBuilder
 from zigbeelens.storage.repository import Repository, utc_now_iso
 
@@ -314,8 +313,10 @@ def test_mqtt_to_dashboard_health(tmp_path: Path):
     builder = PayloadBuilder(config, repo, health)
     dash = builder.dashboard()
     assert dash.networks[0].device_count == 1
-    assert dash.weak_links
-    assert dash.top_affected_devices[0].health.primary == DeviceHealthPrimary.weak_link
+    assert dash.decision_summary.subject_count == 1
+    devices = builder.devices()
+    assert devices[0].decision.status
+    assert "health" not in devices[0].model_dump()
 
     cur = db.conn.execute("SELECT COUNT(*) FROM health_snapshots")
     assert int(cur.fetchone()[0]) >= 1

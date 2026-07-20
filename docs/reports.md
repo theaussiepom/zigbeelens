@@ -1,27 +1,52 @@
 # Reports
 
-ZigbeeLens generates scoped diagnostic reports from local SQLite history and current classification state.
+ZigbeeLens generates scoped diagnostic reports from local SQLite history and
+current decision-led classification state.
 
-## Lens family report structure
+## Report contract v3 (current)
 
-Lens reports share a common high-level structure but preserve protocol-specific details. Both products expose (or document) these sections where practical:
+Newly previewed and stored reports use **`report_version = 3`**.
 
-| Section | ZigbeeLens field | ThreadLens field |
-|---------|------------------|------------------|
-| Identity | `product`, `version`, `generated_at` | same (+ legacy `report.tool`) |
-| Context | `site` (null if unknown), `mode` | `site`, `mode` |
-| Redaction | `redaction_profile` (+ `redaction` detail) | `redaction_profile` (+ `redaction.enabled`) |
-| Executive summary | `executive_summary` | `executive_summary` |
-| Health summary | `health_summary` (Lens bucket counts) | `health_summary` (mapped from health states) |
-| Active incidents | `active_incidents` (+ legacy `incidents`) | `active_incidents` |
-| Collector status | `collector_status` (+ legacy `collector`) | `collector_status` |
-| Limitations | `limitations` | `limitations` |
-| Domain details | `domain_details` (+ legacy top-level arrays) | `domain_details` |
-| Events / timeline | `events_or_timeline` (+ legacy `timeline`) | `events_or_timeline` (+ legacy `events`) |
+Canonical fields (one representation each):
 
-Exact schemas are not identical — domain payloads remain protocol-specific. New exports add aligned sections without removing existing fields.
+| Section | Field |
+|---------|--------|
+| Identity | `id`, `product`, `report_version`, `generated_at`, `version` |
+| Scope / format | `scope`, `format` |
+| Config | `config_summary` (includes `mode`) |
+| Redaction | `redaction` (includes `profile`) |
+| Decision summary | `decision_summary` (`DecisionCountSummary`) |
+| Investigation | `investigation_priorities` |
+| Device Stories | `device_stories` |
+| Coverage | `data_coverage_warnings` |
+| Incidents | `incidents` |
+| Collector | `collector_status` |
+| Domain facts | `domain_details` (`networks`, `devices`, `device_details`, `router_risks`, …) |
+| Timeline | `events_or_timeline` (when included) |
+| Limits / counts | `limitations`, `raw_counts` |
+| Markdown | `markdown_summary` |
 
-ThreadLens on-demand reports: [reports.md](https://github.com/theaussiepom/threadlens/blob/main/docs/reports.md).
+v3 bodies do **not** include Health/Lens compatibility aliases such as
+`executive_summary`, `health_summary`, `health_snapshot`, `diagnostic_conclusions`,
+duplicate `active_incidents` / `collector` / top-level domain arrays, or Lens
+bucket tables.
+
+Markdown is generated from the canonical decision sections (identity → decision
+summary → priorities → Device Stories → coverage → incidents → factual scope →
+timeline → limitations → redaction note).
+
+## Stored v1 / v2 reports
+
+Older stored reports remain **immutable historical artifacts**.
+
+- Detected by `report_version` (and/or legacy field shape)
+- List, detail, and download return the **original stored body**
+- Markdown downloads return the **original stored Markdown**
+- Bodies are not rewritten on read and not re-evaluated through current decision logic
+- The UI shows a legacy notice for `report_version < 3`
+- Malformed legacy bodies fail safely without becoming a new report
+
+No SQLite migration rewrites report rows.
 
 ## Formats
 
@@ -43,10 +68,12 @@ Reports can be scoped to:
 - Single incident
 
 Scope controls which devices, incidents, and timeline events are included.
+Composition remains scope-first and history-bounded.
 
 ## Storage
 
-Reports are stored **inline in SQLite** (`reports` table). They are redacted **before** storage — backups contain already-redacted content.
+Reports are stored **inline in SQLite** (`reports` table). They are redacted
+**before** storage — backups contain already-redacted content.
 
 List stored reports: `GET /api/reports`  
 Download: Reports page or API  
@@ -56,7 +83,8 @@ See [backups.md](backups.md).
 
 ## Redaction
 
-Every report passes through the redaction pipeline before storage and download. Choose a profile at generation time:
+Every report passes through the redaction pipeline before storage and download.
+Choose a profile at generation time:
 
 | Profile | Description |
 |---------|-------------|
@@ -68,18 +96,19 @@ Details: [redaction.md](redaction.md)
 
 ## Report contents
 
-Typical sections:
+Typical v3 sections:
 
-- Summary and overall severity
-- Active incidents with evidence, counter-evidence, limitations
-- Network and device health snapshots
-- Router risk candidates
+- Decision summary (status / priority counts, coverage warning count)
+- Investigation priorities and Device Stories
+- Data coverage warnings
+- Factual incidents with evidence, counter-evidence, limitations
+- Domain details (networks, devices, router risks, topology snapshot count)
 - Timeline (optional, may be truncated by limits)
 - Configuration summary (redacted MQTT server)
-- Topology summary (if snapshots exist)
 - Explicit limitations block
 
-Reports use **correlation language** — they describe what the evidence is consistent with, not definitive root causes.
+Reports use **correlation language** — they describe what the evidence is
+consistent with, not definitive root causes.
 
 ## Limits
 
@@ -108,5 +137,6 @@ Preview without storing: `GET /api/reports/preview?redaction=public_safe`
 ## Related
 
 - [redaction.md](redaction.md)
+- [decision-engine.md](decision-engine.md)
 - [troubleshooting.md](troubleshooting.md)
 - [backups.md](backups.md)

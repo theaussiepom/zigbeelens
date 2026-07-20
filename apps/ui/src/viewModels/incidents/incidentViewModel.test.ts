@@ -16,10 +16,6 @@ function makeRef(overrides: Partial<IncidentDeviceRef> = {}): IncidentDeviceRef 
     network_id: "home",
     ieee_address: "0xa1",
     friendly_name: "Kitchen Plug",
-    health_primary: "unavailable",
-    lens_bucket: "needs_attention",
-    lens_bucket_label: "Needs attention",
-    lens_bucket_reason: "Legacy lens reason",
     decision: {
       status: "review_first",
       priority: "high",
@@ -46,6 +42,7 @@ function makeIncident(overrides: Partial<Incident> = {}): Incident {
     affected_devices: [makeRef()],
     opened_at: "2026-07-13T00:00:00Z",
     updated_at: "2026-07-13T01:00:00Z",
+    resolved_at: null,
     evidence: [{ id: "e1", kind: "stored", summary: "Offline evidence" }],
     counter_evidence: [],
     limitations: [{ id: "l1", summary: "No topology" }],
@@ -85,8 +82,6 @@ describe("incidentViewModel", () => {
   it("does not use health/lens for decision presentation", () => {
     const item = buildIncidentDeviceDecisionViewModel(
       makeRef({
-        health_primary: "healthy",
-        lens_bucket_reason: "Looks fine in lens",
         decision: {
           status: "watch",
           priority: "low",
@@ -99,12 +94,7 @@ describe("incidentViewModel", () => {
     expect(item.decision.headline).not.toContain("lens");
   });
 
-  it("uses safe unknown for null decision and unknown future codes", () => {
-    const missing = buildIncidentDeviceDecisionViewModel(makeRef({ decision: null }));
-    expect(missing.decision.statusLabel).toBe("Status unknown");
-    expect(missing.decision.headline).toBe("Device story summary unavailable.");
-    expect(missing.decisionStatus).toBeNull();
-
+  it("uses safe unknown copy for unknown future codes", () => {
     const future = buildIncidentDeviceDecisionViewModel(
       makeRef({
         decision: {
@@ -135,7 +125,15 @@ describe("incidentViewModel", () => {
       }),
     );
     const c = buildIncidentDeviceDecisionViewModel(
-      makeRef({ ieee_address: "0xa3", decision: null }),
+      makeRef({
+        ieee_address: "0xa3",
+        decision: {
+          status: "future_status_v2",
+          priority: "high",
+          headline_code: "x",
+          coverage_label_codes: [],
+        },
+      }),
     );
     expect(buildCurrentDecisionSummary([a, b, a])).toContain("Review first");
     expect(buildCurrentDecisionSummary([a, b, a])).toContain("Worth reviewing");

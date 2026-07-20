@@ -47,7 +47,11 @@ ZigbeeLens is evolving from a dashboard/graph product into a shared decision-eng
 - [decision-engine-implementation-plan.md](decision-engine-implementation-plan.md) — Cursor-ready implementation plan for the remaining phases
 - [decision-engine-cursor-guardrails.md](decision-engine-cursor-guardrails.md) — stricter Cursor model selection, phase splitting and prompt guardrails
 
-These docs do not change runtime behaviour. They define how future refactors and intelligence features must stay evidence-first, read-only, action-led and consistent across UI, reports and companion surfaces.
+Public product surfaces (UI, reports v3, HACS, MQTT Discovery) consume the
+**decision contract v2** vocabulary. The internal health classifier and
+`health_snapshots` storage remain evaluation inputs; they are not a parallel
+public diagnostic authority. Operational liveness remains `/api/health` and
+`/healthz`.
 
 ## Event pipeline
 
@@ -57,8 +61,9 @@ MQTT message
     → payload normalizer
     → normalized events (SQLite)
     → current device/network state
-    → health classification
+    → health classification (internal evidence/evaluation)
     → incident correlation
+    → decision badges / decision summaries (public contract)
     → dashboard payload / SSE events
     → optional MQTT Discovery update
     → optional report generation (redacted)
@@ -74,9 +79,9 @@ SQLite database (default `data/zigbeelens.sqlite`):
 |------|-------------------|
 | Networks & devices | `networks`, `devices`, `device_snapshots` |
 | Telemetry | `events`, `metric_samples`, `availability_changes` |
-| Health | `health_snapshots` |
+| Health (internal) | `health_snapshots` — evaluation history; not public diagnostic DTO fields |
 | Incidents | `incidents` |
-| Reports | `reports` (JSON body inline) |
+| Reports | `reports` (JSON body inline; new writes are report v3) |
 | Topology | `topology_snapshots`, `topology_nodes`, `topology_links` |
 | HA enrichment | `ha_device_enrichment`, `ha_enrichment_status` |
 

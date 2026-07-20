@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from zigbeelens.config.models import AppConfig
 from zigbeelens.decisions.device_story import DeviceStory, device_stories_for_devices
-from zigbeelens.schemas import DeviceDetail, DeviceSummary, ReportDetail, ReportRequest
+from zigbeelens.schemas import DeviceDetail, DeviceSummary, ReportRequest
 from zigbeelens.diagnostics.incidents.service import IncidentDiagnosticService
 from zigbeelens.diagnostics.service import HealthDiagnosticService
+from zigbeelens.services.decision_summary import data_unavailable_device_badge
 from zigbeelens.services.device_decision_badge import device_decision_badge_from_story
 from zigbeelens.services.mock_provider import MockProvider
 from zigbeelens.services.payload_builder import EvaluationAccess, PayloadBuilder
@@ -76,7 +76,17 @@ class DataService:
     def devices(self, scenario: str | None = None, network_id: str | None = None):
         if self.uses_mock(scenario):
             devices = self._mock(scenario).devices(network_id)
-            return sorted(devices, key=lambda d: d.sort_priority)
+            from zigbeelens.services.decision_summary import DECISION_STATUS_ORDER
+
+            rank = {s.value: i for i, s in enumerate(DECISION_STATUS_ORDER)}
+            return sorted(
+                devices,
+                key=lambda d: (
+                    rank.get(str(d.decision.status), len(rank)),
+                    d.network_id,
+                    d.ieee_address,
+                ),
+            )
         return self._builder.devices(network_id)
 
     def report_device_context(
@@ -159,7 +169,9 @@ class DataService:
                         }
                     )
                 else:
-                    detail = detail.model_copy(update={"decision": None})
+                    detail = detail.model_copy(
+                        update={"decision": data_unavailable_device_badge()}
+                    )
                 details[key] = detail
         return ReportDeviceContext(
             devices=devices,
@@ -262,9 +274,9 @@ class DataService:
         row = self.repo.reports.get_report(report_id)
         if not row or not row.body_json:
             return None
-        detail = ReportDetail.model_validate(json.loads(row.body_json))
-        detail.id = row.id
-        return detail
+        from zigbeelens.services.report_storage import load_stored_report_body
+
+        return load_stored_report_body(row)
 
     @staticmethod
     def list_scenarios() -> list[dict[str, str]]:

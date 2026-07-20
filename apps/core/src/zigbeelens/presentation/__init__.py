@@ -1,13 +1,7 @@
-"""Presentation-layer helpers (Lens family vocabulary, no health engine logic)."""
+"""Presentation-layer helpers for public product contracts."""
 
-from zigbeelens.presentation.lens_buckets import (
-    BUCKET_LABELS,
-    enrich_device_summary,
-    lens_presentation_for_health,
-)
+from zigbeelens.presentation.decision_mqtt import build_summary_entities
 
 __all__ = [
-    "BUCKET_LABELS",
-    "enrich_device_summary",
-    "lens_presentation_for_health",
+    "build_summary_entities",
 ]

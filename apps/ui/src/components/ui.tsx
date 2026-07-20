@@ -2,19 +2,13 @@ import type { ReactNode } from "react";
 import type {
   Availability,
   Confidence,
-  DeviceHealthPrimary,
   IncidentStatus,
-  LensBucket,
   Severity,
 } from "@zigbeelens/shared";
 import {
   availabilityLabel,
   confidenceLabel,
   formatTime,
-  healthLabel,
-  healthSeverity,
-  lensBucketLabel,
-  lensBucketSeverity,
   lifecycleLabel,
   lifecycleSeverity,
   relativeTime,
@@ -94,18 +88,6 @@ export function SeverityBadge({ severity }: { severity: Severity }) {
     <Badge severity={severity}>
       <span className={`h-1.5 w-1.5 rounded-full ${severityDot(severity)}`} />
       {severityLabel(severity)}
-    </Badge>
-  );
-}
-
-export function HealthBadge({ primary }: { primary: DeviceHealthPrimary }) {
-  return <Badge severity={healthSeverity(primary)}>{healthLabel(primary)}</Badge>;
-}
-
-export function LensBucketBadge({ bucket }: { bucket: LensBucket }) {
-  return (
-    <Badge severity={lensBucketSeverity(bucket)} title="Lens family summary">
-      {lensBucketLabel(bucket)}
     </Badge>
   );
 }

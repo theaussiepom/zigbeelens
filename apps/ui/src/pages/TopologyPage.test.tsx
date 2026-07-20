@@ -2,9 +2,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
-import { NetworkHealthCard } from "@/components/cards";
+import { NetworkDecisionCard } from "@/components/cards";
 import { LIMITED_LAYOUT_COPY, TopologyPage } from "@/pages/TopologyPage";
 import type { NetworkSummary } from "@zigbeelens/shared";
+import { makeNetworkSummary } from "@/test/decisionFixtures";
 
 const overviewMulti = {
   enabled: true,
@@ -188,28 +189,20 @@ describe("TopologyPage", () => {
   });
 });
 
-describe("NetworkHealthCard topology link", () => {
-  const network: NetworkSummary = {
+describe("NetworkDecisionCard topology link", () => {
+  const network = makeNetworkSummary({
     id: "home",
     name: "Home",
     base_topic: "home",
-    bridge_state: "online",
-    incident_state: "healthy",
-    active_incident_count: 0,
     device_count: 12,
-    unavailable_count: 0,
-    recently_unstable_count: 0,
-    weak_link_count: 0,
-    low_battery_count: 0,
-    stale_count: 0,
     router_count: 2,
     end_device_count: 8,
-  };
+  });
 
   it("shows view topology link when enabled", () => {
     render(
       <MemoryRouter>
-        <NetworkHealthCard network={network} topologyEnabled />
+        <NetworkDecisionCard network={network} topologyEnabled />
       </MemoryRouter>,
     );
     expect(screen.getByRole("link", { name: /view topology/i })).toHaveAttribute(
@@ -221,7 +214,7 @@ describe("NetworkHealthCard topology link", () => {
   it("hides view topology link when disabled", () => {
     render(
       <MemoryRouter>
-        <NetworkHealthCard network={network} topologyEnabled={false} />
+        <NetworkDecisionCard network={network} topologyEnabled={false} />
       </MemoryRouter>,
     );
     expect(screen.queryByRole("link", { name: /view topology/i })).not.toBeInTheDocument();

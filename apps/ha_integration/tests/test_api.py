@@ -57,15 +57,22 @@ async def recording_core(aiohttp_server, sample_health, sample_dashboard, sample
             {
                 "product": "zigbeelens",
                 "version": "0.1.0",
-                "decision_contract_version": 1,
+                "decision_contract_version": 2,
                 "capabilities": {
                     "dashboard": True,
                     "shared_decisions": True,
                     "companion_decision_summary": True,
+                    "decision_only_diagnostic_payloads": True,
+                    "report_contract_v3": True,
+                    "decision_mqtt_summary": True,
+                    "legacy_health_lens_payloads": False,
                 },
                 "decision_surfaces": {
+                    "dashboard_decision_summary": True,
                     "dashboard_investigation_priorities": True,
                     "dashboard_data_coverage_warnings": True,
+                    "network_decision_badges": True,
+                    "device_decision_badges": True,
                 },
             }
         )
@@ -100,7 +107,9 @@ async def test_dashboard_success(core_url):
     async with ClientSession() as session:
         client = ZigbeeLensApiClient(session, core_url)
         payload = await client.async_get_dashboard()
-    assert payload["overall_severity"] == "incident"
+    assert payload["decision_summary"]["overall_status"] == "review_first"
+    assert "generated_at" in payload
+    assert "networks" in payload
 
 
 @pytest.mark.asyncio
@@ -157,7 +166,7 @@ async def test_capabilities_success(core_url):
         client = ZigbeeLensApiClient(session, core_url)
         payload = await client.async_get_capabilities()
     assert payload["product"] == "zigbeelens"
-    assert payload["decision_contract_version"] == 1
+    assert payload["decision_contract_version"] == 2
 
 
 @pytest.mark.asyncio

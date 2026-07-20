@@ -22,19 +22,7 @@ function makeDevice(overrides: Partial<DeviceSummary> = {}): DeviceSummary {
     availability: "online",
     interview_state: "successful",
     incident_affected: false,
-    sort_priority: 100,
-    lens_bucket: "healthy",
-    lens_bucket_label: "Healthy",
-    lens_bucket_reason: "Looks fine",
-    lens_reasons: [],
-    health: {
-      primary: "healthy",
-      severity: "healthy",
-      confidence: "high",
-      evidence: [],
-      counter_evidence: [],
-      limitations: [],
-    },
+    decision: { status: "no_notable_change", priority: "none", headline_code: "device_no_notable_change", coverage_label_codes: [] },
     manufacturer: "IKEA",
     model: "TS011F",
     battery: 62,
@@ -59,11 +47,19 @@ describe("deviceRowViewModel", () => {
     expect(row.decision.tone).toBe(decisionStatusTone("review_first"));
   });
 
-  it("uses Status unknown muted for null decision", () => {
-    const row = buildDeviceRowViewModel(makeDevice({ decision: null }));
-    expect(row.decisionStatus).toBeNull();
+  it("uses Status unknown muted for unknown future status", () => {
+    const row = buildDeviceRowViewModel(
+      makeDevice({
+        decision: {
+          status: "future_status_v2",
+          priority: "high",
+          headline_code: "x",
+          coverage_label_codes: [],
+        },
+      }),
+    );
     expect(row.decision.statusLabel).toBe("Status unknown");
-    expect(row.decision.compactLabel).toBe("Status unknown");
+    expect(row.decision.compactLabel).toBe("Unknown");
     expect(row.decision.tone).toBe("muted");
   });
 
@@ -194,7 +190,12 @@ describe("deviceRowViewModel", () => {
       makeDevice({
         ieee_address: "0xc",
         friendly_name: "Charlie",
-        decision: null,
+        decision: {
+          status: "no_notable_change",
+          priority: "none",
+          headline_code: "device_no_notable_change",
+          coverage_label_codes: [],
+        },
       }),
       makeDevice({
         ieee_address: "0xd",
@@ -210,7 +211,7 @@ describe("deviceRowViewModel", () => {
     expect(rows.map((r) => r.name)).toEqual(["Alpha", "Delta", "Beta", "Charlie"]);
   });
 
-  it("places unknown and null decisions after known statuses", () => {
+  it("places unknown future statuses after known statuses", () => {
     const known = buildDeviceRowViewModel(
       makeDevice({
         friendly_name: "Known",
@@ -233,11 +234,7 @@ describe("deviceRowViewModel", () => {
         },
       }),
     );
-    const missing = buildDeviceRowViewModel(
-      makeDevice({ friendly_name: "Missing", decision: null }),
-    );
     expect(compareDevicesByDecision(known, unknown)).toBeLessThan(0);
-    expect(compareDevicesByDecision(known, missing)).toBeLessThan(0);
   });
 
   it("filters by structured decision status and coverage, searching identity fields", () => {

@@ -213,7 +213,27 @@ TRACK_3G_READ_EXECUTE_TOTALS: dict[str, int] = {
     "report_device_history": 32
 }
 
-# Exact Track 3G total-operation snapshots. They are not product budgets.
+# Track 5 tip read totals after decision-only Dashboard/Devices badge bulk prefetch.
+TRACK_5_READ_EXECUTE_TOTALS: dict[str, int] = {
+    "dashboard": 24,
+    "dashboard_beast": 27,
+    "devices": 19,
+    "devices_beast": 19,
+    "device_detail": 23,
+    "incident_list": 19,
+    "incident_list_history": 19,
+    "evidence_graph": 11,
+    "report_full": 29,
+    "report_full_beast": 32,
+    "report_network": 29,
+    "report_network_beast": 29,
+    "report_incident": 40,
+    "report_device": 29,
+    "report_incident_history": 40,
+    "report_device_history": 29
+}
+
+# Exact Track 5 total-operation snapshots. They are not product budgets.
 EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
   "availability_ingestion": {
     "fixture": "compact",
@@ -322,7 +342,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
   "dashboard": {
     "fixture": "compact",
     "state": "warm",
-    "execute_count": 22,
+    "execute_count": 24,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
@@ -338,8 +358,9 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_links": 1,
       "read.incident_networks": 1,
       "read.ha_enrichment": 3,
-      "read.bridge_snapshots": 1,
-      "read.availability_changes": 2
+      "read.availability_changes": 3,
+      "read.device_snapshots": 1,
+      "read.bridge_snapshots": 1
     },
     "top_repeated_statements": [
       {
@@ -367,7 +388,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
   "dashboard_beast": {
     "fixture": "beast",
     "state": "warm",
-    "execute_count": 25,
+    "execute_count": 27,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
@@ -383,8 +404,9 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_links": 1,
       "read.incident_networks": 1,
       "read.ha_enrichment": 4,
-      "read.bridge_snapshots": 2,
-      "read.availability_changes": 2
+      "read.availability_changes": 3,
+      "read.device_snapshots": 1,
+      "read.bridge_snapshots": 2
     },
     "top_repeated_statements": [
       {
@@ -400,11 +422,11 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
         "count": 2
       },
       {
-        "statement": "SELECT coordinator_ieee, channel, pan_id, extended_pan_id, payload_json, captured_at FROM bridge_snapshots WHERE network_id = ? ORDER BY captured_at DESC LIMIT ?",
+        "statement": "WITH requested(network_id, ieee_address) AS (VALUES (?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?)) SELECT h.network_id, h.ieee_address, h.ha_device_id, h.ha_device_name, h.area_id, h.area_name, h.entity_id, h.match_confidence, h.updated_at FROM requested r JOIN ha_device_enrichment h ON h.network_id = r.network_id AND h.ieee_address = r.ieee_address ORDER BY h.network_id, h.ieee_address",
         "count": 2
       },
       {
-        "statement": "WITH requested(network_id, ieee_address) AS (VALUES (?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?)) SELECT h.network_id, h.ieee_address, h.ha_device_id, h.ha_device_name, h.area_id, h.area_name, h.entity_id, h.match_confidence, h.updated_at FROM requested r JOIN ha_device_enrichment h ON h.network_id = r.network_id AND h.ieee_address = r.ieee_address ORDER BY h.network_id, h.ieee_address",
+        "statement": "SELECT coordinator_ieee, channel, pan_id, extended_pan_id, payload_json, captured_at FROM bridge_snapshots WHERE network_id = ? ORDER BY captured_at DESC LIMIT ?",
         "count": 2
       }
     ]
@@ -412,15 +434,15 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
   "device_detail": {
     "fixture": "compact",
     "state": "warm",
-    "execute_count": 29,
+    "execute_count": 23,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
     "category_counts": {
-      "read.networks": 4,
-      "read.devices": 4,
+      "read.networks": 1,
+      "read.devices": 2,
       "read.events": 1,
-      "read.incidents": 3,
+      "read.incidents": 2,
       "read.incident_devices": 1,
       "read.schema": 3,
       "read.topology_snapshots": 1,
@@ -438,27 +460,27 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
         "count": 3
       },
       {
-        "statement": "SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name",
-        "count": 2
-      },
-      {
-        "statement": "SELECT COUNT(*) FROM devices",
-        "count": 2
-      },
-      {
-        "statement": "SELECT DISTINCT i.id FROM incidents i JOIN incident_devices d ON d.incident_id = i.id WHERE d.network_id = ? AND d.ieee_address = ? AND i.lifecycle_state IN (?) ORDER BY i.updated_at DESC, i.id DESC",
-        "count": 2
-      },
-      {
         "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
         "count": 2
+      },
+      {
+        "statement": "SELECT network_id, ieee_address, ha_device_id, ha_device_name, area_id, area_name, entity_id, match_confidence, updated_at FROM ha_device_enrichment WHERE network_id = ? AND ieee_address = ?",
+        "count": 2
+      },
+      {
+        "statement": "SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM devices d LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address WHERE d.network_id = ? AND d.ieee_address = ?",
+        "count": 1
+      },
+      {
+        "statement": "SELECT id, name, base_topic, bridge_state FROM networks WHERE id IN (?)",
+        "count": 1
       }
     ]
   },
   "devices": {
     "fixture": "compact",
     "state": "warm",
-    "execute_count": 57,
+    "execute_count": 19,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
@@ -473,18 +495,10 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_links": 1,
       "read.incident_networks": 1,
       "read.ha_enrichment": 2,
-      "read.availability_changes": 22,
-      "read.device_snapshots": 20
+      "read.availability_changes": 3,
+      "read.device_snapshots": 1
     },
     "top_repeated_statements": [
-      {
-        "statement": "SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?",
-        "count": 20
-      },
-      {
-        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
-        "count": 20
-      },
       {
         "statement": "SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name",
         "count": 2
@@ -496,13 +510,21 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       {
         "statement": "SELECT COUNT(*) FROM devices",
         "count": 1
+      },
+      {
+        "statement": "SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM devices d LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address ORDER BY d.network_id, d.friendly_name",
+        "count": 1
+      },
+      {
+        "statement": "SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE lifecycle_state IN (?) ORDER BY CASE lifecycle_state WHEN ? THEN ? WHEN ? THEN ? ELSE ? END, updated_at DESC, id DESC",
+        "count": 1
       }
     ]
   },
   "devices_beast": {
     "fixture": "beast",
     "state": "warm",
-    "execute_count": 345,
+    "execute_count": 19,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
@@ -517,18 +539,10 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_links": 1,
       "read.incident_networks": 1,
       "read.ha_enrichment": 2,
-      "read.availability_changes": 166,
-      "read.device_snapshots": 164
+      "read.availability_changes": 3,
+      "read.device_snapshots": 1
     },
     "top_repeated_statements": [
-      {
-        "statement": "SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?",
-        "count": 164
-      },
-      {
-        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
-        "count": 164
-      },
       {
         "statement": "SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name",
         "count": 2
@@ -539,6 +553,14 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       },
       {
         "statement": "SELECT COUNT(*) FROM devices",
+        "count": 1
+      },
+      {
+        "statement": "SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM devices d LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address ORDER BY d.network_id, d.friendly_name",
+        "count": 1
+      },
+      {
+        "statement": "SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE lifecycle_state IN (?) ORDER BY CASE lifecycle_state WHEN ? THEN ? WHEN ? THEN ? ELSE ? END, updated_at DESC, id DESC",
         "count": 1
       }
     ]
@@ -586,7 +608,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
   "incident_detail": {
     "fixture": "compact",
     "state": "warm",
-    "execute_count": 23,
+    "execute_count": 19,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
@@ -601,19 +623,11 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_nodes": 1,
       "read.topology_links": 1,
       "read.incident_networks": 1,
-      "read.availability_changes": 5,
+      "read.availability_changes": 3,
       "read.ha_enrichment": 2,
-      "read.device_snapshots": 3
+      "read.device_snapshots": 1
     },
     "top_repeated_statements": [
-      {
-        "statement": "SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?",
-        "count": 3
-      },
-      {
-        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
-        "count": 3
-      },
       {
         "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
         "count": 2
@@ -625,13 +639,21 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       {
         "statement": "SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id IN (?) ORDER BY incident_id, network_id, ieee_address, role",
         "count": 1
+      },
+      {
+        "statement": "WITH requested(network_id, ieee_address) AS (VALUES (?),(?, ?),(?, ?)) SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM requested r JOIN devices d ON d.network_id = r.network_id AND d.ieee_address = r.ieee_address LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address ORDER BY d.network_id, d.ieee_address",
+        "count": 1
+      },
+      {
+        "statement": "SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at FROM ( SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at, ROW_NUMBER() OVER ( PARTITION BY incident_id ORDER BY occurred_at DESC, id DESC ) AS rn FROM events WHERE incident_id IN (?) ) WHERE rn <= ? ORDER BY incident_id, occurred_at DESC, id DESC",
+        "count": 1
       }
     ]
   },
   "incident_list": {
     "fixture": "compact",
     "state": "warm",
-    "execute_count": 27,
+    "execute_count": 19,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
@@ -645,19 +667,11 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_nodes": 1,
       "read.topology_links": 1,
       "read.incident_networks": 1,
-      "read.availability_changes": 7,
+      "read.availability_changes": 3,
       "read.ha_enrichment": 2,
-      "read.device_snapshots": 5
+      "read.device_snapshots": 1
     },
     "top_repeated_statements": [
-      {
-        "statement": "SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?",
-        "count": 5
-      },
-      {
-        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
-        "count": 5
-      },
       {
         "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
         "count": 2
@@ -668,6 +682,14 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       },
       {
         "statement": "SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE CASE lifecycle_state WHEN ? THEN ? WHEN ? THEN ? ELSE ? END IN (?) ORDER BY CASE lifecycle_state WHEN ? THEN ? WHEN ? THEN ? ELSE ? END ASC, updated_at DESC, id DESC LIMIT ?",
+        "count": 1
+      },
+      {
+        "statement": "SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id IN (?) ORDER BY incident_id, network_id, ieee_address, role",
+        "count": 1
+      },
+      {
+        "statement": "WITH requested(network_id, ieee_address) AS (VALUES (?),(?, ?),(?, ?),(?, ?),(?, ?)) SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM requested r JOIN devices d ON d.network_id = r.network_id AND d.ieee_address = r.ieee_address LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address ORDER BY d.network_id, d.ieee_address",
         "count": 1
       }
     ]
@@ -675,7 +697,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
   "incident_list_history": {
     "fixture": "history",
     "state": "warm",
-    "execute_count": 93,
+    "execute_count": 19,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
@@ -688,20 +710,12 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_snapshots": 1,
       "read.topology_links": 1,
       "read.topology_nodes": 1,
-      "read.availability_changes": 40,
+      "read.availability_changes": 3,
       "read.schema": 2,
       "read.ha_enrichment": 2,
-      "read.device_snapshots": 38
+      "read.device_snapshots": 1
     },
     "top_repeated_statements": [
-      {
-        "statement": "SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?",
-        "count": 38
-      },
-      {
-        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
-        "count": 38
-      },
       {
         "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
         "count": 2
@@ -712,6 +726,14 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       },
       {
         "statement": "SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE CASE lifecycle_state WHEN ? THEN ? WHEN ? THEN ? ELSE ? END IN (?) ORDER BY CASE lifecycle_state WHEN ? THEN ? WHEN ? THEN ? ELSE ? END ASC, updated_at DESC, id DESC LIMIT ?",
+        "count": 1
+      },
+      {
+        "statement": "SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id IN (?) ORDER BY incident_id, network_id, ieee_address, role",
+        "count": 1
+      },
+      {
+        "statement": "WITH requested(network_id, ieee_address) AS (VALUES (?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?)) SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM requested r JOIN devices d ON d.network_id = r.network_id AND d.ieee_address = r.ieee_address LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address ORDER BY d.network_id, d.ieee_address",
         "count": 1
       }
     ]
@@ -925,15 +947,15 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
   "report_device": {
     "fixture": "compact",
     "state": "warm",
-    "execute_count": 32,
+    "execute_count": 29,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
     "category_counts": {
-      "read.networks": 3,
-      "read.devices": 5,
+      "read.networks": 2,
+      "read.devices": 4,
       "read.events": 1,
-      "read.incidents": 3,
+      "read.incidents": 2,
       "read.schema": 4,
       "read.topology_snapshots": 3,
       "read.topology_nodes": 1,
@@ -950,34 +972,34 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
         "count": 4
       },
       {
-        "statement": "SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name",
+        "statement": "SELECT COUNT(*) FROM topology_snapshots WHERE network_id IN (?)",
         "count": 2
+      },
+      {
+        "statement": "SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name",
+        "count": 1
       },
       {
         "statement": "SELECT COUNT(*) FROM devices",
-        "count": 2
+        "count": 1
       },
       {
-        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
-        "count": 2
-      },
-      {
-        "statement": "SELECT COUNT(*) FROM topology_snapshots WHERE network_id IN (?)",
-        "count": 2
+        "statement": "SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM devices d LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address WHERE d.network_id = ? AND d.ieee_address = ?",
+        "count": 1
       }
     ]
   },
   "report_device_history": {
     "fixture": "history",
     "state": "warm",
-    "execute_count": 32,
+    "execute_count": 29,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
     "category_counts": {
-      "read.devices": 5,
-      "read.networks": 3,
-      "read.incidents": 3,
+      "read.devices": 4,
+      "read.networks": 2,
+      "read.incidents": 2,
       "read.topology_snapshots": 3,
       "read.topology_links": 1,
       "read.topology_nodes": 1,
@@ -995,27 +1017,27 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
         "count": 4
       },
       {
-        "statement": "SELECT COUNT(*) FROM devices",
-        "count": 2
-      },
-      {
-        "statement": "SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name",
-        "count": 2
-      },
-      {
-        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
-        "count": 2
-      },
-      {
         "statement": "SELECT COUNT(*) FROM topology_snapshots WHERE network_id IN (?)",
         "count": 2
+      },
+      {
+        "statement": "SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM devices d LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address WHERE d.network_id = ? AND d.ieee_address = ?",
+        "count": 1
+      },
+      {
+        "statement": "SELECT id, name, base_topic, bridge_state FROM networks WHERE id IN (?)",
+        "count": 1
+      },
+      {
+        "statement": "WITH requested(network_id, ieee_address) AS (VALUES (?)) SELECT d.network_id, d.ieee_address, d.friendly_name, d.device_type, d.power_source, d.manufacturer, d.model, d.interview_state, COALESCE(s.availability, ?) AS availability, s.last_seen, s.last_payload_at, s.linkquality, s.battery FROM requested r JOIN devices d ON d.network_id = r.network_id AND d.ieee_address = r.ieee_address LEFT JOIN device_current_state s ON d.network_id = s.network_id AND d.ieee_address = s.ieee_address ORDER BY d.network_id, d.ieee_address",
+        "count": 1
       }
     ]
   },
   "report_full": {
     "fixture": "compact",
     "state": "warm",
-    "execute_count": 67,
+    "execute_count": 29,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
@@ -1030,20 +1052,12 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_nodes": 1,
       "read.topology_links": 1,
       "read.incident_networks": 1,
-      "read.availability_changes": 22,
+      "read.availability_changes": 3,
       "read.ha_enrichment": 4,
-      "read.device_snapshots": 20,
+      "read.device_snapshots": 1,
       "read.bridge_snapshots": 1
     },
     "top_repeated_statements": [
-      {
-        "statement": "SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?",
-        "count": 20
-      },
-      {
-        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
-        "count": 20
-      },
       {
         "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
         "count": 4
@@ -1055,13 +1069,21 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       {
         "statement": "WITH requested(network_id, ieee_address) AS (VALUES (?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?)) SELECT h.network_id, h.ieee_address, h.ha_device_id, h.ha_device_name, h.area_id, h.area_name, h.entity_id, h.match_confidence, h.updated_at FROM requested r JOIN ha_device_enrichment h ON h.network_id = r.network_id AND h.ieee_address = r.ieee_address ORDER BY h.network_id, h.ieee_address",
         "count": 2
+      },
+      {
+        "statement": "SELECT COUNT(*) FROM topology_snapshots WHERE network_id IN (?)",
+        "count": 2
+      },
+      {
+        "statement": "SELECT COUNT(*) FROM devices",
+        "count": 1
       }
     ]
   },
   "report_full_beast": {
     "fixture": "beast",
     "state": "warm",
-    "execute_count": 358,
+    "execute_count": 32,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
@@ -1076,20 +1098,12 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_nodes": 1,
       "read.topology_links": 1,
       "read.incident_networks": 1,
-      "read.availability_changes": 166,
+      "read.availability_changes": 3,
       "read.ha_enrichment": 5,
-      "read.device_snapshots": 164,
+      "read.device_snapshots": 1,
       "read.bridge_snapshots": 2
     },
     "top_repeated_statements": [
-      {
-        "statement": "SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?",
-        "count": 164
-      },
-      {
-        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
-        "count": 164
-      },
       {
         "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
         "count": 5
@@ -1101,107 +1115,115 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       {
         "statement": "WITH requested(network_id, ieee_address) AS (VALUES (?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?),(?, ?)) SELECT h.network_id, h.ieee_address, h.ha_device_id, h.ha_device_name, h.area_id, h.area_name, h.entity_id, h.match_confidence, h.updated_at FROM requested r JOIN ha_device_enrichment h ON h.network_id = r.network_id AND h.ieee_address = r.ieee_address ORDER BY h.network_id, h.ieee_address",
         "count": 2
+      },
+      {
+        "statement": "SELECT coordinator_ieee, channel, pan_id, extended_pan_id, payload_json, captured_at FROM bridge_snapshots WHERE network_id = ? ORDER BY captured_at DESC LIMIT ?",
+        "count": 2
+      },
+      {
+        "statement": "SELECT COUNT(*) FROM topology_snapshots WHERE network_id IN (?)",
+        "count": 2
       }
     ]
   },
   "report_incident": {
     "fixture": "compact",
     "state": "warm",
-    "execute_count": 56,
+    "execute_count": 40,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
     "category_counts": {
-      "read.networks": 5,
-      "read.devices": 6,
+      "read.networks": 2,
+      "read.devices": 3,
       "read.events": 4,
-      "read.incidents": 9,
+      "read.incidents": 3,
       "read.incident_devices": 2,
       "read.schema": 4,
       "read.topology_snapshots": 3,
       "read.topology_nodes": 1,
       "read.topology_links": 1,
       "read.incident_networks": 2,
-      "read.availability_changes": 8,
+      "read.availability_changes": 6,
       "read.ha_enrichment": 4,
-      "read.device_snapshots": 3,
+      "read.device_snapshots": 1,
       "read.metric_samples": 3,
       "read.bridge_snapshots": 1
     },
     "top_repeated_statements": [
       {
+        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
+        "count": 4
+      },
+      {
         "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
-        "count": 6
+        "count": 3
+      },
+      {
+        "statement": "SELECT metric_name, metric_value, sampled_at FROM metric_samples WHERE network_id = ? AND ieee_address = ? ORDER BY sampled_at DESC LIMIT ?",
+        "count": 3
+      },
+      {
+        "statement": "SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at FROM events WHERE network_id = ? AND ieee_address = ? ORDER BY occurred_at DESC, id DESC LIMIT ?",
+        "count": 3
       },
       {
         "statement": "SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE id = ?",
-        "count": 5
-      },
-      {
-        "statement": "SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name",
-        "count": 4
-      },
-      {
-        "statement": "SELECT COUNT(*) FROM devices",
-        "count": 4
-      },
-      {
-        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
-        "count": 4
+        "count": 2
       }
     ]
   },
   "report_incident_history": {
     "fixture": "history",
     "state": "warm",
-    "execute_count": 56,
+    "execute_count": 40,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
     "category_counts": {
-      "read.incidents": 9,
+      "read.incidents": 3,
       "read.incident_networks": 2,
       "read.incident_devices": 2,
-      "read.networks": 5,
-      "read.devices": 6,
+      "read.networks": 2,
+      "read.devices": 3,
       "read.topology_snapshots": 3,
       "read.topology_links": 1,
       "read.topology_nodes": 1,
-      "read.availability_changes": 8,
+      "read.availability_changes": 6,
       "read.schema": 4,
       "read.ha_enrichment": 4,
-      "read.device_snapshots": 3,
+      "read.device_snapshots": 1,
       "read.metric_samples": 3,
       "read.events": 4,
       "read.bridge_snapshots": 1
     },
     "top_repeated_statements": [
       {
+        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
+        "count": 4
+      },
+      {
         "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
-        "count": 6
+        "count": 3
+      },
+      {
+        "statement": "SELECT metric_name, metric_value, sampled_at FROM metric_samples WHERE network_id = ? AND ieee_address = ? ORDER BY sampled_at DESC LIMIT ?",
+        "count": 3
+      },
+      {
+        "statement": "SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at FROM events WHERE network_id = ? AND ieee_address = ? ORDER BY occurred_at DESC, id DESC LIMIT ?",
+        "count": 3
       },
       {
         "statement": "SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE id = ?",
-        "count": 5
-      },
-      {
-        "statement": "SELECT COUNT(*) FROM devices",
-        "count": 4
-      },
-      {
-        "statement": "SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name",
-        "count": 4
-      },
-      {
-        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
-        "count": 4
+        "count": 2
       }
     ]
   },
   "report_network": {
     "fixture": "compact",
     "state": "warm",
-    "execute_count": 67,
+    "execute_count": 29,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
@@ -1216,20 +1238,12 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_nodes": 1,
       "read.topology_links": 1,
       "read.incident_networks": 1,
-      "read.availability_changes": 22,
+      "read.availability_changes": 3,
       "read.ha_enrichment": 4,
-      "read.device_snapshots": 20,
+      "read.device_snapshots": 1,
       "read.bridge_snapshots": 1
     },
     "top_repeated_statements": [
-      {
-        "statement": "SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?",
-        "count": 20
-      },
-      {
-        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
-        "count": 20
-      },
       {
         "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
         "count": 4
@@ -1241,13 +1255,21 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       {
         "statement": "SELECT COUNT(*) FROM topology_snapshots WHERE network_id IN (?)",
         "count": 2
+      },
+      {
+        "statement": "SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name",
+        "count": 1
+      },
+      {
+        "statement": "SELECT COUNT(*) FROM devices",
+        "count": 1
       }
     ]
   },
   "report_network_beast": {
     "fixture": "beast",
     "state": "warm",
-    "execute_count": 267,
+    "execute_count": 29,
     "executemany_count": 0,
     "commit_count": 0,
     "rollback_count": 0,
@@ -1262,20 +1284,12 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "read.topology_nodes": 1,
       "read.topology_links": 1,
       "read.incident_networks": 1,
-      "read.availability_changes": 122,
+      "read.availability_changes": 3,
       "read.ha_enrichment": 4,
-      "read.device_snapshots": 120,
+      "read.device_snapshots": 1,
       "read.bridge_snapshots": 1
     },
     "top_repeated_statements": [
-      {
-        "statement": "SELECT availability, last_seen, last_payload_at, linkquality, battery, captured_at FROM device_snapshots WHERE network_id = ? AND ieee_address = ? ORDER BY captured_at DESC LIMIT ?",
-        "count": 120
-      },
-      {
-        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
-        "count": 120
-      },
       {
         "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
         "count": 4
@@ -1286,6 +1300,14 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       },
       {
         "statement": "SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name",
+        "count": 1
+      },
+      {
+        "statement": "SELECT COUNT(*) FROM devices",
+        "count": 1
+      },
+      {
+        "statement": "SELECT id, name, base_topic, bridge_state FROM networks WHERE id = ?",
         "count": 1
       }
     ]

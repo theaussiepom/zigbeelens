@@ -165,7 +165,6 @@ def test_model_patterns_do_not_change_dashboard_severity_or_incident_counts(tmp_
 
     assert baseline.model_patterns == []
     assert with_patterns.model_patterns
-    assert with_patterns.overall_severity == baseline.overall_severity
-    assert with_patterns.current_finding == baseline.current_finding
+    assert with_patterns.decision_summary == baseline.decision_summary
     assert with_patterns.active_incident_count == baseline.active_incident_count
     assert with_patterns.watching_incident_count == baseline.watching_incident_count

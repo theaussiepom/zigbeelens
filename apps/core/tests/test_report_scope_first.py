@@ -28,6 +28,13 @@ from zigbeelens.services.reports import generate_report
 from zigbeelens.storage.repository import Repository
 from performance.query_instrumentation import install_counter
 
+from report_v3_helpers import (
+    report_device_details,
+    report_devices,
+    report_networks,
+    report_timeline,
+)
+
 NOW = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
 HOME_SENTINEL = "HOME_ONLY_SENTINEL_3F"
 OFFICE_SENTINEL = "OFFICE_LEAK_SENTINEL_3F"
@@ -209,8 +216,8 @@ def test_network_scope_isolates_office_sentinels(tmp_path: Path):
     assert HOME_SENTINEL in blob
     assert OFFICE_SENTINEL not in blob
     assert EVENT_OFFICE not in blob
-    assert {n.id for n in detail.networks} == {"home"}
-    assert all(d.network_id == "home" for d in detail.devices)
+    assert {n.id for n in report_networks(detail)} == {"home"}
+    assert all(d.network_id == "home" for d in report_devices(detail))
     assert all("office" not in i.network_ids or "home" in i.network_ids for i in detail.incidents)
     assert {i.id for i in detail.incidents} >= {
         "inc-home-device",
@@ -249,9 +256,9 @@ def test_device_scope_composite_isolation(tmp_path: Path):
         repo=repo,
         now=NOW,
     )
-    assert [d.ieee_address for d in detail.devices] == ["0xhome1"]
-    assert all(d.network_id == "home" for d in detail.devices)
-    assert all(d.network_id == "home" for d in detail.device_details)
+    assert [d.ieee_address for d in report_devices(detail)] == ["0xhome1"]
+    assert all(d.network_id == "home" for d in report_devices(detail))
+    assert all(d.network_id == "home" for d in report_device_details(detail))
     assert all(
         any(ref.network_id == "home" and ref.ieee_address == "0xhome1" for ref in i.affected_devices)
         for i in detail.incidents
@@ -326,7 +333,7 @@ def test_include_timeline_false_zero_event_reads(tmp_path: Path):
         if "FROM events" in sql or "from events" in sql.lower()
     ]
     assert event_reads == []
-    assert detail.timeline == []
+    assert report_timeline(detail) == []
     assert all(not i.timeline for i in detail.incidents)
     assert EVENT_HOME not in _blob(detail)
     assert EVENT_OFFICE not in _blob(detail)
@@ -352,7 +359,7 @@ def test_full_report_keeps_complete_history(tmp_path: Path):
         "inc-multi",
         "inc-missing-device",
     }
-    assert {n.id for n in detail.networks} == {"home", "office"}
+    assert {n.id for n in report_networks(detail)} == {"home", "office"}
 
 
 def test_preview_is_read_only(tmp_path: Path):

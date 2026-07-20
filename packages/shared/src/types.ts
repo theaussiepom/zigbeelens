@@ -16,27 +16,41 @@ export type IncidentScope =
 /** Incident lifecycle state */
 export type IncidentStatus = "open" | "watching" | "resolved";
 
-/** Device health primary classification */
-export type DeviceHealthPrimary =
-  | "healthy"
-  | "unavailable"
-  | "recently_unstable"
-  | "weak_link"
-  | "low_battery"
-  | "stale_reporting"
-  | "interview_issue"
-  | "router_risk"
-  | "unknown";
-
-/** Lens family presentation-layer health bucket (shared across Lens tools) */
-export type LensBucket =
-  | "healthy"
-  | "recently_unstable"
-  | "needs_attention"
-  | "unavailable"
-  | "diagnostics_limited"
+/** Canonical decision status for Device Story and estate summaries. */
+export type DecisionStatus =
   | "informational"
-  | "unknown";
+  | "no_notable_change"
+  | "changed"
+  | "watch"
+  | "worth_reviewing"
+  | "review_first"
+  | "improve_data_coverage"
+  | "data_unavailable";
+
+/** Canonical decision priority. */
+export type DecisionPriority = "none" | "low" | "medium" | "high";
+
+/** Stable coverage label codes mapped by UI/report presenters. */
+export type CoverageLabelCode =
+  | "availability_tracking_off"
+  | "availability_history_building"
+  | "availability_status_unknown"
+  | "availability_available"
+  | "route_hints_unavailable"
+  | "ha_areas_not_linked"
+  | "snapshot_stale"
+  | "battery_history_sparse"
+  | "battery_history_available"
+  | "lqi_history_sparse"
+  | "lqi_history_available"
+  | "last_seen_available"
+  | "last_seen_unknown"
+  | "last_payload_available"
+  | "last_payload_unknown"
+  | "topology_history_available"
+  | "topology_history_sparse"
+  | "topology_history_not_observed"
+  | "ha_area_linked";
 
 /** Bridge online state */
 export type BridgeState = "online" | "offline" | "unknown";
@@ -58,17 +72,17 @@ export interface EvidenceItem {
   id: string;
   kind: string;
   summary: string;
-  detail?: string;
-  timestamp?: string;
-  network_id?: string;
-  ieee_address?: string;
+  detail?: string | null;
+  timestamp?: string | null;
+  network_id?: string | null;
+  ieee_address?: string | null;
 }
 
 /** Known limitation of a diagnostic conclusion */
 export interface LimitationItem {
   id: string;
   summary: string;
-  detail?: string;
+  detail?: string | null;
 }
 
 /** Standard diagnostic conclusion shape */
@@ -83,15 +97,25 @@ export interface DiagnosticConclusion {
   limitations: LimitationItem[];
 }
 
-/** Device health classification result */
-export interface DeviceHealth {
-  primary: DeviceHealthPrimary;
-  severity: Severity;
-  confidence: Confidence;
-  evidence: string[];
-  counter_evidence: string[];
-  limitations: string[];
-  flags?: DeviceHealthPrimary[];
+/** Compact Device Story projection for inventory badges. */
+export interface DecisionBadge {
+  status: DecisionStatus;
+  priority: DecisionPriority;
+  headline_code: string;
+  coverage_label_codes: CoverageLabelCode[];
+}
+
+/** Compatibility alias — same shape as DecisionBadge. */
+export type DeviceDecisionBadge = DecisionBadge;
+
+/** Aggregated decision counts for Dashboard / network / report / MQTT / HACS. */
+export interface DecisionCountSummary {
+  subject_count: number;
+  overall_status: DecisionStatus;
+  highest_priority: DecisionPriority;
+  status_counts: Partial<Record<DecisionStatus, number>>;
+  priority_counts: Partial<Record<DecisionPriority, number>>;
+  coverage_warning_count: number;
 }
 
 /** Network summary for dashboard and network pages */
@@ -105,16 +129,12 @@ export interface NetworkSummary {
   router_count: number;
   end_device_count: number;
   unavailable_count: number;
-  recently_unstable_count: number;
-  weak_link_count: number;
-  low_battery_count: number;
-  stale_count: number;
-  interview_issue_count: number;
-  incident_state: Severity;
+  active_incident_severity: Severity | null;
   active_incident_count: number;
   recent_bridge_warnings: number;
   recent_bridge_errors: number;
-  health: DeviceHealth;
+  decision: DeviceDecisionBadge;
+  decision_summary: DecisionCountSummary;
 }
 
 /** Coordinator info */
@@ -126,14 +146,6 @@ export interface CoordinatorSummary {
   channel?: number;
   pan_id?: string;
   extended_pan_id?: string;
-}
-
-/** Compact Device Story projection for inventory badges (Phase 5B-1) */
-export interface DeviceDecisionBadge {
-  status: string;
-  priority: string;
-  headline_code: string;
-  coverage_label_codes: string[];
 }
 
 /** Device list row */
@@ -151,14 +163,8 @@ export interface DeviceSummary {
   manufacturer?: string | null;
   model?: string | null;
   interview_state: InterviewState;
-  health: DeviceHealth;
   incident_affected: boolean;
-  sort_priority: number;
-  lens_bucket: LensBucket;
-  lens_bucket_label: string;
-  lens_bucket_reason: string;
-  lens_reasons: string[];
-  decision?: DeviceDecisionBadge | null;
+  decision: DeviceDecisionBadge;
   /** Home Assistant area name when enrichment is linked */
   ha_area?: string | null;
 }
@@ -170,7 +176,6 @@ export interface DeviceDetail extends DeviceSummary {
   recent_availability_changes: AvailabilityChange[];
   recent_events: TimelineEvent[];
   recent_bridge_logs: BridgeLogEntry[];
-  diagnostic: DiagnosticConclusion;
   trends?: DeviceTrendPoint[];
 }
 
@@ -222,7 +227,7 @@ export interface Incident {
   affected_devices: IncidentDeviceRef[];
   opened_at: string;
   updated_at: string;
-  resolved_at?: string;
+  resolved_at: string | null;
   evidence: EvidenceItem[];
   counter_evidence: EvidenceItem[];
   limitations: LimitationItem[];
@@ -234,11 +239,7 @@ export interface IncidentDeviceRef {
   network_id: string;
   ieee_address: string;
   friendly_name: string;
-  health_primary: DeviceHealthPrimary;
-  lens_bucket: LensBucket;
-  lens_bucket_label: string;
-  lens_bucket_reason: string;
-  decision?: DeviceDecisionBadge | null;
+  decision: DeviceDecisionBadge;
 }
 
 /** Alias for clarity in API responses */
@@ -251,28 +252,12 @@ export interface TimelineEvent {
   timestamp: string;
   kind: string;
   severity: Severity;
-  network_id?: string;
-  ieee_address?: string;
-  friendly_name?: string;
+  network_id?: string | null;
+  ieee_address?: string | null;
+  friendly_name?: string | null;
   title: string;
   summary: string;
-  incident_id?: string;
-}
-
-/** Point-in-time health snapshot */
-export interface HealthSnapshot {
-  timestamp: string;
-  overall_severity: Severity;
-  overall_health: DeviceHealthPrimary;
-  network_count: number;
-  device_count: number;
-  unavailable_count: number;
-  incident_count: number;
-  networks: Array<{
-    network_id: string;
-    severity: Severity;
-    unavailable_count: number;
-  }>;
+  incident_id?: string | null;
 }
 
 /** Facts-only shared availability event for dashboard Overview */
@@ -325,19 +310,15 @@ export interface DataCoverageWarningSummary {
 export interface DashboardPayload {
   generated_at: string;
   scenario?: string;
-  overall_severity: Severity;
-  current_finding: DiagnosticConclusion;
   active_incident_count: number;
   watching_incident_count: number;
+  network_count: number;
+  device_count: number;
+  unavailable_device_count: number;
   networks: NetworkSummary[];
-  top_affected_devices: DeviceSummary[];
   router_risks: RouterRisk[];
-  recently_unstable: DeviceSummary[];
-  weak_links: DeviceSummary[];
-  low_batteries: DeviceSummary[];
-  stale_devices: DeviceSummary[];
   recent_timeline: TimelineEvent[];
-  health_snapshot: HealthSnapshot;
+  decision_summary: DecisionCountSummary;
   shared_availability_events: SharedAvailabilityEventSummary[];
   model_patterns: ModelPatternSummary[];
   investigation_priorities: InvestigationPrioritySummary[];
@@ -392,37 +373,15 @@ export interface ReportSummary {
   redaction_profile: RedactionProfile;
 }
 
-/** High-level numeric summary block */
-export interface ReportSummaryBlock {
-  overall_state: Severity;
-  current_finding: string;
-  networks_monitored: number;
-  total_devices: number;
-  active_incidents: number;
-  watching_incidents: number;
-  unavailable_devices: number;
-  router_risks: number;
-  stale_devices: number;
-  weak_links: number;
-  low_battery_devices: number;
-}
-
-/** Full report detail */
-export interface ReportDecisionSummary {
-  device_story_count: number;
-  status_counts: Record<string, number>;
-  priority_counts: Record<string, number>;
-}
-
-/** Canonical Device Story fields plus report identity (Phase 5D) */
+/** Canonical Device Story fields plus report identity (Phase 5D). */
 export interface ReportDeviceStory {
   network_id: string;
   ieee_address: string;
   friendly_name: string;
   subject_type: string;
   subject_id: string;
-  status: string;
-  priority: string;
+  status: DecisionStatus;
+  priority: DecisionPriority;
   headline_code: string;
   reasons: Array<{ code: string; params?: Record<string, unknown> }>;
   evidence: Array<Record<string, unknown>>;
@@ -437,34 +396,47 @@ export interface ReportDeviceStory {
   }>;
 }
 
-export interface ReportDetail {
+/** Exact v3 report domain inventory. */
+export interface ReportDomainDetailsV3 {
+  networks: NetworkSummary[];
+  devices: DeviceSummary[];
+  device_details: DeviceDetail[];
+  router_risks: RouterRisk[];
+  topology_snapshot_count: number;
+}
+
+/** Compatibility alias for helpers during the Track 5 seal. */
+export type ReportDomainDetails = ReportDomainDetailsV3;
+
+/** Exact current report contract (version 3). No legacy aliases. */
+export interface ReportDetailV3 {
   id: string;
   product: string;
-  report_version: number;
+  report_version: 3;
   generated_at: string;
   version: string;
   scope: ReportScope;
   format: ReportFormat;
   redaction: ReportRedactionStatus;
-  summary?: ReportSummaryBlock | null;
-  decision_summary?: ReportDecisionSummary | null;
-  investigation_priorities?: InvestigationPrioritySummary[];
-  device_stories?: ReportDeviceStory[];
-  data_coverage_warnings?: DataCoverageWarningSummary[];
   config_summary: Record<string, unknown>;
-  collector: Record<string, unknown>;
-  networks: NetworkSummary[];
-  devices: DeviceSummary[];
-  device_details: DeviceDetail[];
-  router_risks: RouterRisk[];
+  decision_summary: DecisionCountSummary;
+  investigation_priorities: InvestigationPrioritySummary[];
+  device_stories: ReportDeviceStory[];
+  data_coverage_warnings: DataCoverageWarningSummary[];
   incidents: Incident[];
-  timeline: TimelineEvent[];
-  health_snapshot: HealthSnapshot;
-  diagnostic_conclusions: DiagnosticConclusion[];
+  collector_status: Record<string, unknown>;
+  domain_details: ReportDomainDetailsV3;
+  events_or_timeline: TimelineEvent[];
   limitations: LimitationItem[];
   raw_counts: Record<string, number>;
   markdown_summary: string;
 }
+
+/** Current writers and OpenAPI advertise ReportDetail as the exact v3 model. */
+export type ReportDetail = ReportDetailV3;
+
+/** Opaque stored report body for historical v1/v2 rows. */
+export type LegacyStoredReportBody = Record<string, unknown>;
 
 export interface ReportRedactionStatus {
   applied: boolean;

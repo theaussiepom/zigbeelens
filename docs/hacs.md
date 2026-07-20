@@ -119,31 +119,34 @@ flowchart LR
   Core -. allowlisted network-map request when topology policy enables it .-> MQTT
 ```
 
-## Decision contract (Phase 5E)
+## Decision contract (Track 5 / v2)
 
-The companion displays shared Decision Engine investigation priorities only when Core
-advertises an **exact** supported contract **and** the fetched Dashboard payload
-contains the contracted decision surfaces as lists.
+The companion displays shared Decision Engine status and investigation priorities
+only when Core advertises an **exact** supported contract **and** the fetched
+Dashboard payload contains the contracted decision surfaces.
 
 Current supported contract:
 
-- `decision_contract_version = 1` only
+- `decision_contract_version = 2` only
 
 Core exposes the contract on `GET /api/capabilities` (also `/api/v1/capabilities`):
 
 - `decision_contract_version`
 - `capabilities.shared_decisions`
 - `capabilities.companion_decision_summary`
+- `capabilities.decision_only_diagnostic_payloads`
+- `capabilities.legacy_health_lens_payloads` (must be `false`)
+- `decision_surfaces.dashboard_decision_summary`
 - `decision_surfaces.dashboard_investigation_priorities`
 - `decision_surfaces.dashboard_data_coverage_warnings`
-
-`dashboard_recent_changes` is **not** a Core capability. Browser-local “since your last
-visit” UI is not part of this contract.
+- `decision_surfaces.network_decision_badges`
+- `decision_surfaces.device_decision_badges`
 
 ### Dashboard payload validation
 
 Contract negotiation is not enough. The Dashboard response must include:
 
+- `decision_summary` with `overall_status` and `status_counts`
 - `investigation_priorities` as a JSON list (may be empty)
 - `data_coverage_warnings` as a JSON list (may be empty)
 
@@ -153,8 +156,8 @@ Semantics:
 |-----------|---------------------|
 | Valid empty priority list | Decision mode on; empty state: “No current investigation priorities from stored evidence.” |
 | Valid priorities | Decision mode on; show up to three Core priorities, then “+N more…” |
-| Missing / non-list surface | Soft disable decision mode; factual fallback summary |
-| Unsupported / malformed contract | Soft disable decision mode; factual fallback summary |
+| Missing / non-list surface | Soft disable decision mode; no Health/Lens fallback |
+| Unsupported / malformed / older / newer contract | Soft disable decision mode; repair `core_decision_contract_incompatible`; no reauth |
 | Core below minimum version | Decision mode off; Home Assistant repair for incompatible Core |
 
 Malformed individual priority rows are skipped calmly during panel projection. A malformed
@@ -217,11 +220,25 @@ See [MQTT Discovery](mqtt-discovery.md). You generally do not need both.
 
 ## Entities (examples)
 
+Factual / lifecycle (stable unique IDs retained):
+
 - `binary_sensor.zigbeelens_active_incident`
-- `sensor.zigbeelens_overall_health`
 - `sensor.zigbeelens_unavailable_devices`
+- `sensor.zigbeelens_network_count`
+- `sensor.zigbeelens_device_count`
 - `sensor.zigbeelens_router_risks`
-- Per-network health and unavailable sensors
+
+Decision-led (new unique IDs — do not reuse superseded health entity IDs):
+
+- `sensor.zigbeelens_overall_decision`
+- `sensor.zigbeelens_review_first_devices`
+- `sensor.zigbeelens_worth_reviewing_devices`
+- `sensor.zigbeelens_coverage_warning_count`
+- Per-network `…_decision` and factual unavailable sensors
+
+Superseded health-derived entities (`overall_health`, recently-unstable / weak-link /
+stale / low-battery / unknown counts, per-network `_health`) are no longer registered.
+Remove leftover unavailable entities from the Home Assistant entity registry manually.
 
 ## Monorepo / packaging
 
