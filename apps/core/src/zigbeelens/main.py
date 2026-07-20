@@ -297,6 +297,10 @@ def main(argv: list[str] | None = None) -> None:
     add_storage_subparser(subparsers)
     args = parser.parse_args(argv)
     if getattr(args, "command", None) == "storage":
+        # Accept either `zigbeelens --config X storage …` or
+        # `zigbeelens storage … --config X` without silently ignoring the global flag.
+        if getattr(args, "config", None) is None and args.config_path is not None:
+            args.config = args.config_path
         raise SystemExit(args.func(args))
     run_server(config_path=args.config_path, reload=args.reload)
 
