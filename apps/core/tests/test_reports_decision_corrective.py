@@ -298,7 +298,6 @@ def test_include_timeline_false_clears_all_timeline_collections():
         interpretation="Interpretation",
         timeline=[sent_event],
     )
-    from zigbeelens.schemas import ReportDomainDetailsV3
     from zigbeelens.services.mock_provider import MockProvider
 
     sample = MockProvider(SCENARIO).devices()[0]
@@ -425,8 +424,6 @@ def test_orphan_network_id_redaction_public_safe_and_strict():
         DataCoverageWarningSummary,
         DecisionCountSummary,
         InvestigationPrioritySummary,
-        ReportDomainDetailsV3,
-        ReportRedactionStatus,
     )
     from zigbeelens.services.mock_provider import MockProvider
 

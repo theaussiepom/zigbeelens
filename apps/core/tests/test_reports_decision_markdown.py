@@ -16,7 +16,6 @@ from zigbeelens.schemas import (
     DiagnosticConclusion,
     IncidentScope,
     LimitationItem,
-    ReportDetail,
     Severity,
     Confidence,
 )

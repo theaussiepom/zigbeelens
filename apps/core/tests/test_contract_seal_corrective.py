@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -11,7 +10,6 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from zigbeelens.config.models import AppConfig, MqttDiscoveryConfig
 from zigbeelens.db.connection import Database
 from zigbeelens.mqtt_discovery.topics import (
     SUPERSEDED_LENS_DISCOVERY_ENTITY_KEYS,
