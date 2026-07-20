@@ -101,7 +101,7 @@ describe("sharedAvailabilityEventViewModel", () => {
       makeEvent({ network_id: "office" }),
       "Office",
     );
-    expect(vm.meshHref).toBe("/topology/office");
+    expect(vm.meshHref).toBe("/investigate/office");
     expect(vm.networkLabel).toBe("Office");
   });
 

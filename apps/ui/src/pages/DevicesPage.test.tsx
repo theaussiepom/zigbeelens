@@ -178,7 +178,7 @@ describe("DevicesPage decision inventory", () => {
     );
     expect(screen.getAllByRole("link", { name: "Review in Mesh" })[0]).toHaveAttribute(
       "href",
-      "/topology/home",
+      "/investigate/home",
     );
   });
 

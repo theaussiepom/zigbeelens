@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Phase 6A navigation:** primary workflows are Overview, Mesh / Investigate, Devices, Incidents, Reports, Settings; supporting Networks / Router diagnostics / Timeline / Topology snapshots / How it works live under Advanced & support; canonical investigation routes are `/investigate` and `/investigate/:networkId` with legacy `/topology/:networkId/graph` redirect compatibility
+
 ### Added
 
 - **Track 6 retention policy v2:** telemetry-only `retention_days`, separate resolved-incident retention (default 90 days), reports retained until manual delete by default, periodic maintenance, integrity gates, online SQLite backup CLI, `/api/storage/status`

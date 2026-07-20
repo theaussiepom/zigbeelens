@@ -171,7 +171,7 @@ export function buildDeviceRowViewModel(device: DeviceSummary): DeviceRowViewMod
     manufacturer: device.manufacturer ?? null,
     model: device.model ?? null,
     deviceHref: devicePath(device.network_id, device.ieee_address),
-    meshHref: `/topology/${device.network_id}`,
+    meshHref: `/investigate/${device.network_id}`,
   };
 }
 

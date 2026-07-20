@@ -1111,7 +1111,7 @@ describe("ReportsPage", () => {
     renderReportsPage();
     expect(await screen.findByText("Anon priority title")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /review mesh/i })).not.toBeInTheDocument();
-    expect(document.body.innerHTML).not.toContain("/topology/network_001");
+    expect(document.body.innerHTML).not.toContain("/investigate/network_001");
     expect(document.body.textContent ?? "").not.toMatch(/\bhome\b/);
   });
 
@@ -1120,6 +1120,6 @@ describe("ReportsPage", () => {
     expect(await screen.findByText("Topology evidence gap")).toBeInTheDocument();
     const meshLinks = screen.getAllByRole("link", { name: /review mesh/i });
     expect(meshLinks.length).toBeGreaterThan(0);
-    expect(meshLinks[0]).toHaveAttribute("href", "/topology/home");
+    expect(meshLinks[0]).toHaveAttribute("href", "/investigate/home");
   });
 });

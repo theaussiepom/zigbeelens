@@ -206,7 +206,7 @@ describe("OverviewPage shared availability events", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /review mesh evidence/i })).toHaveAttribute(
       "href",
-      "/topology/home",
+      "/investigate/home",
     );
   });
 });
@@ -334,7 +334,7 @@ describe("OverviewPage investigation priorities", () => {
     expect(titles[1]).toBe("Lower priority title");
     expect(screen.getAllByRole("link", { name: /investigate in mesh/i })[0]).toHaveAttribute(
       "href",
-      "/topology/home",
+      "/investigate/home",
     );
     expect(screen.queryByText(/score 12/i)).not.toBeInTheDocument();
   });

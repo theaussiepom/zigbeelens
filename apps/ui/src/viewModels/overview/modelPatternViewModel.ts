@@ -80,7 +80,7 @@ export function buildModelPatternViewModel(
     timingLabel: timingLabel(pattern.latest_supporting_evidence_at),
     limitation: MODEL_PATTERN_LIMITATION,
     suggestedChecks: [...MODEL_PATTERN_CHECKS],
-    meshHref: `/topology/${pattern.network_id}`,
+    meshHref: `/investigate/${pattern.network_id}`,
     meshLinkLabel: "Review Mesh evidence →",
   };
 }

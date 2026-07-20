@@ -239,7 +239,7 @@ describe("recentChangesViewModel", () => {
     });
     const mesh = section.items.find((item) => item.id === "recent-missing-1");
     const inc = section.items.find((item) => item.id === "inc-1");
-    expect(mesh?.href).toBe("/topology/home");
+    expect(mesh?.href).toBe("/investigate/home");
     expect(inc?.href).toBe("/incidents/inc-1");
   });
 });

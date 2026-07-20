@@ -1741,6 +1741,12 @@ Phase 6 removes/demotes old paths after replacements exist.
 
 ## Phase 6A — Navigation simplification
 
+### Status
+
+Implemented on `refactor/navigation-consolidation` (awaiting review): shared
+primary/advanced navigation model, canonical `/investigate` routes, legacy
+graph redirect, Advanced & support disclosure.
+
 ### Goal
 
 Move navigation toward:
@@ -1751,14 +1757,19 @@ Mesh / Investigate
 Devices
 Incidents
 Reports
-Settings / Advanced
+Settings
 ```
+
+with supporting routes under Advanced & support.
 
 ### Acceptance criteria
 
 - No duplicate primary topology/snapshot/compare routes.
 - Advanced/debug views remain reachable but secondary.
-- Mesh is clearly the investigation workspace.
+- Mesh / Investigate is clearly the investigation workspace.
+- `/investigate` is a network chooser; `/investigate/:networkId` hosts the
+  existing evidence graph.
+- `/topology/:networkId/graph` remains compatible via client redirect.
 
 ### Composer model
 

@@ -61,7 +61,7 @@ describe("investigationPriorityViewModel", () => {
 
   it("links to the Mesh page for the network", () => {
     const vm = buildInvestigationPriorityViewModel(makePriority({ network_id: "office" }));
-    expect(vm.meshHref).toBe("/topology/office");
+    expect(vm.meshHref).toBe("/investigate/office");
     expect(vm.meshLinkLabel).toBe(INVESTIGATION_PRIORITY_MESH_LINK_LABEL);
   });
 

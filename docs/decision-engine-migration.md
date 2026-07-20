@@ -706,7 +706,15 @@ Remove or demote old paths after replacements are in place.
 
 ### Phase 6A — Navigation simplification
 
-Move toward the target navigation.
+**Status: implemented on `refactor/navigation-consolidation` (awaiting review).**
+
+Primary navigation is Overview, Mesh / Investigate, Devices, Incidents,
+Reports, Settings. Canonical investigation routes are `/investigate` and
+`/investigate/:networkId`. Supporting Networks / Routers / Timeline /
+Topology snapshots / How it works remain under Advanced & support.
+Legacy `/topology/:networkId/graph` redirects to `/investigate/:networkId`.
+No Core API, Decision, Health, incident, report, security, MQTT, or
+retention semantics change in this subphase.
 
 ### Phase 6B — Router UX consolidation
 

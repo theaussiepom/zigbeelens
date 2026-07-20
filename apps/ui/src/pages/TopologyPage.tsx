@@ -300,10 +300,10 @@ export function TopologyPage() {
   return (
     <div className="max-w-5xl space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Topology</h1>
+        <h1 className="text-2xl font-semibold">Topology snapshots</h1>
         <p className="mt-1 text-zl-muted">
-          Point-in-time mesh snapshots for diagnostic enrichment. Select a network to inspect its
-          latest snapshot.
+          Advanced &amp; support view for point-in-time mesh snapshots and capture status. For
+          investigation, use Mesh / Investigate.
         </p>
       </div>
 

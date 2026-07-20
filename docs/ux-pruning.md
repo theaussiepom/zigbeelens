@@ -34,7 +34,7 @@ The Mesh / topology workspace becomes the main investigation surface. Device det
 
 ## Navigation target
 
-Preferred future navigation:
+### Phase 6A status — current primary navigation
 
 ```text
 Overview
@@ -42,20 +42,33 @@ Mesh / Investigate
 Devices
 Incidents
 Reports
-Settings / Advanced
-```
-
-A more aggressive future option is:
-
-```text
-Overview
-Investigate
-Devices
-Reports
 Settings
 ```
 
-The first option is safer during migration. The second may be appropriate after the decision engine owns more surfaces.
+Canonical investigation routes:
+
+- `/investigate` — lightweight network chooser
+- `/investigate/:networkId` — evidence-graph investigation workspace
+
+Supporting routes remain reachable under **Advanced & support**:
+
+```text
+Networks
+Router diagnostics
+Timeline
+Topology snapshots
+How it works
+```
+
+Legacy deep link `/topology/:networkId/graph` replace-redirects to
+`/investigate/:networkId`. Raw snapshot routes `/topology` and
+`/topology/:networkId` stay as Advanced views (no API/route removal).
+
+Later ownership:
+
+- Phase 6B — router-area consolidation
+- Phase 6C — snapshot UX consolidation
+- Phase 6D — contextual report workflow
 
 ## Pruning principles
 

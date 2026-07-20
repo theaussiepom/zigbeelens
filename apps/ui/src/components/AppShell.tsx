@@ -1,8 +1,14 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { useEffect, useId, useRef, useState } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/BrowserAuthContext";
 import { useScenario } from "@/context/ScenarioContext";
 import { useConnection } from "@/hooks/useConnection";
 import { scenariosEnabled } from "@/lib/flags";
+import {
+  ADVANCED_NAVIGATION,
+  PRIMARY_NAVIGATION,
+  isAdvancedRoute,
+} from "@/navigation/model";
 
 function formatSessionExpiry(expiresAt: string | null): string | null {
   if (!expiresAt) return null;
@@ -15,21 +21,16 @@ function formatSessionExpiry(expiresAt: string | null): string | null {
   }
 }
 
-const nav = [
-  { to: "/", label: "Overview", end: true },
-  { to: "/incidents", label: "Incidents" },
-  { to: "/monitoring", label: "How it works" },
-  { to: "/networks", label: "Networks" },
-  { to: "/routers", label: "Routers" },
-  { to: "/topology", label: "Topology" },
-  { to: "/devices", label: "Devices" },
-  { to: "/timeline", label: "Timeline" },
-  { to: "/reports", label: "Reports" },
-  { to: "/settings", label: "Settings" },
-];
-
 function navClass(isActive: boolean): string {
   return `block rounded-lg px-3 py-2.5 min-h-11 text-sm font-medium transition-colors ${
+    isActive
+      ? "bg-zl-accent/15 text-zl-accent"
+      : "text-zl-muted hover:bg-zl-surface-2 hover:text-zl-text active:bg-zl-surface-2"
+  }`;
+}
+
+function mobileNavClass(isActive: boolean): string {
+  return `whitespace-nowrap rounded-lg px-3 py-2 min-h-11 text-sm font-medium transition-colors ${
     isActive
       ? "bg-zl-accent/15 text-zl-accent"
       : "text-zl-muted hover:bg-zl-surface-2 hover:text-zl-text active:bg-zl-surface-2"
@@ -81,10 +82,142 @@ function ModeBanner() {
   );
 }
 
+function AdvancedNavLinks({
+  pathname,
+  onNavigate,
+  linkClass,
+}: {
+  pathname: string;
+  onNavigate?: () => void;
+  linkClass: (isActive: boolean) => string;
+}) {
+  return (
+    <ul className="space-y-1">
+      {ADVANCED_NAVIGATION.map((item) => {
+        const active = item.isActive(pathname);
+        return (
+          <li key={item.to}>
+            <NavLink
+              to={item.to}
+              aria-current={active ? "page" : undefined}
+              className={linkClass(active)}
+              onClick={onNavigate}
+            >
+              {item.label}
+            </NavLink>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function DesktopAdvancedNav({ pathname }: { pathname: string }) {
+  const panelId = useId();
+  const onAdvanced = isAdvancedRoute(pathname);
+  const [open, setOpen] = useState(onAdvanced);
+
+  useEffect(() => {
+    if (onAdvanced) {
+      setOpen(true);
+    }
+  }, [onAdvanced]);
+
+  return (
+    <div className="mt-4 border-t border-zl-border pt-3">
+      <button
+        type="button"
+        className="flex min-h-11 w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-zl-muted hover:bg-zl-surface-2 hover:text-zl-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((value) => !value)}
+      >
+        Advanced &amp; support
+        <span aria-hidden="true">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div id={panelId} className="mt-1">
+          <AdvancedNavLinks pathname={pathname} linkClass={navClass} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MobileAdvancedNav({ pathname }: { pathname: string }) {
+  const panelId = useId();
+  const onAdvanced = isAdvancedRoute(pathname);
+  const [open, setOpen] = useState(onAdvanced);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (onAdvanced) {
+      setOpen(true);
+    }
+  }, [onAdvanced]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+    function onPointer(event: MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onPointer);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointer);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative shrink-0">
+      <button
+        type="button"
+        className={`whitespace-nowrap rounded-lg px-3 py-2 min-h-11 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50 ${
+          onAdvanced || open
+            ? "bg-zl-accent/15 text-zl-accent"
+            : "text-zl-muted hover:bg-zl-surface-2 hover:text-zl-text"
+        }`}
+        aria-expanded={open}
+        aria-controls={panelId}
+        aria-haspopup="true"
+        aria-label="Advanced and support navigation"
+        onClick={() => setOpen((value) => !value)}
+      >
+        Advanced
+      </button>
+      {open && (
+        <div
+          id={panelId}
+          className="absolute right-0 z-20 mt-1 min-w-56 rounded-xl border border-zl-border bg-zl-surface p-2 shadow-lg"
+        >
+          <p className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zl-muted">
+            Advanced &amp; support
+          </p>
+          <AdvancedNavLinks
+            pathname={pathname}
+            linkClass={navClass}
+            onNavigate={() => setOpen(false)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AppShell() {
   const { scenario, setScenario, scenarios, status } = useScenario();
   const auth = useAuth();
+  const location = useLocation();
   const sessionExpiryLabel = formatSessionExpiry(auth.expiresAt);
+  const pathname = location.pathname;
 
   return (
     <div className="flex min-h-screen flex-col lg:flex-row">
@@ -101,11 +234,21 @@ export function AppShell() {
           </div>
         </div>
         <nav className="flex-1 space-y-1 p-3" aria-label="Main navigation">
-          {nav.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => navClass(isActive)}>
-              {item.label}
-            </NavLink>
-          ))}
+          {PRIMARY_NAVIGATION.map((item) => {
+            const active = item.isActive(pathname);
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                aria-current={active ? "page" : undefined}
+                className={navClass(active)}
+              >
+                {item.label}
+              </NavLink>
+            );
+          })}
+          <DesktopAdvancedNav pathname={pathname} />
         </nav>
         <div className="border-t border-zl-border p-4 text-xs text-zl-muted space-y-1">
           <div>Mode: {status?.data_mode ?? "—"}</div>
@@ -187,23 +330,25 @@ export function AppShell() {
           </div>
         </header>
 
-        <nav className="flex gap-1 overflow-x-auto scroll-px-3 border-b border-zl-border bg-zl-surface px-3 py-2 lg:hidden" aria-label="Main navigation">
-          {nav.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                `whitespace-nowrap rounded-lg px-3 py-2 min-h-11 text-sm font-medium transition-colors ${
-                  isActive
-                    ? "bg-zl-accent/15 text-zl-accent"
-                    : "text-zl-muted hover:bg-zl-surface-2 hover:text-zl-text active:bg-zl-surface-2"
-                }`
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
+        <nav
+          className="flex gap-1 overflow-x-auto scroll-px-3 border-b border-zl-border bg-zl-surface px-3 py-2 lg:hidden"
+          aria-label="Main navigation"
+        >
+          {PRIMARY_NAVIGATION.map((item) => {
+            const active = item.isActive(pathname);
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                aria-current={active ? "page" : undefined}
+                className={mobileNavClass(active)}
+              >
+                {item.label}
+              </NavLink>
+            );
+          })}
+          <MobileAdvancedNav pathname={pathname} />
         </nav>
 
         <ModeBanner />

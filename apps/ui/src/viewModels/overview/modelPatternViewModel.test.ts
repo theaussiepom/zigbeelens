@@ -58,7 +58,7 @@ describe("modelPatternViewModel", () => {
     );
     expect(vm.identityLabel).toBe("IKEA · TS011F");
     expect(vm.limitation).toBe(MODEL_PATTERN_LIMITATION);
-    expect(vm.meshHref).toBe("/topology/home");
+    expect(vm.meshHref).toBe("/investigate/home");
     expect(vm.meshLinkLabel).toBe("Review Mesh evidence →");
   });
 
