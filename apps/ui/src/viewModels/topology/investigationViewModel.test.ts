@@ -51,6 +51,76 @@ describe("investigationViewModel", () => {
     expect(vm.focusLabel).toBe("Focus router area");
     expect(vm.openRouterDetailsLabel).toBe("Open router details");
     expect(vm.primaryNeighbourhoodIeee).toBe("0xr1");
+    expect(vm.focusAriaLabel).toBe(
+      "Focus router area: Review observed router area — Observed router area around Hall Router",
+    );
+    expect(vm.openPrimaryDeviceAriaLabel).toBe(
+      "Open router details: Review observed router area — Observed router area around Hall Router",
+    );
+    expect(vm.clearFocusAriaLabel).toBe(
+      "Clear focus: Review observed router area — Observed router area around Hall Router",
+    );
+  });
+
+  it("gives each investigation action a distinguishable accessible name", () => {
+    const cards = [
+      makeCard({
+        id: "ordinary-a",
+        title: "Several recent missing links involve Kitchen Sensor",
+        primary_device_ieee: "0xe1",
+      }),
+      makeCard({
+        id: "ordinary-b",
+        type: "shared_availability_event",
+        action_group: "investigate_shared_event",
+        title: "Several devices went offline around the same time",
+        primary_device_ieee: "0xe2",
+      }),
+      makeCard({
+        id: "router-a",
+        type: "router_neighbourhood_review",
+        action_group: "review_observed_router_area",
+        primary_neighbourhood_ieee: "0xr1",
+        title: "Observed router area around Hall Router",
+      }),
+      makeCard({
+        id: "router-b",
+        type: "router_neighbourhood_review",
+        action_group: "review_observed_router_area",
+        primary_neighbourhood_ieee: "0xr2",
+        title: "Observed router area around Garage Router",
+      }),
+    ];
+    const vms = cards.map(buildInvestigationCardViewModel);
+    const actionNames = vms.flatMap((vm) =>
+      [
+        vm.focusAriaLabel,
+        vm.clearFocusAriaLabel,
+        vm.detailsAriaLabel,
+        vm.hideDetailsAriaLabel,
+        vm.openPrimaryDeviceAriaLabel,
+      ].filter((name): name is string => Boolean(name)),
+    );
+
+    expect(vms.filter((vm) => !vm.isRouterArea)).toHaveLength(2);
+    expect(vms.filter((vm) => vm.isRouterArea)).toHaveLength(2);
+    expect(new Set(actionNames).size).toBe(actionNames.length);
+    for (const vm of vms) {
+      expect(vm.focusAriaLabel).toContain(vm.contextTitle);
+      expect(vm.focusAriaLabel).not.toMatch(/0x[0-9a-f]+/i);
+      expect(vm.clearFocusAriaLabel).toMatch(/^Clear focus:/);
+      expect(vm.clearFocusAriaLabel).not.toMatch(/Clear focus for Focus/i);
+      expect(vm.detailsAriaLabel).toMatch(/^View details:/);
+    }
+    expect(vms[0]?.focusAriaLabel).toBe(
+      "Focus graph: Several recent missing links involve Kitchen Sensor",
+    );
+    expect(vms[2]?.focusAriaLabel).toBe(
+      "Focus router area: Review observed router area — Observed router area around Hall Router",
+    );
+    expect(vms[2]?.openPrimaryDeviceAriaLabel).toBe(
+      "Open router details: Review observed router area — Observed router area around Hall Router",
+    );
   });
 
   it("omits open-router-details when the card has no neighbourhood IEEE", () => {

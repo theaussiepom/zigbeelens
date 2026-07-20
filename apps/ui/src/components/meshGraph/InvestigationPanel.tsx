@@ -100,7 +100,7 @@ function InvestigationCardView({
           <button
             type="button"
             onClick={onClearFocus}
-            aria-label={`Clear focus for ${viewModel.focusLabel}`}
+            aria-label={viewModel.clearFocusAriaLabel}
             className="rounded-lg border border-zl-accent bg-zl-accent/10 px-2.5 py-1 text-[11px] font-medium text-zl-accent hover:bg-zl-accent/20"
           >
             Clear focus
@@ -109,7 +109,7 @@ function InvestigationCardView({
           <button
             type="button"
             onClick={() => onFocus(card)}
-            aria-label={viewModel.focusLabel}
+            aria-label={viewModel.focusAriaLabel}
             className="rounded-lg border border-zl-border bg-zl-surface px-2.5 py-1 text-[11px] font-medium text-zl-text hover:border-zl-accent/40"
           >
             {viewModel.focusLabel}
@@ -119,7 +119,7 @@ function InvestigationCardView({
           <button
             type="button"
             onClick={() => onOpenPrimaryDevice?.(card)}
-            aria-label={viewModel.openRouterDetailsLabel!}
+            aria-label={viewModel.openPrimaryDeviceAriaLabel!}
             className="rounded-lg border border-zl-border bg-zl-surface px-2.5 py-1 text-[11px] font-medium text-zl-text hover:border-zl-accent/40"
           >
             {viewModel.openRouterDetailsLabel}
@@ -129,6 +129,9 @@ function InvestigationCardView({
           type="button"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
+          aria-label={
+            expanded ? viewModel.hideDetailsAriaLabel : viewModel.detailsAriaLabel
+          }
           className="text-[11px] text-zl-accent hover:underline"
         >
           {expanded ? "Hide details" : "View details"}

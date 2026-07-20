@@ -15,11 +15,11 @@ import {
   DeviceDecisionCard,
   IncidentCard,
   NetworkDecisionCard,
-  RouterRiskCard,
   TimelineEventRow,
 } from "@/components/cards";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
 import { bridgeStateLabel, bridgeStateSeverity, compareDevices } from "@/lib/format";
+import { investigatePath } from "@/lib/routes";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
 import { decisionStatusLabel } from "@/viewModels/decisionCopy";
 
@@ -128,11 +128,6 @@ export function NetworkDetailPage() {
     [networkId, scenario],
     { refetchOn: NETWORK_EVENTS, enabled: Boolean(networkId) },
   );
-  const routers = useLiveResource(
-    () => api.routers(s).then((r) => r.items.filter((x) => x.network_id === networkId)),
-    [networkId, scenario],
-    { refetchOn: NETWORK_EVENTS, enabled: Boolean(networkId) },
-  );
   const timeline = useLiveResource(
     () => api.timeline(s, networkId).then((r) => r.items),
     [networkId, scenario],
@@ -163,6 +158,12 @@ export function NetworkDetailPage() {
         </div>
         <p className="break-all font-mono text-sm text-zl-muted">{n.base_topic}</p>
         <p className="mt-2 text-zl-text">{networkStatusLine(n)}</p>
+        <Link
+          to={investigatePath(n.id)}
+          className="mt-3 inline-flex min-h-11 items-center text-sm text-zl-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+        >
+          Review this network in Mesh →
+        </Link>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -244,23 +245,6 @@ export function NetworkDetailPage() {
           <div className="grid gap-3 md:grid-cols-2">
             {reviewDevices.map((d) => (
               <DeviceDecisionCard key={`${d.network_id}-${d.ieee_address}`} device={d} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {(routers.data?.length ?? 0) > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
-            Observed router signals
-          </h2>
-          <p className="text-sm text-zl-muted">
-            Review observed router areas in Mesh / Investigate. Device names open the router as a
-            device.
-          </p>
-          <div className="grid gap-3 lg:grid-cols-2">
-            {routers.data!.map((r) => (
-              <RouterRiskCard key={`${r.network_id}-${r.ieee_address}`} router={r} />
             ))}
           </div>
         </section>

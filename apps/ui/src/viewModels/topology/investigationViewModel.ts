@@ -37,6 +37,16 @@ export interface InvestigationCardViewModel {
   primaryNeighbourhoodIeee: string | null;
   openRouterDetailsLabel: string | null;
   isRouterArea: boolean;
+  /** Accessible name for Focus graph / Focus router area. */
+  focusAriaLabel: string;
+  /** Accessible name for Clear focus. */
+  clearFocusAriaLabel: string;
+  /** Accessible name for Open router details; null when the action is absent. */
+  openPrimaryDeviceAriaLabel: string | null;
+  /** Accessible name for View details. */
+  detailsAriaLabel: string;
+  /** Accessible name for Hide details. */
+  hideDetailsAriaLabel: string;
 }
 
 export interface InvestigationPanelViewModel {
@@ -70,6 +80,15 @@ function actionGroupForCard(card: InvestigationCard): InvestigationActionGroup {
   }
 }
 
+/** Stable human context for action aria-labels (title, never IEEE / index). */
+function contextualAriaKey(
+  isRouterArea: boolean,
+  actionGroupLabel: string,
+  contextTitle: string,
+): string {
+  return isRouterArea ? `${actionGroupLabel} — ${contextTitle}` : contextTitle;
+}
+
 export function buildInvestigationCardViewModel(
   card: InvestigationCard,
 ): InvestigationCardViewModel {
@@ -82,6 +101,18 @@ export function buildInvestigationCardViewModel(
     card.type === "router_neighbourhood_review" ||
     actionGroup === "review_observed_router_area";
   const primaryNeighbourhoodIeee = card.primary_neighbourhood_ieee ?? null;
+  const focusLabel = isRouterArea
+    ? INVESTIGATION_FOCUS_LABEL_ROUTER_AREA
+    : INVESTIGATION_FOCUS_LABEL_DEFAULT;
+  const openRouterDetailsLabel =
+    isRouterArea && primaryNeighbourhoodIeee
+      ? INVESTIGATION_OPEN_ROUTER_DETAILS_LABEL
+      : null;
+  const contextKey = contextualAriaKey(
+    isRouterArea,
+    identity.actionLabel,
+    card.title,
+  );
   return {
     id: card.id,
     priorityLabel: identity.priorityLabel,
@@ -94,15 +125,17 @@ export function buildInvestigationCardViewModel(
     supportingEvidence: card.supporting_evidence,
     limitations: card.limitations,
     suggestedChecks: card.suggested_next_steps,
-    focusLabel: isRouterArea
-      ? INVESTIGATION_FOCUS_LABEL_ROUTER_AREA
-      : INVESTIGATION_FOCUS_LABEL_DEFAULT,
+    focusLabel,
     primaryNeighbourhoodIeee,
-    openRouterDetailsLabel:
-      isRouterArea && primaryNeighbourhoodIeee
-        ? INVESTIGATION_OPEN_ROUTER_DETAILS_LABEL
-        : null,
+    openRouterDetailsLabel,
     isRouterArea,
+    focusAriaLabel: `${focusLabel}: ${contextKey}`,
+    clearFocusAriaLabel: `Clear focus: ${contextKey}`,
+    openPrimaryDeviceAriaLabel: openRouterDetailsLabel
+      ? `${openRouterDetailsLabel}: ${contextKey}`
+      : null,
+    detailsAriaLabel: `View details: ${contextKey}`,
+    hideDetailsAriaLabel: `Hide details: ${contextKey}`,
   };
 }
 

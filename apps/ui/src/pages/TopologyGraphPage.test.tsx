@@ -2169,7 +2169,7 @@ describe("TopologyGraphPage investigation panel", () => {
   });
 
   function focusButton() {
-    return screen.getByRole("button", { name: /^focus (graph|router area)$/i });
+    return screen.getByRole("button", { name: /^focus (graph|router area):/i });
   }
 
   it("renders the Where to look first panel with ranked cards and priority labels", async () => {
@@ -2282,13 +2282,13 @@ describe("TopologyGraphPage investigation panel", () => {
     const card = screen.getByTestId("investigation-card");
     expect(card).toHaveAttribute("data-investigation-type", "router_neighbourhood_review");
     expect(
-      within(card).getByRole("button", { name: /^focus router area$/i }),
+      within(card).getByRole("button", { name: /^focus router area:/i }),
     ).toBeInTheDocument();
     expect(
-      within(card).getByRole("button", { name: /^open router details$/i }),
+      within(card).getByRole("button", { name: /^open router details:/i }),
     ).toBeInTheDocument();
 
-    await user.click(within(card).getByRole("button", { name: /^open router details$/i }));
+    await user.click(within(card).getByRole("button", { name: /^open router details:/i }));
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: /device details/i })).toBeInTheDocument();
     });
@@ -2312,9 +2312,9 @@ describe("TopologyGraphPage investigation panel", () => {
     };
     await renderLiveAndWaitForLayout();
     const card = screen.getByTestId("investigation-card");
-    expect(within(card).getByRole("button", { name: /^focus router area$/i })).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: /^focus router area:/i })).toBeInTheDocument();
     expect(
-      within(card).queryByRole("button", { name: /^open router details$/i }),
+      within(card).queryByRole("button", { name: /^open router details:/i }),
     ).not.toBeInTheDocument();
   });
 
@@ -2534,7 +2534,7 @@ describe("device search", () => {
     mockDetail = liveDetailWithInvestigations;
     const user = userEvent.setup();
     const { container } = await renderLiveAndWaitForLayout();
-    await user.click(screen.getByRole("button", { name: /^focus graph$/i }));
+    await user.click(screen.getByRole("button", { name: /^focus graph:/i }));
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-node--investigation-focus").length).toBe(2);
     });

@@ -680,7 +680,7 @@ export const api = {
     ),
   captureTopology: (networkId: string) =>
     fetchJson<{ snapshot_id: string; status: string }>(
-      `api/topology/${networkId}/capture`,
+      `api/topology/${encodeURIComponent(networkId)}/capture`,
       {},
       {
         method: "POST",
