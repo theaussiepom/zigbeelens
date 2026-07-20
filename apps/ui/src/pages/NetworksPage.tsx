@@ -19,7 +19,7 @@ import {
   TimelineEventRow,
 } from "@/components/cards";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
-import { bridgeStateLabel, compareDevices } from "@/lib/format";
+import { bridgeStateLabel, bridgeStateSeverity, compareDevices } from "@/lib/format";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
 import { decisionStatusLabel } from "@/viewModels/decisionCopy";
 
@@ -169,7 +169,7 @@ export function NetworkDetailPage() {
         <StatTile
           label="Bridge"
           value={bridgeStateLabel(n.bridge_state)}
-          severity={n.bridge_state === "online" ? "healthy" : "critical"}
+          severity={bridgeStateSeverity(n.bridge_state)}
         />
         <StatTile label="Devices" value={n.device_count} />
         <StatTile

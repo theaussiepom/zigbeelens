@@ -19,6 +19,7 @@ import {
 } from "@/components/ui";
 import {
   bridgeStateLabel,
+  bridgeStateSeverity,
   confidenceLabel,
   devicePath,
   deviceTypeLabel,
@@ -27,6 +28,7 @@ import {
   scopeLabel,
   severityDot,
 } from "@/lib/format";
+import { topologySnapshotPath } from "@/lib/routes";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
 
@@ -146,7 +148,7 @@ export function NetworkDecisionCard({
             <DeviceDecisionBadge
               decision={buildDeviceDecisionBadgeViewModel(network.decision)}
             />
-            <Badge severity={network.bridge_state === "online" ? "healthy" : "critical"}>
+            <Badge severity={bridgeStateSeverity(network.bridge_state)}>
               Bridge: {bridgeStateLabel(network.bridge_state)}
             </Badge>
           </div>
@@ -172,7 +174,7 @@ export function NetworkDecisionCard({
       </Link>
       {topologyEnabled && (
         <Link
-          to={`/topology/${network.id}`}
+          to={topologySnapshotPath(network.id)}
           className="relative z-10 mt-4 inline-flex min-h-11 items-center rounded-lg text-sm text-zl-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
         >
           View topology →

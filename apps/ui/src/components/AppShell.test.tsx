@@ -124,4 +124,21 @@ describe("AppShell navigation", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("link", { name: "Networks" })).not.toBeInTheDocument();
   });
+
+  it("keeps the mobile Advanced popup outside the overflow-x-auto scroller", async () => {
+    const user = userEvent.setup();
+    renderShell("/");
+    const scroller = screen.getByTestId("mobile-primary-nav-scroller");
+    expect(scroller.className).toContain("overflow-x-auto");
+    const mobileToggle = screen.getByRole("button", {
+      name: /advanced and support navigation/i,
+    });
+    expect(scroller.contains(mobileToggle)).toBe(false);
+    await user.click(mobileToggle);
+    const popup = screen.getByRole("link", { name: "Networks" }).closest("[id]");
+    expect(popup).toBeTruthy();
+    expect(scroller.contains(popup)).toBe(false);
+    expect(screen.getByTestId("mobile-nav-shell").contains(mobileToggle)).toBe(true);
+  });
 });
+
