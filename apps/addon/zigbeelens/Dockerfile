@@ -7,11 +7,11 @@
 
 FROM node:22-bookworm AS ui-build
 WORKDIR /app
-RUN corepack enable
-COPY package.json pnpm-workspace.yaml ./
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
 COPY packages/shared/package.json packages/shared/
 COPY apps/ui/package.json apps/ui/
-RUN pnpm install --filter @zigbeelens/ui...
+RUN pnpm install --filter @zigbeelens/ui... --frozen-lockfile
 COPY packages/shared packages/shared
 COPY apps/ui apps/ui
 RUN pnpm --filter @zigbeelens/shared build && pnpm --filter @zigbeelens/ui build
@@ -21,7 +21,7 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-COPY apps/core/pyproject.toml apps/core/
+COPY apps/core/pyproject.toml apps/core/README.md apps/core/
 COPY apps/core/src apps/core/src
 RUN pip install --no-cache-dir -e apps/core
 COPY --from=ui-build /app/apps/ui/dist /app/static

@@ -14,12 +14,20 @@ export function useTopologyGraphData(networkId: string | undefined) {
         ? api.topologyEvidenceGraph(networkId)
         : Promise.reject(new Error("No network selected")),
     [networkId],
-    { enabled: Boolean(networkId) },
+    {
+      enabled: Boolean(networkId),
+      // Explicit topology history invalidation; do not rely on default-all-events.
+      refetchOn: ["topology_updated"],
+    },
   );
   const inventory = useLiveResource(
     () => api.devices(scenario || undefined, networkId),
     [networkId, scenario],
-    { enabled: Boolean(networkId) },
+    {
+      enabled: Boolean(networkId),
+      // Inventory is not topology history; do not refetch on capture events.
+      refetchOn: [],
+    },
   );
 
   const liveEvidence = useMemo(() => {
