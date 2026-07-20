@@ -7,11 +7,65 @@ import {
   isDecisionStatus,
   parseDecisionBadge,
   parseDecisionCountSummary,
+  parseDeviceStory,
   parseDeviceSummary,
+  parseIncident,
   parseStoredReport,
   validateDashboardPayload,
   validateReportDetailV3,
 } from "@/lib/decisionContract";
+
+const EMPTY_STORY_COLLECTIONS = {
+  reasons: [] as unknown[],
+  evidence: [] as unknown[],
+  limitations: [] as unknown[],
+  suggested_checks: [] as unknown[],
+  coverage: [] as unknown[],
+  related_unresolved_incident_ids: [] as string[],
+  timeline: [] as unknown[],
+};
+
+function validDeviceStory(overrides: Record<string, unknown> = {}) {
+  return {
+    network_id: "home",
+    ieee_address: "0x1",
+    friendly_name: "Sensor",
+    subject_type: "device",
+    subject_id: "home:0x1",
+    status: "watch",
+    priority: "low",
+    headline_code: "device_watch",
+    ...EMPTY_STORY_COLLECTIONS,
+    ...overrides,
+  };
+}
+
+function validIncident(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "inc-1",
+    status: "open",
+    title: "Incident",
+    summary: "Summary",
+    network_ids: ["home"],
+    affected_device_count: 1,
+    opened_at: "2026-01-01T00:00:00+00:00",
+    updated_at: "2026-01-01T00:00:00+00:00",
+    affected_devices: [
+      {
+        network_id: "home",
+        ieee_address: "0x1",
+        friendly_name: "Sensor",
+        decision: {
+          status: "watch",
+          priority: "low",
+          headline_code: "device_watch",
+          coverage_label_codes: [],
+        },
+      },
+    ],
+    ...overrides,
+  };
+}
 
 describe("decisionContract", () => {
   it("accepts a valid decision badge", () => {
@@ -270,6 +324,75 @@ describe("decisionContract", () => {
           },
         ],
       }),
+    ).toThrow(ApiError);
+  });
+
+  it.each([
+    "network_id",
+    "ieee_address",
+    "friendly_name",
+    "subject_type",
+    "subject_id",
+    "status",
+    "priority",
+    "headline_code",
+    "reasons",
+    "evidence",
+    "limitations",
+    "suggested_checks",
+    "coverage",
+    "related_unresolved_incident_ids",
+    "timeline",
+  ] as const)("rejects device stories missing required key %s", (key) => {
+    const story = validDeviceStory();
+    delete (story as Record<string, unknown>)[key];
+    expect(() => parseDeviceStory(story)).toThrow(ApiError);
+  });
+
+  it("rejects malformed device story collections and subject_type", () => {
+    expect(() => parseDeviceStory(validDeviceStory({ timeline: undefined }))).toThrow(ApiError);
+    expect(() => parseDeviceStory(validDeviceStory({ timeline: "nope" }))).toThrow(ApiError);
+    expect(() => parseDeviceStory(validDeviceStory({ reasons: undefined }))).toThrow(ApiError);
+    expect(() =>
+      parseDeviceStory(
+        validDeviceStory({
+          coverage: [{ label_code: "future_backend_label", params: {} }],
+        }),
+      ),
+    ).toThrow(ApiError);
+    expect(() =>
+      parseDeviceStory(validDeviceStory({ related_unresolved_incident_ids: [1] })),
+    ).toThrow(ApiError);
+    expect(() => parseDeviceStory(validDeviceStory({ subject_type: "network" }))).toThrow(
+      ApiError,
+    );
+    expect(() => parseDeviceStory(validDeviceStory())).not.toThrow();
+  });
+
+  it("requires affected_devices and exact incident identity fields", () => {
+    expect(() => parseIncident(validIncident())).not.toThrow();
+    const { affected_devices: _a, ...missingAffected } = validIncident();
+    expect(() => parseIncident(missingAffected)).toThrow(ApiError);
+    expect(() => parseIncident(validIncident({ affected_devices: "nope" }))).toThrow(ApiError);
+    expect(() =>
+      parseIncident(
+        validIncident({
+          affected_device_count: 0,
+        }),
+      ),
+    ).toThrow(ApiError);
+    expect(() =>
+      parseIncident(
+        validIncident({
+          affected_devices: [
+            {
+              network_id: "home",
+              ieee_address: "0x1",
+              friendly_name: "Sensor",
+            },
+          ],
+        }),
+      ),
     ).toThrow(ApiError);
   });
 

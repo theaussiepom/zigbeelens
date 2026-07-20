@@ -66,7 +66,19 @@ class ReportDataSource(Protocol):
 
 
 def default_redaction_status() -> ReportRedactionStatus:
-    return ReportRedactionStatus(applied=True, profile="standard", mqtt_credentials=True)
+    from zigbeelens.schemas import RedactionMode, RedactionProfile
+
+    return ReportRedactionStatus(
+        applied=True,
+        profile=RedactionProfile.standard,
+        mqtt_credentials=True,
+        secrets=True,
+        hostnames=False,
+        ip_addresses=False,
+        ieee_addresses_hashed=False,
+        friendly_names=RedactionMode.preserved,
+        network_names=RedactionMode.preserved,
+    )
 
 
 def topology_report_counts(

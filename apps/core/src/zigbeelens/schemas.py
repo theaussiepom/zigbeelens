@@ -150,7 +150,7 @@ class DeviceDecisionBadge(BaseModel):
     status: DecisionStatus
     priority: DecisionPriority
     headline_code: str
-    coverage_label_codes: list[CoverageLabelCode] = Field(default_factory=list)
+    coverage_label_codes: list[CoverageLabelCode]
 
 
 # Public alias — same compact badge shape for devices and networks.
@@ -162,6 +162,7 @@ class DecisionCountSummary(BaseModel):
 
     Must not carry independently promoted network-level judgement. Counts are
     strict non-negative integers (no bool / float / numeric string coercion).
+    Every field is required on input — no count-map or coverage defaults.
     """
 
     model_config = ConfigDict(extra="forbid", use_enum_values=False)
@@ -169,9 +170,9 @@ class DecisionCountSummary(BaseModel):
     subject_count: StrictInt = Field(ge=0)
     overall_status: DecisionStatus
     highest_priority: DecisionPriority
-    status_counts: dict[DecisionStatus, StrictInt] = Field(default_factory=dict)
-    priority_counts: dict[DecisionPriority, StrictInt] = Field(default_factory=dict)
-    coverage_warning_count: StrictInt = Field(default=0, ge=0)
+    status_counts: dict[DecisionStatus, StrictInt]
+    priority_counts: dict[DecisionPriority, StrictInt]
+    coverage_warning_count: StrictInt = Field(ge=0)
 
     @field_validator("subject_count", "coverage_warning_count", mode="before")
     @classmethod
@@ -439,6 +440,13 @@ class RedactionProfile(str, Enum):
     public_safe = "public_safe"
 
 
+class RedactionMode(str, Enum):
+    preserved = "preserved"
+    labeled = "labeled"
+    hashed = "hashed"
+    redacted = "redacted"
+
+
 class ReportScope(str, Enum):
     full = "full"
     incident = "incident"
@@ -475,15 +483,19 @@ class ReportRequest(BaseModel):
 
 
 class ReportRedactionStatus(BaseModel):
+    """Exact redaction status block for report-v3 bodies."""
+
+    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+
     applied: bool
-    profile: str = "standard"
-    mqtt_credentials: bool = True
-    secrets: bool = True
-    hostnames: bool = False
-    ip_addresses: bool = False
-    ieee_addresses_hashed: bool = False
-    friendly_names: str = "preserved"
-    network_names: str = "preserved"
+    profile: RedactionProfile
+    mqtt_credentials: bool
+    secrets: bool
+    hostnames: bool
+    ip_addresses: bool
+    ieee_addresses_hashed: bool
+    friendly_names: RedactionMode
+    network_names: RedactionMode
 
 
 class ReportSummary(BaseModel):
@@ -524,19 +536,19 @@ class ReportDeviceStory(BaseModel):
     ieee_address: str
     friendly_name: str
 
-    subject_type: str = "device"
+    subject_type: Literal["device"]
     subject_id: str
     status: DecisionStatus
     priority: DecisionPriority
     headline_code: str
 
-    reasons: list[dict[str, Any]] = Field(default_factory=list)
-    evidence: list[dict[str, Any]] = Field(default_factory=list)
-    limitations: list[dict[str, Any]] = Field(default_factory=list)
-    suggested_checks: list[dict[str, Any]] = Field(default_factory=list)
-    coverage: list[dict[str, Any]] = Field(default_factory=list)
-    related_unresolved_incident_ids: list[str] = Field(default_factory=list)
-    timeline: list[ReportStoryTimelineItem] = Field(default_factory=list)
+    reasons: list[dict[str, Any]]
+    evidence: list[dict[str, Any]]
+    limitations: list[dict[str, Any]]
+    suggested_checks: list[dict[str, Any]]
+    coverage: list[dict[str, Any]]
+    related_unresolved_incident_ids: list[str]
+    timeline: list[ReportStoryTimelineItem]
 
 
 class ReportDomainDetailsV3(BaseModel):
@@ -544,11 +556,20 @@ class ReportDomainDetailsV3(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    networks: list[NetworkSummary] = Field(default_factory=list)
-    devices: list[DeviceSummary] = Field(default_factory=list)
-    device_details: list[DeviceDetail] = Field(default_factory=list)
-    router_risks: list[RouterRisk] = Field(default_factory=list)
-    topology_snapshot_count: int = 0
+    networks: list[NetworkSummary]
+    devices: list[DeviceSummary]
+    device_details: list[DeviceDetail]
+    router_risks: list[RouterRisk]
+    topology_snapshot_count: StrictInt = Field(ge=0)
+
+    @field_validator("topology_snapshot_count", mode="before")
+    @classmethod
+    def _strict_topology_count(cls, value: Any) -> Any:
+        if isinstance(value, bool) or type(value) is not int:
+            raise ValueError("topology_snapshot_count must be a non-negative integer")
+        if value < 0:
+            raise ValueError("topology_snapshot_count must be a non-negative integer")
+        return value
 
 
 # Compatibility alias used by helpers during the Track 5 seal.
@@ -556,30 +577,44 @@ ReportDomainDetails = ReportDomainDetailsV3
 
 
 class ReportDetailV3(BaseModel):
-    """Exact current report contract (version 3). No legacy aliases."""
+    """Exact current report contract (version 3). No legacy aliases.
 
-    model_config = ConfigDict(extra="forbid")
+    Every canonical field is required on input — stored/API bodies must not be
+    completed from model defaults.
+    """
+
+    model_config = ConfigDict(extra="forbid", use_enum_values=True)
 
     id: str
-    product: str = "ZigbeeLens"
-    report_version: Literal[3] = 3
+    product: Literal["ZigbeeLens"]
+    report_version: Literal[3]
     generated_at: str
     version: str
-    scope: str = "full"
-    format: str = "json"
+    scope: ReportScope
+    format: ReportFormat
     redaction: ReportRedactionStatus
-    config_summary: dict[str, Any] = Field(default_factory=dict)
+    config_summary: dict[str, Any]
     decision_summary: DecisionCountSummary
-    investigation_priorities: list[InvestigationPrioritySummary] = Field(default_factory=list)
-    device_stories: list[ReportDeviceStory] = Field(default_factory=list)
-    data_coverage_warnings: list[DataCoverageWarningSummary] = Field(default_factory=list)
-    incidents: list[Incident] = Field(default_factory=list)
-    collector_status: dict[str, Any] = Field(default_factory=dict)
-    domain_details: ReportDomainDetailsV3 = Field(default_factory=ReportDomainDetailsV3)
-    events_or_timeline: list[TimelineEvent] = Field(default_factory=list)
-    limitations: list[LimitationItem] = Field(default_factory=list)
-    raw_counts: dict[str, int] = Field(default_factory=dict)
-    markdown_summary: str = ""
+    investigation_priorities: list[InvestigationPrioritySummary]
+    device_stories: list[ReportDeviceStory]
+    data_coverage_warnings: list[DataCoverageWarningSummary]
+    incidents: list[Incident]
+    collector_status: dict[str, Any]
+    domain_details: ReportDomainDetailsV3
+    events_or_timeline: list[TimelineEvent]
+    limitations: list[LimitationItem]
+    raw_counts: dict[str, StrictInt]
+    markdown_summary: str
+
+    @field_validator("raw_counts", mode="before")
+    @classmethod
+    def _strict_raw_counts(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        for key, count in value.items():
+            if isinstance(count, bool) or type(count) is not int or count < 0:
+                raise ValueError(f"invalid raw_counts value for {key!r}")
+        return value
 
 
 # Current writers and OpenAPI advertise ReportDetail as the exact v3 model.

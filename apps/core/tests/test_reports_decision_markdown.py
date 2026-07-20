@@ -17,7 +17,6 @@ from zigbeelens.schemas import (
     IncidentScope,
     LimitationItem,
     ReportDetail,
-    ReportRedactionStatus,
     Severity,
     Confidence,
 )
@@ -58,11 +57,17 @@ def _v1_body() -> dict:
         "version": "0.0.0-test",
         "scope": "full",
         "format": "json",
-        "redaction": ReportRedactionStatus(
-            applied=True,
-            profile="standard",
-            mqtt_credentials=True,
-        ).model_dump(),
+        "redaction": {
+            "applied": True,
+            "profile": "standard",
+            "mqtt_credentials": True,
+            "secrets": True,
+            "hostnames": False,
+            "ip_addresses": False,
+            "ieee_addresses_hashed": False,
+            "friendly_names": "preserved",
+            "network_names": "preserved",
+        },
         "summary": ReportSummaryBlock(
             overall_state=Severity.incident,
             current_finding="Legacy executive finding.",

@@ -28,7 +28,7 @@ def report_device_story_from_story(
         network_id=device.network_id,
         ieee_address=device.ieee_address,
         friendly_name=device.friendly_name,
-        subject_type=str(payload.get("subject_type") or "device"),
+        subject_type="device",
         subject_id=str(payload["subject_id"]),
         status=story.status,
         priority=story.priority,

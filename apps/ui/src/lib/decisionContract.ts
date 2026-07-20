@@ -93,6 +93,27 @@ const DOMAIN_DETAILS_KEYS = [
   "topology_snapshot_count",
 ] as const;
 
+const DEVICE_STORY_KEYS = [
+  "network_id",
+  "ieee_address",
+  "friendly_name",
+  "subject_type",
+  "subject_id",
+  "status",
+  "priority",
+  "headline_code",
+  "reasons",
+  "evidence",
+  "limitations",
+  "suggested_checks",
+  "coverage",
+  "related_unresolved_incident_ids",
+  "timeline",
+] as const;
+
+const INCIDENT_STATUSES = ["open", "watching", "resolved"] as const;
+const SEVERITIES = ["healthy", "watch", "incident", "critical"] as const;
+
 export function isDecisionStatus(value: unknown): value is DecisionStatus {
   return typeof value === "string" && (DECISION_STATUSES as readonly string[]).includes(value);
 }
@@ -268,21 +289,217 @@ export function parseNetworkSummary(value: unknown): NetworkSummary {
   return value as unknown as NetworkSummary;
 }
 
+function requireNonEmptyString(value: unknown): string {
+  if (typeof value !== "string" || !value) {
+    protocolFailure();
+  }
+  return value;
+}
+
+function parseCodedItem(value: unknown): void {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  requireNonEmptyString(value.code);
+  if (value.params !== undefined && !isPlainObject(value.params)) {
+    protocolFailure();
+  }
+}
+
+function parseEvidenceItem(value: unknown): void {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  requireNonEmptyString(value.source);
+  if (value.id !== undefined && value.id !== null && typeof value.id !== "string") {
+    protocolFailure();
+  }
+  if (
+    value.captured_at !== undefined &&
+    value.captured_at !== null &&
+    typeof value.captured_at !== "string"
+  ) {
+    protocolFailure();
+  }
+}
+
+function parseCoverageItem(value: unknown): void {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  if (!isCoverageLabelCode(value.label_code)) {
+    protocolFailure();
+  }
+  if (value.params !== undefined && !isPlainObject(value.params)) {
+    protocolFailure();
+  }
+}
+
+function parseStoryTimelineItem(value: unknown): void {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  requireNonEmptyString(value.code);
+  if (value.params !== undefined && !isPlainObject(value.params)) {
+    protocolFailure();
+  }
+  if (
+    value.occurred_at !== undefined &&
+    value.occurred_at !== null &&
+    typeof value.occurred_at !== "string"
+  ) {
+    protocolFailure();
+  }
+}
+
+export function parseDeviceStory(value: unknown): void {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  exactKeySet(value, DEVICE_STORY_KEYS);
+  for (const key of [
+    "network_id",
+    "ieee_address",
+    "friendly_name",
+    "subject_id",
+    "headline_code",
+  ] as const) {
+    requireNonEmptyString(value[key]);
+  }
+  if (value.subject_type !== "device") {
+    protocolFailure();
+  }
+  if (!isDecisionStatus(value.status) || !isDecisionPriority(value.priority)) {
+    protocolFailure();
+  }
+  for (const key of [
+    "reasons",
+    "evidence",
+    "limitations",
+    "suggested_checks",
+    "coverage",
+    "related_unresolved_incident_ids",
+    "timeline",
+  ] as const) {
+    if (!Array.isArray(value[key])) {
+      protocolFailure();
+    }
+  }
+  for (const item of value.reasons as unknown[]) {
+    parseCodedItem(item);
+  }
+  for (const item of value.evidence as unknown[]) {
+    parseEvidenceItem(item);
+  }
+  for (const item of value.limitations as unknown[]) {
+    parseCodedItem(item);
+  }
+  for (const item of value.suggested_checks as unknown[]) {
+    parseCodedItem(item);
+  }
+  for (const item of value.coverage as unknown[]) {
+    parseCoverageItem(item);
+  }
+  for (const id of value.related_unresolved_incident_ids as unknown[]) {
+    if (typeof id !== "string") {
+      protocolFailure();
+    }
+  }
+  for (const item of value.timeline as unknown[]) {
+    parseStoryTimelineItem(item);
+  }
+}
+
 export function parseIncident(value: unknown): Incident {
   if (!isPlainObject(value)) {
     protocolFailure();
   }
-  const affected = value.affected_devices;
-  if (affected !== undefined && !Array.isArray(affected)) {
+  requireNonEmptyString(value.id);
+  if (
+    typeof value.status !== "string" ||
+    !(INCIDENT_STATUSES as readonly string[]).includes(value.status)
+  ) {
     protocolFailure();
   }
-  for (const ref of (affected as unknown[]) ?? []) {
+  requireNonEmptyString(value.title);
+  requireNonEmptyString(value.summary);
+  if (!Array.isArray(value.network_ids) || !value.network_ids.every((id) => typeof id === "string")) {
+    protocolFailure();
+  }
+  if (!nonNegativeInt(value.affected_device_count)) {
+    protocolFailure();
+  }
+  requireNonEmptyString(value.opened_at);
+  requireNonEmptyString(value.updated_at);
+  if (
+    value.resolved_at !== undefined &&
+    value.resolved_at !== null &&
+    typeof value.resolved_at !== "string"
+  ) {
+    protocolFailure();
+  }
+  if (!Array.isArray(value.affected_devices)) {
+    protocolFailure();
+  }
+  if (value.affected_device_count !== value.affected_devices.length) {
+    protocolFailure();
+  }
+  for (const ref of value.affected_devices) {
     if (!isPlainObject(ref)) {
       protocolFailure();
     }
+    requireNonEmptyString(ref.network_id);
+    requireNonEmptyString(ref.ieee_address);
+    requireNonEmptyString(ref.friendly_name);
     parseDecisionBadge(ref.decision);
   }
   return value as unknown as Incident;
+}
+
+function parseInvestigationPriority(value: unknown): void {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  for (const key of ["id", "network_id", "priority", "action_group", "title", "summary"] as const) {
+    requireNonEmptyString(value[key]);
+  }
+}
+
+function parseDataCoverageWarning(value: unknown): void {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  requireNonEmptyString(value.id);
+  requireNonEmptyString(value.network_id);
+  requireNonEmptyString(value.label_code);
+  if (!isPlainObject(value.params)) {
+    protocolFailure();
+  }
+}
+
+function parseLimitation(value: unknown): void {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  requireNonEmptyString(value.id);
+  requireNonEmptyString(value.summary);
+}
+
+function parseTimelineEvent(value: unknown): void {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  requireNonEmptyString(value.id);
+  requireNonEmptyString(value.timestamp);
+  requireNonEmptyString(value.kind);
+  if (
+    typeof value.severity !== "string" ||
+    !(SEVERITIES as readonly string[]).includes(value.severity)
+  ) {
+    protocolFailure();
+  }
+  requireNonEmptyString(value.title);
+  requireNonEmptyString(value.summary);
 }
 
 export function validateDashboardPayload(value: unknown): DashboardPayload {
@@ -430,38 +647,20 @@ function parseDomainDetails(value: unknown): ReportDomainDetailsV3 {
   return value as unknown as ReportDomainDetailsV3;
 }
 
-function parseDeviceStory(value: unknown): void {
-  if (!isPlainObject(value)) {
-    protocolFailure();
-  }
-  for (const key of ["network_id", "ieee_address", "friendly_name", "subject_id", "headline_code"]) {
-    if (typeof value[key] !== "string" || !value[key]) {
-      protocolFailure();
-    }
-  }
-  if (!isDecisionStatus(value.status) || !isDecisionPriority(value.priority)) {
-    protocolFailure();
-  }
-}
-
 export function validateReportDetailV3(value: unknown): ReportDetailV3 {
   if (!isPlainObject(value)) {
     protocolFailure();
   }
   exactKeySet(value, REPORT_DETAIL_V3_KEYS);
 
-  if (typeof value.id !== "string" || !value.id) {
-    protocolFailure();
-  }
-  if (typeof value.product !== "string" || !value.product) {
+  requireNonEmptyString(value.id);
+  if (value.product !== "ZigbeeLens") {
     protocolFailure();
   }
   if (value.report_version !== 3) {
     protocolFailure();
   }
-  if (typeof value.generated_at !== "string" || !value.generated_at) {
-    protocolFailure();
-  }
+  requireNonEmptyString(value.generated_at);
   if (typeof value.version !== "string") {
     protocolFailure();
   }
@@ -483,28 +682,46 @@ export function validateReportDetailV3(value: unknown): ReportDetailV3 {
   }
   parseDecisionCountSummary(value.decision_summary);
 
-  for (const key of [
-    "investigation_priorities",
-    "device_stories",
-    "data_coverage_warnings",
-    "incidents",
-    "events_or_timeline",
-    "limitations",
-  ] as const) {
-    if (!Array.isArray(value[key])) {
-      protocolFailure();
-    }
+  if (!Array.isArray(value.investigation_priorities)) {
+    protocolFailure();
   }
-  for (const story of value.device_stories as unknown[]) {
+  for (const item of value.investigation_priorities) {
+    parseInvestigationPriority(item);
+  }
+  if (!Array.isArray(value.device_stories)) {
+    protocolFailure();
+  }
+  for (const story of value.device_stories) {
     parseDeviceStory(story);
   }
-  for (const incident of value.incidents as unknown[]) {
+  if (!Array.isArray(value.data_coverage_warnings)) {
+    protocolFailure();
+  }
+  for (const warning of value.data_coverage_warnings) {
+    parseDataCoverageWarning(warning);
+  }
+  if (!Array.isArray(value.incidents)) {
+    protocolFailure();
+  }
+  for (const incident of value.incidents) {
     parseIncident(incident);
   }
   if (!isPlainObject(value.collector_status)) {
     protocolFailure();
   }
   parseDomainDetails(value.domain_details);
+  if (!Array.isArray(value.events_or_timeline)) {
+    protocolFailure();
+  }
+  for (const event of value.events_or_timeline) {
+    parseTimelineEvent(event);
+  }
+  if (!Array.isArray(value.limitations)) {
+    protocolFailure();
+  }
+  for (const limitation of value.limitations) {
+    parseLimitation(limitation);
+  }
   if (!isPlainObject(value.raw_counts)) {
     protocolFailure();
   }

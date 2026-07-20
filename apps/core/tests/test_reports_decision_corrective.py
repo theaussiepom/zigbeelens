@@ -47,6 +47,9 @@ from zigbeelens.services.reports import (
 from zigbeelens.storage.repository import Repository
 
 from report_v3_helpers import (
+    empty_domain_details,
+    empty_story_collections,
+    full_redaction_status,
     minimal_report_v3,
     report_device_details,
     report_networks,
@@ -274,11 +277,19 @@ def test_include_timeline_false_clears_all_timeline_collections():
         network_id="home",
         ieee_address="0xa",
         friendly_name="Plug",
+        subject_type="device",
         subject_id="home:0xa",
         status="watch",
         priority="low",
         headline_code="no_notable_signals",
-        timeline=[ReportStoryTimelineItem(code="observed_reporting_rhythm", params={"note": SENTINEL})],
+        **{
+            **empty_story_collections(),
+            "timeline": [
+                ReportStoryTimelineItem(
+                    code="observed_reporting_rhythm", params={"note": SENTINEL}
+                )
+            ],
+        },
     )
     inc = _incident(
         id="inc-1",
@@ -305,7 +316,7 @@ def test_include_timeline_false_clears_all_timeline_collections():
         incidents=[inc],
         events_or_timeline=[sent_event],
         device_stories=[story],
-        domain_details=ReportDomainDetailsV3(device_details=[det]),
+        domain_details=empty_domain_details(device_details=[det]),
     )
     cleared = _without_timelines(detail)
     blob = json.dumps(cleared.model_dump(mode="json"))
@@ -421,10 +432,8 @@ def test_orphan_network_id_redaction_public_safe_and_strict():
 
     home = MockProvider(SCENARIO).networks()[0]
     detail = minimal_report_v3(
-        redaction=ReportRedactionStatus(
-            applied=True, profile="public_safe", mqtt_credentials=True
-        ),
-        domain_details=ReportDomainDetailsV3(networks=[home]),
+        redaction=full_redaction_status(profile="public_safe"),
+        domain_details=empty_domain_details(networks=[home]),
         incidents=[
             _incident(
                 id="inc-retired",
@@ -469,10 +478,12 @@ def test_orphan_network_id_redaction_public_safe_and_strict():
                 network_id=home.id,
                 ieee_address="0xa",
                 friendly_name="Plug",
+                subject_type="device",
                 subject_id="retired-network:0xa",
                 status=DecisionStatus.watch,
                 priority=DecisionPriority.low,
                 headline_code="no_notable_signals",
+                **empty_story_collections(),
             )
         ],
         decision_summary=DecisionCountSummary(
@@ -525,10 +536,12 @@ def test_decision_list_summary_selection_order():
                 network_id="home",
                 ieee_address="0xa",
                 friendly_name="Kitchen Plug",
+                subject_type="device",
                 subject_id="0xa",
                 status=DecisionStatus.review_first,
                 priority=DecisionPriority.high,
                 headline_code="current_issue_present",
+                **empty_story_collections(),
             )
         ],
     )
@@ -556,7 +569,6 @@ def test_decision_list_summary_selection_order():
 
 
 def test_version1_download_uses_stored_markdown(tmp_path, mock_client):
-    from zigbeelens.schemas import ReportRedactionStatus
     from legacy_report_shapes import ReportSummaryBlock
 
     db = Database(tmp_path / "v1dl.sqlite")
@@ -573,9 +585,7 @@ def test_version1_download_uses_stored_markdown(tmp_path, mock_client):
         "version": "0.0.0",
         "scope": "full",
         "format": "markdown",
-        "redaction": ReportRedactionStatus(
-            applied=True, profile="standard", mqtt_credentials=True
-        ).model_dump(),
+        "redaction": full_redaction_status().model_dump(mode="json"),
         "summary": ReportSummaryBlock(
             overall_state=Severity.incident,
             current_finding="Legacy executive finding.",

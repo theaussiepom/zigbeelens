@@ -1243,37 +1243,62 @@ def device_detail_from_summary(summary: DeviceSummary, scenario: ScenarioData) -
 
 
 def build_report_preview(scenario: ScenarioData) -> ReportDetail:
+    """Legacy mock helper retained for MockProvider; prefer generate_report."""
+    from zigbeelens.schemas import (
+        RedactionMode,
+        RedactionProfile,
+        ReportDomainDetailsV3,
+        ReportFormat,
+        ReportScope,
+    )
+
+    dash = scenario.dashboard
     return ReportDetail(
         id="report-preview",
+        product="ZigbeeLens",
+        report_version=3,
         generated_at=iso(NOW),
         version="0.1.0",
-        redaction=ReportRedactionStatus(applied=True, mqtt_credentials=True),
+        scope=ReportScope.full,
+        format=ReportFormat.json,
+        redaction=ReportRedactionStatus(
+            applied=True,
+            profile=RedactionProfile.standard,
+            mqtt_credentials=True,
+            secrets=True,
+            hostnames=False,
+            ip_addresses=False,
+            ieee_addresses_hashed=False,
+            friendly_names=RedactionMode.preserved,
+            network_names=RedactionMode.preserved,
+        ),
         config_summary={
-            "networks": [{"id": n.id, "name": n.name, "base_topic": n.base_topic} for n in scenario.networks],
-            "retention_days": 7,
-        },
-        networks=scenario.networks,
-        devices=scenario.devices,
-        router_risks=scenario.router_risks or scenario.dashboard.router_risks,
-        incidents=scenario.incidents,
-        health_snapshot=HealthSnapshot(
-            timestamp=iso(NOW),
-            overall_severity=Severity.watch,
-            overall_health=DeviceHealthPrimary.unknown,
-            network_count=len(scenario.networks),
-            device_count=len(scenario.devices),
-            unavailable_count=sum(n.unavailable_count for n in scenario.networks),
-            incident_count=scenario.dashboard.active_incident_count,
-            networks=[
-                {
-                    "network_id": n.id,
-                    "severity": n.active_incident_severity.value,
-                    "unavailable_count": n.unavailable_count,
-                }
+            "networks": [
+                {"id": n.id, "name": n.name, "base_topic": n.base_topic}
                 for n in scenario.networks
             ],
+            "retention_days": 7,
+        },
+        decision_summary=dash.decision_summary,
+        investigation_priorities=list(dash.investigation_priorities or []),
+        device_stories=[],
+        data_coverage_warnings=list(dash.data_coverage_warnings or []),
+        incidents=list(scenario.incidents),
+        collector_status={},
+        domain_details=ReportDomainDetailsV3(
+            networks=list(scenario.networks),
+            devices=list(scenario.devices),
+            device_details=[],
+            router_risks=list(scenario.router_risks or dash.router_risks),
+            topology_snapshot_count=0,
         ),
-        diagnostic_conclusions=[],
+        events_or_timeline=list(scenario.timeline or dash.recent_timeline or []),
+        limitations=[],
+        raw_counts={
+            "networks_included": len(scenario.networks),
+            "devices_included": len(scenario.devices),
+            "incidents_included": len(scenario.incidents),
+        },
         markdown_summary=_markdown_summary(scenario),
     )
 

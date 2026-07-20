@@ -1033,11 +1033,12 @@ def project_report_detail(
     )
     return ReportDetailV3(
         id="report-preview",
+        product="ZigbeeLens",
         report_version=3,
         generated_at=_reference_iso(ctx.plan.reference_now),
         version=__version__,
-        scope=request.scope.value,
-        format=request.format.value,
+        scope=request.scope,
+        format=request.format,
         redaction=default_redaction_status(),
         decision_summary=count_summary,
         investigation_priorities=list(ctx.investigation_priorities),

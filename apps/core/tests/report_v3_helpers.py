@@ -7,9 +7,13 @@ from typing import Any
 from zigbeelens.decisions.types import DecisionPriority, DecisionStatus
 from zigbeelens.schemas import (
     DecisionCountSummary,
+    RedactionMode,
+    RedactionProfile,
     ReportDetailV3,
     ReportDomainDetailsV3,
+    ReportFormat,
     ReportRedactionStatus,
+    ReportScope,
 )
 
 
@@ -24,6 +28,47 @@ def empty_decision_summary(*, coverage_warning_count: int = 0) -> DecisionCountS
     )
 
 
+def full_redaction_status(**overrides: Any) -> ReportRedactionStatus:
+    base: dict[str, Any] = {
+        "applied": True,
+        "profile": RedactionProfile.standard,
+        "mqtt_credentials": True,
+        "secrets": True,
+        "hostnames": False,
+        "ip_addresses": False,
+        "ieee_addresses_hashed": False,
+        "friendly_names": RedactionMode.preserved,
+        "network_names": RedactionMode.preserved,
+    }
+    base.update(overrides)
+    return ReportRedactionStatus.model_validate(base)
+
+
+def empty_domain_details(**overrides: Any) -> ReportDomainDetailsV3:
+    base: dict[str, Any] = {
+        "networks": [],
+        "devices": [],
+        "device_details": [],
+        "router_risks": [],
+        "topology_snapshot_count": 0,
+    }
+    base.update(overrides)
+    return ReportDomainDetailsV3.model_validate(base)
+
+
+def empty_story_collections() -> dict[str, Any]:
+    """Explicit empty collections required by ReportDeviceStory."""
+    return {
+        "reasons": [],
+        "evidence": [],
+        "limitations": [],
+        "suggested_checks": [],
+        "coverage": [],
+        "related_unresolved_incident_ids": [],
+        "timeline": [],
+    }
+
+
 def minimal_report_v3(**overrides: Any) -> ReportDetailV3:
     """Build a valid exact ReportDetailV3 for unit tests."""
     base: dict[str, Any] = {
@@ -32,11 +77,9 @@ def minimal_report_v3(**overrides: Any) -> ReportDetailV3:
         "report_version": 3,
         "generated_at": "2026-01-01T00:00:00+00:00",
         "version": "0.1.0",
-        "scope": "full",
-        "format": "json",
-        "redaction": ReportRedactionStatus(
-            applied=True, profile="standard", mqtt_credentials=True
-        ),
+        "scope": ReportScope.full,
+        "format": ReportFormat.json,
+        "redaction": full_redaction_status(),
         "config_summary": {"mode": "mock"},
         "decision_summary": empty_decision_summary(),
         "investigation_priorities": [],
@@ -44,7 +87,7 @@ def minimal_report_v3(**overrides: Any) -> ReportDetailV3:
         "data_coverage_warnings": [],
         "incidents": [],
         "collector_status": {},
-        "domain_details": ReportDomainDetailsV3(),
+        "domain_details": empty_domain_details(),
         "events_or_timeline": [],
         "limitations": [],
         "raw_counts": {},

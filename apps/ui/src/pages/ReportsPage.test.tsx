@@ -145,6 +145,7 @@ function makeStory(overrides: Partial<ReportDeviceStory> = {}): ReportDeviceStor
         params: {},
       },
     ],
+    related_unresolved_incident_ids: [],
     timeline: [],
     ...overrides,
   };
