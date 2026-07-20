@@ -202,7 +202,14 @@ def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -
         active_pending_provider=_active_pending_snapshot_id,
     )
     if not cfg.mode.mock:
-        ctx.storage_scheduler.start()
+        from zigbeelens.storage.retention_policy import MORE_WORK_CONTINUATION_SECONDS
+
+        initial_delay = (
+            MORE_WORK_CONTINUATION_SECONDS
+            if maintenance_result.more_work_pending
+            else None
+        )
+        ctx.storage_scheduler.start(initial_delay_seconds=initial_delay)
     _context = ctx
     logger.info(
         "ZigbeeLens ready (mock=%s, collector=%s, db=%s, migration=%d)",
