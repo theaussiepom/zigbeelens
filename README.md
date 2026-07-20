@@ -161,7 +161,10 @@ Key settings in `config.yaml`:
 | `networks[].name` | Display label only |
 | `networks[].base_topic` | Zigbee2MQTT base topic (must match exactly) |
 | `storage.path` | SQLite database path |
-| `storage.retention_days` | Telemetry retention (default 7 days; purged on startup) |
+| `storage.retention_days` | Telemetry history retention (default 7 days; startup + periodic maintenance) |
+| `storage.resolved_incident_retention_days` | Resolved-incident retention (default 90; null = keep) |
+| `storage.report_retention_days` | Report auto-retention (default null = until manually deleted) |
+| `storage.maintenance_interval_hours` | Periodic maintenance interval (default 24) |
 | `diagnostics.*` | Health and incident thresholds |
 | `reports.*` | Report limits and defaults |
 | `topology.enabled` | **false** by default |

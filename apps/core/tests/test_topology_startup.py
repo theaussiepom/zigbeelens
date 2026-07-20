@@ -124,14 +124,20 @@ def test_startup_scan_runs_once_after_stable_delay(tmp_path: Path, monkeypatch):
     db_path = tmp_path / "startup-once.sqlite"
     config = _live_config(db_path, startup_stable_delay_seconds=30)
     publisher = FakeTopologyRequestPublisher(config)
-    monotonic_values = iter([100.0, 130.0, 130.0, 130.0])
-
-    monkeypatch.setattr("zigbeelens.topology.scheduler.time.monotonic", lambda: next(monotonic_values))
 
     with patch("zigbeelens.app.context.start_discovery", return_value=None), patch(
         "zigbeelens.app.context.start_collector", return_value=None
     ), patch("zigbeelens.topology.service.start_topology_scheduler"):
         ctx = bootstrap(config=config)
+
+    # Patch after bootstrap: storage maintenance also uses time.monotonic, and
+    # monkeypatching zigbeelens.topology.scheduler.time.monotonic replaces the
+    # shared stdlib time.monotonic attribute.
+    monotonic_values = iter([100.0, 130.0, 130.0, 130.0])
+    monkeypatch.setattr(
+        "zigbeelens.topology.scheduler.time.monotonic",
+        lambda: next(monotonic_values),
+    )
 
     client = _attach_fake_collector(ctx, config)
     client.inject("zigbee2mqtt/bridge/state", "online")

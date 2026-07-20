@@ -12,6 +12,9 @@ export function SettingsPage() {
   const health = useLiveResource(() => api.health(), [], {
     refetchOn: ["collector_status", "collector_connected", "collector_disconnected"],
   });
+  const storage = useLiveResource(() => api.storageStatus(), [], {
+    refetchOn: ["storage_maintenance_completed"],
+  });
 
   if (!status) return <LoadingState />;
 
@@ -233,11 +236,107 @@ export function SettingsPage() {
         </p>
       </Card>
 
+      <Card title="Storage and retention">
+        <dl className="space-y-3 text-sm">
+          <Row label="Database ready" value={status.storage_ready ? "yes" : "no"} />
+          <Row
+            label="Telemetry history"
+            value={`${status.retention_days} days`}
+          />
+          <Row
+            label="Resolved incidents"
+            value={
+              status.resolved_incident_retention_days == null
+                ? "Until manually deleted"
+                : `${status.resolved_incident_retention_days} days`
+            }
+          />
+          <Row
+            label="Reports"
+            value={
+              status.report_retention_days == null
+                ? "Until manually deleted"
+                : `${status.report_retention_days} days`
+            }
+          />
+          <Row
+            label="Topology max snapshots / network"
+            value={
+              status.storage?.policy.topology_max_snapshots_per_network?.toString() ?? "—"
+            }
+          />
+          <Row
+            label="Maintenance interval"
+            value={
+              status.maintenance_interval_hours != null
+                ? `${status.maintenance_interval_hours} hours`
+                : "—"
+            }
+          />
+          <Row
+            label="Last successful maintenance"
+            value={
+              storage.data?.maintenance.last_successful_at
+                ? relativeTime(storage.data.maintenance.last_successful_at)
+                : "Never run"
+            }
+          />
+          <Row
+            label="Next maintenance"
+            value={
+              storage.data?.maintenance.next_scheduled_at
+                ? relativeTime(storage.data.maintenance.next_scheduled_at)
+                : "—"
+            }
+          />
+          <Row
+            label="Last result"
+            value={
+              storage.data?.maintenance.last_error_code
+                ? storage.data.maintenance.last_error_code
+                : storage.data?.maintenance.last_successful_at
+                  ? "ok"
+                  : "—"
+            }
+          />
+          <Row
+            label="Rows removed (last cycle)"
+            value={
+              storage.data
+                ? String(storage.data.maintenance.total_rows_deleted)
+                : "—"
+            }
+          />
+          <Row
+            label="Database size"
+            value={formatBytes(storage.data?.footprint.database_bytes)}
+          />
+          <Row label="WAL size" value={formatBytes(storage.data?.footprint.wal_bytes)} />
+          <Row
+            label="Reusable space"
+            value={formatBytes(storage.data?.footprint.reusable_bytes)}
+          />
+          <Row
+            label="Integrity"
+            value={
+              storage.data?.integrity.last_known_ok == null
+                ? "—"
+                : storage.data.integrity.last_known_ok
+                  ? "ok"
+                  : "failed"
+            }
+          />
+        </dl>
+        <p className="mt-3 text-xs text-zl-muted">
+          Retention and backups are local operator CLI responsibilities. There is no purge,
+          vacuum, backup, or restore control in the UI.
+        </p>
+      </Card>
+
       <Card title="Configuration">
         <dl className="space-y-3 text-sm">
           <Row label="MQTT server" value={status.mqtt_server} />
           <Row label="Storage path" value={status.storage_path} mono />
-          <Row label="Retention (configured)" value={`${status.retention_days} days — purged on Core startup`} />
         </dl>
         <h3 className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-zl-muted">
           Configured networks
@@ -323,4 +422,11 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
       <dd className={mono ? "break-all text-right font-mono" : "text-right"}>{value}</dd>
     </div>
   );
+}
+
+function formatBytes(value: number | null | undefined): string {
+  if (value == null) return "—";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
 }

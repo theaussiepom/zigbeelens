@@ -500,6 +500,55 @@ export interface SecurityConfigStatus {
 }
 
 /** Config / connection status */
+/** Track 6 storage policy / maintenance / footprint projection. */
+export interface StoragePolicyStatus {
+  policy_version: number;
+  telemetry_retention_days: number;
+  resolved_incident_retention_days: number | null;
+  report_retention_days: number | null;
+  maintenance_interval_hours: number;
+  topology_max_snapshots_per_network: number;
+}
+
+export interface StorageMaintenanceStatus {
+  running: boolean;
+  last_started_at: string | null;
+  last_completed_at: string | null;
+  last_successful_at: string | null;
+  next_scheduled_at: string | null;
+  last_error_code: string | null;
+  total_rows_deleted: number;
+  more_work_pending: boolean;
+  duration_ms: number;
+  telemetry_cutoff?: string | null;
+  resolved_incident_cutoff?: string | null;
+  report_cutoff?: string | null;
+}
+
+export interface StorageFootprintStatus {
+  database_bytes: number | null;
+  wal_bytes: number | null;
+  shm_bytes: number | null;
+  total_sqlite_bytes: number | null;
+  page_size: number | null;
+  page_count: number | null;
+  freelist_page_count: number | null;
+  reusable_bytes: number | null;
+  schema_version: number | null;
+}
+
+export interface StorageIntegrityStatus {
+  startup_gates: string;
+  last_known_ok: boolean;
+}
+
+export interface StorageStatus {
+  policy: StoragePolicyStatus;
+  maintenance: StorageMaintenanceStatus;
+  footprint: StorageFootprintStatus;
+  integrity: StorageIntegrityStatus;
+}
+
 export interface ZigbeeLensConfigStatus {
   version: string;
   uptime_seconds: number;
@@ -512,7 +561,12 @@ export interface ZigbeeLensConfigStatus {
   }>;
   storage_path: string;
   storage_ready?: boolean;
+  /** Telemetry history retention (compatibility field). */
   retention_days: number;
+  resolved_incident_retention_days?: number | null;
+  report_retention_days?: number | null;
+  maintenance_interval_hours?: number | null;
+  storage?: StorageStatus;
   features: Record<string, boolean>;
   mqtt_discovery?: Record<string, boolean | string>;
   topology?: TopologyStatus;

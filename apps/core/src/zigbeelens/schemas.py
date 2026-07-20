@@ -668,6 +668,54 @@ class SecurityConfigStatus(BaseModel):
     session_origin_validation_enabled: bool = False
 
 
+class StoragePolicyStatus(BaseModel):
+    policy_version: int = 2
+    telemetry_retention_days: int
+    resolved_incident_retention_days: int | None = None
+    report_retention_days: int | None = None
+    maintenance_interval_hours: int
+    topology_max_snapshots_per_network: int
+
+
+class StorageMaintenanceStatus(BaseModel):
+    running: bool = False
+    last_started_at: str | None = None
+    last_completed_at: str | None = None
+    last_successful_at: str | None = None
+    next_scheduled_at: str | None = None
+    last_error_code: str | None = None
+    total_rows_deleted: int = 0
+    more_work_pending: bool = False
+    duration_ms: int = 0
+    telemetry_cutoff: str | None = None
+    resolved_incident_cutoff: str | None = None
+    report_cutoff: str | None = None
+
+
+class StorageFootprintStatus(BaseModel):
+    database_bytes: int | None = None
+    wal_bytes: int | None = None
+    shm_bytes: int | None = None
+    total_sqlite_bytes: int | None = None
+    page_size: int | None = None
+    page_count: int | None = None
+    freelist_page_count: int | None = None
+    reusable_bytes: int | None = None
+    schema_version: int | None = None
+
+
+class StorageIntegrityStatus(BaseModel):
+    startup_gates: str = "quick_and_foreign_keys"
+    last_known_ok: bool = True
+
+
+class StorageStatus(BaseModel):
+    policy: StoragePolicyStatus
+    maintenance: StorageMaintenanceStatus
+    footprint: StorageFootprintStatus
+    integrity: StorageIntegrityStatus
+
+
 class ZigbeeLensConfigStatus(BaseModel):
     version: str
     uptime_seconds: int
@@ -677,6 +725,10 @@ class ZigbeeLensConfigStatus(BaseModel):
     storage_path: str
     storage_ready: bool = False
     retention_days: int
+    resolved_incident_retention_days: int | None = None
+    report_retention_days: int | None = None
+    maintenance_interval_hours: int | None = None
+    storage: StorageStatus | None = None
     features: dict[str, bool]
     mqtt_discovery: dict[str, bool | str] = Field(default_factory=dict)
     topology: dict[str, bool | int] = Field(default_factory=dict)
