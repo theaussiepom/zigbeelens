@@ -94,18 +94,19 @@ TRACK_3C_READ_EXECUTE_TOTALS: dict[str, int] = {
     "evidence_graph": 99
 }
 
-# Track 3C/3D ingestion vs post-commit phase snapshots for MQTT write paths.
-# Track 3D does not change these ingestion/evaluation measurements.
+# Tip MQTT write-path phase baselines. Ingestion execute/commit counts remain at
+# Track 3B/3C authority. Post-commit / total physical commits drop after atomic
+# IncidentLifecycleManager.sync (one lifecycle transaction per evaluation).
 EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
     "availability_ingestion": {
         "ingestion_execute_count": 6,
         "ingestion_commit_count": 1,
         "ingestion_rollback_count": 0,
         "post_commit_execute_count": 38,
-        "post_commit_commit_count": 7,
+        "post_commit_commit_count": 3,
         "post_commit_rollback_count": 0,
         "total_execute_count": 44,
-        "total_commit_count": 8,
+        "total_commit_count": 4,
         "total_rollback_count": 0
     },
     "availability_ingestion_beast": {
@@ -113,10 +114,10 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "ingestion_commit_count": 1,
         "ingestion_rollback_count": 0,
         "post_commit_execute_count": 67,
-        "post_commit_commit_count": 7,
+        "post_commit_commit_count": 3,
         "post_commit_rollback_count": 0,
         "total_execute_count": 73,
-        "total_commit_count": 8,
+        "total_commit_count": 4,
         "total_rollback_count": 0
     },
     "inventory_ingestion_beast": {
@@ -124,10 +125,10 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "ingestion_commit_count": 2,
         "ingestion_rollback_count": 0,
         "post_commit_execute_count": 625,
-        "post_commit_commit_count": 25,
+        "post_commit_commit_count": 19,
         "post_commit_rollback_count": 0,
         "total_execute_count": 959,
-        "total_commit_count": 27,
+        "total_commit_count": 21,
         "total_rollback_count": 0
     },
     "inventory_ingestion_compact": {
@@ -135,10 +136,10 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "ingestion_commit_count": 1,
         "ingestion_rollback_count": 0,
         "post_commit_execute_count": 93,
-        "post_commit_commit_count": 8,
+        "post_commit_commit_count": 4,
         "post_commit_rollback_count": 0,
         "total_execute_count": 136,
-        "total_commit_count": 9,
+        "total_commit_count": 5,
         "total_rollback_count": 0
     },
     "payload_ingestion": {
@@ -146,10 +147,10 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "ingestion_commit_count": 1,
         "ingestion_rollback_count": 0,
         "post_commit_execute_count": 27,
-        "post_commit_commit_count": 2,
+        "post_commit_commit_count": 1,
         "post_commit_rollback_count": 0,
         "total_execute_count": 34,
-        "total_commit_count": 3,
+        "total_commit_count": 2,
         "total_rollback_count": 0
     },
     "payload_ingestion_beast": {
@@ -157,10 +158,10 @@ EXPECTED_PHASE_BASELINES: dict[str, dict[str, int]] = {
         "ingestion_commit_count": 1,
         "ingestion_rollback_count": 0,
         "post_commit_execute_count": 51,
-        "post_commit_commit_count": 2,
+        "post_commit_commit_count": 1,
         "post_commit_rollback_count": 0,
         "total_execute_count": 58,
-        "total_commit_count": 3,
+        "total_commit_count": 2,
         "total_rollback_count": 0
     }
 }
@@ -240,7 +241,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
     "state": "warm",
     "execute_count": 44,
     "executemany_count": 0,
-    "commit_count": 8,
+    "commit_count": 4,
     "rollback_count": 0,
     "category_counts": {
       "read.networks": 3,
@@ -255,7 +256,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "write.device_current_state": 2,
       "write.availability_changes": 1,
       "write.events": 3,
-      "transaction.commit": 8,
+      "transaction.commit": 4,
       "read.availability_changes": 2,
       "read.health_snapshots": 3,
       "write.health_snapshots": 2,
@@ -292,7 +293,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
     "state": "warm",
     "execute_count": 73,
     "executemany_count": 0,
-    "commit_count": 8,
+    "commit_count": 4,
     "rollback_count": 0,
     "category_counts": {
       "read.networks": 3,
@@ -307,7 +308,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "write.device_current_state": 2,
       "write.availability_changes": 1,
       "write.events": 3,
-      "transaction.commit": 8,
+      "transaction.commit": 4,
       "read.availability_changes": 3,
       "read.health_snapshots": 3,
       "write.health_snapshots": 2,
@@ -743,7 +744,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
     "state": "warm",
     "execute_count": 959,
     "executemany_count": 0,
-    "commit_count": 27,
+    "commit_count": 21,
     "rollback_count": 0,
     "category_counts": {
       "read.networks": 6,
@@ -758,7 +759,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "write.device_current_state": 164,
       "read.unresolved": 2,
       "write.events": 5,
-      "transaction.commit": 27,
+      "transaction.commit": 21,
       "read.availability_changes": 168,
       "read.device_current_state": 2,
       "read.health_snapshots": 168,
@@ -796,7 +797,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
     "state": "warm",
     "execute_count": 136,
     "executemany_count": 0,
-    "commit_count": 9,
+    "commit_count": 5,
     "rollback_count": 0,
     "category_counts": {
       "read.networks": 3,
@@ -811,7 +812,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "write.device_current_state": 20,
       "read.unresolved": 1,
       "write.events": 3,
-      "transaction.commit": 9,
+      "transaction.commit": 5,
       "read.availability_changes": 21,
       "read.device_current_state": 1,
       "read.health_snapshots": 22,
@@ -849,7 +850,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
     "state": "warm",
     "execute_count": 34,
     "executemany_count": 0,
-    "commit_count": 3,
+    "commit_count": 2,
     "rollback_count": 0,
     "category_counts": {
       "read.networks": 3,
@@ -864,7 +865,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "write.device_snapshots": 1,
       "write.metric_samples": 2,
       "write.events": 2,
-      "transaction.commit": 3,
+      "transaction.commit": 2,
       "read.availability_changes": 2,
       "read.device_current_state": 1,
       "read.health_snapshots": 3,
@@ -899,7 +900,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
     "state": "warm",
     "execute_count": 58,
     "executemany_count": 0,
-    "commit_count": 3,
+    "commit_count": 2,
     "rollback_count": 0,
     "category_counts": {
       "read.networks": 3,
@@ -914,7 +915,7 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
       "write.device_snapshots": 1,
       "write.metric_samples": 2,
       "write.events": 2,
-      "transaction.commit": 3,
+      "transaction.commit": 2,
       "read.availability_changes": 3,
       "read.device_current_state": 1,
       "read.health_snapshots": 3,
