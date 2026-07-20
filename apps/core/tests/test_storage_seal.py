@@ -1053,3 +1053,98 @@ def test_capture_lifecycle_clears_pending_before_event(tmp_path: Path):
     ).fetchone()
     assert row["status"] == "error"
     reset_context()
+
+
+def test_prestore_failure_releases_pending_even_when_status_write_fails(
+    tmp_path: Path,
+):
+    from unittest.mock import patch
+
+    from zigbeelens.app.context import bootstrap, reset_context
+    from zigbeelens.mqtt.models import RawMqttMessage
+    from zigbeelens.topology.publisher import FakeTopologyRequestPublisher
+    from zigbeelens.topology.service import TopologyService
+
+    reset_context()
+    cfg = _capture_cfg(tmp_path)
+    with patch("zigbeelens.app.context.start_discovery", return_value=None):
+        ctx = bootstrap(config=cfg)
+    service = TopologyService(ctx, publisher=FakeTopologyRequestPublisher(cfg))
+    events: list[str] = []
+
+    def publish(event: str, data: dict) -> None:
+        events.append(event)
+
+    def _msg(payload: bytes = b'{"nodes": {}, "links": []}') -> RawMqttMessage:
+        return RawMqttMessage(
+            topic="zigbee2mqtt/bridge/response/networkmap",
+            payload=payload,
+            retained=False,
+            received_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    # A. parse fails and update_topology_snapshot also fails.
+    service.request_capture("home", confirmed=True)
+    with (
+        patch(
+            "zigbeelens.topology.service.parse_networkmap_payload",
+            side_effect=ValueError("parse"),
+        ),
+        patch.object(
+            ctx.repo, "update_topology_snapshot", side_effect=RuntimeError("status")
+        ),
+        patch.object(ctx.broadcaster, "publish_sync", side_effect=publish),
+    ):
+        assert service.try_handle_response(_msg()) is False
+    assert service.active_pending_snapshot_id is None
+    assert service.status.capture_in_progress is False
+    assert "topology_updated" not in events
+    assert service.status.last_capture_error == "Topology response handling failed"
+
+    # B. store_topology_parsed fails and update_topology_snapshot also fails.
+    events.clear()
+    service.request_capture("home", confirmed=True)
+    with (
+        patch.object(ctx.repo, "store_topology_parsed", side_effect=RuntimeError("db")),
+        patch.object(
+            ctx.repo, "update_topology_snapshot", side_effect=RuntimeError("status")
+        ),
+        patch.object(ctx.broadcaster, "publish_sync", side_effect=publish),
+    ):
+        assert service.try_handle_response(_msg()) is False
+    assert service.active_pending_snapshot_id is None
+    assert service.status.capture_in_progress is False
+    assert "topology_updated" not in events
+    assert service.status.last_capture_error == "Topology response handling failed"
+
+    # C. error-state persistence succeeds.
+    events.clear()
+    service.request_capture("home", confirmed=True)
+    snap_id = service.active_pending_snapshot_id
+    assert snap_id is not None
+    with (
+        patch.object(ctx.repo, "store_topology_parsed", side_effect=RuntimeError("db")),
+        patch.object(ctx.broadcaster, "publish_sync", side_effect=publish),
+    ):
+        assert service.try_handle_response(_msg()) is False
+    assert service.active_pending_snapshot_id is None
+    assert service.status.capture_in_progress is False
+    assert "topology_updated" not in events
+    row = ctx.repo.db.conn.execute(
+        "SELECT status, error FROM topology_snapshots WHERE snapshot_id=?",
+        (snap_id,),
+    ).fetchone()
+    assert row["status"] == "error"
+    assert row["error"] == "Topology response handling failed"
+
+    # D. matching safety: other snapshot ID does not clear current pending.
+    service.request_capture("home", confirmed=True)
+    current = service.active_pending_snapshot_id
+    assert current is not None
+    service._clear_matching_pending("some-other-snapshot")
+    assert service.active_pending_snapshot_id == current
+    assert service.status.capture_in_progress is True
+    service._clear_matching_pending(current)
+    assert service.active_pending_snapshot_id is None
+    assert service.status.capture_in_progress is False
+    reset_context()

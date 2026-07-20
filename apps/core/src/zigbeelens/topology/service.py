@@ -259,7 +259,8 @@ class TopologyService:
         if not is_networkmap_response_topic(message.topic, pending.base_topic):
             return False
 
-        # Pre-store failures own the capture failure path.
+        # Pre-store failures own the capture failure path. Pending release is
+        # unconditional even when error-status persistence also fails.
         try:
             parsed = parse_networkmap_payload(message.payload)
             self._repo.store_topology_parsed(
@@ -270,13 +271,20 @@ class TopologyService:
             )
         except Exception:
             logger.exception("Topology response handling failed")
-            self._repo.update_topology_snapshot(
-                pending.snapshot_id,
-                status="error",
-                error="Topology response handling failed",
-            )
-            self._status.last_capture_error = "Topology response handling failed"
-            self._clear_matching_pending(pending.snapshot_id)
+            try:
+                self._repo.update_topology_snapshot(
+                    pending.snapshot_id,
+                    status="error",
+                    error="Topology response handling failed",
+                )
+            except Exception:
+                logger.error(
+                    "Topology failure status persistence failed safely; "
+                    "pending capture released"
+                )
+            finally:
+                self._status.last_capture_error = "Topology response handling failed"
+                self._clear_matching_pending(pending.snapshot_id)
             return False
 
         # Completed capture is authoritative; remaining work is best-effort.
