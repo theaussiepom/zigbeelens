@@ -101,16 +101,16 @@ Counters are captured at health-callback entry. At that point the ingestion tran
 
 ## Track 3G ingestion vs post-commit phases
 
-Ingestion-phase execute and commit counts are unchanged from Track 3B/3C. Post-commit totals can drop when request-local bulk HA enrichment reuse removes repeated `get_ha_device_enrichment` / schema checks during evaluation-adjacent reads; that does not change the ingestion transaction boundary. Do not treat ingestion-phase stability alone as proof that Track 3B/3C totals are unchanged.
+Ingestion-phase execute and commit counts are unchanged from Track 3B/3C. Post-commit execute totals can drop when request-local bulk HA enrichment reuse removes repeated `get_ha_device_enrichment` / schema checks during evaluation-adjacent reads; that does not change the ingestion transaction boundary. Tip post-commit / total physical commits also drop after atomic `IncidentLifecycleManager.sync` (one lifecycle transaction per evaluation). Do not treat ingestion-phase stability alone as proof that Track 3B/3C totals are unchanged.
 
 | Operation | Ingestion executes | Ingestion commits | Post-commit executes | Post-commit commits | Total executes | Total commits |
 |---|---:|---:|---:|---:|---:|---:|
-| Compact payload | 7 | 1 | 27 | 2 | 34 | 3 |
-| Beast payload | 7 | 1 | 51 | 2 | 58 | 3 |
-| Compact availability | 6 | 1 | 38 | 7 | 44 | 8 |
-| Beast availability | 6 | 1 | 67 | 7 | 73 | 8 |
-| Compact inventory | 43 | 1 | 93 | 8 | 136 | 9 |
-| Beast inventory | 334 | 2 | 625 | 25 | 959 | 27 |
+| Compact payload | 7 | 1 | 27 | 1 | 34 | 2 |
+| Beast payload | 7 | 1 | 51 | 1 | 58 | 2 |
+| Compact availability | 6 | 1 | 38 | 3 | 44 | 4 |
+| Beast availability | 6 | 1 | 67 | 3 | 73 | 4 |
+| Compact inventory | 43 | 1 | 93 | 4 | 136 | 5 |
+| Beast inventory | 334 | 2 | 625 | 19 | 959 | 21 |
 
 
 ## Track 3E total baseline table (historical)
@@ -128,8 +128,8 @@ Preserved Track 3E tip totals before scope-first report composition. Report comp
 
 | Operation | Fixture | State | Executes | Executemany | Commits | Rollbacks | Other | Top repeated category |
 |---|---|---|---:|---:|---:|---:|---:|---|
-| Availability change ingestion | compact | warm | 44 | 0 | 8 | 0 | 0 | transaction.commit (8) |
-| Availability change ingestion | beast | warm | 73 | 0 | 8 | 0 | 0 | read.incidents (10) |
+| Availability change ingestion | compact | warm | 44 | 0 | 4 | 0 | 0 | transaction.commit (4) |
+| Availability change ingestion | beast | warm | 73 | 0 | 4 | 0 | 0 | read.incidents (10) |
 | Dashboard composition | compact | warm | 24 | 0 | 0 | 0 | 0 | read.networks (3) |
 | Dashboard composition | beast | warm | 27 | 0 | 0 | 0 | 0 | read.schema (4) |
 | Device detail | compact | warm | 23 | 0 | 0 | 0 | 0 | read.availability_changes (4) |
@@ -139,10 +139,10 @@ Preserved Track 3E tip totals before scope-first report composition. Report comp
 | Incident detail | compact | warm | 19 | 0 | 0 | 0 | 0 | read.availability_changes (3) |
 | Incident list | compact | warm | 19 | 0 | 0 | 0 | 0 | read.incidents (3) |
 | Incident list history | history | warm | 19 | 0 | 0 | 0 | 0 | read.incidents (3) |
-| Device inventory refresh | beast | warm | 959 | 0 | 27 | 0 | 0 | read.availability_changes (168) |
-| Device inventory refresh | compact | warm | 136 | 0 | 9 | 0 | 0 | read.health_snapshots (22) |
-| Ordinary MQTT payload ingestion | compact | warm | 34 | 0 | 3 | 0 | 0 | read.networks (3) |
-| Ordinary MQTT payload ingestion | beast | warm | 58 | 0 | 3 | 0 | 0 | read.incidents (10) |
+| Device inventory refresh | beast | warm | 959 | 0 | 21 | 0 | 0 | read.availability_changes (168) |
+| Device inventory refresh | compact | warm | 136 | 0 | 5 | 0 | 0 | read.health_snapshots (22) |
+| Ordinary MQTT payload ingestion | compact | warm | 34 | 0 | 2 | 0 | 0 | read.networks (3) |
+| Ordinary MQTT payload ingestion | beast | warm | 58 | 0 | 2 | 0 | 0 | read.incidents (10) |
 | Device report preview | compact | warm | 29 | 0 | 0 | 0 | 0 | read.devices (4) |
 | Device report preview | history | warm | 29 | 0 | 0 | 0 | 0 | read.devices (4) |
 | Full report preview | compact | warm | 29 | 0 | 0 | 0 | 0 | read.schema (4) |

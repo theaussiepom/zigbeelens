@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Self
 
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.data_entry_flow import AbortFlow
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     TextSelector,
@@ -128,10 +129,33 @@ class ZigbeeLensConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    def is_matching(self, other_flow: Self) -> bool:
+        """Match any concurrent ZigbeeLens user flow (single-entry ownership)."""
+        return True
+
+    async def _async_abort_if_single_instance_busy(self) -> ConfigFlowResult | None:
+        """Abort when another entry exists or another user flow is in progress."""
+        # Companion panel/repair IDs are integration-level singletons.
+        if self._async_current_entries():
+            return self.async_abort(reason="single_instance_allowed")
+        if self.hass.config_entries.flow.async_has_matching_flow(self):
+            return self.async_abort(reason="single_instance_allowed")
+        try:
+            # Domain-scoped unique ID: concurrent flows share one claim.
+            await self.async_set_unique_id(DOMAIN)
+            self._abort_if_unique_id_configured()
+        except AbortFlow:
+            return self.async_abort(reason="single_instance_allowed")
+        return None
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
+        abort = await self._async_abort_if_single_instance_busy()
+        if abort is not None:
+            return abort
+
         if user_input is not None:
             try:
                 core_url = _normalize_core_url(user_input[CONF_CORE_URL])
@@ -150,9 +174,6 @@ class ZigbeeLensConfigFlow(ConfigFlow, domain=DOMAIN):
                     data_schema=_user_schema(),
                     errors={"base": "invalid_auth"},
                 )
-
-            await self.async_set_unique_id(core_url)
-            self._abort_if_unique_id_configured()
 
             verify_ssl = bool(user_input[CONF_VERIFY_SSL])
             try:

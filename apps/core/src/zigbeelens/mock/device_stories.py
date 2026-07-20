@@ -393,6 +393,17 @@ def finalize_scenario_device_stories(
         (d.decision for d in devices),
         coverage_warning_count=len(data.dashboard.data_coverage_warnings or []),
     )
+    # Dashboard incident counts must match ScenarioData.incidents (not decision-only watches).
+    expected_open_count = sum(
+        1
+        for inc in active_incidents
+        if str(getattr(inc.status, "value", inc.status)) == "open"
+    )
+    expected_watching_count = sum(
+        1
+        for inc in active_incidents
+        if str(getattr(inc.status, "value", inc.status)) == "watching"
+    )
     dashboard = data.dashboard.model_copy(
         update={
             "networks": networks,
@@ -400,6 +411,8 @@ def finalize_scenario_device_stories(
             "network_count": len(networks),
             "device_count": len(devices),
             "unavailable_device_count": sum(n.unavailable_count for n in networks),
+            "active_incident_count": expected_open_count,
+            "watching_incident_count": expected_watching_count,
         }
     )
     return replace(

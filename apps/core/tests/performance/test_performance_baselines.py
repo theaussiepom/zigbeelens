@@ -1145,8 +1145,14 @@ def test_markdown_baseline_table_matches_structured_snapshot():
         # Ingestion execute/commit authority remains Track 3B/3C.
         assert tip["ingestion_execute_count"] == phase["ingestion_execute_count"]
         assert tip["ingestion_commit_count"] == phase["ingestion_commit_count"]
-        assert tip["total_commit_count"] == phase["total_commit_count"]
+        # Tip total commits may drop below Track 3C after atomic lifecycle sync.
+        assert tip["total_commit_count"] <= phase["total_commit_count"]
         assert "## Track 3G ingestion vs post-commit phases" in doc
+    assert any(
+        EXPECTED_PHASE_BASELINES[key]["total_commit_count"]
+        < track_3c_phase_historical[key]["total_commit_count"]
+        for key in track_3c_phase_labels
+    )
 
     for key, label in (
         ("payload_ingestion", "Compact payload"),
@@ -1239,9 +1245,13 @@ def test_track_3a_and_track_3b_history_preserved():
         assert track_3b < track_3a
         assert ingestion >= 1
         assert TRACK_3B_OPERATION_TOTALS[key]["commit_count"] == track_3b
-        # Track 3C keeps Track 3B physical commit totals for these MQTT paths.
-        assert EXPECTED_BASELINES[key]["commit_count"] == track_3b
+        # Tip commit totals may drop below Track 3B after atomic lifecycle sync.
+        assert EXPECTED_BASELINES[key]["commit_count"] <= track_3b
         assert EXPECTED_PHASE_BASELINES[key]["ingestion_commit_count"] == ingestion
+    assert any(
+        EXPECTED_BASELINES[key]["commit_count"] < TRACK_3B_PHASE_BASELINES[key]["total_commit_count"]
+        for key in TRACK_3A_COMMIT_TOTALS
+    )
 
 
 def test_incremental_target_event_query_shape_invariants(

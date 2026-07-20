@@ -592,15 +592,15 @@ def test_read_only_surfaces_commit_zero(tmp_path: Path):
 def test_track_3c_ingestion_baselines_unchanged():
     """Ingestion-phase execute/commit authority remains Track 3B/3C.
 
-    Track 3F may add factual post-commit incident_networks work, but must not
-    change ingestion transaction execute or physical commit counts.
+    Tip total physical commits may drop after atomic lifecycle sync; ingestion
+    transaction execute and physical commit counts must stay unchanged.
     """
     from performance.expected_baselines import EXPECTED_BASELINES, EXPECTED_PHASE_BASELINES
 
-    assert EXPECTED_BASELINES["payload_ingestion"]["commit_count"] == 3
-    assert EXPECTED_BASELINES["availability_ingestion"]["commit_count"] == 8
-    assert EXPECTED_BASELINES["inventory_ingestion_compact"]["commit_count"] == 9
-    assert EXPECTED_BASELINES["inventory_ingestion_beast"]["commit_count"] == 27
+    assert EXPECTED_BASELINES["payload_ingestion"]["commit_count"] == 2
+    assert EXPECTED_BASELINES["availability_ingestion"]["commit_count"] == 4
+    assert EXPECTED_BASELINES["inventory_ingestion_compact"]["commit_count"] == 5
+    assert EXPECTED_BASELINES["inventory_ingestion_beast"]["commit_count"] == 21
     assert EXPECTED_PHASE_BASELINES["payload_ingestion"]["ingestion_execute_count"] == 7
     assert EXPECTED_PHASE_BASELINES["payload_ingestion"]["ingestion_commit_count"] == 1
     assert EXPECTED_PHASE_BASELINES["availability_ingestion"]["ingestion_execute_count"] == 6

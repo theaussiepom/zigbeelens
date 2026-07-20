@@ -104,10 +104,12 @@ class LockedSQLiteConnection:
         return bool(getattr(self._state, "rollback_only", False))
 
     def execute(self, sql: str, params: Any = ()) -> LockedCursor:
+        # PR #79: release for Exception and BaseException so KeyboardInterrupt /
+        # SystemExit / GeneratorExit cannot leave the shared RLock held.
         self._lock.acquire()
         try:
             return LockedCursor(self._conn.execute(sql, params), self._lock)
-        except Exception:
+        except BaseException:
             self._lock.release()
             raise
 
@@ -162,6 +164,21 @@ class LockedSQLiteConnection:
             raise commit_exc
         self._notify_physical_commit()
 
+    def _cleanup_failed_begin(self, *, began: bool) -> None:
+        """Reset TLS and release the lock after a failed outermost BEGIN/setup."""
+        if began:
+            try:
+                self._conn.rollback()
+            except BaseException:
+                pass
+            try:
+                self._notify_physical_rollback()
+            except BaseException:
+                pass
+        self._state.rollback_only = False
+        self._set_depth(0)
+        self._lock.release()
+
     @contextmanager
     def transaction(self) -> Iterator[None]:
         """Join or own a BEGIN IMMEDIATE transaction.
@@ -172,15 +189,29 @@ class LockedSQLiteConnection:
         the physical rollback and raises RuntimeError.
         """
         outermost = self._depth() == 0
-        self._lock.acquire()
         if outermost:
-            self._state.rollback_only = False
+            # One cleanup-safe setup unit: lock + rollback-only init + BEGIN + depth.
+            self._lock.acquire()
+            began = False
+            was_in_transaction = False
             try:
+                self._state.rollback_only = False
+                # Detect BEGIN-then-raise: execute() may start a transaction even
+                # when it re-raises before returning (PR #79 corrective).
+                was_in_transaction = bool(self._conn.in_transaction)
                 self._conn.execute("BEGIN IMMEDIATE")
-            except Exception:
-                self._lock.release()
+                began = True
+                self._set_depth(1)
+            except BaseException:
+                began_here = began or (
+                    not was_in_transaction and bool(self._conn.in_transaction)
+                )
+                self._cleanup_failed_begin(began=began_here)
                 raise
-        self._set_depth(self._depth() + 1)
+        else:
+            self._lock.acquire()
+            self._set_depth(self._depth() + 1)
+
         failed = False
         try:
             yield

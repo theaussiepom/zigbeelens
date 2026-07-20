@@ -47,6 +47,7 @@
     },
     "abort": {
       "already_configured": "This ZigbeeLens Core URL is already configured.",
+      "single_instance_allowed": "Only one ZigbeeLens integration entry is supported.",
       "reauth_successful": "ZigbeeLens credentials were updated.",
       "reconfigure_successful": "ZigbeeLens connection settings were updated."
     }

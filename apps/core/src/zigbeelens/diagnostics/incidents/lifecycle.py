@@ -22,21 +22,64 @@ class IncidentLifecycleManager:
         return utc_iso(now)
 
     def sync(self, candidates: list[IncidentCandidate], now: datetime | None = None) -> list[str]:
+        """Synchronise candidates into storage as one repository transaction.
+
+        Lifecycle event names are collected during the transaction and only
+        returned after a successful physical commit so callers may publish
+        callbacks without describing rolled-back work.
+        """
         now = now or datetime.now(timezone.utc)
         ts = self._iso(now)
-        events: list[str] = []
-        active_keys = {c.dedup_key for c in candidates if c.active}
+        with self.repo.transaction():
+            events: list[str] = []
+            active_keys = {c.dedup_key for c in candidates if c.active}
 
-        for candidate in candidates:
-            if not candidate.active:
-                continue
-            existing = self.repo.incidents.get_incident_by_dedup_key(candidate.dedup_key)
-            if existing:
-                if existing["lifecycle_state"] != IncidentLifecycle.open.value:
-                    self._reopen_incident(existing, candidate, ts, events)
-                elif self._needs_update(existing, candidate):
-                    self.repo.incidents.update_incident(
-                        incident_id=existing["id"],
+            for candidate in candidates:
+                if not candidate.active:
+                    continue
+                existing = self.repo.incidents.get_incident_by_dedup_key(candidate.dedup_key)
+                if existing:
+                    if existing["lifecycle_state"] != IncidentLifecycle.open.value:
+                        self._reopen_incident(existing, candidate, ts, events)
+                    elif self._needs_update(existing, candidate):
+                        self.repo.incidents.update_incident(
+                            incident_id=existing["id"],
+                            lifecycle_state=IncidentLifecycle.open.value,
+                            severity=candidate.severity.value,
+                            scope=candidate.scope.value,
+                            confidence=candidate.confidence.value,
+                            title=candidate.title,
+                            summary=candidate.summary,
+                            explanation=candidate.explanation,
+                            evidence=candidate.evidence,
+                            counter_evidence=candidate.counter_evidence,
+                            limitations=candidate.limitations,
+                            resolved_at=None,
+                            updated_at=ts,
+                        )
+                        self.repo.incidents.replace_incident_devices_and_networks(
+                            existing["id"],
+                            candidate.affected_devices,
+                            list(candidate.network_ids),
+                        )
+                        self.repo.insert_event(
+                            event_id=str(uuid.uuid4()),
+                            network_id=candidate.network_ids[0] if candidate.network_ids else None,
+                            ieee_address=None,
+                            event_type="incident_updated",
+                            severity=candidate.severity.value,
+                            title=f"Incident updated: {candidate.title}",
+                            summary=candidate.summary,
+                            incident_id=existing["id"],
+                            occurred_at=ts,
+                        )
+                        events.append("incident_updated")
+                else:
+                    incident_id = f"inc-{uuid.uuid4().hex[:12]}"
+                    self.repo.incidents.insert_incident(
+                        incident_id=incident_id,
+                        dedup_key=candidate.dedup_key,
+                        incident_type=candidate.incident_type.value,
                         lifecycle_state=IncidentLifecycle.open.value,
                         severity=candidate.severity.value,
                         scope=candidate.scope.value,
@@ -47,11 +90,11 @@ class IncidentLifecycleManager:
                         evidence=candidate.evidence,
                         counter_evidence=candidate.counter_evidence,
                         limitations=candidate.limitations,
-                        resolved_at=None,
+                        opened_at=ts,
                         updated_at=ts,
                     )
                     self.repo.incidents.replace_incident_devices_and_networks(
-                        existing["id"],
+                        incident_id,
                         candidate.affected_devices,
                         list(candidate.network_ids),
                     )
@@ -59,56 +102,20 @@ class IncidentLifecycleManager:
                         event_id=str(uuid.uuid4()),
                         network_id=candidate.network_ids[0] if candidate.network_ids else None,
                         ieee_address=None,
-                        event_type="incident_updated",
+                        event_type="incident_opened",
                         severity=candidate.severity.value,
-                        title=f"Incident updated: {candidate.title}",
+                        title=f"Incident opened: {candidate.title}",
                         summary=candidate.summary,
-                        incident_id=existing["id"],
+                        incident_id=incident_id,
                         occurred_at=ts,
                     )
-                    events.append("incident_updated")
-            else:
-                incident_id = f"inc-{uuid.uuid4().hex[:12]}"
-                self.repo.incidents.insert_incident(
-                    incident_id=incident_id,
-                    dedup_key=candidate.dedup_key,
-                    incident_type=candidate.incident_type.value,
-                    lifecycle_state=IncidentLifecycle.open.value,
-                    severity=candidate.severity.value,
-                    scope=candidate.scope.value,
-                    confidence=candidate.confidence.value,
-                    title=candidate.title,
-                    summary=candidate.summary,
-                    explanation=candidate.explanation,
-                    evidence=candidate.evidence,
-                    counter_evidence=candidate.counter_evidence,
-                    limitations=candidate.limitations,
-                    opened_at=ts,
-                    updated_at=ts,
-                )
-                self.repo.incidents.replace_incident_devices_and_networks(
-                    incident_id,
-                    candidate.affected_devices,
-                    list(candidate.network_ids),
-                )
-                self.repo.insert_event(
-                    event_id=str(uuid.uuid4()),
-                    network_id=candidate.network_ids[0] if candidate.network_ids else None,
-                    ieee_address=None,
-                    event_type="incident_opened",
-                    severity=candidate.severity.value,
-                    title=f"Incident opened: {candidate.title}",
-                    summary=candidate.summary,
-                    incident_id=incident_id,
-                    occurred_at=ts,
-                )
-                events.append("incident_opened")
+                    events.append("incident_opened")
 
-        candidates_by_key = {c.dedup_key: c for c in candidates if c.active}
-        self._resolve_stale(active_keys, candidates_by_key, now, events)
-        if events:
-            events.append("incidents_updated")
-        return events
+            candidates_by_key = {c.dedup_key: c for c in candidates if c.active}
+            self._resolve_stale(active_keys, candidates_by_key, now, events)
+            if events:
+                events.append("incidents_updated")
+            return events
 
     def _resolve_stale(
         self,
