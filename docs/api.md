@@ -16,6 +16,7 @@ Existing `/api/*` routes remain available for backward compatibility. Both prefi
 | `GET /api/v1/status` | — |
 | `GET /api/v1/events/stream` | `GET /api/events/stream` |
 | `GET /api/v1/reports` | `GET /api/reports` |
+| `GET /api/v1/storage/status` | `GET /api/storage/status` |
 
 All other public routes under `/api/` are also mounted at `/api/v1/` (devices, incidents, networks, topology, enrichment, config status, version, scenarios).
 
@@ -83,6 +84,21 @@ Optional query: `scenario` (mock mode only).
 - `GET /api/v1/reports/{id}/download` — download redacted export
 
 See [reports.md](reports.md).
+
+### Storage status
+
+`GET /api/v1/storage/status` (legacy: `GET /api/storage/status`) — retention policy, last maintenance facts, SQLite footprint, and integrity check facts. Read-only; no purge/backup mutations.
+
+| Block | Fields |
+|-------|--------|
+| `policy` | `policy_version`, `telemetry_retention_days`, `resolved_incident_retention_days` (`null` = keep indefinitely), `report_retention_days` (`null` = until manually deleted), `maintenance_interval_hours`, `topology_max_snapshots_per_network` |
+| `maintenance` | `running`, timestamps (`last_started_at`, `last_completed_at`, `last_successful_at`, `next_scheduled_at`), `last_error_code`, `failure_category`, cutoffs, `rows_deleted_by_category`, `rows_updated_by_category`, malformed/future timestamp counts, `more_work_pending`, `duration_ms`, `wal_checkpoint` |
+| `footprint` | `database_bytes`, `wal_bytes`, `shm_bytes`, `total_sqlite_bytes`, page/freelist/reusable sizes, `schema_version` |
+| `integrity` | `startup_gates` (`quick_and_foreign_keys`), plus `quick_check` / `foreign_key_check` facts: `status`, `checked_at`, `violation_count` |
+
+**Null totals before first success:** `maintenance.total_rows_deleted` (and related duration/cutoff fields when never written) stay `null` until a maintenance cycle has completed successfully and persisted status. Integrity check facts may also show `null` status/checked_at until the first startup gate run is stored.
+
+Successful maintenance may publish SSE events: `storage_maintenance_completed`, and when categories change `incidents_updated`, `reports_updated`, `timeline_updated`, `topology_updated`. There is no HTTP backup or purge endpoint.
 
 ## Home Assistant integration
 

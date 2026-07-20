@@ -8,10 +8,42 @@ from zigbeelens.app.context import AppContext
 from zigbeelens.storage.retention_policy import POLICY_VERSION, StorageRetentionPolicy
 
 
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _dict_int(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, int] = {}
+    for key, raw in value.items():
+        try:
+            out[str(key)] = int(raw)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _check_fact(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {"status": None, "checked_at": None, "violation_count": None}
+    return {
+        "status": value.get("status"),
+        "checked_at": value.get("checked_at"),
+        "violation_count": _optional_int(value.get("violation_count")),
+    }
+
+
 def build_storage_status(ctx: AppContext) -> dict[str, Any]:
     policy = StorageRetentionPolicy.from_config(ctx.config)
     maint = ctx.repo.maintenance.get_maintenance_setting() or {}
     footprint = ctx.repo.maintenance.storage_footprint()
+    integrity = maint.get("integrity") if isinstance(maint.get("integrity"), dict) else {}
     return {
         "policy": {
             "policy_version": POLICY_VERSION,
@@ -28,17 +60,38 @@ def build_storage_status(ctx: AppContext) -> dict[str, Any]:
             "last_successful_at": maint.get("last_successful_at"),
             "next_scheduled_at": maint.get("next_scheduled_at"),
             "last_error_code": maint.get("last_error_code"),
-            "total_rows_deleted": int(maint.get("total_rows_deleted") or 0),
+            "failure_category": maint.get("failure_category"),
+            "total_rows_deleted": (
+                None
+                if "total_rows_deleted" not in maint
+                else _optional_int(maint.get("total_rows_deleted"))
+            ),
+            "rows_deleted_by_category": _dict_int(maint.get("rows_deleted_by_category")),
+            "rows_updated_by_category": _dict_int(maint.get("rows_updated_by_category")),
+            "malformed_timestamps_by_category": _dict_int(
+                maint.get("malformed_timestamps_by_category")
+            ),
+            "future_timestamps_by_category": _dict_int(
+                maint.get("future_timestamps_by_category")
+            ),
             "more_work_pending": bool(maint.get("more_work_pending", False)),
-            "duration_ms": int(maint.get("duration_ms") or 0),
+            "duration_ms": (
+                None if "duration_ms" not in maint else _optional_int(maint.get("duration_ms"))
+            ),
             "telemetry_cutoff": maint.get("telemetry_cutoff"),
             "resolved_incident_cutoff": maint.get("resolved_incident_cutoff"),
             "report_cutoff": maint.get("report_cutoff"),
+            "wal_checkpoint": (
+                maint.get("wal_checkpoint")
+                if isinstance(maint.get("wal_checkpoint"), dict)
+                else {}
+            ),
         },
         "footprint": footprint,
         "integrity": {
             "startup_gates": "quick_and_foreign_keys",
-            "last_known_ok": maint.get("last_error_code") != "integrity_check_failed",
+            "quick_check": _check_fact(integrity.get("quick_check")),
+            "foreign_key_check": _check_fact(integrity.get("foreign_key_check")),
         },
     }
 

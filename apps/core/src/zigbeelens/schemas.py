@@ -684,12 +684,18 @@ class StorageMaintenanceStatus(BaseModel):
     last_successful_at: str | None = None
     next_scheduled_at: str | None = None
     last_error_code: str | None = None
-    total_rows_deleted: int = 0
+    failure_category: str | None = None
+    total_rows_deleted: int | None = None
+    rows_deleted_by_category: dict[str, int] = Field(default_factory=dict)
+    rows_updated_by_category: dict[str, int] = Field(default_factory=dict)
+    malformed_timestamps_by_category: dict[str, int] = Field(default_factory=dict)
+    future_timestamps_by_category: dict[str, int] = Field(default_factory=dict)
     more_work_pending: bool = False
-    duration_ms: int = 0
+    duration_ms: int | None = None
     telemetry_cutoff: str | None = None
     resolved_incident_cutoff: str | None = None
     report_cutoff: str | None = None
+    wal_checkpoint: dict[str, int | bool | None] = Field(default_factory=dict)
 
 
 class StorageFootprintStatus(BaseModel):
@@ -704,9 +710,16 @@ class StorageFootprintStatus(BaseModel):
     schema_version: int | None = None
 
 
+class StorageCheckFact(BaseModel):
+    status: str | None = None
+    checked_at: str | None = None
+    violation_count: int | None = None
+
+
 class StorageIntegrityStatus(BaseModel):
     startup_gates: str = "quick_and_foreign_keys"
-    last_known_ok: bool = True
+    quick_check: StorageCheckFact = Field(default_factory=StorageCheckFact)
+    foreign_key_check: StorageCheckFact = Field(default_factory=StorageCheckFact)
 
 
 class StorageStatus(BaseModel):

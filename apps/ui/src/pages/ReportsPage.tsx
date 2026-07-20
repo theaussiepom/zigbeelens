@@ -325,7 +325,9 @@ export function ReportsPage() {
     { refetchOn: ["dashboard_updated", "incidents_updated"], enabled: targetReady },
   );
 
-  const stored = useLiveResource(() => api.listReports(), [reloadKey]);
+  const stored = useLiveResource(() => api.listReports(), [reloadKey], {
+    refetchOn: ["reports_updated"],
+  });
 
   function flash(message: string) {
     setToast(message);

@@ -18,7 +18,13 @@ networks:
 
 storage:
   path: ./data/test-live.sqlite
+  # Telemetry history only — not reports/incidents.
   retention_days: 7
+  # Resolved incidents (null/omit = keep indefinitely).
+  resolved_incident_retention_days: 90
+  # Reports default null = until manually deleted.
+  # report_retention_days: null
+  maintenance_interval_hours: 24
 
 diagnostics:
   incident_window_seconds: 180

@@ -517,12 +517,18 @@ export interface StorageMaintenanceStatus {
   last_successful_at: string | null;
   next_scheduled_at: string | null;
   last_error_code: string | null;
-  total_rows_deleted: number;
+  failure_category?: string | null;
+  total_rows_deleted: number | null;
+  rows_deleted_by_category?: Record<string, number>;
+  rows_updated_by_category?: Record<string, number>;
+  malformed_timestamps_by_category?: Record<string, number>;
+  future_timestamps_by_category?: Record<string, number>;
   more_work_pending: boolean;
-  duration_ms: number;
+  duration_ms: number | null;
   telemetry_cutoff?: string | null;
   resolved_incident_cutoff?: string | null;
   report_cutoff?: string | null;
+  wal_checkpoint?: Record<string, number | boolean | null>;
 }
 
 export interface StorageFootprintStatus {
@@ -537,9 +543,16 @@ export interface StorageFootprintStatus {
   schema_version: number | null;
 }
 
+export interface StorageCheckFact {
+  status: string | null;
+  checked_at: string | null;
+  violation_count: number | null;
+}
+
 export interface StorageIntegrityStatus {
   startup_gates: string;
-  last_known_ok: boolean;
+  quick_check: StorageCheckFact;
+  foreign_key_check: StorageCheckFact;
 }
 
 export interface StorageStatus {

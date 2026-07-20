@@ -246,7 +246,9 @@ function NetworkTopologyRow({
 export function TopologyPage() {
   const { status } = useScenario();
   const { networkId } = useParams<{ networkId?: string }>();
-  const overview = useLiveResource(() => api.topology(), []);
+  const overview = useLiveResource(() => api.topology(), [], {
+    refetchOn: ["topology_updated"],
+  });
   const [modalNetwork, setModalNetwork] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -265,6 +267,7 @@ export function TopologyPage() {
         ? api.topologyNetwork(activeNetworkId)
         : Promise.reject(new Error("No network selected")),
     [activeNetworkId],
+    { refetchOn: ["topology_updated"], enabled: Boolean(activeNetworkId) },
   );
 
   if (!status || overview.loading) return <LoadingState />;

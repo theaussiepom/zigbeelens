@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Track 6 retention policy v2:** telemetry-only `retention_days`, separate resolved-incident retention (default 90 days), reports retained until manual delete by default, periodic maintenance, integrity gates, online SQLite backup CLI, `/api/storage/status`
+- **Track 6 corrective pass (docs/ops):** `check` / `--dry-run` truly non-mutating; `--apply` never migrates (Core startup owns migrations including `012`); active topology capture exclusion; null resolved retention = keep indefinitely; reports until manual delete by default; symlink-safe backup; no automatic `VACUUM`; invalid/future timestamps retained; SSE `storage_maintenance_completed` plus category invalidations (`incidents_updated` / `reports_updated` / `timeline_updated` / `topology_updated`); `/api/storage/status` null totals before first success
 - **Decision contract v2:** public diagnostic DTOs are decision-only (`DecisionBadge`, `DecisionCountSummary`); capabilities advertise `decision_only_diagnostic_payloads`, `report_contract_v3`, `decision_mqtt_summary`
 - **Reports v3:** new reports use a single canonical decision-led body (`domain_details`, `collector_status`, `events_or_timeline`); stored v1/v2 remain readable/downloadable exactly as stored
 - **HACS:** requires exact decision contract v2; repair `core_decision_contract_incompatible`; new decision entity unique IDs (`overall_decision`, `review_first_devices`, …)

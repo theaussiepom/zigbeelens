@@ -150,6 +150,9 @@ networks:
 storage:
   path: /data/zigbeelens.sqlite
   retention_days: 7
+  # resolved_incident_retention_days: 90   # null/omit = keep indefinitely
+  # report_retention_days: null            # until manually deleted (default)
+  # maintenance_interval_hours: 24
 
 features:
   mqtt_collector: true
@@ -288,6 +291,7 @@ Open the dashboard: **http://localhost:8377**
 - [ ] Reports Version 2 uses shared decisions (`device_stories` present)
 - [ ] Incidents appear only if real conditions warrant (empty is OK)
 - [ ] Settings page shows collector status and both networks
+- [ ] Settings storage section shows retention policy (telemetry / resolved incidents / reports) and no Purge/Vacuum/Backup controls
 - [ ] Reports page generates **JSON**
 - [ ] Reports page generates **YAML**
 - [ ] Reports page generates **Markdown**
@@ -295,6 +299,21 @@ Open the dashboard: **http://localhost:8377**
 - [ ] No MQTT password in downloaded report
 - [ ] No `network_key` in downloaded report
 - [ ] Container logs do not show MQTT password (`docker logs zigbeelens`)
+
+### Track 6 storage upgrade / backup / dry-run checklist
+
+Run against the release-test data volume (or a copy). Prefer Core stopped for `--apply`; online backup is safe while Core runs.
+
+- [ ] Upgrade starts Core: migration version includes **012**, then integrity gates, then first maintenance cycle (check logs / Settings)
+- [ ] `GET /api/storage/status` returns policy defaults (`telemetry_retention_days: 7`, resolved incidents `90`, `report_retention_days: null`)
+- [ ] Before first successful maintenance persistence, deletion totals may be `null`; after success, timestamps and counts are present
+- [ ] Integrity facts expose `quick_check` and `foreign_key_check` (`status` / `checked_at` / `violation_count`)
+- [ ] Online backup: `zigbeelens storage backup --config … --output …` then `zigbeelens storage check --database …` (symlink-safe publish; no WAL-only copy)
+- [ ] `zigbeelens storage check` is non-mutating (read-only; no migrate / no status write)
+- [ ] `zigbeelens storage maintenance --dry-run` previews eligibility without mutations or status updates
+- [ ] `zigbeelens storage maintenance --apply` does **not** run migrations (schema mismatch refused); Core startup owns migrations
+- [ ] Reports remain until manually deleted by default; resolved incidents age at 90 days unless retention is null
+- [ ] No automatic `VACUUM`; Settings still has no purge/backup UI
 
 ---
 

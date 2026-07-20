@@ -63,6 +63,7 @@ export function SettingsPage() {
             onClick={() => {
               refreshStatus();
               health.refetch();
+              storage.refetch();
             }}
             className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 active:bg-zl-surface-2"
           >
@@ -247,7 +248,7 @@ export function SettingsPage() {
             label="Resolved incidents"
             value={
               status.resolved_incident_retention_days == null
-                ? "Until manually deleted"
+                ? "Kept indefinitely"
                 : `${status.resolved_incident_retention_days} days`
             }
           />
@@ -274,11 +275,23 @@ export function SettingsPage() {
             }
           />
           <Row
+            label="Maintenance running"
+            value={
+              storage.data == null
+                ? "—"
+                : storage.data.maintenance.running
+                  ? "yes"
+                  : "no"
+            }
+          />
+          <Row
             label="Last successful maintenance"
             value={
               storage.data?.maintenance.last_successful_at
                 ? relativeTime(storage.data.maintenance.last_successful_at)
-                : "Never run"
+                : storage.data
+                  ? "Never run"
+                  : "—"
             }
           />
           <Row
@@ -291,20 +304,44 @@ export function SettingsPage() {
           />
           <Row
             label="Last result"
-            value={
-              storage.data?.maintenance.last_error_code
-                ? storage.data.maintenance.last_error_code
-                : storage.data?.maintenance.last_successful_at
-                  ? "ok"
-                  : "—"
-            }
+            value={formatMaintenanceResult(storage.data?.maintenance)}
           />
           <Row
             label="Rows removed (last cycle)"
             value={
-              storage.data
-                ? String(storage.data.maintenance.total_rows_deleted)
-                : "—"
+              storage.data?.maintenance.total_rows_deleted == null
+                ? "—"
+                : String(storage.data.maintenance.total_rows_deleted)
+            }
+          />
+          <Row
+            label="Last duration"
+            value={
+              storage.data?.maintenance.duration_ms == null
+                ? "—"
+                : `${storage.data.maintenance.duration_ms} ms`
+            }
+          />
+          <Row
+            label="Malformed timestamps"
+            value={formatCategoryCount(
+              storage.data?.maintenance.malformed_timestamps_by_category,
+            )}
+          />
+          <Row
+            label="Future timestamps"
+            value={formatCategoryCount(
+              storage.data?.maintenance.future_timestamps_by_category,
+            )}
+          />
+          <Row
+            label="WAL checkpoint busy"
+            value={
+              storage.data?.maintenance.wal_checkpoint?.busy == null
+                ? "—"
+                : storage.data.maintenance.wal_checkpoint.busy
+                  ? "yes"
+                  : "no"
             }
           />
           <Row
@@ -317,14 +354,12 @@ export function SettingsPage() {
             value={formatBytes(storage.data?.footprint.reusable_bytes)}
           />
           <Row
-            label="Integrity"
-            value={
-              storage.data?.integrity.last_known_ok == null
-                ? "—"
-                : storage.data.integrity.last_known_ok
-                  ? "ok"
-                  : "failed"
-            }
+            label="Integrity (quick)"
+            value={storage.data?.integrity.quick_check.status ?? "—"}
+          />
+          <Row
+            label="Integrity (foreign keys)"
+            value={storage.data?.integrity.foreign_key_check.status ?? "—"}
           />
         </dl>
         <p className="mt-3 text-xs text-zl-muted">
@@ -429,4 +464,34 @@ function formatBytes(value: number | null | undefined): string {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+const MAINTENANCE_ERROR_COPY: Record<string, string> = {
+  interrupted: "Interrupted (previous cycle did not finish)",
+  database_busy: "Database busy",
+  integrity_check_failed: "Integrity check failed",
+  maintenance_failed: "Maintenance failed",
+};
+
+function formatMaintenanceResult(
+  maintenance:
+    | {
+        last_error_code: string | null;
+        last_successful_at: string | null;
+      }
+    | null
+    | undefined,
+): string {
+  if (!maintenance) return "—";
+  if (maintenance.last_error_code) {
+    return MAINTENANCE_ERROR_COPY[maintenance.last_error_code] ?? maintenance.last_error_code;
+  }
+  if (maintenance.last_successful_at) return "ok";
+  return "—";
+}
+
+function formatCategoryCount(value: Record<string, number> | null | undefined): string {
+  if (!value) return "—";
+  const total = Object.values(value).reduce((sum, n) => sum + n, 0);
+  return total > 0 ? String(total) : "—";
 }

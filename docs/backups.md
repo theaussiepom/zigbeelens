@@ -28,11 +28,15 @@ zigbeelens storage check --database backups/zigbeelens-$(date +%F).sqlite
 
 The CLI:
 
-- copies a consistent online snapshot;
-- writes a temporary `0600` file;
+- copies a consistent online snapshot (source may keep writing; no manual WAL copy);
+- writes a temporary `0600` file in the destination directory;
 - validates `quick_check` + `foreign_key_check` before publish;
-- atomically replaces the destination;
-- refuses overwrite unless `--overwrite` is set.
+- checksums and sizes the temp file before atomic replace;
+- atomically replaces the destination entry (symlink-safe: replaces the link, does not follow it);
+- refuses overwrite unless `--overwrite` is set;
+- refuses destinations that are the source DB, WAL, SHM, or a hard link to the source.
+
+`zigbeelens storage check` opens the database **read-only** (`mode=ro`). It does not create the DB, enable WAL, run migrations, or update settings.
 
 There is no HTTP backup/download endpoint.
 
@@ -67,21 +71,27 @@ Use **Settings → System → Backups** and include the ZigbeeLens add-on. This 
 | Class | Default | Notes |
 |-------|---------|-------|
 | Telemetry history (`storage.retention_days`) | 7 days | Metrics, availability, snapshots, events, unresolved messages, terminal topology |
-| Resolved incidents | 90 days | `storage.resolved_incident_retention_days`; `null` = keep |
+| Resolved incidents | 90 days | `storage.resolved_incident_retention_days`; `null` = kept indefinitely |
 | Open / watching incidents | keep | Never age-purged |
 | Reports | until manually deleted | `storage.report_retention_days` default `null`; opt-in finite days |
 | Inventory / current state / enrichment | keep | Never age-purged |
 
-Maintenance runs once at startup (after migrations + integrity gates) and periodically (`storage.maintenance_interval_hours`, default 24).
+Maintenance runs once at startup (after migrations + integrity gates) and periodically (`storage.maintenance_interval_hours`, default 24). Core startup owns migrations; the maintenance CLI does **not** migrate.
 
 ```bash
 zigbeelens storage maintenance --config config/config.yaml --dry-run
 zigbeelens storage maintenance --config config/config.yaml --apply
 ```
 
+`--dry-run` is read-only: same plan/clock as apply, zero mutations, no status update. `--apply` requires the current schema version, runs integrity preflight, then the canonical executor. Do not run `--apply` against a live Core process unless you accept SQLite busy coordination; prefer Core’s periodic scheduler. Active in-memory topology captures are excluded from periodic maintenance; CLI maintenance treats stale persisted pending rows as abandoned.
+
+Invalid/future timestamps are retained and counted as safe warnings — never guessed or deleted. Decisions use retained evidence plus current state.
+
 Deleted pages become reusable inside SQLite; the main file may not shrink immediately. Track 6 does **not** run automatic `VACUUM`.
 
-Topology count caps (`topology.max_snapshots_per_network`) apply independently to terminal snapshots.
+Topology count caps (`topology.max_snapshots_per_network`) apply independently to terminal snapshots (age and count are separate bounds; pending captures are excluded).
+
+After a successful cycle that deleted or terminalized rows, Core may publish SSE: `storage_maintenance_completed`, plus `incidents_updated` / `reports_updated` / `timeline_updated` / `topology_updated` when those categories changed. `/api/storage/status` exposes policy, integrity facts, and maintenance totals (`total_rows_deleted` stays `null` until the first successful persisted cycle).
 
 ## Settings UI
 
