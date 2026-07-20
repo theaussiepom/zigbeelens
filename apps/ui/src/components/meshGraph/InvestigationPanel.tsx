@@ -48,18 +48,28 @@ function InvestigationCardView({
   active,
   onFocus,
   onClearFocus,
+  canOpenPrimaryDevice,
+  onOpenPrimaryDevice,
 }: {
   card: InvestigationCard;
   viewModel: ReturnType<typeof buildInvestigationCardViewModel>;
   active: boolean;
   onFocus: (card: InvestigationCard) => void;
   onClearFocus: () => void;
+  canOpenPrimaryDevice?: (card: InvestigationCard) => boolean;
+  onOpenPrimaryDevice?: (card: InvestigationCard) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const showOpenRouter =
+    Boolean(viewModel.openRouterDetailsLabel) &&
+    Boolean(onOpenPrimaryDevice) &&
+    (canOpenPrimaryDevice?.(card) ?? false);
+
   return (
     <div
       data-testid="investigation-card"
       data-investigation-id={card.id}
+      data-investigation-type={card.type}
       className={`rounded-lg border p-2.5 ${
         active ? "border-zl-accent bg-zl-accent/5" : "border-zl-border bg-zl-surface-2"
       }`}
@@ -90,7 +100,7 @@ function InvestigationCardView({
           <button
             type="button"
             onClick={onClearFocus}
-            aria-label={`Clear focus for ${viewModel.focusLabel}`}
+            aria-label={viewModel.clearFocusAriaLabel}
             className="rounded-lg border border-zl-accent bg-zl-accent/10 px-2.5 py-1 text-[11px] font-medium text-zl-accent hover:bg-zl-accent/20"
           >
             Clear focus
@@ -99,16 +109,29 @@ function InvestigationCardView({
           <button
             type="button"
             onClick={() => onFocus(card)}
-            aria-label={`Focus graph on ${viewModel.focusLabel}`}
+            aria-label={viewModel.focusAriaLabel}
             className="rounded-lg border border-zl-border bg-zl-surface px-2.5 py-1 text-[11px] font-medium text-zl-text hover:border-zl-accent/40"
           >
-            Focus graph
+            {viewModel.focusLabel}
+          </button>
+        )}
+        {showOpenRouter && (
+          <button
+            type="button"
+            onClick={() => onOpenPrimaryDevice?.(card)}
+            aria-label={viewModel.openPrimaryDeviceAriaLabel!}
+            className="rounded-lg border border-zl-border bg-zl-surface px-2.5 py-1 text-[11px] font-medium text-zl-text hover:border-zl-accent/40"
+          >
+            {viewModel.openRouterDetailsLabel}
           </button>
         )}
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
+          aria-label={
+            expanded ? viewModel.hideDetailsAriaLabel : viewModel.detailsAriaLabel
+          }
           className="text-[11px] text-zl-accent hover:underline"
         >
           {expanded ? "Hide details" : "View details"}
@@ -158,11 +181,15 @@ export function InvestigationPanel({
   activeInvestigationId,
   onFocus,
   onClearFocus,
+  canOpenPrimaryDevice,
+  onOpenPrimaryDevice,
 }: {
   investigations: InvestigationCard[];
   activeInvestigationId: string | null;
   onFocus: (card: InvestigationCard) => void;
   onClearFocus: () => void;
+  canOpenPrimaryDevice?: (card: InvestigationCard) => boolean;
+  onOpenPrimaryDevice?: (card: InvestigationCard) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
   const panel = useMemo(
@@ -204,6 +231,8 @@ export function InvestigationPanel({
                   active={viewModel.id === activeInvestigationId}
                   onFocus={onFocus}
                   onClearFocus={onClearFocus}
+                  canOpenPrimaryDevice={canOpenPrimaryDevice}
+                  onOpenPrimaryDevice={onOpenPrimaryDevice}
                 />
               );
             })}

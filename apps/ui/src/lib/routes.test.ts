@@ -3,7 +3,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  encodeRouteSegment,
   investigatePath,
+  legacyRoutersPath,
   legacyTopologyGraphPath,
   topologySnapshotPath,
 } from "@/lib/routes";
@@ -16,6 +18,15 @@ const ALLOWED_LEGACY_GRAPH_FILES = new Set([
   "main.tsx",
   "components/LegacyTopologyGraphRedirect.tsx",
   "pages/LegacyTopologyGraphRedirect.test.tsx",
+]);
+
+const ALLOWED_ROUTERS_PATH_FILES = new Set([
+  "lib/routes.ts",
+  "lib/routes.test.ts",
+  "main.tsx",
+  "components/LegacyRoutersRedirect.tsx",
+  "pages/LegacyRoutersRedirect.test.tsx",
+  "navigation/model.test.ts",
 ]);
 
 function walkTsFiles(dir: string): string[] {
@@ -33,10 +44,25 @@ function walkTsFiles(dir: string): string[] {
 }
 
 describe("routes helpers", () => {
-  it("builds canonical investigate and snapshot paths", () => {
-    expect(investigatePath("home")).toBe("/investigate/home");
-    expect(topologySnapshotPath("home")).toBe("/topology/home");
-    expect(legacyTopologyGraphPath("home")).toBe("/topology/home/graph");
+  it("encodes network ID path segments", () => {
+    const vectors: Array<[string, string]> = [
+      ["home", "home"],
+      ["Home Office", "Home%20Office"],
+      ["home#2", "home%232"],
+      ["home?test", "home%3Ftest"],
+      ["münchen", "m%C3%BCnchen"],
+      ["50%mesh", "50%25mesh"],
+    ];
+    for (const [input, encoded] of vectors) {
+      expect(encodeRouteSegment(input)).toBe(encoded);
+      expect(investigatePath(input)).toBe(`/investigate/${encoded}`);
+      expect(topologySnapshotPath(input)).toBe(`/topology/${encoded}`);
+      expect(legacyTopologyGraphPath(input)).toBe(`/topology/${encoded}/graph`);
+    }
+  });
+
+  it("does not double-encode already-decoded logical IDs", () => {
+    expect(investigatePath("home%20office")).toBe("/investigate/home%2520office");
   });
 
   it("keeps /topology/:networkId/graph only in compatibility routing/tests", () => {
@@ -44,10 +70,6 @@ describe("routes helpers", () => {
     for (const file of walkTsFiles(srcRoot)) {
       const rel = path.relative(srcRoot, file).replaceAll("\\", "/");
       const text = readFileSync(file, "utf8");
-      if (!text.includes("/topology/") || !text.includes("/graph")) {
-        continue;
-      }
-      // Match literal path templates that navigate to the legacy graph route.
       if (
         /`\/topology\/\$\{[^}]+}\/graph`/.test(text) ||
         /"\/topology\/[^"]+\/graph"/.test(text) ||
@@ -55,12 +77,30 @@ describe("routes helpers", () => {
         /path="topology\/:networkId\/graph"/.test(text) ||
         /path="\/topology\/:networkId\/graph"/.test(text)
       ) {
-        if (!ALLOWED_LEGACY_GRAPH_FILES.has(rel) && !rel.endsWith("routes.test.ts")) {
-          // Allow explicit redirect regression test file.
-          if (rel !== "pages/LegacyTopologyGraphRedirect.test.tsx") {
-            offenders.push(rel);
-          }
+        if (!ALLOWED_LEGACY_GRAPH_FILES.has(rel)) {
+          offenders.push(rel);
         }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("keeps literal /routers only in compatibility routing/tests", () => {
+    expect(legacyRoutersPath()).toBe("/routers");
+    const offenders: string[] = [];
+    for (const file of walkTsFiles(srcRoot)) {
+      const rel = path.relative(srcRoot, file).replaceAll("\\", "/");
+      if (ALLOWED_ROUTERS_PATH_FILES.has(rel)) continue;
+      const text = readFileSync(file, "utf8");
+      // Product links / to= targets — allow API paths like api/routers.
+      if (
+        /to=["']\/routers["']/.test(text) ||
+        /href=["']\/routers["']/.test(text) ||
+        /Navigate to=["']\/routers["']/.test(text) ||
+        /`\/routers`/.test(text) ||
+        /to:\s*["']\/routers["']/.test(text)
+      ) {
+        offenders.push(rel);
       }
     }
     expect(offenders).toEqual([]);

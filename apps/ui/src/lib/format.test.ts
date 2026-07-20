@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { DeviceSummary, Incident, RouterRisk } from "@zigbeelens/shared";
 import {
+  bridgeStateLabel,
+  bridgeStateSeverity,
   compareDevices,
   compareIncidents,
   compareRouterRisks,
@@ -30,6 +32,17 @@ function device(overrides: Partial<DeviceSummary> = {}): DeviceSummary {
     ...overrides,
   };
 }
+
+describe("bridge state presentation", () => {
+  it("maps online/offline/unknown to honest labels and tones", () => {
+    expect(bridgeStateLabel("online")).toBe("Online");
+    expect(bridgeStateSeverity("online")).toBe("healthy");
+    expect(bridgeStateLabel("offline")).toBe("Offline");
+    expect(bridgeStateSeverity("offline")).toBe("critical");
+    expect(bridgeStateLabel("unknown")).toBe("No bridge signal");
+    expect(bridgeStateSeverity("unknown")).toBe("watch");
+  });
+});
 
 describe("severity helpers", () => {
   it("ranks worse severities lower", () => {

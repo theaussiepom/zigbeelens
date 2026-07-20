@@ -13,7 +13,7 @@ import {
 } from "@/components/ui";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
-import { bridgeStateLabel } from "@/lib/format";
+import { bridgeStateLabel, bridgeStateSeverity } from "@/lib/format";
 
 const NETWORK_EVENTS = [
   "network_health_updated",
@@ -83,7 +83,7 @@ export function InvestigateLandingPage() {
                     <DeviceDecisionBadge
                       decision={buildDeviceDecisionBadgeViewModel(network.decision)}
                     />
-                    <Badge severity={network.bridge_state === "online" ? "healthy" : "critical"}>
+                    <Badge severity={bridgeStateSeverity(network.bridge_state)}>
                       Bridge: {bridgeStateLabel(network.bridge_state)}
                     </Badge>
                   </div>

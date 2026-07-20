@@ -3,14 +3,11 @@ import type {
   DeviceSummary,
   Incident,
   NetworkSummary,
-  RouterRisk,
   TimelineEvent,
 } from "@zigbeelens/shared";
 import {
   AvailabilityBadge,
   Badge,
-  Card,
-  ConfidenceBadge,
   LastSeenText,
   LifecycleBadge,
   MetricPill,
@@ -19,6 +16,7 @@ import {
 } from "@/components/ui";
 import {
   bridgeStateLabel,
+  bridgeStateSeverity,
   confidenceLabel,
   devicePath,
   deviceTypeLabel,
@@ -27,6 +25,7 @@ import {
   scopeLabel,
   severityDot,
 } from "@/lib/format";
+import { topologySnapshotPath } from "@/lib/routes";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
 
@@ -146,7 +145,7 @@ export function NetworkDecisionCard({
             <DeviceDecisionBadge
               decision={buildDeviceDecisionBadgeViewModel(network.decision)}
             />
-            <Badge severity={network.bridge_state === "online" ? "healthy" : "critical"}>
+            <Badge severity={bridgeStateSeverity(network.bridge_state)}>
               Bridge: {bridgeStateLabel(network.bridge_state)}
             </Badge>
           </div>
@@ -172,57 +171,13 @@ export function NetworkDecisionCard({
       </Link>
       {topologyEnabled && (
         <Link
-          to={`/topology/${network.id}`}
+          to={topologySnapshotPath(network.id)}
           className="relative z-10 mt-4 inline-flex min-h-11 items-center rounded-lg text-sm text-zl-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
         >
           View topology →
         </Link>
       )}
     </div>
-  );
-}
-
-/* ----------------------------------------------------------------------- */
-/* Router risk card                                                         */
-/* ----------------------------------------------------------------------- */
-
-export function RouterRiskCard({ router }: { router: RouterRisk }) {
-  return (
-    <Card>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <Link
-            to={devicePath(router.network_id, router.ieee_address)}
-            className="text-lg font-semibold text-zl-text hover:text-zl-accent"
-          >
-            {router.friendly_name}
-          </Link>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zl-muted">
-            <NetworkBadge network={router.network_id} />
-            <span className="break-all font-mono">{router.ieee_address}</span>
-          </div>
-        </div>
-        <SeverityBadge severity={router.risk.severity} />
-      </div>
-      <p className="mt-3 text-sm leading-relaxed text-zl-text">{router.risk.summary}</p>
-      <div className="mt-4 flex flex-wrap gap-1.5">
-        <AvailabilityBadge availability={router.availability} />
-        {router.linkquality != null && <MetricPill label="LQI" value={router.linkquality} />}
-        {router.correlated_affected_devices > 0 && (
-          <MetricPill
-            label="Correlated"
-            value={router.correlated_affected_devices}
-            severity="watch"
-          />
-        )}
-        <ConfidenceBadge confidence={router.risk.confidence} />
-      </div>
-      {router.risk.limitations.length > 0 && (
-        <p className="mt-3 border-l-2 border-zl-watch/40 pl-3 text-sm text-zl-watch">
-          {router.risk.limitations[0]?.summary}
-        </p>
-      )}
-    </Card>
   );
 }
 

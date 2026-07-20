@@ -3,13 +3,13 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { AuthGate } from "@/components/AuthGate";
+import { LegacyRoutersRedirect } from "@/components/LegacyRoutersRedirect";
 import { LegacyTopologyGraphRedirect } from "@/components/LegacyTopologyGraphRedirect";
 import { BrowserAuthProvider } from "@/context/BrowserAuthContext";
 import { ScenarioProvider } from "@/context/ScenarioContext";
 import { OverviewPage } from "@/pages/OverviewPage";
 import { IncidentsPage, IncidentDetailPage } from "@/pages/IncidentsPage";
 import { NetworksPage, NetworkDetailPage } from "@/pages/NetworksPage";
-import { RoutersPage } from "@/pages/RoutersPage";
 import { DevicesPage, DeviceDetailPage } from "@/pages/DevicesPage";
 import { TimelinePage } from "@/pages/TimelinePage";
 import { ReportsPage } from "@/pages/ReportsPage";
@@ -37,7 +37,7 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="monitoring" element={<MonitoringGuidePage />} />
                 <Route path="networks" element={<NetworksPage />} />
                 <Route path="networks/:networkId" element={<NetworkDetailPage />} />
-                <Route path="routers" element={<RoutersPage />} />
+                <Route path="routers" element={<LegacyRoutersRedirect />} />
                 <Route path="investigate" element={<InvestigateLandingPage />} />
                 <Route path="investigate/:networkId" element={<TopologyGraphPage />} />
                 <Route path="topology" element={<TopologyPage />} />

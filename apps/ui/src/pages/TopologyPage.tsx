@@ -8,6 +8,7 @@ import { relativeTime } from "@/lib/format";
 import { topologyRequestedByLabel, topologyStatusLabel } from "@/lib/topologyLabels";
 import { resolveTopologyDisplayCounts, snapshotSummaryLooksLimited } from "@/lib/topologyStats";
 import { TopologyViewTabs } from "@/components/meshGraph/TopologyViewTabs";
+import { topologySnapshotPath } from "@/lib/routes";
 
 const CAPTURE_WARNING =
   "Capturing a Zigbee network map asks Zigbee2MQTT to scan the mesh. On larger networks this may temporarily make Zigbee less responsive. ZigbeeLens will not change Zigbee state, but this diagnostic request can create temporary network load.";
@@ -31,7 +32,7 @@ function NetworkTabs({
       {networks.map((network) => (
         <NavLink
           key={network.network_id}
-          to={`/topology/${network.network_id}`}
+          to={topologySnapshotPath(network.network_id)}
           role="tab"
           aria-selected={network.network_id === activeId}
           className={({ isActive }) =>
@@ -209,7 +210,7 @@ function NetworkTopologyRow({
   return (
     <li className="flex flex-wrap items-stretch gap-2">
       <Link
-        to={`/topology/${network.network_id}`}
+        to={topologySnapshotPath(network.network_id)}
         aria-current={isActive ? "page" : undefined}
         className={`flex min-h-11 flex-1 flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50 ${
           isActive
@@ -277,7 +278,7 @@ export function TopologyPage() {
   const enabled = topology?.enabled ?? status.topology?.enabled ?? false;
 
   if (enabled && networks.length > 0 && !networkId) {
-    return <Navigate to={`/topology/${networks[0].network_id}`} replace />;
+    return <Navigate to={topologySnapshotPath(networks[0].network_id)} replace />;
   }
 
   async function confirmCapture(targetNetworkId: string) {

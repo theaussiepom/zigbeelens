@@ -13,7 +13,6 @@ import {
 import {
   IncidentCard,
   NetworkDecisionCard,
-  RouterRiskCard,
   TimelineEventRow,
 } from "@/components/cards";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
@@ -281,19 +280,6 @@ export function OverviewPage() {
           </div>
         )}
       </section>
-
-      {data.router_risks.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
-            Router risks
-          </h2>
-          <div className="grid gap-3 lg:grid-cols-2">
-            {data.router_risks.map((r) => (
-              <RouterRiskCard key={`${r.network_id}-${r.ieee_address}`} router={r} />
-            ))}
-          </div>
-        </section>
-      )}
 
       <Card
         title="Recent timeline"

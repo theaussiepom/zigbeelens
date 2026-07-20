@@ -178,3 +178,33 @@ describe("fetchJson retry policy", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("api.captureTopology path encoding", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    ["home", "/api/topology/home/capture"],
+    ["Home Office", "/api/topology/Home%20Office/capture"],
+    ["home#2", "/api/topology/home%232/capture"],
+    ["home?test", "/api/topology/home%3Ftest/capture"],
+    ["münchen", "/api/topology/m%C3%BCnchen/capture"],
+    ["50%mesh", "/api/topology/50%25mesh/capture"],
+  ] as const)("encodes network id %j in the capture Request URL", async (networkId, expectedPath) => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ snapshot_id: "s1", status: "ok" }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.captureTopology(networkId);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const call = fetchCallParts(fetchMock.mock.calls[0] ?? []);
+    expect(call.method).toBe("POST");
+    const url = new URL(call.url, "http://localhost/");
+    expect(url.pathname).toBe(expectedPath);
+    // Prove encoding in the raw Request URL (not only that the method was called).
+    expect(call.url).toContain(expectedPath.slice(1));
+  });
+});

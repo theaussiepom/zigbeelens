@@ -330,26 +330,32 @@ export function AppShell() {
           </div>
         </header>
 
-        <nav
-          className="flex gap-1 overflow-x-auto scroll-px-3 border-b border-zl-border bg-zl-surface px-3 py-2 lg:hidden"
-          aria-label="Main navigation"
+        <div
+          className="flex items-stretch gap-1 border-b border-zl-border bg-zl-surface px-3 py-2 lg:hidden"
+          data-testid="mobile-nav-shell"
         >
-          {PRIMARY_NAVIGATION.map((item) => {
-            const active = item.isActive(pathname);
-            return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                aria-current={active ? "page" : undefined}
-                className={mobileNavClass(active)}
-              >
-                {item.label}
-              </NavLink>
-            );
-          })}
+          <nav
+            className="flex min-w-0 flex-1 gap-1 overflow-x-auto scroll-px-3"
+            aria-label="Main navigation"
+            data-testid="mobile-primary-nav-scroller"
+          >
+            {PRIMARY_NAVIGATION.map((item) => {
+              const active = item.isActive(pathname);
+              return (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  aria-current={active ? "page" : undefined}
+                  className={mobileNavClass(active)}
+                >
+                  {item.label}
+                </NavLink>
+              );
+            })}
+          </nav>
           <MobileAdvancedNav pathname={pathname} />
-        </nav>
+        </div>
 
         <ModeBanner />
 

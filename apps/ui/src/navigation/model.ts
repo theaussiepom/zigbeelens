@@ -70,12 +70,6 @@ export const ADVANCED_NAVIGATION: readonly AdvancedNavigationItem[] = [
   },
   {
     kind: "advanced",
-    to: "/routers",
-    label: "Router diagnostics",
-    isActive: (pathname) => startsWithPath(pathname, "/routers"),
-  },
-  {
-    kind: "advanced",
     to: "/timeline",
     label: "Timeline",
     isActive: (pathname) => startsWithPath(pathname, "/timeline"),

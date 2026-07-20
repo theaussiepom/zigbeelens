@@ -706,19 +706,22 @@ Remove or demote old paths after replacements are in place.
 
 ### Phase 6A — Navigation simplification
 
-**Status: implemented on `refactor/navigation-consolidation` (awaiting review).**
-
-Primary navigation is Overview, Mesh / Investigate, Devices, Incidents,
-Reports, Settings. Canonical investigation routes are `/investigate` and
-`/investigate/:networkId`. Supporting Networks / Routers / Timeline /
-Topology snapshots / How it works remain under Advanced & support.
-Legacy `/topology/:networkId/graph` redirects to `/investigate/:networkId`.
-No Core API, Decision, Health, incident, report, security, MQTT, or
-retention semantics change in this subphase.
+**Status: merged (PR #96).** Primary navigation and `/investigate` routes are
+canonical. Phase 6B opening commit closed remaining navigation correctness
+gaps (mobile Advanced clipping, bridge-state presenter, encoded route
+segments, Investigate/Raw snapshot link semantics).
 
 ### Phase 6B — Router UX consolidation
 
-Fold router-risk UX into router-area review.
+**Status: implemented on `refactor/router-area-ux` (awaiting review).**
+
+Standalone Router diagnostics navigation and `RoutersPage` are removed.
+`/routers` remains a compatibility redirect to `/investigate`. Router facts,
+Core `/api/routers`, HACS/MQTT/report router projections remain.
+Observed router areas are actionable in Mesh via backend
+`router_neighbourhood_review` cards (`Focus router area`, optional
+`Open router details` into the existing NodeDrawer). No parentage/routing/cause
+claims; no layout/preset/control mutation on focus.
 
 ### Phase 6C — Snapshot UX consolidation
 

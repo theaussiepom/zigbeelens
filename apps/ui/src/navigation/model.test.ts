@@ -18,14 +18,15 @@ describe("navigation model", () => {
     expect(PRIMARY_NAVIGATION).toHaveLength(6);
   });
 
-  it("keeps supporting routes under Advanced & support", () => {
+  it("keeps supporting routes under Advanced & support without Router diagnostics", () => {
     expect(ADVANCED_NAVIGATION.map((item) => [item.label, item.to])).toEqual([
       ["Networks", "/networks"],
-      ["Router diagnostics", "/routers"],
       ["Timeline", "/timeline"],
       ["Topology snapshots", "/topology"],
       ["How it works", "/monitoring"],
     ]);
+    expect(ADVANCED_NAVIGATION).toHaveLength(4);
+    expect(ADVANCED_NAVIGATION.some((item) => item.to === "/routers")).toBe(false);
   });
 
   it("activates detail routes under their parent workflow", () => {
@@ -33,13 +34,14 @@ describe("navigation model", () => {
     expect(PRIMARY_NAVIGATION[2]!.isActive("/devices/home/0xabc")).toBe(true);
     expect(PRIMARY_NAVIGATION[3]!.isActive("/incidents/inc-1")).toBe(true);
     expect(ADVANCED_NAVIGATION[0]!.isActive("/networks/home")).toBe(true);
-    expect(ADVANCED_NAVIGATION[3]!.isActive("/topology/home")).toBe(true);
+    expect(ADVANCED_NAVIGATION[2]!.isActive("/topology/home")).toBe(true);
   });
 
   it("does not treat advanced routes as primary peers", () => {
-    for (const path of ["/networks", "/routers", "/timeline", "/topology", "/monitoring"]) {
+    for (const path of ["/networks", "/timeline", "/topology", "/monitoring"]) {
       expect(PRIMARY_NAVIGATION.some((item) => item.isActive(path))).toBe(false);
       expect(isAdvancedRoute(path)).toBe(true);
     }
+    expect(isAdvancedRoute("/routers")).toBe(false);
   });
 });
