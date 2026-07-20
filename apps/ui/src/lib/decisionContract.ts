@@ -113,6 +113,38 @@ const DEVICE_STORY_KEYS = [
 
 const INCIDENT_STATUSES = ["open", "watching", "resolved"] as const;
 const SEVERITIES = ["healthy", "watch", "incident", "critical"] as const;
+const INCIDENT_SCOPES = [
+  "device",
+  "router_candidate",
+  "mesh_segment",
+  "network",
+  "multi_network",
+  "unknown",
+] as const;
+const CONFIDENCES = ["low", "medium", "high"] as const;
+
+const INCIDENT_REQUIRED_KEYS = [
+  "id",
+  "type",
+  "status",
+  "severity",
+  "scope",
+  "confidence",
+  "title",
+  "summary",
+  "interpretation",
+  "network_ids",
+  "affected_device_count",
+  "affected_devices",
+  "opened_at",
+  "updated_at",
+  "resolved_at",
+  "evidence",
+  "counter_evidence",
+  "limitations",
+  "timeline",
+  "conclusion",
+] as const;
 
 export function isDecisionStatus(value: unknown): value is DecisionStatus {
   return typeof value === "string" && (DECISION_STATUSES as readonly string[]).includes(value);
@@ -306,7 +338,8 @@ function parseCodedItem(value: unknown): void {
   }
 }
 
-function parseEvidenceItem(value: unknown): void {
+/** Device-story evidence reference (source pointer), not Incident EvidenceItem. */
+function parseEvidenceReference(value: unknown): void {
   if (!isPlainObject(value)) {
     protocolFailure();
   }
@@ -321,6 +354,28 @@ function parseEvidenceItem(value: unknown): void {
   ) {
     protocolFailure();
   }
+}
+
+function optionalStringOrNull(value: unknown): void {
+  if (value !== undefined && value !== null && typeof value !== "string") {
+    protocolFailure();
+  }
+}
+
+/** Recorded Incident / conclusion EvidenceItem (id/kind/summary). */
+function parseIncidentEvidenceItem(value: unknown): void {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  requireNonEmptyString(value.id);
+  requireNonEmptyString(value.kind);
+  if (typeof value.summary !== "string") {
+    protocolFailure();
+  }
+  optionalStringOrNull(value.detail);
+  optionalStringOrNull(value.timestamp);
+  optionalStringOrNull(value.network_id);
+  optionalStringOrNull(value.ieee_address);
 }
 
 function parseCoverageItem(value: unknown): void {
@@ -389,7 +444,7 @@ export function parseDeviceStory(value: unknown): void {
     parseCodedItem(item);
   }
   for (const item of value.evidence as unknown[]) {
-    parseEvidenceItem(item);
+    parseEvidenceReference(item);
   }
   for (const item of value.limitations as unknown[]) {
     parseCodedItem(item);
@@ -410,19 +465,126 @@ export function parseDeviceStory(value: unknown): void {
   }
 }
 
-export function parseIncident(value: unknown): Incident {
+function parseLimitationItem(value: unknown): void {
   if (!isPlainObject(value)) {
     protocolFailure();
   }
   requireNonEmptyString(value.id);
+  if (typeof value.summary !== "string") {
+    protocolFailure();
+  }
+  optionalStringOrNull(value.detail);
+}
+
+function parseTimelineEvent(value: unknown): void {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  requireNonEmptyString(value.id);
+  requireNonEmptyString(value.timestamp);
+  requireNonEmptyString(value.kind);
+  if (
+    typeof value.severity !== "string" ||
+    !(SEVERITIES as readonly string[]).includes(value.severity)
+  ) {
+    protocolFailure();
+  }
+  requireNonEmptyString(value.title);
+  requireNonEmptyString(value.summary);
+  optionalStringOrNull(value.network_id);
+  optionalStringOrNull(value.ieee_address);
+  optionalStringOrNull(value.friendly_name);
+  optionalStringOrNull(value.incident_id);
+}
+
+function parseDiagnosticConclusion(value: unknown): void {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  if (typeof value.classification !== "string") {
+    protocolFailure();
+  }
+  if (
+    typeof value.severity !== "string" ||
+    !(SEVERITIES as readonly string[]).includes(value.severity)
+  ) {
+    protocolFailure();
+  }
+  if (
+    typeof value.scope !== "string" ||
+    !(INCIDENT_SCOPES as readonly string[]).includes(value.scope)
+  ) {
+    protocolFailure();
+  }
+  if (
+    typeof value.confidence !== "string" ||
+    !(CONFIDENCES as readonly string[]).includes(value.confidence)
+  ) {
+    protocolFailure();
+  }
+  if (typeof value.summary !== "string") {
+    protocolFailure();
+  }
+  if (!Array.isArray(value.evidence) || !Array.isArray(value.counter_evidence)) {
+    protocolFailure();
+  }
+  if (!Array.isArray(value.limitations)) {
+    protocolFailure();
+  }
+  for (const item of value.evidence) {
+    parseIncidentEvidenceItem(item);
+  }
+  for (const item of value.counter_evidence) {
+    parseIncidentEvidenceItem(item);
+  }
+  for (const item of value.limitations) {
+    parseLimitationItem(item);
+  }
+}
+
+export function parseIncident(value: unknown): Incident {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  for (const key of INCIDENT_REQUIRED_KEYS) {
+    if (!(key in value)) {
+      protocolFailure();
+    }
+  }
+
+  requireNonEmptyString(value.id);
+  requireNonEmptyString(value.type);
   if (
     typeof value.status !== "string" ||
     !(INCIDENT_STATUSES as readonly string[]).includes(value.status)
   ) {
     protocolFailure();
   }
+  if (
+    typeof value.severity !== "string" ||
+    !(SEVERITIES as readonly string[]).includes(value.severity)
+  ) {
+    protocolFailure();
+  }
+  if (
+    typeof value.scope !== "string" ||
+    !(INCIDENT_SCOPES as readonly string[]).includes(value.scope)
+  ) {
+    protocolFailure();
+  }
+  if (
+    typeof value.confidence !== "string" ||
+    !(CONFIDENCES as readonly string[]).includes(value.confidence)
+  ) {
+    protocolFailure();
+  }
   requireNonEmptyString(value.title);
-  requireNonEmptyString(value.summary);
+  if (typeof value.summary !== "string" || !value.summary) {
+    protocolFailure();
+  }
+  if (typeof value.interpretation !== "string") {
+    protocolFailure();
+  }
   if (!Array.isArray(value.network_ids) || !value.network_ids.every((id) => typeof id === "string")) {
     protocolFailure();
   }
@@ -431,11 +593,7 @@ export function parseIncident(value: unknown): Incident {
   }
   requireNonEmptyString(value.opened_at);
   requireNonEmptyString(value.updated_at);
-  if (
-    value.resolved_at !== undefined &&
-    value.resolved_at !== null &&
-    typeof value.resolved_at !== "string"
-  ) {
+  if (value.resolved_at !== null && typeof value.resolved_at !== "string") {
     protocolFailure();
   }
   if (!Array.isArray(value.affected_devices)) {
@@ -450,9 +608,30 @@ export function parseIncident(value: unknown): Incident {
     }
     requireNonEmptyString(ref.network_id);
     requireNonEmptyString(ref.ieee_address);
-    requireNonEmptyString(ref.friendly_name);
+    if (typeof ref.friendly_name !== "string") {
+      protocolFailure();
+    }
     parseDecisionBadge(ref.decision);
   }
+  if (!Array.isArray(value.evidence) || !Array.isArray(value.counter_evidence)) {
+    protocolFailure();
+  }
+  if (!Array.isArray(value.limitations) || !Array.isArray(value.timeline)) {
+    protocolFailure();
+  }
+  for (const item of value.evidence) {
+    parseIncidentEvidenceItem(item);
+  }
+  for (const item of value.counter_evidence) {
+    parseIncidentEvidenceItem(item);
+  }
+  for (const item of value.limitations) {
+    parseLimitationItem(item);
+  }
+  for (const item of value.timeline) {
+    parseTimelineEvent(item);
+  }
+  parseDiagnosticConclusion(value.conclusion);
   return value as unknown as Incident;
 }
 
@@ -478,28 +657,7 @@ function parseDataCoverageWarning(value: unknown): void {
 }
 
 function parseLimitation(value: unknown): void {
-  if (!isPlainObject(value)) {
-    protocolFailure();
-  }
-  requireNonEmptyString(value.id);
-  requireNonEmptyString(value.summary);
-}
-
-function parseTimelineEvent(value: unknown): void {
-  if (!isPlainObject(value)) {
-    protocolFailure();
-  }
-  requireNonEmptyString(value.id);
-  requireNonEmptyString(value.timestamp);
-  requireNonEmptyString(value.kind);
-  if (
-    typeof value.severity !== "string" ||
-    !(SEVERITIES as readonly string[]).includes(value.severity)
-  ) {
-    protocolFailure();
-  }
-  requireNonEmptyString(value.title);
-  requireNonEmptyString(value.summary);
+  parseLimitationItem(value);
 }
 
 export function validateDashboardPayload(value: unknown): DashboardPayload {

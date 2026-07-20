@@ -14,6 +14,11 @@ import {
   validateDashboardPayload,
   validateReportDetailV3,
 } from "@/lib/decisionContract";
+import {
+  buildIncidentDetailViewModel,
+  recordedSeverityConfidenceLine,
+} from "@/viewModels/incidents/incidentDetailViewModel";
+import { buildIncidentRecordViewModel } from "@/viewModels/incidents/incidentViewModel";
 
 const EMPTY_STORY_COLLECTIONS = {
   reasons: [] as unknown[],
@@ -43,26 +48,124 @@ function validDeviceStory(overrides: Record<string, unknown> = {}) {
 function validIncident(overrides: Record<string, unknown> = {}) {
   return {
     id: "inc-1",
+    type: "single_device_unavailable",
     status: "open",
-    title: "Incident",
-    summary: "Summary",
+    severity: "incident",
+    scope: "device",
+    confidence: "medium",
+    title: "Kitchen Sensor unavailable",
+    summary: "Kitchen Sensor stopped reporting.",
+    interpretation: "Recorded interpretation for the incident record.",
     network_ids: ["home"],
     affected_device_count: 1,
-    opened_at: "2026-01-01T00:00:00+00:00",
-    updated_at: "2026-01-01T00:00:00+00:00",
     affected_devices: [
       {
         network_id: "home",
         ieee_address: "0x1",
-        friendly_name: "Sensor",
+        friendly_name: "Kitchen Sensor",
         decision: {
-          status: "watch",
-          priority: "low",
-          headline_code: "device_watch",
+          status: "worth_reviewing",
+          priority: "medium",
+          headline_code: "current_issue_present",
           coverage_label_codes: [],
         },
       },
     ],
+    opened_at: "2026-01-01T00:00:00+00:00",
+    updated_at: "2026-01-01T01:00:00+00:00",
+    resolved_at: null,
+    evidence: [
+      {
+        id: "e1",
+        kind: "availability",
+        summary: "Device marked offline",
+        detail: null,
+        timestamp: "2026-01-01T00:00:00+00:00",
+        network_id: "home",
+        ieee_address: "0x1",
+      },
+    ],
+    counter_evidence: [
+      {
+        id: "c1",
+        kind: "observation",
+        summary: "Brief online blip observed earlier",
+      },
+    ],
+    limitations: [{ id: "l1", summary: "No topology evidence in this window", detail: null }],
+    timeline: [
+      {
+        id: "t1",
+        timestamp: "2026-01-01T00:00:00+00:00",
+        kind: "incident_opened",
+        severity: "incident",
+        title: "Opened",
+        summary: "Incident opened",
+        network_id: "home",
+        ieee_address: "0x1",
+        friendly_name: "Kitchen Sensor",
+        incident_id: "inc-1",
+      },
+    ],
+    conclusion: {
+      classification: "single_device_unavailable",
+      severity: "incident",
+      scope: "device",
+      confidence: "medium",
+      summary: "Kitchen Sensor stopped reporting.",
+      evidence: [{ id: "ce1", kind: "availability", summary: "Offline transition stored" }],
+      counter_evidence: [],
+      limitations: [{ id: "cl1", summary: "Passive history only" }],
+    },
+    ...overrides,
+  };
+}
+
+function minimalReportV3(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "r1",
+    product: "ZigbeeLens",
+    report_version: 3,
+    generated_at: "2026-01-01T00:00:00+00:00",
+    version: "0.1.0",
+    scope: "full",
+    format: "json",
+    redaction: {
+      applied: true,
+      profile: "standard",
+      mqtt_credentials: true,
+      secrets: true,
+      hostnames: false,
+      ip_addresses: false,
+      ieee_addresses_hashed: false,
+      friendly_names: "preserved",
+      network_names: "preserved",
+    },
+    config_summary: {},
+    decision_summary: {
+      subject_count: 0,
+      overall_status: "data_unavailable",
+      highest_priority: "none",
+      status_counts: {},
+      priority_counts: {},
+      coverage_warning_count: 0,
+    },
+    investigation_priorities: [],
+    device_stories: [],
+    data_coverage_warnings: [],
+    incidents: [],
+    collector_status: {},
+    domain_details: {
+      networks: [],
+      devices: [],
+      device_details: [],
+      router_risks: [],
+      topology_snapshot_count: 0,
+    },
+    events_or_timeline: [],
+    limitations: [],
+    raw_counts: {},
+    markdown_summary: "",
     ...overrides,
   };
 }
@@ -369,19 +472,56 @@ describe("decisionContract", () => {
     expect(() => parseDeviceStory(validDeviceStory())).not.toThrow();
   });
 
-  it("requires affected_devices and exact incident identity fields", () => {
-    expect(() => parseIncident(validIncident())).not.toThrow();
-    const { affected_devices: _a, ...missingAffected } = validIncident();
-    expect(() => parseIncident(missingAffected)).toThrow(ApiError);
-    expect(() => parseIncident(validIncident({ affected_devices: "nope" }))).toThrow(ApiError);
-    expect(() =>
-      parseIncident(
-        validIncident({
-          affected_device_count: 0,
-        }),
-      ),
-    ).toThrow(ApiError);
-    expect(() =>
+  it.each([
+    "id",
+    "type",
+    "status",
+    "severity",
+    "scope",
+    "confidence",
+    "title",
+    "summary",
+    "interpretation",
+    "network_ids",
+    "affected_device_count",
+    "affected_devices",
+    "opened_at",
+    "updated_at",
+    "resolved_at",
+    "evidence",
+    "counter_evidence",
+    "limitations",
+    "timeline",
+    "conclusion",
+  ] as const)("rejects incidents missing required key %s", (key) => {
+    const incident = validIncident();
+    delete (incident as Record<string, unknown>)[key];
+    expect(() => parseIncident(incident)).toThrow(ApiError);
+  });
+
+  it("rejects malformed incident fields as protocol errors", () => {
+    const protocol = (fn: () => unknown) => {
+      expect(fn).toThrow(ApiError);
+      try {
+        fn();
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        expect((error as ApiError).kind).toBe("protocol");
+      }
+    };
+
+    protocol(() => parseIncident(validIncident({ type: "" })));
+    protocol(() => parseIncident(validIncident({ severity: "urgent" })));
+    protocol(() => parseIncident(validIncident({ scope: "room" })));
+    protocol(() => parseIncident(validIncident({ confidence: "certain" })));
+    protocol(() => parseIncident(validIncident({ interpretation: 1 })));
+    protocol(() => parseIncident(validIncident({ evidence: "nope" })));
+    protocol(() => parseIncident(validIncident({ counter_evidence: null })));
+    protocol(() => parseIncident(validIncident({ limitations: {} })));
+    protocol(() => parseIncident(validIncident({ timeline: "nope" })));
+    protocol(() => parseIncident(validIncident({ conclusion: null })));
+    protocol(() => parseIncident(validIncident({ affected_devices: "nope" })));
+    protocol(() =>
       parseIncident(
         validIncident({
           affected_devices: [
@@ -393,7 +533,66 @@ describe("decisionContract", () => {
           ],
         }),
       ),
+    );
+    protocol(() => parseIncident(validIncident({ network_ids: [1] })));
+    protocol(() => parseIncident(validIncident({ affected_device_count: 0 })));
+    protocol(() =>
+      parseIncident(
+        validIncident({
+          evidence: [{ id: "e", kind: "x" }],
+        }),
+      ),
+    );
+    protocol(() =>
+      parseIncident(
+        validIncident({
+          conclusion: {
+            classification: "x",
+            severity: "incident",
+            scope: "device",
+            confidence: "medium",
+            summary: "s",
+            evidence: "nope",
+            counter_evidence: [],
+            limitations: [],
+          },
+        }),
+      ),
+    );
+  });
+
+  it("accepts a complete incident and is safe for incident ViewModels", () => {
+    const incident = parseIncident(validIncident());
+    expect(() => buildIncidentRecordViewModel(incident)).not.toThrow();
+    expect(() => buildIncidentDetailViewModel(incident)).not.toThrow();
+    expect(() => recordedSeverityConfidenceLine(incident)).not.toThrow();
+    const detail = buildIncidentDetailViewModel(incident);
+    expect(detail.record.title).toBe("Kitchen Sensor unavailable");
+    expect(detail.evidence).toHaveLength(1);
+    expect(recordedSeverityConfidenceLine(incident)).toContain("Recorded severity");
+  });
+
+  it("rejects a malformed Incident nested in ReportDetailV3", () => {
+    expect(() =>
+      validateReportDetailV3(
+        minimalReportV3({
+          incidents: [validIncident({ conclusion: null })],
+        }),
+      ),
     ).toThrow(ApiError);
+    try {
+      validateReportDetailV3(
+        minimalReportV3({
+          incidents: [validIncident({ type: "" })],
+        }),
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).kind).toBe("protocol");
+    }
+    expect(
+      validateReportDetailV3(minimalReportV3({ incidents: [validIncident()] })).incidents,
+    ).toHaveLength(1);
   });
 
   it("exports closed canonical unions", () => {
