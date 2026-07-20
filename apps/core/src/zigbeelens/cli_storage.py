@@ -183,7 +183,32 @@ def cmd_storage_maintenance(args: argparse.Namespace) -> int:
             finally:
                 db.close()
 
-        # --apply: open existing DB, refuse schema drift, integrity preflight, no migrate.
+        # --apply: read-only preflight first so unsupported DBs stay unmodified.
+        ro = ReadOnlyDatabase(db_path)
+        try:
+            if ro.migration_version != CURRENT_SCHEMA_VERSION:
+                return _print_error(
+                    {
+                        "ok": False,
+                        "error_code": "schema_mismatch",
+                        "schema_version": ro.migration_version,
+                        "required_schema_version": CURRENT_SCHEMA_VERSION,
+                    }
+                )
+            try:
+                quick_check(ro)
+                foreign_key_check(ro)
+            except StorageIntegrityError as exc:
+                return _print_error(
+                    {
+                        "ok": False,
+                        "error_code": exc.kind,
+                        "violation_count": exc.violation_count,
+                    }
+                )
+        finally:
+            ro.close()
+
         db = Database.open_existing(db_path)
         try:
             if db.migration_version != CURRENT_SCHEMA_VERSION:
