@@ -23,6 +23,7 @@ const incident: Incident = {
   affected_devices: [],
   opened_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:01:00Z",
+  resolved_at: null,
   evidence: [{ id: "e1", kind: "availability", summary: "4 devices offline within 94s" }],
   counter_evidence: [],
   limitations: [{ id: "l1", summary: "No topology snapshot is available" }],

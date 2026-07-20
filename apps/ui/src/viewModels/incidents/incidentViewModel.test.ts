@@ -42,6 +42,7 @@ function makeIncident(overrides: Partial<Incident> = {}): Incident {
     affected_devices: [makeRef()],
     opened_at: "2026-07-13T00:00:00Z",
     updated_at: "2026-07-13T01:00:00Z",
+    resolved_at: null,
     evidence: [{ id: "e1", kind: "stored", summary: "Offline evidence" }],
     counter_evidence: [],
     limitations: [{ id: "l1", summary: "No topology" }],

@@ -72,17 +72,17 @@ export interface EvidenceItem {
   id: string;
   kind: string;
   summary: string;
-  detail?: string;
-  timestamp?: string;
-  network_id?: string;
-  ieee_address?: string;
+  detail?: string | null;
+  timestamp?: string | null;
+  network_id?: string | null;
+  ieee_address?: string | null;
 }
 
 /** Known limitation of a diagnostic conclusion */
 export interface LimitationItem {
   id: string;
   summary: string;
-  detail?: string;
+  detail?: string | null;
 }
 
 /** Standard diagnostic conclusion shape */
@@ -227,7 +227,7 @@ export interface Incident {
   affected_devices: IncidentDeviceRef[];
   opened_at: string;
   updated_at: string;
-  resolved_at?: string;
+  resolved_at: string | null;
   evidence: EvidenceItem[];
   counter_evidence: EvidenceItem[];
   limitations: LimitationItem[];
@@ -252,12 +252,12 @@ export interface TimelineEvent {
   timestamp: string;
   kind: string;
   severity: Severity;
-  network_id?: string;
-  ieee_address?: string;
-  friendly_name?: string;
+  network_id?: string | null;
+  ieee_address?: string | null;
+  friendly_name?: string | null;
   title: string;
   summary: string;
-  incident_id?: string;
+  incident_id?: string | null;
 }
 
 /** Facts-only shared availability event for dashboard Overview */

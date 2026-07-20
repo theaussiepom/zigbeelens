@@ -135,6 +135,7 @@ function makeOverviewIncident(overrides: Partial<Incident> = {}): Incident {
     affected_devices: [],
     opened_at: "2026-07-16T10:00:00Z",
     updated_at: "2026-07-16T12:00:00Z",
+    resolved_at: null,
     evidence: [],
     counter_evidence: [],
     limitations: [],

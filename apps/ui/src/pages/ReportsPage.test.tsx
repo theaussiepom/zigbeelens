@@ -91,6 +91,7 @@ function makePickerIncident(overrides: Partial<Incident> = {}): Incident {
     affected_devices: [],
     opened_at: "2026-07-16T00:00:00Z",
     updated_at: "2026-07-16T00:00:00Z",
+    resolved_at: null,
     evidence: [],
     counter_evidence: [],
     limitations: [],

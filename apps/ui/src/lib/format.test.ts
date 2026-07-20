@@ -97,6 +97,7 @@ describe("compareIncidents", () => {
       affected_devices: [],
       opened_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
+      resolved_at: null,
       evidence: [],
       counter_evidence: [],
       limitations: [],
@@ -117,7 +118,11 @@ describe("compareIncidents", () => {
 
   it("sorts open incidents before resolved", () => {
     const list = [
-      incident({ id: "resolved", status: "resolved" }),
+      incident({
+        id: "resolved",
+        status: "resolved",
+        resolved_at: "2026-01-02T00:00:00Z",
+      }),
       incident({ id: "open", status: "open" }),
       incident({ id: "watching", status: "watching" }),
     ];

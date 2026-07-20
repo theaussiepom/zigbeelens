@@ -143,6 +143,7 @@ function makeIncident(overrides: Partial<Incident> = {}): Incident {
     ],
     opened_at: "2026-07-13T00:00:00Z",
     updated_at: "2026-07-13T01:00:00Z",
+    resolved_at: null,
     evidence: [{ id: "e1", kind: "stored", summary: "First stored evidence" }],
     counter_evidence: [{ id: "c1", kind: "stored", summary: "Counter evidence" }],
     limitations: [{ id: "l1", summary: "First stored limitation" }],

@@ -193,7 +193,7 @@ describe("recentChangesViewModel", () => {
   });
 
   it("links incidents and mesh contexts with existing routes", () => {
-    const incident = {
+    const incident: Incident = {
       id: "inc-1",
       type: "group_offline",
       status: "open",
@@ -208,6 +208,7 @@ describe("recentChangesViewModel", () => {
       affected_devices: [],
       opened_at: "2026-07-13T08:00:00+00:00",
       updated_at: "2026-07-13T09:00:00+00:00",
+      resolved_at: null,
       evidence: [],
       counter_evidence: [],
       limitations: [],
@@ -222,7 +223,7 @@ describe("recentChangesViewModel", () => {
         counter_evidence: [],
         limitations: [],
       },
-    } as Incident;
+    };
     const section = buildRecentChangesSectionViewModel({
       previousLastViewedAt: "2026-07-12T00:00:00+00:00",
       dashboard: makeDashboard({
