@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { InvestigationCard } from "@/types/topology";
-import { buildInvestigationCardViewModel, buildInvestigationPanelViewModel } from "./investigationViewModel";
+import {
+  assignAccessibleContextKeys,
+  buildAccessibleContextKey,
+  buildInvestigationCardViewModel,
+  buildInvestigationPanelViewModel,
+} from "./investigationViewModel";
 
 function makeCard(overrides: Partial<InvestigationCard> = {}): InvestigationCard {
   return {
@@ -27,6 +32,16 @@ function makeCard(overrides: Partial<InvestigationCard> = {}): InvestigationCard
   };
 }
 
+function actionNames(vm: ReturnType<typeof buildInvestigationCardViewModel>): string[] {
+  return [
+    vm.focusAriaLabel,
+    vm.clearFocusAriaLabel,
+    vm.detailsAriaLabel,
+    vm.hideDetailsAriaLabel,
+    vm.openPrimaryDeviceAriaLabel,
+  ].filter((name): name is string => Boolean(name));
+}
+
 describe("investigationViewModel", () => {
   it("leads with action group copy for check power/reporting", () => {
     const vm = buildInvestigationCardViewModel(makeCard());
@@ -38,13 +53,14 @@ describe("investigationViewModel", () => {
     expect(vm.openRouterDetailsLabel).toBeNull();
   });
 
-  it("uses router-area focus and open-details labels for observed router areas", () => {
+  it("uses router-area focus labels from the card title without duplicating action group wording", () => {
     const vm = buildInvestigationCardViewModel(
       makeCard({
         type: "router_neighbourhood_review",
         action_group: "review_observed_router_area",
         primary_neighbourhood_ieee: "0xr1",
-        title: "Observed router area around Hall Router",
+        title: "Review observed router area: Hall Router",
+        summary: "Several issue devices are represented around Hall Router in stored evidence.",
       }),
     );
     expect(vm.isRouterArea).toBe(true);
@@ -52,13 +68,16 @@ describe("investigationViewModel", () => {
     expect(vm.openRouterDetailsLabel).toBe("Open router details");
     expect(vm.primaryNeighbourhoodIeee).toBe("0xr1");
     expect(vm.focusAriaLabel).toBe(
-      "Focus router area: Review observed router area — Observed router area around Hall Router",
+      "Focus router area: Review observed router area: Hall Router",
     );
     expect(vm.openPrimaryDeviceAriaLabel).toBe(
-      "Open router details: Review observed router area — Observed router area around Hall Router",
+      "Open router details: Review observed router area: Hall Router",
     );
     expect(vm.clearFocusAriaLabel).toBe(
-      "Clear focus: Review observed router area — Observed router area around Hall Router",
+      "Clear focus: Review observed router area: Hall Router",
+    );
+    expect(vm.focusAriaLabel).not.toMatch(
+      /Review observed router area — Review observed router area/i,
     );
   });
 
@@ -81,33 +100,25 @@ describe("investigationViewModel", () => {
         type: "router_neighbourhood_review",
         action_group: "review_observed_router_area",
         primary_neighbourhood_ieee: "0xr1",
-        title: "Observed router area around Hall Router",
+        title: "Review observed router area: Hall Router",
       }),
       makeCard({
         id: "router-b",
         type: "router_neighbourhood_review",
         action_group: "review_observed_router_area",
         primary_neighbourhood_ieee: "0xr2",
-        title: "Observed router area around Garage Router",
+        title: "Review observed router area: Garage Router",
       }),
     ];
-    const vms = cards.map(buildInvestigationCardViewModel);
-    const actionNames = vms.flatMap((vm) =>
-      [
-        vm.focusAriaLabel,
-        vm.clearFocusAriaLabel,
-        vm.detailsAriaLabel,
-        vm.hideDetailsAriaLabel,
-        vm.openPrimaryDeviceAriaLabel,
-      ].filter((name): name is string => Boolean(name)),
-    );
+    const vms = buildInvestigationPanelViewModel(cards).cards;
+    const names = vms.flatMap(actionNames);
 
     expect(vms.filter((vm) => !vm.isRouterArea)).toHaveLength(2);
     expect(vms.filter((vm) => vm.isRouterArea)).toHaveLength(2);
-    expect(new Set(actionNames).size).toBe(actionNames.length);
+    expect(new Set(names).size).toBe(names.length);
     for (const vm of vms) {
       expect(vm.focusAriaLabel).toContain(vm.contextTitle);
-      expect(vm.focusAriaLabel).not.toMatch(/0x[0-9a-f]+/i);
+      expect(vm.focusAriaLabel).not.toMatch(/\b0x[0-9a-f]+\b/i);
       expect(vm.clearFocusAriaLabel).toMatch(/^Clear focus:/);
       expect(vm.clearFocusAriaLabel).not.toMatch(/Clear focus for Focus/i);
       expect(vm.detailsAriaLabel).toMatch(/^View details:/);
@@ -116,11 +127,174 @@ describe("investigationViewModel", () => {
       "Focus graph: Several recent missing links involve Kitchen Sensor",
     );
     expect(vms[2]?.focusAriaLabel).toBe(
-      "Focus router area: Review observed router area — Observed router area around Hall Router",
+      "Focus router area: Review observed router area: Hall Router",
     );
-    expect(vms[2]?.openPrimaryDeviceAriaLabel).toBe(
-      "Open router details: Review observed router area — Observed router area around Hall Router",
+  });
+
+  it("distinguishes repeated shared_availability_event titles with summary and evidence time", () => {
+    const cards = [
+      makeCard({
+        id: "shared-a",
+        type: "shared_availability_event",
+        action_group: "investigate_shared_event",
+        title: "Several devices went offline around the same time",
+        summary:
+          "11 devices went offline during a shared availability event lasting about 4 minutes.",
+        latest_supporting_evidence_at: "2026-07-20T10:32:00Z",
+      }),
+      makeCard({
+        id: "shared-b",
+        type: "shared_availability_event",
+        action_group: "investigate_shared_event",
+        title: "Several devices went offline around the same time",
+        summary:
+          "6 devices went offline during a shared availability event lasting about 2 minutes.",
+        latest_supporting_evidence_at: "2026-07-19T08:00:00Z",
+      }),
+    ];
+    const vms = buildInvestigationPanelViewModel(cards).cards;
+    expect(vms[0]?.focusAriaLabel).toBe(
+      "Focus graph: Several devices went offline around the same time — " +
+        "11 devices went offline during a shared availability event lasting about 4 minutes.",
     );
+    expect(vms[1]?.focusAriaLabel).toContain("6 devices went offline");
+    expect(vms[0]?.focusAriaLabel).not.toBe(vms[1]?.focusAriaLabel);
+    expect(vms[0]?.detailsAriaLabel).not.toBe(vms[1]?.detailsAriaLabel);
+    expect(vms[0]?.clearFocusAriaLabel).not.toBe(vms[1]?.clearFocusAriaLabel);
+    expect(vms[0]?.focusAriaLabel).not.toMatch(/\b0x[0-9a-f]+\b/i);
+  });
+
+  it("includes latest evidence when shared-event summaries alone are not enough", () => {
+    const cards = [
+      makeCard({
+        id: "shared-same-summary-a",
+        type: "shared_availability_event",
+        action_group: "investigate_shared_event",
+        title: "Several devices went offline around the same time",
+        summary:
+          "11 devices went offline during a shared availability event lasting about 4 minutes.",
+        latest_supporting_evidence_at: "2026-07-20T10:32:00Z",
+      }),
+      makeCard({
+        id: "shared-same-summary-b",
+        type: "shared_availability_event",
+        action_group: "investigate_shared_event",
+        title: "Several devices went offline around the same time",
+        summary:
+          "11 devices went offline during a shared availability event lasting about 4 minutes.",
+        latest_supporting_evidence_at: "2026-07-18T09:00:00Z",
+      }),
+    ];
+    const vms = buildInvestigationPanelViewModel(cards).cards;
+    expect(vms[0]?.focusAriaLabel).toBe(
+      "Focus graph: Several devices went offline around the same time — " +
+        "11 devices went offline during a shared availability event lasting about 4 minutes. — " +
+        "latest evidence 2026-07-20T10:32:00Z",
+    );
+    expect(vms[1]?.focusAriaLabel).toContain("latest evidence 2026-07-18T09:00:00Z");
+    expect(vms[0]?.focusAriaLabel).not.toBe(vms[1]?.focusAriaLabel);
+  });
+
+  it("distinguishes repeated issue_cluster titles via neighbourhood summaries", () => {
+    const cards = [
+      makeCard({
+        id: "issue-a",
+        type: "issue_cluster",
+        action_group: "investigate_shared_event",
+        title: "Devices needing attention share an observed neighbourhood",
+        summary:
+          "4 devices needing attention have recent evidence near the same observed router neighbourhood (Hall Router).",
+        latest_supporting_evidence_at: "2026-07-20T10:00:00Z",
+      }),
+      makeCard({
+        id: "issue-b",
+        type: "issue_cluster",
+        action_group: "investigate_shared_event",
+        title: "Devices needing attention share an observed neighbourhood",
+        summary:
+          "3 devices needing attention have recent evidence near the same observed router neighbourhood (Garage Router).",
+        latest_supporting_evidence_at: "2026-07-20T10:00:00Z",
+      }),
+    ];
+    const vms = buildInvestigationPanelViewModel(cards).cards;
+    expect(vms[0]?.focusAriaLabel).toContain("Hall Router");
+    expect(vms[1]?.focusAriaLabel).toContain("Garage Router");
+    expect(vms[0]?.focusAriaLabel).not.toBe(vms[1]?.focusAriaLabel);
+    expect(vms[0]?.detailsAriaLabel).not.toBe(vms[1]?.detailsAriaLabel);
+  });
+
+  it("distinguishes repeated passive_instability_group titles via latest evidence time", () => {
+    const cards = [
+      makeCard({
+        id: "passive-a",
+        type: "passive_instability_group",
+        action_group: "watch_only",
+        priority: "Lower priority",
+        title: "Devices repeatedly went offline around the same time",
+        summary: "5 devices showed repeated related offline timing in passive observations.",
+        latest_supporting_evidence_at: "2026-07-20T12:00:00Z",
+      }),
+      makeCard({
+        id: "passive-b",
+        type: "passive_instability_group",
+        action_group: "watch_only",
+        priority: "Lower priority",
+        title: "Devices repeatedly went offline around the same time",
+        summary: "5 devices showed repeated related offline timing in passive observations.",
+        latest_supporting_evidence_at: "2026-07-19T12:00:00Z",
+      }),
+    ];
+    const vms = buildInvestigationPanelViewModel(cards).cards;
+    expect(vms[0]?.focusAriaLabel).toContain("latest evidence 2026-07-20T12:00:00Z");
+    expect(vms[1]?.focusAriaLabel).toContain("latest evidence 2026-07-19T12:00:00Z");
+    expect(vms[0]?.focusAriaLabel).not.toBe(vms[1]?.focusAriaLabel);
+    expect(vms[0]?.clearFocusAriaLabel).not.toBe(vms[1]?.clearFocusAriaLabel);
+  });
+
+  it("keeps router-area action names distinct without duplicated action-group wording", () => {
+    const cards = [
+      makeCard({
+        id: "router-a",
+        type: "router_neighbourhood_review",
+        action_group: "review_observed_router_area",
+        primary_neighbourhood_ieee: "0xr1",
+        title: "Review observed router area: Hall Router",
+        summary: "Evidence concentrates around Hall Router.",
+      }),
+      makeCard({
+        id: "router-b",
+        type: "router_neighbourhood_review",
+        action_group: "review_observed_router_area",
+        primary_neighbourhood_ieee: "0xr2",
+        title: "Review observed router area: Garage Router",
+        summary: "Evidence concentrates around Garage Router.",
+      }),
+    ];
+    const vms = buildInvestigationPanelViewModel(cards).cards;
+    expect(vms[0]?.focusAriaLabel).toBe(
+      "Focus router area: Review observed router area: Hall Router",
+    );
+    expect(vms[1]?.focusAriaLabel).toBe(
+      "Focus router area: Review observed router area: Garage Router",
+    );
+    expect(vms[0]?.openPrimaryDeviceAriaLabel).toBe(
+      "Open router details: Review observed router area: Hall Router",
+    );
+    expect(vms[1]?.openPrimaryDeviceAriaLabel).toBe(
+      "Open router details: Review observed router area: Garage Router",
+    );
+    for (const vm of vms) {
+      expect(vm.focusAriaLabel).not.toMatch(
+        /Review observed router area — Review observed router area/i,
+      );
+      expect(vm.clearFocusAriaLabel).not.toMatch(
+        /Review observed router area — Review observed router area/i,
+      );
+      expect(vm.detailsAriaLabel).not.toMatch(
+        /Review observed router area — Review observed router area/i,
+      );
+    }
+    expect(new Set(vms.flatMap(actionNames)).size).toBe(vms.flatMap(actionNames).length);
   });
 
   it("omits open-router-details when the card has no neighbourhood IEEE", () => {
@@ -129,6 +303,7 @@ describe("investigationViewModel", () => {
         type: "router_neighbourhood_review",
         action_group: "review_observed_router_area",
         primary_neighbourhood_ieee: null,
+        title: "Review observed router area: Hall Router",
       }),
     );
     expect(vm.focusLabel).toBe("Focus router area");
@@ -179,5 +354,28 @@ describe("investigationViewModel", () => {
     expect(vm.title).toBe("Where to look first");
     expect(vm.cards).toHaveLength(1);
     expect(vm.emptyCopy).toMatch(/no investigation priorities/i);
+  });
+
+  it("refuses opaque id / IEEE disambiguation when human facts still collide", () => {
+    const cards = [
+      makeCard({
+        id: "opaque-a",
+        title: "Identical title",
+        summary: "Identical summary",
+        latest_supporting_evidence_at: "2026-07-20T10:00:00Z",
+        supporting_evidence: ["0xaaaa"],
+      }),
+      makeCard({
+        id: "opaque-b",
+        title: "Identical title",
+        summary: "Identical summary",
+        latest_supporting_evidence_at: "2026-07-20T10:00:00Z",
+        supporting_evidence: ["0xbbbb"],
+      }),
+    ];
+    expect(() => assignAccessibleContextKeys(cards)).toThrow(/refusing to expose/i);
+    expect(buildAccessibleContextKey(cards[0]!, 3)).toBe(
+      "Identical title — Identical summary — latest evidence 2026-07-20T10:00:00Z",
+    );
   });
 });
