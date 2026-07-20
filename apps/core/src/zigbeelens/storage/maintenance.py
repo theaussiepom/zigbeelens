@@ -320,22 +320,20 @@ def _execute_deletes(
             if batch < limit:
                 break
 
-    while True:
-        try:
-            with repo.transaction():
-                terminalized = maint.terminalize_abandoned_topology_captures(
-                    reference_now_iso=now_iso,
-                    limit=limit,
-                    exclude_ids=frozenset(exclude),
-                )
-        except Exception:
-            result.failure_category = "abandoned_pending_topology"
-            raise
-        _record_updated(result, "abandoned_pending_topology", len(terminalized))
-        exclude.update(terminalized)
-        if len(terminalized) < limit:
-            break
-
+    # At most one bounded terminalization batch per cycle. Remaining abandoned
+    # pending rows (and newly terminal history) are handled by later cycles.
+    try:
+        with repo.transaction():
+            terminalized = maint.terminalize_abandoned_topology_captures(
+                reference_now_iso=now_iso,
+                limit=limit,
+                exclude_ids=frozenset(exclude),
+            )
+    except Exception:
+        result.failure_category = "abandoned_pending_topology"
+        raise
+    _record_updated(result, "abandoned_pending_topology", len(terminalized))
+    exclude.update(terminalized)
     exclude_frozen = frozenset(exclude)
 
     while True:
@@ -423,8 +421,26 @@ def _post_maintenance_housekeeping(repo: Repository) -> dict[str, int | bool | N
     }
 
 
+# Categories whose deletion/update changes retained diagnostic evidence or
+# Dashboard factual projections. Report deletion alone does not.
+_EVIDENCE_DELETE_CATEGORIES = frozenset(
+    {
+        *(table for table, _column, _pk in TELEMETRY_CATEGORIES),
+        "topology_snapshots",
+        "topology_count_cap",
+        "incidents_resolved",
+    }
+)
+
+
 def maintenance_evidence_changed(result: StorageMaintenanceResult) -> bool:
-    return result.total_rows_deleted > 0 or sum(result.rows_updated_by_category.values()) > 0
+    """True when Dashboard/Discovery must recompose after a maintenance cycle."""
+    deleted = result.rows_deleted_by_category
+    if any(deleted.get(name, 0) > 0 for name in _EVIDENCE_DELETE_CATEGORIES):
+        return True
+    if result.rows_updated_by_category.get("abandoned_pending_topology", 0) > 0:
+        return True
+    return False
 
 
 def affected_invalidation_events(result: StorageMaintenanceResult) -> tuple[str, ...]:

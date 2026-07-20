@@ -268,19 +268,23 @@ class TopologyService:
                 status="complete",
             )
             self._status.last_capture_error = None
-            deleted = 0
             try:
-                deleted = self._repo.enforce_topology_retention(
+                self._repo.enforce_topology_retention(
                     pending.network_id, self._config.topology.max_snapshots_per_network
                 )
             except Exception:
                 logger.error(
                     "Topology count retention failed safely; completed capture retained"
                 )
-            if deleted > 0:
+            # Every successful capture changes topology history. Publish once
+            # whether count cleanup deleted zero, one, or many rows. SSE failure
+            # must not turn a stored complete capture into an error.
+            try:
                 self._ctx.broadcaster.publish_sync(
                     "topology_updated", {"type": "topology_updated"}
                 )
+            except Exception:
+                logger.error("topology_updated publish failed safely after capture")
             # Refresh decisions only after best-effort count cleanup so retained
             # history matches what topology surfaces will show.
             self._refresh_diagnostics()

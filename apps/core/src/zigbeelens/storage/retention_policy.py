@@ -36,9 +36,29 @@ from zigbeelens.config.models import AppConfig, StorageConfig, TopologyConfig
 POLICY_VERSION = 2
 CURRENT_SCHEMA_VERSION = 12
 MAINTENANCE_BATCH_SIZE = 500
+# Active topology capture excludes at most one pending ID; terminalization adds
+# at most one batch. Topology selector NOT IN lists must stay within this bound.
+MAINTENANCE_MAX_TOPOLOGY_EXCLUDE_IDS = MAINTENANCE_BATCH_SIZE + 1
 MAINTENANCE_STATUS_KEY = "storage_maintenance_status_v1"
 ABANDONED_TOPOLOGY_ERROR = "Topology capture was interrupted before completion"
 MORE_WORK_CONTINUATION_SECONDS = 60.0
+
+KNOWN_DELETE_CATEGORIES: frozenset[str] = frozenset(
+    {
+        "unresolved_device_messages",
+        "metric_samples",
+        "availability_changes",
+        "device_snapshots",
+        "bridge_snapshots",
+        "health_snapshots",
+        "events",
+        "topology_snapshots",
+        "topology_count_cap",
+        "incidents_resolved",
+        "reports",
+    }
+)
+KNOWN_UPDATE_CATEGORIES: frozenset[str] = frozenset({"abandoned_pending_topology"})
 
 # Deterministic category order for preview and deletion.
 TELEMETRY_CATEGORIES: tuple[tuple[str, str, str], ...] = (
@@ -49,6 +69,14 @@ TELEMETRY_CATEGORIES: tuple[tuple[str, str, str], ...] = (
     ("bridge_snapshots", "captured_at", "id"),
     ("health_snapshots", "captured_at", "id"),
     ("events", "occurred_at", "id"),
+)
+KNOWN_TIMESTAMP_CATEGORIES: frozenset[str] = frozenset(
+    {
+        *(table for table, _column, _pk in TELEMETRY_CATEGORIES),
+        "topology_snapshots",
+        "incidents_resolved",
+        "reports",
+    }
 )
 
 NEVER_AGE_PURGE_TABLES: frozenset[str] = frozenset(

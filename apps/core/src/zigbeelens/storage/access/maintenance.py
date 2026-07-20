@@ -19,6 +19,7 @@ from zigbeelens.storage.retention_policy import (
     JD_LE,
     JD_LT,
     JD_MALFORMED,
+    MAINTENANCE_MAX_TOPOLOGY_EXCLUDE_IDS,
     MAINTENANCE_STATUS_KEY,
     StorageMaintenancePlan,
     StorageRetentionPreview,
@@ -36,8 +37,12 @@ _PENDING_CAPTURE_TIMEOUT_SECONDS = 15 * 60
 
 
 class MaintenanceRepository:
+    # Test-visible peak bind-parameter counts for topology exclude lists.
+    max_exclude_bind_params_seen: int = 0
+
     def __init__(self, repo: Repository) -> None:
         self._repo = repo
+        self.max_exclude_bind_params_seen = 0
 
     @property
     def db(self):
@@ -779,6 +784,13 @@ class MaintenanceRepository:
     ) -> tuple[str, list[str]]:
         if not exclude_ids:
             return "", []
+        if len(exclude_ids) > MAINTENANCE_MAX_TOPOLOGY_EXCLUDE_IDS:
+            raise ValueError(
+                "topology exclude list exceeds MAINTENANCE_MAX_TOPOLOGY_EXCLUDE_IDS"
+            )
+        self.max_exclude_bind_params_seen = max(
+            self.max_exclude_bind_params_seen, len(exclude_ids)
+        )
         column = f"{alias}.snapshot_id" if alias else "snapshot_id"
         placeholders = ",".join("?" for _ in exclude_ids)
         return f"AND {column} NOT IN ({placeholders})", list(exclude_ids)

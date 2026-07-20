@@ -72,11 +72,26 @@ def test_parse_retention_instant_timestamp_forms():
         "2026-01-01 00:00:00",
         "2026-01-01T10:00:00+10:00",
         "2026-01-01 10:00:00+10:00",
+        "2026-01-01T00:00:00.123456",
+        "2026-01-01 00:00:00.123",
     ]
-    instants = [parse_retention_instant(value) for value in forms]
+    instants = [parse_retention_instant(value) for value in forms[:6]]
     assert all(value is not None for value in instants)
     assert len(set(instants)) == 1
-    assert parse_retention_instant("not-a-timestamp") is None
+    assert parse_retention_instant("2026-01-01T00:00:00.123456") is not None
+    rejected = [
+        " 2026-01-01T00:00:00",
+        "2026-01-01T00:00:00 ",
+        "20260101T000000",
+        "2026-W01-1",
+        "2026-01-01T00:00:00+1000",
+        "2026-01-01T00:00:00+10:00:00",
+        "2026-01-01",
+        "2026-01-01  00:00:00",
+        "2026-01-01T00:00:00 UTC",
+        "not-a-timestamp",
+    ]
+    assert all(parse_retention_instant(value) is None for value in rejected)
 
 
 def test_terminalize_excluded_until_next_cycle(tmp_path: Path):
@@ -347,6 +362,8 @@ def test_scheduler_coalesce_and_more_work_delay(tmp_path: Path):
 
 
 def test_events_for_noop_and_partial_failure():
+    from zigbeelens.storage.maintenance import maintenance_evidence_changed
+
     noop = StorageMaintenanceResult(success=True)
     events = affected_invalidation_events(noop)
     assert events == ("storage_maintenance_completed",)
@@ -363,6 +380,42 @@ def test_events_for_noop_and_partial_failure():
     )
     assert published == [("storage_maintenance_completed", payload)]
     assert dashboards == []
+
+    report_only = StorageMaintenanceResult(
+        success=True,
+        rows_deleted_by_category={"reports": 3},
+    )
+    assert affected_invalidation_events(report_only) == (
+        "storage_maintenance_completed",
+        "reports_updated",
+    )
+    assert maintenance_evidence_changed(report_only) is False
+    published.clear()
+    dashboards.clear()
+    publish_maintenance_side_effects(
+        report_only,
+        publish_sync=lambda name, body: published.append((name, body)),
+        schedule_dashboard=lambda: dashboards.append("dash"),
+    )
+    assert [name for name, _ in published] == [
+        "storage_maintenance_completed",
+        "reports_updated",
+    ]
+    assert dashboards == []
+
+    mixed = StorageMaintenanceResult(
+        success=True,
+        rows_deleted_by_category={"reports": 1, "events": 2},
+    )
+    assert maintenance_evidence_changed(mixed) is True
+    published.clear()
+    dashboards.clear()
+    publish_maintenance_side_effects(
+        mixed,
+        publish_sync=lambda name, body: published.append((name, body)),
+        schedule_dashboard=lambda: dashboards.append("dash"),
+    )
+    assert dashboards == ["dash"]
 
     partial = StorageMaintenanceResult(
         success=False,
@@ -673,10 +726,33 @@ def test_strict_status_rejects_coerced_counts(tmp_path: Path):
                 "more_work_pending": 1,
                 "last_error_code": "not_a_real_code",
                 "failure_category": "not_a_category",
-                "rows_deleted_by_category": {"events": True, "reports": 2},
+                "last_started_at": "not-iso",
+                "rows_deleted_by_category": {
+                    "events": True,
+                    "reports": 2,
+                    "../../etc/passwd": 9,
+                    "SELECT *": 3,
+                    "evil_category": 4,
+                },
+                "rows_updated_by_category": {
+                    "abandoned_pending_topology": 1,
+                    "reports": 5,
+                },
+                "malformed_timestamps_by_category": {
+                    "events": 2,
+                    "evil": 1,
+                },
                 "integrity": {
-                    "quick_check": {"status": "weird", "violation_count": "1"},
-                    "foreign_key_check": {"status": "ok", "violation_count": 0},
+                    "quick_check": {
+                        "status": "weird",
+                        "checked_at": "bogus",
+                        "violation_count": "1",
+                    },
+                    "foreign_key_check": {
+                        "status": "ok",
+                        "checked_at": "2026-07-20T00:00:00+00:00",
+                        "violation_count": 0,
+                    },
                 },
             }
         )
@@ -698,6 +774,217 @@ def test_strict_status_rejects_coerced_counts(tmp_path: Path):
     assert status["maintenance"]["more_work_pending"] is False
     assert status["maintenance"]["last_error_code"] is None
     assert status["maintenance"]["failure_category"] is None
+    assert status["maintenance"]["last_started_at"] is None
     assert status["maintenance"]["rows_deleted_by_category"] == {"reports": 2}
+    assert status["maintenance"]["rows_updated_by_category"] == {
+        "abandoned_pending_topology": 1
+    }
+    assert status["maintenance"]["malformed_timestamps_by_category"] == {"events": 2}
     assert status["integrity"]["quick_check"]["status"] is None
+    assert status["integrity"]["quick_check"]["checked_at"] is None
     assert status["integrity"]["foreign_key_check"]["status"] == "ok"
+    assert (
+        status["integrity"]["foreign_key_check"]["checked_at"]
+        == "2026-07-20T00:00:00+00:00"
+    )
+
+
+def test_bounded_terminalization_batches(tmp_path: Path):
+    from zigbeelens.storage.retention_policy import (
+        MAINTENANCE_BATCH_SIZE,
+        MAINTENANCE_MAX_TOPOLOGY_EXCLUDE_IDS,
+    )
+
+    db = Database(tmp_path / "bound.sqlite")
+    db.migrate()
+    repo = Repository(db)
+    repo.sync_networks([NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt")])
+    old = (REF - timedelta(days=30)).isoformat()
+    repo.db.conn.executemany(
+        """
+        INSERT INTO topology_snapshots
+          (snapshot_id, network_id, captured_at, requested_by, status, warning_acknowledged)
+        VALUES (?, 'home', ?, 'test', 'pending', 0)
+        """,
+        [(f"pend-{i}", old) for i in range(1_250)],
+    )
+    repo.db.conn.commit()
+    cfg = _cfg(tmp_path / "bound.sqlite")
+
+    first = run_storage_maintenance(repo, cfg, reference_now=REF)
+    assert first.rows_updated_by_category.get("abandoned_pending_topology") == 500
+    assert first.rows_deleted_by_category.get("topology_snapshots", 0) == 0
+    assert first.more_work_pending is True
+    assert repo.maintenance.max_exclude_bind_params_seen <= MAINTENANCE_MAX_TOPOLOGY_EXCLUDE_IDS
+    pending_left = repo.db.conn.execute(
+        "SELECT COUNT(*) FROM topology_snapshots WHERE status='pending'"
+    ).fetchone()[0]
+    assert pending_left == 750
+
+    second = run_storage_maintenance(repo, cfg, reference_now=REF)
+    assert second.rows_updated_by_category.get("abandoned_pending_topology") == 500
+    assert second.rows_deleted_by_category.get("topology_snapshots", 0) <= 500
+    assert repo.maintenance.max_exclude_bind_params_seen <= MAINTENANCE_MAX_TOPOLOGY_EXCLUDE_IDS
+
+    third = run_storage_maintenance(repo, cfg, reference_now=REF)
+    assert third.rows_updated_by_category.get("abandoned_pending_topology") == 250
+    assert (
+        repo.db.conn.execute(
+            "SELECT COUNT(*) FROM topology_snapshots WHERE status='pending'"
+        ).fetchone()[0]
+        == 0
+    )
+    # Exact 500 batch bound
+    repo.db.conn.executemany(
+        """
+        INSERT INTO topology_snapshots
+          (snapshot_id, network_id, captured_at, requested_by, status, warning_acknowledged)
+        VALUES (?, 'home', ?, 'test', 'pending', 0)
+        """,
+        [(f"exact-{i}", old) for i in range(MAINTENANCE_BATCH_SIZE)],
+    )
+    repo.db.conn.commit()
+    exact = run_storage_maintenance(repo, cfg, reference_now=REF)
+    assert exact.rows_updated_by_category.get("abandoned_pending_topology") == 500
+    assert repo.maintenance.max_exclude_bind_params_seen == 500
+
+
+def test_active_pending_plus_full_batch_exclusion_bound(tmp_path: Path):
+    from zigbeelens.storage.retention_policy import MAINTENANCE_MAX_TOPOLOGY_EXCLUDE_IDS
+
+    db = Database(tmp_path / "active-bound.sqlite")
+    db.migrate()
+    repo = Repository(db)
+    repo.sync_networks([NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt")])
+    old = (REF - timedelta(hours=2)).isoformat()
+    repo.db.conn.executemany(
+        """
+        INSERT INTO topology_snapshots
+          (snapshot_id, network_id, captured_at, requested_by, status, warning_acknowledged)
+        VALUES (?, 'home', ?, 'test', 'pending', 0)
+        """,
+        [(f"aband-{i}", old) for i in range(500)] + [("active-pending", old)],
+    )
+    repo.db.conn.commit()
+    cfg = _cfg(tmp_path / "active-bound.sqlite")
+    result = run_storage_maintenance(
+        repo,
+        cfg,
+        reference_now=REF,
+        active_pending_provider=lambda: "active-pending",
+    )
+    assert result.rows_updated_by_category.get("abandoned_pending_topology") == 500
+    assert (
+        repo.db.conn.execute(
+            "SELECT status FROM topology_snapshots WHERE snapshot_id='active-pending'"
+        ).fetchone()[0]
+        == "pending"
+    )
+    assert repo.maintenance.max_exclude_bind_params_seen <= MAINTENANCE_MAX_TOPOLOGY_EXCLUDE_IDS
+
+
+def test_rejected_timestamp_retained_and_counted(tmp_path: Path):
+    db = Database(tmp_path / "badts.sqlite")
+    db.migrate()
+    repo = Repository(db)
+    repo.db.conn.execute(
+        """
+        INSERT INTO events (id, event_type, severity, title, summary, occurred_at)
+        VALUES ('bad', 'test', 'watch', 't', 's', ?)
+        """,
+        ("2026-01-01T00:00:00 UTC",),
+    )
+    repo.db.conn.commit()
+    cfg = _cfg(tmp_path / "badts.sqlite")
+    result = run_storage_maintenance(repo, cfg, reference_now=REF)
+    assert (
+        repo.db.conn.execute("SELECT COUNT(*) FROM events WHERE id='bad'").fetchone()[0]
+        == 1
+    )
+    assert result.malformed_timestamps_by_category.get("events", 0) >= 1
+
+
+def test_capture_emits_one_topology_updated(tmp_path: Path):
+    from unittest.mock import patch
+
+    from zigbeelens.app.context import bootstrap, reset_context
+    from zigbeelens.config.models import FeaturesConfig, TopologyConfig
+    from zigbeelens.mqtt.models import RawMqttMessage
+    from zigbeelens.topology.publisher import FakeTopologyRequestPublisher
+    from zigbeelens.topology.service import TopologyService
+
+    reset_context()
+    cfg = AppConfig(
+        mode=ModeConfig(mock=True),
+        networks=[NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt")],
+        storage=StorageConfig(path=str(tmp_path / "cap-event.sqlite")),
+        features=FeaturesConfig(manual_network_map=True, automatic_network_map=False),
+        topology=TopologyConfig(
+            enabled=True,
+            manual_capture_enabled=True,
+            automatic_capture_enabled=False,
+            startup_scan=False,
+            capture_on_incident=False,
+            max_snapshots_per_network=30,
+        ),
+    )
+    with patch("zigbeelens.app.context.start_discovery", return_value=None):
+        ctx = bootstrap(config=cfg)
+    events: list[str] = []
+    original_publish = ctx.broadcaster.publish_sync
+
+    def publish(event: str, data: dict) -> None:
+        events.append(event)
+        return original_publish(event, data)
+
+    service = TopologyService(ctx, publisher=FakeTopologyRequestPublisher(cfg))
+    service.request_capture("home", confirmed=True)
+    message = RawMqttMessage(
+        topic="zigbee2mqtt/bridge/response/networkmap",
+        payload=b'{"nodes": {}, "links": []}',
+        retained=False,
+        received_at=datetime.now(timezone.utc).isoformat(),
+    )
+    with patch.object(ctx.broadcaster, "publish_sync", side_effect=publish):
+        assert service.try_handle_response(message) is True
+    assert events.count("topology_updated") == 1
+
+    # Count cleanup failure still emits one topology_updated and keeps complete.
+    service.request_capture("home", confirmed=True)
+    events.clear()
+    with (
+        patch.object(
+            ctx.repo, "enforce_topology_retention", side_effect=RuntimeError("busy")
+        ),
+        patch.object(ctx.broadcaster, "publish_sync", side_effect=publish),
+    ):
+        assert service.try_handle_response(
+            RawMqttMessage(
+                topic="zigbee2mqtt/bridge/response/networkmap",
+                payload=b'{"nodes": {}, "links": []}',
+                retained=False,
+                received_at=datetime.now(timezone.utc).isoformat(),
+            )
+        ) is True
+    assert events.count("topology_updated") == 1
+    latest = ctx.repo.get_latest_topology_snapshot("home")
+    assert latest is not None
+    assert latest["status"] == "complete"
+
+    # Store failure does not emit a successful topology_updated.
+    service.request_capture("home", confirmed=True)
+    events.clear()
+    with (
+        patch.object(ctx.repo, "store_topology_parsed", side_effect=RuntimeError("db")),
+        patch.object(ctx.broadcaster, "publish_sync", side_effect=publish),
+    ):
+        assert service.try_handle_response(
+            RawMqttMessage(
+                topic="zigbee2mqtt/bridge/response/networkmap",
+                payload=b'{"nodes": {}, "links": []}',
+                retained=False,
+                received_at=datetime.now(timezone.utc).isoformat(),
+            )
+        ) is False
+    assert "topology_updated" not in events
+    reset_context()

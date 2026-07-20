@@ -2,37 +2,54 @@
 
 SQLite's built-in ``julianday`` truncates below milliseconds. Retention
 registers a deterministic ``retention_instant`` function that returns UTC epoch
-seconds as a float with microsecond precision for:
+seconds as a float with microsecond precision.
 
-- ISO-8601 with ``+00:00`` / ``Z`` / ``z`` / explicit offsets
-- SQLite ``YYYY-MM-DD HH:MM:SS`` (treated as UTC)
-- SQLite-style strings with offsets: ``YYYY-MM-DD HH:MM:SS+10:00``
+Accepted forms match the portable SQLite ``julianday()`` grammar subset:
 
-Malformed values return NULL and are never eligible for deletion.
+- ``YYYY-MM-DDTHH:MM:SS[.fraction]``
+- ``YYYY-MM-DD HH:MM:SS[.fraction]``
+
+with optional timezone ``Z``, ``z``, ``+HH:MM``, or ``-HH:MM``. Naïve values
+are interpreted as UTC. Malformed values return NULL and are never eligible
+for deletion.
 """
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any
+
+# Documented grammar only. No leading/trailing whitespace, no date-only,
+# no compact offsets, no timezone seconds, no unrestricted fromisoformat.
+_RETENTION_TIMESTAMP_RE = re.compile(
+    r"^(?P<date>\d{4}-\d{2}-\d{2})"
+    r"(?P<sep>[T ])"
+    r"(?P<time>\d{2}:\d{2}:\d{2})"
+    r"(?P<fraction>\.\d{1,6})?"
+    r"(?P<tz>Z|z|[+-]\d{2}:\d{2})?$"
+)
 
 
 def parse_retention_instant(value: object) -> float | None:
     """Return UTC epoch seconds (µs precision) or None when unparseable."""
-    if value is None:
+    if value is None or not isinstance(value, str):
         return None
-    if not isinstance(value, str):
+    match = _RETENTION_TIMESTAMP_RE.fullmatch(value)
+    if match is None:
         return None
-    text = value.strip()
-    if not text:
-        return None
+    text = (
+        f"{match.group('date')}T{match.group('time')}"
+        f"{match.group('fraction') or ''}"
+    )
+    tz = match.group("tz")
+    if tz is None:
+        text = f"{text}+00:00"
+    elif tz in ("Z", "z"):
+        text = f"{text}+00:00"
+    else:
+        text = f"{text}{tz}"
     try:
-        if text.endswith(("Z", "z")):
-            text = text[:-1] + "+00:00"
-        if "T" not in text and " " in text:
-            # SQLite datetime form, with or without an explicit offset.
-            # Replace the date/time separator only; do not invent an offset here.
-            text = text.replace(" ", "T", 1)
         dt = datetime.fromisoformat(text)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
