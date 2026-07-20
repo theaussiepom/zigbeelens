@@ -130,19 +130,26 @@ def test_startup_scan_runs_once_after_stable_delay(tmp_path: Path, monkeypatch):
     ), patch("zigbeelens.topology.service.start_topology_scheduler"):
         ctx = bootstrap(config=config)
 
-    # Patch after bootstrap: storage maintenance also uses time.monotonic, and
-    # monkeypatching zigbeelens.topology.scheduler.time.monotonic replaces the
-    # shared stdlib time.monotonic attribute.
+    client = _attach_fake_collector(ctx, config)
+    client.inject("zigbee2mqtt/bridge/state", "online")
+    service = TopologyService(ctx, publisher=publisher)
+    scheduler = TopologyScheduler(ctx, service, sleep=lambda _: None)
+
+    # Monkeypatching zigbeelens.topology.scheduler.time.monotonic replaces the
+    # shared stdlib time.monotonic attribute. Stop background workers first so
+    # they cannot consume the fake sequence during the startup-delay ticks.
+    if ctx.storage_scheduler is not None:
+        ctx.storage_scheduler.stop(wait=True)
+        ctx.storage_scheduler = None
+    if ctx.evaluation_scheduler is not None:
+        ctx.evaluation_scheduler.stop(wait=True)
+        ctx.evaluation_scheduler = None
+
     monotonic_values = iter([100.0, 130.0, 130.0, 130.0])
     monkeypatch.setattr(
         "zigbeelens.topology.scheduler.time.monotonic",
         lambda: next(monotonic_values),
     )
-
-    client = _attach_fake_collector(ctx, config)
-    client.inject("zigbee2mqtt/bridge/state", "online")
-    service = TopologyService(ctx, publisher=publisher)
-    scheduler = TopologyScheduler(ctx, service, sleep=lambda _: None)
 
     assert scheduler.tick_startup() is False
     assert publisher.published == []
