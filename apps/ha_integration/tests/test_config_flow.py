@@ -37,11 +37,12 @@ VALID_TOKEN = "a" * 32
 SENTINEL = "zl-hacs-flow-sentinel-token-aaaaaa"
 
 
-def _flow() -> ZigbeeLensConfigFlow:
+def _flow(*, existing_entries: list[object] | None = None) -> ZigbeeLensConfigFlow:
     flow = ZigbeeLensConfigFlow()
     flow.hass = MagicMock()
     flow.async_set_unique_id = AsyncMock()
     flow._abort_if_unique_id_configured = MagicMock()
+    flow._async_current_entries = MagicMock(return_value=list(existing_entries or []))
     return flow
 
 
@@ -80,6 +81,54 @@ async def test_config_flow_trusted_open_blank_token():
     assert result["data"][CONF_API_TOKEN] == ""
     validate.assert_awaited_once()
     assert validate.await_args.args[3] == ""
+
+
+@pytest.mark.asyncio
+async def test_second_entry_same_url_rejected_without_http():
+    existing = MagicMock()
+    existing.data = {CONF_CORE_URL: "http://localhost:8377"}
+    flow = _flow(existing_entries=[existing])
+    with patch(
+        "zigbeelens.config_flow._validate_core",
+        new=AsyncMock(return_value={"status": "ok"}),
+    ) as validate:
+        result = await flow.async_step_user(
+            {
+                CONF_CORE_URL: "http://localhost:8377",
+                CONF_API_TOKEN: VALID_TOKEN,
+                CONF_VERIFY_SSL: False,
+                CONF_PANEL_ENABLED: True,
+            }
+        )
+    assert result["type"] == "abort"
+    assert result["reason"] == "single_instance_allowed"
+    validate.assert_not_awaited()
+    assert VALID_TOKEN not in str(result)
+    assert "localhost" not in str(result.get("reason", ""))
+
+
+@pytest.mark.asyncio
+async def test_second_entry_different_url_rejected_without_http():
+    existing = MagicMock()
+    existing.data = {CONF_CORE_URL: "http://core-a:8377"}
+    flow = _flow(existing_entries=[existing])
+    with patch(
+        "zigbeelens.config_flow._validate_core",
+        new=AsyncMock(return_value={"status": "ok"}),
+    ) as validate:
+        result = await flow.async_step_user(
+            {
+                CONF_CORE_URL: "http://core-b:8377",
+                CONF_API_TOKEN: VALID_TOKEN,
+                CONF_VERIFY_SSL: False,
+                CONF_PANEL_ENABLED: True,
+            }
+        )
+    assert result["type"] == "abort"
+    assert result["reason"] == "single_instance_allowed"
+    validate.assert_not_awaited()
+    assert VALID_TOKEN not in str(result)
+    assert "core-b" not in str(result)
 
 
 @pytest.mark.asyncio

@@ -38,6 +38,14 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up ZigbeeLens from a config entry."""
+    existing = hass.config_entries.async_entries(DOMAIN)
+    if len(existing) > 1:
+        # Unsupported multi-entry state (legacy/broken). Continue setup per entry
+        # without touching other entries' runtime data or credentials.
+        _LOGGER.error(
+            "Multiple ZigbeeLens config entries are present; only one is supported"
+        )
+
     try:
         api_token = optional_core_api_token(entry.data.get(CONF_API_TOKEN, ""))
     except ValueError:

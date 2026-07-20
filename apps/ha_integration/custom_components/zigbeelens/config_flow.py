@@ -133,6 +133,11 @@ class ZigbeeLensConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
+            # Companion panel/repair IDs are integration-level singletons.
+            # Reject a second entry before any Core HTTP validation.
+            if self._async_current_entries():
+                return self.async_abort(reason="single_instance_allowed")
+
             try:
                 core_url = _normalize_core_url(user_input[CONF_CORE_URL])
             except ValueError:
