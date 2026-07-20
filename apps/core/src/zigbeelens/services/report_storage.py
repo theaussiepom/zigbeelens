@@ -4,12 +4,27 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 from zigbeelens.schemas import ReportDetailV3
 from zigbeelens.storage.repository import ReportRow
 
 LegacyStoredReportBody = dict[str, Any]
+
+
+class StoredReportVersionKind(StrEnum):
+    """Classification of a stored report_version claim."""
+
+    legacy = "legacy"
+    current = "current"
+    protocol_error = "protocol_error"
+
+
+@dataclass(frozen=True)
+class StoredReportVersionClassification:
+    kind: StoredReportVersionKind
+    version: int | None = None
 
 
 @dataclass(frozen=True)
@@ -26,12 +41,43 @@ class StoredReportEnvelope:
     generated_at: str
 
 
-def stored_report_version(body: dict[str, Any]) -> int:
-    raw = body.get("report_version", 1)
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return 1
+def classify_stored_report_version(body: dict[str, Any]) -> StoredReportVersionClassification:
+    """Distinguish historical absence from a malformed current-version claim.
+
+    - missing report_version → legacy v1
+    - integer 1 or 2 → legacy
+    - historically tolerated string "1" or "2" → legacy
+    - exact integer 3 → current (exact ReportDetailV3)
+    - string "3", bool, float, object, array, negative, or version >3 → protocol error
+    """
+    if "report_version" not in body:
+        return StoredReportVersionClassification(StoredReportVersionKind.legacy, 1)
+
+    raw = body["report_version"]
+    if type(raw) is int:
+        if raw in (1, 2):
+            return StoredReportVersionClassification(StoredReportVersionKind.legacy, raw)
+        if raw == 3:
+            return StoredReportVersionClassification(StoredReportVersionKind.current, 3)
+        return StoredReportVersionClassification(StoredReportVersionKind.protocol_error)
+
+    if isinstance(raw, str):
+        stripped = raw.strip()
+        if stripped in ("1", "2"):
+            return StoredReportVersionClassification(
+                StoredReportVersionKind.legacy, int(stripped)
+            )
+        return StoredReportVersionClassification(StoredReportVersionKind.protocol_error)
+
+    return StoredReportVersionClassification(StoredReportVersionKind.protocol_error)
+
+
+def stored_report_version(body: dict[str, Any]) -> int | None:
+    """Return the classified legacy/current version, or None for protocol errors."""
+    classification = classify_stored_report_version(body)
+    if classification.kind == StoredReportVersionKind.protocol_error:
+        return None
+    return classification.version
 
 
 def parse_stored_body_json(raw_body_json: str) -> LegacyStoredReportBody | None:
@@ -52,15 +98,18 @@ def load_stored_report_envelope(row: ReportRow) -> StoredReportEnvelope | None:
 
     Version 3 is validated as ReportDetailV3.
     Versions 1–2 remain opaque dicts exactly as stored (no id injection).
+    Malformed current-version claims fail safely (not displayed as legacy).
     """
     if not row or not row.body_json:
         return None
     body = parse_stored_body_json(row.body_json)
     if body is None:
         return None
-    version = stored_report_version(body)
+    classification = classify_stored_report_version(body)
+    if classification.kind == StoredReportVersionKind.protocol_error:
+        return None
     markdown = str(row.body_markdown or body.get("markdown_summary") or "")
-    if version >= 3:
+    if classification.kind == StoredReportVersionKind.current:
         try:
             detail = ReportDetailV3.model_validate(body)
         except Exception:
@@ -76,6 +125,7 @@ def load_stored_report_envelope(row: ReportRow) -> StoredReportEnvelope | None:
             scope=row.scope,
             generated_at=row.generated_at,
         )
+    version = classification.version if classification.version is not None else 1
     return StoredReportEnvelope(
         row_id=row.id,
         format=row.format,
@@ -99,7 +149,8 @@ def load_stored_report_body(row: ReportRow) -> ReportDetailV3 | LegacyStoredRepo
 def is_legacy_stored_report(value: ReportDetailV3 | LegacyStoredReportBody) -> bool:
     if isinstance(value, ReportDetailV3):
         return False
-    return stored_report_version(value) < 3
+    classification = classify_stored_report_version(value)
+    return classification.kind == StoredReportVersionKind.legacy
 
 
 def legacy_report_format(value: LegacyStoredReportBody) -> str:

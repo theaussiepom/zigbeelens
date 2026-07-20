@@ -27,6 +27,27 @@ class DecisionPriority(StrEnum):
     high = "high"
 
 
+# Deterministic fold order for DecisionCountSummary.overall_status (first match wins).
+DECISION_STATUS_ORDER: tuple[DecisionStatus, ...] = (
+    DecisionStatus.review_first,
+    DecisionStatus.worth_reviewing,
+    DecisionStatus.improve_data_coverage,
+    DecisionStatus.watch,
+    DecisionStatus.changed,
+    DecisionStatus.informational,
+    DecisionStatus.no_notable_change,
+    DecisionStatus.data_unavailable,
+)
+
+# Deterministic fold order for DecisionCountSummary.highest_priority (first match wins).
+DECISION_PRIORITY_ORDER: tuple[DecisionPriority, ...] = (
+    DecisionPriority.high,
+    DecisionPriority.medium,
+    DecisionPriority.low,
+    DecisionPriority.none,
+)
+
+
 class CoverageDimension(StrEnum):
     availability = "availability"
     last_seen = "last_seen"

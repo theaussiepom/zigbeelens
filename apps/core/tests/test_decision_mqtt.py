@@ -9,7 +9,7 @@ from zigbeelens.schemas import (
 )
 
 
-def _dashboard(*, overall: str = "watch", counts: dict | None = None) -> DashboardPayload:
+def _dashboard(*, overall: str = "review_first", counts: dict | None = None) -> DashboardPayload:
     return DashboardPayload(
         generated_at="2026-06-14T12:00:00+00:00",
         active_incident_count=1,
@@ -23,7 +23,7 @@ def _dashboard(*, overall: str = "watch", counts: dict | None = None) -> Dashboa
         decision_summary=DecisionCountSummary(
             subject_count=4,
             overall_status=overall,
-            highest_priority="medium",
+            highest_priority="high",
             status_counts=counts
             or {
                 "review_first": 1,
@@ -60,7 +60,7 @@ def test_build_summary_entities_decision_keys():
         "unavailable",
     ]
     by_key = {e.key: e for e in entities}
-    assert by_key["decision_status"].state == "watch"
+    assert by_key["decision_status"].state == "review_first"
     assert by_key["review_first"].state == "1"
     assert by_key["worth_reviewing"].state == "1"
     assert by_key["coverage_warnings"].state == "3"

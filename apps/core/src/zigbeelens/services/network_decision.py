@@ -2,13 +2,22 @@
 
 Pure composition over already-loaded facts — no repository access.
 Used by Dashboard, Networks collection/detail, reports, and mock projections.
+
+decision_summary is always the unmodified pure subject-badge fold (plus factual
+coverage_warning_count). Network-level promotion applies only to the compact
+network.decision badge.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 
-from zigbeelens.decisions.types import DecisionPriority, DecisionStatus
+from zigbeelens.decisions.types import (
+    DECISION_PRIORITY_ORDER,
+    DECISION_STATUS_ORDER,
+    DecisionPriority,
+    DecisionStatus,
+)
 from zigbeelens.schemas import (
     BridgeState,
     CoordinatorSummary,
@@ -20,27 +29,43 @@ from zigbeelens.schemas import (
     Severity,
 )
 from zigbeelens.services.decision_summary import (
-    DECISION_STATUS_ORDER,
     decision_count_summary_from_badges,
-    network_decision_badge_from_summary,
+    network_decision_badge,
 )
 from zigbeelens.services.report_active_severity import pick_active_incident_severity
 from zigbeelens.storage.repository import DeviceRow, NetworkRow
 
-# Network headline promotion precedence (documented):
-# 1. device-badge overall status is the baseline subject_count fold;
-# 2. an active incident not already represented by a stronger device badge
-#    must not leave the network as no_notable_change;
-# 3. a review_first investigation priority must not leave no_notable_change;
-# 4. actionable coverage warnings promote improve_data_coverage when weaker;
-# 5. empty/unobserved networks remain data_unavailable.
+# Network badge promotion precedence (documented):
+# 1. baseline device-summary status and priority;
+# 2. active incident → status ≥ worth_reviewing, priority ≥ medium;
+# 3. Review first investigation priority → status review_first, priority high;
+# 4. coverage warnings when no stronger status → ≥ improve_data_coverage / low;
+# 5. no represented devices and no network-level signal → data_unavailable / none.
 
 
-def _promote(
+def _as_status(value: DecisionStatus | str) -> DecisionStatus:
+    return value if isinstance(value, DecisionStatus) else DecisionStatus(str(value))
+
+
+def _as_priority(value: DecisionPriority | str) -> DecisionPriority:
+    return value if isinstance(value, DecisionPriority) else DecisionPriority(str(value))
+
+
+def _promote_status(
     current: DecisionStatus,
     candidate: DecisionStatus,
 ) -> DecisionStatus:
     order = {status: index for index, status in enumerate(DECISION_STATUS_ORDER)}
+    if order.get(candidate, 99) < order.get(current, 99):
+        return candidate
+    return current
+
+
+def _promote_priority(
+    current: DecisionPriority,
+    candidate: DecisionPriority,
+) -> DecisionPriority:
+    order = {priority: index for index, priority in enumerate(DECISION_PRIORITY_ORDER)}
     if order.get(candidate, 99) < order.get(current, 99):
         return candidate
     return current
@@ -53,43 +78,33 @@ def compose_network_decision(
     has_active_incident: bool = False,
     has_review_first_priority: bool = False,
 ) -> tuple[DeviceDecisionBadge, DecisionCountSummary]:
-    """Fold device badges + network facts into one network decision pair."""
+    """Fold device badges into a pure summary; promote only the network badge."""
     summary = decision_count_summary_from_badges(
         device_badges,
         coverage_warning_count=coverage_warning_count,
     )
-    if summary.subject_count == 0 and not has_active_incident:
-        # Empty / unobserved network.
-        empty = DecisionCountSummary(
-            subject_count=0,
-            overall_status=DecisionStatus.data_unavailable,
-            highest_priority=DecisionPriority.none,
-            status_counts={},
-            priority_counts={},
-            coverage_warning_count=coverage_warning_count,
-        )
-        return network_decision_badge_from_summary(empty), empty
+    status = _as_status(summary.overall_status)
+    priority = _as_priority(summary.highest_priority)
 
-    overall = summary.overall_status
-    if isinstance(overall, str):
-        overall = DecisionStatus(overall)
+    has_network_signal = (
+        has_active_incident
+        or has_review_first_priority
+        or coverage_warning_count > 0
+    )
+    if summary.subject_count == 0 and not has_network_signal:
+        return network_decision_badge(status, priority), summary
 
     if has_active_incident:
-        overall = _promote(overall, DecisionStatus.worth_reviewing)
+        status = _promote_status(status, DecisionStatus.worth_reviewing)
+        priority = _promote_priority(priority, DecisionPriority.medium)
     if has_review_first_priority:
-        overall = _promote(overall, DecisionStatus.review_first)
+        status = _promote_status(status, DecisionStatus.review_first)
+        priority = _promote_priority(priority, DecisionPriority.high)
     if coverage_warning_count > 0:
-        overall = _promote(overall, DecisionStatus.improve_data_coverage)
+        status = _promote_status(status, DecisionStatus.improve_data_coverage)
+        priority = _promote_priority(priority, DecisionPriority.low)
 
-    adjusted = DecisionCountSummary(
-        subject_count=summary.subject_count,
-        overall_status=overall,
-        highest_priority=summary.highest_priority,
-        status_counts=summary.status_counts,
-        priority_counts=summary.priority_counts,
-        coverage_warning_count=coverage_warning_count,
-    )
-    return network_decision_badge_from_summary(adjusted), adjusted
+    return network_decision_badge(status, priority), summary
 
 
 def compose_network_summary(

@@ -8,12 +8,15 @@ from pydantic import (
     ConfigDict,
     Field,
     StrictBool,
+    StrictInt,
     field_validator,
     model_validator,
 )
 
 from zigbeelens.config.security_types import SecurityMode
 from zigbeelens.decisions.types import (
+    DECISION_PRIORITY_ORDER,
+    DECISION_STATUS_ORDER,
     CoverageLabelCode,
     DecisionPriority,
     DecisionStatus,
@@ -155,46 +158,74 @@ DecisionBadge = DeviceDecisionBadge
 
 
 class DecisionCountSummary(BaseModel):
-    """Aggregated decision counts for Dashboard / network / report / MQTT / HACS."""
+    """Pure aggregate of represented subject decision badges.
+
+    Must not carry independently promoted network-level judgement. Counts are
+    strict non-negative integers (no bool / float / numeric string coercion).
+    """
 
     model_config = ConfigDict(extra="forbid", use_enum_values=False)
 
-    subject_count: int = Field(ge=0)
+    subject_count: StrictInt = Field(ge=0)
     overall_status: DecisionStatus
     highest_priority: DecisionPriority
-    status_counts: dict[DecisionStatus, int] = Field(default_factory=dict)
-    priority_counts: dict[DecisionPriority, int] = Field(default_factory=dict)
-    coverage_warning_count: int = Field(default=0, ge=0)
+    status_counts: dict[DecisionStatus, StrictInt] = Field(default_factory=dict)
+    priority_counts: dict[DecisionPriority, StrictInt] = Field(default_factory=dict)
+    coverage_warning_count: StrictInt = Field(default=0, ge=0)
 
     @field_validator("subject_count", "coverage_warning_count", mode="before")
     @classmethod
-    def _reject_bool_as_int(cls, value: Any) -> Any:
-        if isinstance(value, bool):
-            raise ValueError("boolean is not a valid count")
+    def _strict_nonneg_int(cls, value: Any) -> Any:
+        if isinstance(value, bool) or type(value) is not int:
+            raise ValueError("count must be a non-negative integer")
+        if value < 0:
+            raise ValueError("count must be a non-negative integer")
         return value
 
     @field_validator("status_counts", "priority_counts", mode="before")
     @classmethod
-    def _reject_bool_counts(cls, value: Any) -> Any:
+    def _strict_count_maps(cls, value: Any) -> Any:
         if not isinstance(value, dict):
             return value
         for key, count in value.items():
-            if isinstance(count, bool) or (isinstance(count, int) and count < 0):
+            if isinstance(count, bool) or type(count) is not int or count < 0:
                 raise ValueError(f"invalid count for {key!r}")
         return value
 
     @model_validator(mode="after")
-    def _counts_match_subjects(self) -> DecisionCountSummary:
+    def _pure_count_fold_invariants(self) -> DecisionCountSummary:
         status_total = sum(self.status_counts.values())
         priority_total = sum(self.priority_counts.values())
         if self.subject_count == 0:
             if self.status_counts or self.priority_counts:
                 raise ValueError("empty subject_count requires empty count maps")
+            if self.overall_status != DecisionStatus.data_unavailable:
+                raise ValueError(
+                    "empty subject_count requires overall_status=data_unavailable"
+                )
+            if self.highest_priority != DecisionPriority.none:
+                raise ValueError("empty subject_count requires highest_priority=none")
             return self
         if status_total != self.subject_count:
             raise ValueError("sum(status_counts) must equal subject_count")
         if priority_total != self.subject_count:
             raise ValueError("sum(priority_counts) must equal subject_count")
+
+        expected_overall = DecisionStatus.data_unavailable
+        for status in DECISION_STATUS_ORDER:
+            if self.status_counts.get(status, 0) > 0:
+                expected_overall = status
+                break
+        if self.overall_status != expected_overall:
+            raise ValueError("overall_status must match DECISION_STATUS_ORDER fold")
+
+        expected_priority = DecisionPriority.none
+        for priority in DECISION_PRIORITY_ORDER:
+            if self.priority_counts.get(priority, 0) > 0:
+                expected_priority = priority
+                break
+        if self.highest_priority != expected_priority:
+            raise ValueError("highest_priority must match DECISION_PRIORITY_ORDER fold")
         return self
 
 

@@ -5,26 +5,22 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable
 
-from zigbeelens.decisions.types import DecisionPriority, DecisionStatus
+from zigbeelens.decisions.types import (
+    DECISION_PRIORITY_ORDER,
+    DECISION_STATUS_ORDER,
+    DecisionPriority,
+    DecisionStatus,
+)
 from zigbeelens.schemas import DecisionCountSummary, DeviceDecisionBadge
 
-# Deterministic public overall-status order (first match wins for "worst").
-DECISION_STATUS_ORDER: tuple[DecisionStatus, ...] = (
-    DecisionStatus.review_first,
-    DecisionStatus.worth_reviewing,
-    DecisionStatus.improve_data_coverage,
-    DecisionStatus.watch,
-    DecisionStatus.changed,
-    DecisionStatus.informational,
-    DecisionStatus.no_notable_change,
-    DecisionStatus.data_unavailable,
-)
-
-_PRIORITY_ORDER: tuple[DecisionPriority, ...] = (
-    DecisionPriority.high,
-    DecisionPriority.medium,
-    DecisionPriority.low,
-    DecisionPriority.none,
+# Re-export fold orders for callers that previously imported them here.
+__all__ = (
+    "DECISION_PRIORITY_ORDER",
+    "DECISION_STATUS_ORDER",
+    "data_unavailable_device_badge",
+    "decision_count_summary_from_badges",
+    "network_decision_badge",
+    "network_decision_badge_from_summary",
 )
 
 _NETWORK_HEADLINE_BY_STATUS: dict[DecisionStatus, str] = {
@@ -78,7 +74,7 @@ def decision_count_summary_from_badges(
             break
 
     highest = DecisionPriority.none
-    for priority in _PRIORITY_ORDER:
+    for priority in DECISION_PRIORITY_ORDER:
         if priority_counts.get(priority, 0) > 0:
             highest = priority
             break
@@ -95,18 +91,26 @@ def decision_count_summary_from_badges(
     )
 
 
+def network_decision_badge(
+    status: DecisionStatus | str,
+    priority: DecisionPriority | str,
+) -> DeviceDecisionBadge:
+    """Build a compact network decision badge from status/priority."""
+    resolved = _as_status(status)
+    headline = _NETWORK_HEADLINE_BY_STATUS.get(resolved, "network_data_unavailable")
+    return DeviceDecisionBadge(
+        status=resolved,
+        priority=_as_priority(priority),
+        headline_code=headline,
+        coverage_label_codes=[],
+    )
+
+
 def network_decision_badge_from_summary(
     summary: DecisionCountSummary,
 ) -> DeviceDecisionBadge:
     """Project a network DecisionCountSummary onto a compact decision badge."""
-    status = _as_status(summary.overall_status)
-    headline = _NETWORK_HEADLINE_BY_STATUS.get(status, "network_data_unavailable")
-    return DeviceDecisionBadge(
-        status=status,
-        priority=_as_priority(summary.highest_priority),
-        headline_code=headline,
-        coverage_label_codes=[],
-    )
+    return network_decision_badge(summary.overall_status, summary.highest_priority)
 
 
 def data_unavailable_device_badge() -> DeviceDecisionBadge:

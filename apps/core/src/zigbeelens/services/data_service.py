@@ -10,6 +10,7 @@ from zigbeelens.decisions.device_story import DeviceStory, device_stories_for_de
 from zigbeelens.schemas import DeviceDetail, DeviceSummary, ReportRequest
 from zigbeelens.diagnostics.incidents.service import IncidentDiagnosticService
 from zigbeelens.diagnostics.service import HealthDiagnosticService
+from zigbeelens.services.decision_summary import data_unavailable_device_badge
 from zigbeelens.services.device_decision_badge import device_decision_badge_from_story
 from zigbeelens.services.mock_provider import MockProvider
 from zigbeelens.services.payload_builder import EvaluationAccess, PayloadBuilder
@@ -168,7 +169,9 @@ class DataService:
                         }
                     )
                 else:
-                    detail = detail.model_copy(update={"decision": None})
+                    detail = detail.model_copy(
+                        update={"decision": data_unavailable_device_badge()}
+                    )
                 details[key] = detail
         return ReportDeviceContext(
             devices=devices,
