@@ -37,12 +37,21 @@ VALID_TOKEN = "a" * 32
 SENTINEL = "zl-hacs-flow-sentinel-token-aaaaaa"
 
 
-def _flow(*, existing_entries: list[object] | None = None) -> ZigbeeLensConfigFlow:
+def _flow(
+    *,
+    existing_entries: list[object] | None = None,
+    matching_flow: bool = False,
+    hass: MagicMock | None = None,
+) -> ZigbeeLensConfigFlow:
     flow = ZigbeeLensConfigFlow()
-    flow.hass = MagicMock()
+    flow.hass = hass or MagicMock()
+    flow.hass.config_entries.flow.async_has_matching_flow = MagicMock(
+        return_value=matching_flow
+    )
     flow.async_set_unique_id = AsyncMock()
     flow._abort_if_unique_id_configured = MagicMock()
     flow._async_current_entries = MagicMock(return_value=list(existing_entries or []))
+    flow.context = {"source": "user"}
     return flow
 
 
@@ -129,6 +138,52 @@ async def test_second_entry_different_url_rejected_without_http():
     validate.assert_not_awaited()
     assert VALID_TOKEN not in str(result)
     assert "core-b" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_user_flows_different_urls_rejected_without_http():
+    """Two simultaneous user flows: only one may validate/create."""
+    shared_hass = MagicMock()
+    flow_a = _flow(hass=shared_hass, matching_flow=False)
+    flow_b = _flow(hass=shared_hass, matching_flow=False)
+    assert flow_a.is_matching(flow_b)
+
+    with patch(
+        "zigbeelens.config_flow._validate_core",
+        new=AsyncMock(return_value={"status": "ok"}),
+    ) as validate_a:
+        result_a = await flow_a.async_step_user(
+            {
+                CONF_CORE_URL: "http://core-a:8377",
+                CONF_API_TOKEN: VALID_TOKEN,
+                CONF_VERIFY_SSL: False,
+                CONF_PANEL_ENABLED: True,
+            }
+        )
+    assert result_a["type"] == "create_entry"
+    validate_a.assert_awaited_once()
+
+    # After A is in progress / created, B sees a matching flow and must abort
+    # before Core HTTP validation.
+    shared_hass.config_entries.flow.async_has_matching_flow = MagicMock(return_value=True)
+    with patch(
+        "zigbeelens.config_flow._validate_core",
+        new=AsyncMock(return_value={"status": "ok"}),
+    ) as validate_b:
+        result_b = await flow_b.async_step_user(
+            {
+                CONF_CORE_URL: "http://core-b:8377",
+                CONF_API_TOKEN: VALID_TOKEN,
+                CONF_VERIFY_SSL: False,
+                CONF_PANEL_ENABLED: True,
+            }
+        )
+    assert result_b["type"] == "abort"
+    assert result_b["reason"] == "single_instance_allowed"
+    validate_b.assert_not_awaited()
+    assert VALID_TOKEN not in str(result_b)
+    assert "core-b" not in str(result_b)
+    assert "core-a" not in str(result_b)
 
 
 @pytest.mark.asyncio
