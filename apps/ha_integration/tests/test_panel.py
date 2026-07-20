@@ -7,8 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from zigbeelens.const import DOMAIN, PANEL_STATE_KEY
 from zigbeelens.panel import (
     PANEL_WEBCOMPONENT,
+    _find_coordinator,
     _ws_panel_summary,
     async_register_panel,
     async_unregister_panel,
@@ -38,6 +40,7 @@ async def test_panel_registered_as_native_custom_panel():
     ws_register.assert_called_once()
     hass.http.async_register_static_paths.assert_awaited_once()
     assert hass.data["zigbeelens"]["_panel_state"]["panel_registered"] is True
+    assert hass.data["zigbeelens"]["_panel_state"]["owner_entry_id"] == "entry1"
 
 
 @pytest.mark.asyncio
@@ -77,6 +80,7 @@ async def test_panel_not_registered_twice_when_core_url_unchanged():
         hass.data[frontend.DATA_PANELS]["zigbeelens"]["config"]["core_url"]
         == "http://old"
     )
+    assert hass.data["zigbeelens"]["_panel_state"]["owner_entry_id"] == "entry1"
 
 
 @pytest.mark.asyncio
@@ -214,3 +218,159 @@ def test_ws_panel_summary_without_coordinator():
     _id, payload = connection.send_result.call_args[0]
     assert payload["connected"] is False
     assert payload["networks"] == []
+
+
+def _runtime(core_url: str, *, connected: bool = True) -> dict:
+    coordinator = MagicMock()
+    coordinator.last_update_success = connected
+    coordinator.data = {"dashboard": {}} if connected else None
+    coordinator.last_exception = None
+    client = MagicMock(core_url=core_url)
+    return {"coordinator": coordinator, "client": client}
+
+
+def test_find_coordinator_prefers_owner_when_secondary_inserted_first():
+    """Insertion order must not change primary panel ownership."""
+    hass = MagicMock()
+    secondary = _runtime("http://secondary:8377")
+    primary = _runtime("http://primary:8377")
+    # Dict insertion order: secondary first, then primary.
+    hass.data = {
+        DOMAIN: {
+            "entry_secondary": secondary,
+            "entry_primary": primary,
+            PANEL_STATE_KEY: {
+                "panel_registered": True,
+                "owner_entry_id": "entry_primary",
+            },
+        }
+    }
+    coordinator, core_url = _find_coordinator(hass)
+    assert coordinator is primary["coordinator"]
+    assert core_url == "http://primary:8377"
+
+
+def test_find_coordinator_prefers_owner_when_primary_inserted_first():
+    hass = MagicMock()
+    primary = _runtime("http://primary:8377")
+    secondary = _runtime("http://secondary:8377")
+    hass.data = {
+        DOMAIN: {
+            "entry_primary": primary,
+            "entry_secondary": secondary,
+            PANEL_STATE_KEY: {
+                "panel_registered": True,
+                "owner_entry_id": "entry_primary",
+            },
+        }
+    }
+    coordinator, core_url = _find_coordinator(hass)
+    assert coordinator is primary["coordinator"]
+    assert core_url == "http://primary:8377"
+
+
+def test_find_coordinator_missing_owner_does_not_fallback_to_secondary():
+    hass = MagicMock()
+    secondary = _runtime("http://secondary:8377")
+    hass.data = {
+        DOMAIN: {
+            "entry_secondary": secondary,
+            PANEL_STATE_KEY: {
+                "panel_registered": True,
+                "owner_entry_id": "entry_primary",
+            },
+        }
+    }
+    connection = MagicMock()
+    coordinator, core_url = _find_coordinator(hass)
+    assert coordinator is None
+    assert core_url == ""
+
+    _ws_panel_summary(hass, connection, {"id": 11})
+    _id, payload = connection.send_result.call_args[0]
+    assert payload["connected"] is False
+    assert payload["networks"] == []
+    assert payload.get("core_url") in ("", None)
+    blob = json.dumps(payload)
+    assert "secondary" not in blob
+    assert "owner_entry_id" not in blob
+    assert "entry_primary" not in blob
+
+
+@pytest.mark.asyncio
+async def test_secondary_unregister_does_not_remove_primary_panel():
+    hass = MagicMock()
+    hass.data = {
+        DOMAIN: {
+            PANEL_STATE_KEY: {
+                "panel_registered": True,
+                "owner_entry_id": "entry_primary",
+            },
+        },
+        "frontend_panels": {"zigbeelens": object()},
+    }
+    with patch("zigbeelens.panel.frontend.async_remove_panel") as remove:
+        await async_unregister_panel(hass, "entry_secondary")
+    remove.assert_not_called()
+    assert hass.data[DOMAIN][PANEL_STATE_KEY]["panel_registered"] is True
+    assert hass.data[DOMAIN][PANEL_STATE_KEY]["owner_entry_id"] == "entry_primary"
+
+
+@pytest.mark.asyncio
+async def test_primary_unregister_removes_panel_and_clears_owner():
+    hass = MagicMock()
+    hass.data = {
+        DOMAIN: {
+            PANEL_STATE_KEY: {
+                "panel_registered": True,
+                "owner_entry_id": "entry_primary",
+            },
+        },
+        "frontend_panels": {"zigbeelens": object()},
+    }
+    with patch("zigbeelens.panel.frontend.async_remove_panel") as remove:
+        await async_unregister_panel(hass, "entry_primary")
+    remove.assert_called_once()
+    assert hass.data[DOMAIN][PANEL_STATE_KEY]["panel_registered"] is False
+    assert "owner_entry_id" not in hass.data[DOMAIN][PANEL_STATE_KEY]
+
+
+@pytest.mark.asyncio
+async def test_existing_valid_panel_reuse_stamps_owner():
+    from homeassistant.components import frontend
+
+    hass = MagicMock()
+    hass.data = {
+        DOMAIN: {PANEL_STATE_KEY: {"panel_registered": True}},
+        frontend.DATA_PANELS: {
+            "zigbeelens": {"config": {"core_url": "http://localhost:8377"}}
+        },
+    }
+    hass.http.async_register_static_paths = AsyncMock()
+    with patch("zigbeelens.panel.panel_custom.async_register_panel", new=AsyncMock()) as register:
+        await async_register_panel(hass, "entry_primary", "http://localhost:8377")
+    register.assert_not_awaited()
+    assert hass.data[DOMAIN][PANEL_STATE_KEY]["panel_registered"] is True
+    assert hass.data[DOMAIN][PANEL_STATE_KEY]["owner_entry_id"] == "entry_primary"
+
+
+def test_single_runtime_without_owner_marker_still_resolves():
+    hass = MagicMock()
+    sole = _runtime("http://localhost:8377")
+    hass.data = {DOMAIN: {"entry1": sole}}
+    coordinator, core_url = _find_coordinator(hass)
+    assert coordinator is sole["coordinator"]
+    assert core_url == "http://localhost:8377"
+
+
+def test_multiple_runtimes_without_owner_marker_fail_closed():
+    hass = MagicMock()
+    hass.data = {
+        DOMAIN: {
+            "entry_a": _runtime("http://a:8377"),
+            "entry_b": _runtime("http://b:8377"),
+        }
+    }
+    coordinator, core_url = _find_coordinator(hass)
+    assert coordinator is None
+    assert core_url == ""

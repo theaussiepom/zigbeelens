@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 import voluptuous as vol
 from homeassistant.components import frontend, panel_custom, websocket_api
@@ -32,20 +33,50 @@ PANEL_JS_PATH = Path(__file__).parent / "panel" / "zigbeelens-panel.js"
 WS_TYPE_SUMMARY = "zigbeelens/panel_summary"
 
 
+def _panel_state(hass: HomeAssistant) -> dict[str, Any]:
+    return hass.data.setdefault(DOMAIN, {}).setdefault(PANEL_STATE_KEY, {})
+
+
+def _runtime_entry_items(
+    hass: HomeAssistant,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Return (entry_id, runtime) pairs with a live coordinator."""
+    items: list[tuple[str, dict[str, Any]]] = []
+    for key, value in (hass.data.get(DOMAIN) or {}).items():
+        if key.startswith("_") or not isinstance(value, dict):
+            continue
+        if value.get("coordinator") is not None:
+            items.append((str(key), value))
+    return items
+
+
 @callback
 def _find_coordinator(
     hass: HomeAssistant,
 ) -> tuple[ZigbeeLensDataUpdateCoordinator | None, str]:
-    """Return the first available coordinator and its configured Core URL."""
-    for key, value in (hass.data.get(DOMAIN) or {}).items():
-        if key.startswith("_") or not isinstance(value, dict):
-            continue
-        coordinator = value.get("coordinator")
-        if coordinator is not None:
-            client = value.get("client")
-            core_url = client.core_url if client else ""
-            return coordinator, core_url
-    return None, ""
+    """Return the panel-owner coordinator and its configured Core URL.
+
+    Prefer the stamped ``owner_entry_id``. Never fall back across entries when
+    the owner is missing or when multiple unmarked runtimes exist.
+    """
+    state = (hass.data.get(DOMAIN) or {}).get(PANEL_STATE_KEY) or {}
+    owner_entry_id = state.get("owner_entry_id")
+    domain_data = hass.data.get(DOMAIN) or {}
+
+    if owner_entry_id is not None:
+        value = domain_data.get(owner_entry_id)
+        if not isinstance(value, dict) or value.get("coordinator") is None:
+            return None, ""
+        client = value.get("client")
+        return value["coordinator"], client.core_url if client else ""
+
+    # Backward compatibility before an owner marker has been stamped.
+    runtimes = _runtime_entry_items(hass)
+    if len(runtimes) != 1:
+        return None, ""
+    _entry_id, value = runtimes[0]
+    client = value.get("client")
+    return value["coordinator"], client.core_url if client else ""
 
 
 @callback
@@ -97,6 +128,11 @@ def _safe_panel_core_url(core_url: str) -> str | None:
         return None
 
 
+def _stamp_panel_owner(state: dict[str, Any], entry_id: str) -> None:
+    state["panel_registered"] = True
+    state["owner_entry_id"] = entry_id
+
+
 async def async_register_panel(hass: HomeAssistant, entry_id: str, core_url: str) -> None:
     """Register the native companion panel in the Home Assistant sidebar."""
     await async_setup_frontend(hass)
@@ -106,7 +142,7 @@ async def async_register_panel(hass: HomeAssistant, entry_id: str, core_url: str
             "Refusing to register ZigbeeLens panel with an invalid Core URL"
         )
         return
-    state = hass.data.setdefault(DOMAIN, {}).setdefault(PANEL_STATE_KEY, {})
+    state = _panel_state(hass)
 
     panels = hass.data.get(frontend.DATA_PANELS, {})
     existing = panels.get(PANEL_URL_PATH)
@@ -116,22 +152,26 @@ async def async_register_panel(hass: HomeAssistant, entry_id: str, core_url: str
         if custom_meta.get("embed_iframe") or not config.get("core_url"):
             frontend.async_remove_panel(hass, PANEL_URL_PATH)
             state["panel_registered"] = False
+            state.pop("owner_entry_id", None)
         else:
             current_url = str(config.get("core_url") or "").rstrip("/")
             new_url = safe_url
             if current_url != new_url:
                 frontend.async_remove_panel(hass, PANEL_URL_PATH)
                 state["panel_registered"] = False
+                state.pop("owner_entry_id", None)
             else:
                 async_update_panel_core_url(hass, safe_url)
-                state["panel_registered"] = True
+                _stamp_panel_owner(state, entry_id)
                 return
 
     if state.get("panel_registered"):
         if PANEL_URL_PATH in panels:
             async_update_panel_core_url(hass, safe_url)
+            _stamp_panel_owner(state, entry_id)
             return
         state["panel_registered"] = False
+        state.pop("owner_entry_id", None)
 
     await panel_custom.async_register_panel(
         hass,
@@ -144,7 +184,7 @@ async def async_register_panel(hass: HomeAssistant, entry_id: str, core_url: str
         require_admin=False,
         config={"core_url": safe_url},
     )
-    state["panel_registered"] = True
+    _stamp_panel_owner(state, entry_id)
     _LOGGER.debug("Registered ZigbeeLens companion panel")
 
 
@@ -162,10 +202,21 @@ def async_update_panel_core_url(hass: HomeAssistant, core_url: str) -> None:
 
 
 async def async_unregister_panel(hass: HomeAssistant, entry_id: str) -> None:
-    """Remove the sidebar panel when the config entry unloads."""
-    state = hass.data.get(DOMAIN, {}).get(PANEL_STATE_KEY, {})
+    """Remove the sidebar panel when the owning config entry unloads."""
+    state = (hass.data.get(DOMAIN) or {}).get(PANEL_STATE_KEY, {})
     if not state.get("panel_registered"):
         return
+
+    owner_entry_id = state.get("owner_entry_id")
+    if owner_entry_id is not None and owner_entry_id != entry_id:
+        # Secondary/stale entry must never remove the primary panel.
+        return
+    if owner_entry_id is None:
+        # No owner marker: only clean up when there is no multi-entry ambiguity.
+        if len(_runtime_entry_items(hass)) > 1:
+            return
+
     if PANEL_URL_PATH in hass.data.get(frontend.DATA_PANELS, {}):
         frontend.async_remove_panel(hass, PANEL_URL_PATH)
     state["panel_registered"] = False
+    state.pop("owner_entry_id", None)
