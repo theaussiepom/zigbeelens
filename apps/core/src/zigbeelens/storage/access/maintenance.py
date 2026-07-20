@@ -129,7 +129,7 @@ class MaintenanceRepository:
         sql = f"""
             SELECT {pk} FROM {table}
             WHERE {JD_LT.format(column=column)}
-            ORDER BY retention_instant({column}) ASC, {pk} ASC
+            ORDER BY julianday({column}) ASC, {pk} ASC
             LIMIT ?
         """
         cur = self.db.conn.execute(sql, (cutoff_iso, cutoff_iso, limit))
@@ -156,7 +156,7 @@ class MaintenanceRepository:
             WHERE lifecycle_state = 'resolved'
               AND resolved_at IS NOT NULL
               AND {JD_LT.format(column="resolved_at")}
-            ORDER BY retention_instant(resolved_at) ASC, id ASC
+            ORDER BY julianday(resolved_at) ASC, id ASC
             LIMIT ?
             """,
             (cutoff_iso, cutoff_iso, limit),
@@ -187,7 +187,7 @@ class MaintenanceRepository:
             f"""
             SELECT id FROM reports
             WHERE {JD_LT.format(column="generated_at")}
-            ORDER BY retention_instant(generated_at) ASC, id ASC
+            ORDER BY julianday(generated_at) ASC, id ASC
             LIMIT ?
             """,
             (cutoff_iso, cutoff_iso, limit),
@@ -214,7 +214,7 @@ class MaintenanceRepository:
             WHERE status IN ('complete', 'error')
               AND {JD_LT.format(column="captured_at")}
               {exclude_sql}
-            ORDER BY retention_instant(captured_at) ASC, snapshot_id ASC
+            ORDER BY julianday(captured_at) ASC, snapshot_id ASC
             LIMIT ?
             """,
             (cutoff_iso, cutoff_iso, *exclude_params, limit),
@@ -267,10 +267,10 @@ class MaintenanceRepository:
             f"""
             SELECT snapshot_id FROM topology_snapshots
             WHERE status = 'pending'
-              AND retention_instant(captured_at) IS NOT NULL
+              AND julianday(captured_at) IS NOT NULL
               AND (retention_instant(?) - retention_instant(captured_at)) >= ?
               {exclude_sql}
-            ORDER BY retention_instant(captured_at) ASC, snapshot_id ASC
+            ORDER BY julianday(captured_at) ASC, snapshot_id ASC
             LIMIT ?
             """,
             (reference_now_iso, float(pending_timeout_seconds), *exclude_params, limit),
@@ -284,10 +284,11 @@ class MaintenanceRepository:
         reference_now_iso: str,
         limit: int,
         exclude_ids: frozenset[str] | None = None,
-    ) -> int:
+    ) -> list[str]:
         """Mark abandoned pending captures as error (bounded batch).
 
-        Newly terminalized rows are not deleted in the same cycle.
+        Returns the snapshot IDs that were terminalized. Newly terminalized rows
+        are not deleted in the same cycle.
         """
         ids = self.select_abandoned_pending_topology_ids(
             pending_timeout_seconds=pending_timeout_seconds,
@@ -296,9 +297,9 @@ class MaintenanceRepository:
             exclude_ids=exclude_ids,
         )
         if not ids:
-            return 0
+            return []
         placeholders = ",".join("?" for _ in ids)
-        cur = self.db.conn.execute(
+        self.db.conn.execute(
             f"""
             UPDATE topology_snapshots
             SET status = 'error',
@@ -308,7 +309,7 @@ class MaintenanceRepository:
             """,
             (ABANDONED_TOPOLOGY_ERROR, *ids),
         )
-        return int(cur.rowcount)
+        return list(ids)
 
     def count_abandoned_pending_topology(
         self,
@@ -324,7 +325,7 @@ class MaintenanceRepository:
             f"""
             SELECT COUNT(*) FROM topology_snapshots
             WHERE status = 'pending'
-              AND retention_instant(captured_at) IS NOT NULL
+              AND julianday(captured_at) IS NOT NULL
               AND (retention_instant(?) - retention_instant(captured_at)) >= ?
               {exclude_sql}
             """,
@@ -363,25 +364,27 @@ class MaintenanceRepository:
             SELECT snapshot_id FROM (
                 SELECT
                     t.snapshot_id AS snapshot_id,
-                    retention_instant(t.captured_at) AS captured_instant,
+                    julianday(t.captured_at) AS captured_jd,
                     ROW_NUMBER() OVER (
                         PARTITION BY t.network_id
-                        ORDER BY retention_instant(t.captured_at) DESC, t.snapshot_id DESC
+                        ORDER BY julianday(t.captured_at) DESC, t.snapshot_id DESC
                     ) AS rn
                 FROM topology_snapshots AS t
                 WHERE t.status IN ('complete', 'error')
-                  AND retention_instant(t.captured_at) IS NOT NULL
+                  AND julianday(t.captured_at) IS NOT NULL
                   AND {JD_GE.format(column="t.captured_at")}
                   AND {JD_LE.format(column="t.captured_at")}
                   {network_sql}
                   {exclude_sql}
             )
             WHERE rn > ?
-            ORDER BY captured_instant ASC, snapshot_id ASC
+            ORDER BY captured_jd ASC, snapshot_id ASC
             LIMIT ?
             """,
             (
                 telemetry_cutoff_iso,
+                telemetry_cutoff_iso,
+                reference_now_iso,
                 reference_now_iso,
                 *network_params,
                 *exclude_params,
@@ -409,18 +412,25 @@ class MaintenanceRepository:
                     t.snapshot_id AS snapshot_id,
                     ROW_NUMBER() OVER (
                         PARTITION BY t.network_id
-                        ORDER BY retention_instant(t.captured_at) DESC, t.snapshot_id DESC
+                        ORDER BY julianday(t.captured_at) DESC, t.snapshot_id DESC
                     ) AS rn
                 FROM topology_snapshots AS t
                 WHERE t.status IN ('complete', 'error')
-                  AND retention_instant(t.captured_at) IS NOT NULL
+                  AND julianday(t.captured_at) IS NOT NULL
                   AND {JD_GE.format(column="t.captured_at")}
                   AND {JD_LE.format(column="t.captured_at")}
                   {exclude_sql}
             )
             WHERE rn > ?
             """,
-            (telemetry_cutoff_iso, reference_now_iso, *exclude_params, max_snapshots),
+            (
+                telemetry_cutoff_iso,
+                telemetry_cutoff_iso,
+                reference_now_iso,
+                reference_now_iso,
+                *exclude_params,
+                max_snapshots,
+            ),
         )
         return int(cur.fetchone()[0])
 
@@ -549,7 +559,7 @@ class MaintenanceRepository:
             EXPLAIN QUERY PLAN
             SELECT {pk} FROM {table}
             WHERE {JD_LT.format(column=column)}
-            ORDER BY retention_instant({column}) ASC, {pk} ASC
+            ORDER BY julianday({column}) ASC, {pk} ASC
             LIMIT 500
         """
         cur = self.db.conn.execute(
@@ -563,25 +573,24 @@ class MaintenanceRepository:
             SELECT snapshot_id FROM (
                 SELECT
                     t.snapshot_id AS snapshot_id,
-                    retention_instant(t.captured_at) AS captured_instant,
+                    julianday(t.captured_at) AS captured_jd,
                     ROW_NUMBER() OVER (
                         PARTITION BY t.network_id
-                        ORDER BY retention_instant(t.captured_at) DESC, t.snapshot_id DESC
+                        ORDER BY julianday(t.captured_at) DESC, t.snapshot_id DESC
                     ) AS rn
                 FROM topology_snapshots AS t
                 WHERE t.status IN ('complete', 'error')
-                  AND retention_instant(t.captured_at) IS NOT NULL
+                  AND julianday(t.captured_at) IS NOT NULL
                   AND {JD_GE.format(column="t.captured_at")}
                   AND {JD_LE.format(column="t.captured_at")}
             )
             WHERE rn > ?
-            ORDER BY captured_instant ASC, snapshot_id ASC
+            ORDER BY captured_jd ASC, snapshot_id ASC
             LIMIT 500
         """
-        cur = self.db.conn.execute(
-            sql,
-            ("2000-01-01T00:00:00+00:00", "2100-01-01T00:00:00+00:00", 30),
-        )
+        cut = "2000-01-01T00:00:00+00:00"
+        now = "2100-01-01T00:00:00+00:00"
+        cur = self.db.conn.execute(sql, (cut, cut, now, now, 30))
         return [" | ".join(str(part) for part in row) for row in cur.fetchall()]
 
     def explain_abandoned_pending_select(self) -> list[str]:
@@ -589,12 +598,25 @@ class MaintenanceRepository:
             EXPLAIN QUERY PLAN
             SELECT snapshot_id FROM topology_snapshots
             WHERE status = 'pending'
-              AND retention_instant(captured_at) IS NOT NULL
+              AND julianday(captured_at) IS NOT NULL
               AND (retention_instant(?) - retention_instant(captured_at)) >= ?
-            ORDER BY retention_instant(captured_at) ASC, snapshot_id ASC
+            ORDER BY julianday(captured_at) ASC, snapshot_id ASC
             LIMIT 500
         """
         cur = self.db.conn.execute(sql, ("2100-01-01T00:00:00+00:00", 900.0))
+        return [" | ".join(str(part) for part in row) for row in cur.fetchall()]
+
+    def explain_topology_age_select(self) -> list[str]:
+        sql = f"""
+            EXPLAIN QUERY PLAN
+            SELECT snapshot_id FROM topology_snapshots
+            WHERE status IN ('complete', 'error')
+              AND {JD_LT.format(column="captured_at")}
+            ORDER BY julianday(captured_at) ASC, snapshot_id ASC
+            LIMIT 500
+        """
+        cut = "2000-01-01T00:00:00+00:00"
+        cur = self.db.conn.execute(sql, (cut, cut))
         return [" | ".join(str(part) for part in row) for row in cur.fetchall()]
 
     def explain_incident_event_null_select(self) -> list[str]:
@@ -605,6 +627,20 @@ class MaintenanceRepository:
             """,
             ("x",),
         )
+        return [" | ".join(str(part) for part in row) for row in cur.fetchall()]
+
+    def explain_resolved_incident_select(self) -> list[str]:
+        sql = f"""
+            EXPLAIN QUERY PLAN
+            SELECT id FROM incidents
+            WHERE lifecycle_state = 'resolved'
+              AND resolved_at IS NOT NULL
+              AND {JD_LT.format(column="resolved_at")}
+            ORDER BY julianday(resolved_at) ASC, id ASC
+            LIMIT 500
+        """
+        cut = "2000-01-01T00:00:00+00:00"
+        cur = self.db.conn.execute(sql, (cut, cut))
         return [" | ".join(str(part) for part in row) for row in cur.fetchall()]
 
     def _count_age_category(

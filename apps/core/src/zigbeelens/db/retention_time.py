@@ -1,11 +1,12 @@
 """Absolute-time helpers for retention eligibility (Track 6).
 
-SQLite's built-in ``julianday`` / ``unixepoch`` truncate below milliseconds.
-Retention registers a deterministic ``retention_instant`` function that returns
-UTC epoch seconds as a float with microsecond precision for:
+SQLite's built-in ``julianday`` truncates below milliseconds. Retention
+registers a deterministic ``retention_instant`` function that returns UTC epoch
+seconds as a float with microsecond precision for:
 
-- ISO-8601 with ``+00:00`` / ``Z`` / explicit offsets
+- ISO-8601 with ``+00:00`` / ``Z`` / ``z`` / explicit offsets
 - SQLite ``YYYY-MM-DD HH:MM:SS`` (treated as UTC)
+- SQLite-style strings with offsets: ``YYYY-MM-DD HH:MM:SS+10:00``
 
 Malformed values return NULL and are never eligible for deletion.
 """
@@ -26,19 +27,20 @@ def parse_retention_instant(value: object) -> float | None:
     if not text:
         return None
     try:
-        if text.endswith("Z"):
+        if text.endswith(("Z", "z")):
             text = text[:-1] + "+00:00"
         if "T" not in text and " " in text:
-            # SQLite datetime('now') form — treat as UTC.
-            text = text.replace(" ", "T", 1) + "+00:00"
+            # SQLite datetime form, with or without an explicit offset.
+            # Replace the date/time separator only; do not invent an offset here.
+            text = text.replace(" ", "T", 1)
         dt = datetime.fromisoformat(text)
-    except ValueError:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt.timestamp()
+    except (ValueError, OverflowError, OSError):
         return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    else:
-        dt = dt.astimezone(timezone.utc)
-    return dt.timestamp()
 
 
 def register_retention_sql_functions(conn: Any) -> None:

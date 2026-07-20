@@ -245,14 +245,23 @@ def _cutoff_iso(value: datetime) -> str:
 
 
 # Shared SQL fragments for absolute-time eligibility.
-# Coarse unixepoch(...'subsec') predicates align with migration 012 indexes;
-# exact retention_instant() enforces microsecond-precise cutoffs and malformed
-# handling. Rows with unparseable timestamps yield NULL and are never eligible.
+# Coarse julianday(...) predicates align with migration 012 indexes (portable
+# across CPython 3.11+ SQLite builds). Exact retention_instant() enforces
+# microsecond-precise cutoffs. The coarse predicate is a superset of the exact
+# one so it never excludes a row the exact predicate would classify as older.
 JD_LT = (
-    "unixepoch({column}, 'subsec') <= unixepoch(?, 'subsec') "
+    "julianday({column}) <= julianday(?) "
     "AND retention_instant({column}) < retention_instant(?)"
 )
-JD_GE = "retention_instant({column}) >= retention_instant(?)"
-JD_LE = "retention_instant({column}) <= retention_instant(?)"
+# Count-cap keep-set: not age-eligible and not future. Coarse julianday uses a
+# one-millisecond slack so precision loss never excludes an exact keep-row.
+JD_GE = (
+    "julianday({column}) >= julianday(?) - (1.0 / 86400000.0) "
+    "AND retention_instant({column}) >= retention_instant(?)"
+)
+JD_LE = (
+    "julianday({column}) <= julianday(?) + (1.0 / 86400000.0) "
+    "AND retention_instant({column}) <= retention_instant(?)"
+)
 JD_MALFORMED = "({column} IS NOT NULL AND retention_instant({column}) IS NULL)"
 JD_FUTURE = "retention_instant({column}) > retention_instant(?)"
