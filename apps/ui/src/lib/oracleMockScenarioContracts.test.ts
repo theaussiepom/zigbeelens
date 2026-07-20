@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,7 +21,14 @@ const checkedInFixture = path.join(
   "apps/ui/src/test/fixtures/oracleMockScenarios.json",
 );
 const generator = path.join(repoRoot, "apps/core/scripts/generate_oracle_mock_fixtures.py");
-const corePython = path.join(repoRoot, "apps/core/.venv/bin/python");
+
+function resolveCorePython(): string {
+  const venvPython = path.join(repoRoot, "apps/core/.venv/bin/python");
+  if (existsSync(venvPython)) {
+    return venvPython;
+  }
+  return process.platform === "win32" ? "python" : "python3";
+}
 
 describe("oracle mock scenario contracts", () => {
   it.each(scenarioIds)("validates dashboard for %s", (scenarioId) => {
@@ -70,9 +77,13 @@ describe("oracle mock scenario contracts", () => {
     const tempDir = mkdtempSync(path.join(tmpdir(), "oracle-fixture-"));
     const generatedPath = path.join(tempDir, "oracleMockScenarios.json");
     try {
-      execFileSync(corePython, [generator, "--output", generatedPath], {
+      execFileSync(resolveCorePython(), [generator, "--output", generatedPath], {
         cwd: repoRoot,
         stdio: "pipe",
+        env: {
+          ...process.env,
+          PYTHONPATH: path.join(repoRoot, "apps/core/src"),
+        },
       });
       const generated = readFileSync(generatedPath, "utf8");
       const checkedIn = readFileSync(checkedInFixture, "utf8");
@@ -82,3 +93,4 @@ describe("oracle mock scenario contracts", () => {
     }
   });
 });
+
