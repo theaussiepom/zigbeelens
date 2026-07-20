@@ -36,6 +36,25 @@ def test_storage_config_rejects_zero_and_bool():
         StorageConfig.model_validate({"path": "x", "retention_days": True})
     with pytest.raises(Exception):
         StorageConfig.model_validate({"path": "x", "report_retention_days": 0})
+    with pytest.raises(Exception):
+        StorageConfig.model_validate({"path": "x", "retention_days": "7"})
+    with pytest.raises(Exception):
+        StorageConfig.model_validate({"path": "x", "retention_days": 7.0})
+
+
+def test_cutoffs_preserve_microseconds_and_boundary():
+    ref = datetime(2026, 7, 20, 12, 0, 0, 123456, tzinfo=timezone.utc)
+    policy = StorageRetentionPolicy(
+        telemetry_retention_days=7,
+        resolved_incident_retention_days=90,
+        report_retention_days=None,
+        maintenance_interval_hours=24,
+        topology_max_snapshots_per_network=30,
+    )
+    cutoffs = compute_cutoffs(policy, ref)
+    assert cutoffs.telemetry.microsecond == 123456
+    plan = build_maintenance_plan(policy, ref)
+    assert plan.reference_now_iso() == ref.isoformat()
 
 
 def test_cutoffs_strictly_older_than_and_null_policies():
@@ -110,8 +129,9 @@ def test_julianday_timestamp_forms_equivalent(tmp_path: Path):
     plan = build_maintenance_plan(policy, REF)
     preview = repo.maintenance.preview_retention(plan)
     # Four equivalent old rows eligible; malformed retained/counted; new retained.
-    assert preview.by_category["events"].eligible == 4
-    assert preview.by_category["events"].malformed_timestamps == 1
+    assert preview.eligible_deletes_by_category["events"] == 4
+    assert preview.malformed_timestamps_by_category["events"] == 1
+    assert plan.reference_now == REF
 
     with repo.transaction():
         deleted = repo.maintenance.purge_telemetry_batch(
@@ -146,7 +166,7 @@ def test_preview_reports_default_not_eligible(tmp_path: Path):
     )
     plan = build_maintenance_plan(policy, REF)
     preview = repo.maintenance.preview_retention(plan)
-    assert preview.by_category["reports"].eligible == 0
+    assert preview.eligible_deletes_by_category.get("reports", 0) == 0
 
 
 def test_preview_and_delete_resolved_incidents(tmp_path: Path):
@@ -201,7 +221,7 @@ def test_preview_and_delete_resolved_incidents(tmp_path: Path):
     )
     plan = build_maintenance_plan(policy, REF)
     preview = repo.maintenance.preview_retention(plan)
-    assert preview.by_category["incidents_resolved"].eligible == 1
+    assert preview.eligible_deletes_by_category["incidents_resolved"] == 1
 
     with repo.transaction():
         deleted = repo.maintenance.purge_resolved_incident_batch(

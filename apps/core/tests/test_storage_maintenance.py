@@ -90,15 +90,16 @@ def test_executor_deletes_telemetry_keeps_reports_and_active(tmp_path: Path):
 
     cfg = _cfg(tmp_path / "m.sqlite")
     dry = run_storage_maintenance(repo, cfg, reference_now=REF, dry_run=True)
-    assert dry.rows_deleted_by_category["events"] == 1
-    assert dry.rows_deleted_by_category["reports"] == 0
-    assert dry.rows_deleted_by_category["incidents_resolved"] == 0
+    assert dry.eligible_deletes_by_category["events"] == 1
+    assert dry.eligible_deletes_by_category.get("reports", 0) == 0
+    assert dry.eligible_deletes_by_category.get("incidents_resolved", 0) == 0
+    assert dry.total_rows_deleted == 0
     assert repo.db.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1
 
     result = run_storage_maintenance(repo, cfg, reference_now=REF)
     assert result.success
     assert result.rows_deleted_by_category["events"] == 1
-    assert result.rows_deleted_by_category["reports"] == 0
+    assert result.rows_deleted_by_category.get("reports", 0) == 0
     assert {row["id"] for row in repo.list_incidents()} == {"inc-open", "inc-old"}
     status = repo.maintenance.get_maintenance_setting()
     assert status is not None

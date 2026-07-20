@@ -21,8 +21,8 @@ Incidents:
 Reports:
   storage.report_retention_days (default null = until manual delete)
 
-Topology pending captures are not ordinary history; abandoned pending rows are
-terminalized before age/count retention applies.
+Topology pending captures are not ordinary history. Abandoned pending rows are
+terminalized in one cycle and become age/count candidates only in a later cycle.
 """
 
 from __future__ import annotations
@@ -34,9 +34,11 @@ from typing import Mapping
 from zigbeelens.config.models import AppConfig, StorageConfig, TopologyConfig
 
 POLICY_VERSION = 2
+CURRENT_SCHEMA_VERSION = 12
 MAINTENANCE_BATCH_SIZE = 500
 MAINTENANCE_STATUS_KEY = "storage_maintenance_status_v1"
 ABANDONED_TOPOLOGY_ERROR = "Topology capture was interrupted before completion"
+MORE_WORK_CONTINUATION_SECONDS = 60.0
 
 # Deterministic category order for preview and deletion.
 TELEMETRY_CATEGORIES: tuple[tuple[str, str, str], ...] = (
@@ -121,15 +123,18 @@ class CategoryEligibility:
 @dataclass(frozen=True)
 class StorageRetentionPreview:
     cutoffs: StorageRetentionCutoffs
-    by_category: Mapping[str, CategoryEligibility]
-    topology_count_cap_candidates: int = 0
-    abandoned_pending_topology: int = 0
+    reference_now: datetime
+    eligible_deletes_by_category: Mapping[str, int]
+    eligible_updates_by_category: Mapping[str, int]
+    malformed_timestamps_by_category: Mapping[str, int]
+    future_timestamps_by_category: Mapping[str, int]
+    batches_required_by_category: Mapping[str, int]
     more_work_pending: bool = False
 
     @property
-    def total_eligible(self) -> int:
-        return sum(item.eligible for item in self.by_category.values()) + (
-            self.topology_count_cap_candidates + self.abandoned_pending_topology
+    def total_rows_eligible(self) -> int:
+        return sum(self.eligible_deletes_by_category.values()) + sum(
+            self.eligible_updates_by_category.values()
         )
 
 
@@ -137,8 +142,13 @@ class StorageRetentionPreview:
 class StorageMaintenancePlan:
     policy: StorageRetentionPolicy
     cutoffs: StorageRetentionCutoffs
+    reference_now: datetime
     batch_size: int = MAINTENANCE_BATCH_SIZE
     dry_run: bool = False
+    exclude_topology_snapshot_ids: frozenset[str] = field(default_factory=frozenset)
+
+    def reference_now_iso(self) -> str:
+        return normalize_reference_now(self.reference_now).isoformat()
 
 
 @dataclass
@@ -146,21 +156,33 @@ class StorageMaintenanceResult:
     policy_version: int = POLICY_VERSION
     success: bool = True
     error_code: str | None = None
+    failure_category: str | None = None
     started_at: str | None = None
     completed_at: str | None = None
-    duration_ms: int = 0
+    duration_ms: int | None = None
     rows_deleted_by_category: dict[str, int] = field(default_factory=dict)
+    rows_updated_by_category: dict[str, int] = field(default_factory=dict)
+    eligible_deletes_by_category: dict[str, int] = field(default_factory=dict)
+    eligible_updates_by_category: dict[str, int] = field(default_factory=dict)
     malformed_timestamps_by_category: dict[str, int] = field(default_factory=dict)
     future_timestamps_by_category: dict[str, int] = field(default_factory=dict)
     more_work_pending: bool = False
     telemetry_cutoff: str | None = None
     resolved_incident_cutoff: str | None = None
     report_cutoff: str | None = None
+    reference_now: str | None = None
     wal_checkpoint: dict[str, int | bool | None] = field(default_factory=dict)
+    integrity: dict[str, dict[str, object | None]] = field(default_factory=dict)
 
     @property
     def total_rows_deleted(self) -> int:
         return sum(self.rows_deleted_by_category.values())
+
+    @property
+    def total_rows_eligible(self) -> int:
+        return sum(self.eligible_deletes_by_category.values()) + sum(
+            self.eligible_updates_by_category.values()
+        )
 
 
 def normalize_reference_now(reference_now: datetime) -> datetime:
@@ -173,7 +195,8 @@ def compute_cutoffs(
     policy: StorageRetentionPolicy,
     reference_now: datetime,
 ) -> StorageRetentionCutoffs:
-    now = normalize_reference_now(reference_now).replace(microsecond=0)
+    """Compute cutoffs from *reference_now*, preserving microseconds."""
+    now = normalize_reference_now(reference_now)
     telemetry = now - timedelta(days=policy.telemetry_retention_days)
     resolved = (
         None
@@ -198,21 +221,38 @@ def build_maintenance_plan(
     *,
     dry_run: bool = False,
     batch_size: int = MAINTENANCE_BATCH_SIZE,
+    exclude_topology_snapshot_ids: frozenset[str] | None = None,
 ) -> StorageMaintenancePlan:
+    now = normalize_reference_now(reference_now)
     return StorageMaintenancePlan(
         policy=policy,
-        cutoffs=compute_cutoffs(policy, reference_now),
+        cutoffs=compute_cutoffs(policy, now),
+        reference_now=now,
         batch_size=batch_size,
         dry_run=dry_run,
+        exclude_topology_snapshot_ids=exclude_topology_snapshot_ids or frozenset(),
     )
 
 
+def batches_required(eligible: int, batch_size: int) -> int:
+    if eligible <= 0 or batch_size <= 0:
+        return 0
+    return (eligible + batch_size - 1) // batch_size
+
+
 def _cutoff_iso(value: datetime) -> str:
-    return normalize_reference_now(value).replace(microsecond=0).isoformat()
+    return normalize_reference_now(value).isoformat()
 
 
-# Shared SQL fragment: absolute-time comparison via julianday.
-# Rows with unparseable timestamps yield NULL julianday and are never eligible.
-JD_LT = "julianday({column}) < julianday(?)"
-JD_MALFORMED = "({column} IS NOT NULL AND julianday({column}) IS NULL)"
-JD_FUTURE = "julianday({column}) > julianday(?)"
+# Shared SQL fragments for absolute-time eligibility.
+# Coarse unixepoch(...'subsec') predicates align with migration 012 indexes;
+# exact retention_instant() enforces microsecond-precise cutoffs and malformed
+# handling. Rows with unparseable timestamps yield NULL and are never eligible.
+JD_LT = (
+    "unixepoch({column}, 'subsec') <= unixepoch(?, 'subsec') "
+    "AND retention_instant({column}) < retention_instant(?)"
+)
+JD_GE = "retention_instant({column}) >= retention_instant(?)"
+JD_LE = "retention_instant({column}) <= retention_instant(?)"
+JD_MALFORMED = "({column} IS NOT NULL AND retention_instant({column}) IS NULL)"
+JD_FUTURE = "retention_instant({column}) > retention_instant(?)"

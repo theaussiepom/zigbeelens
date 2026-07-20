@@ -64,10 +64,12 @@ class AppContext:
         return int(time.time() - self.started_at)
 
     def close(self) -> None:
-        stop_topology()
-        stop_collector(self.collector, self.broadcaster)
+        # Stop storage maintenance first so its completion callback still sees a
+        # coherent application context (topology/collector still available).
         if self.storage_scheduler is not None:
             self.storage_scheduler.stop(wait=True)
+        stop_topology()
+        stop_collector(self.collector, self.broadcaster)
         if self.evaluation_scheduler is not None:
             self.evaluation_scheduler.stop(wait=True)
         if self.dashboard_scheduler is not None:
@@ -122,7 +124,7 @@ def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -
     db = Database(cfg.storage.path)
     migration_version = db.migrate()
     try:
-        run_startup_integrity_gates(db)
+        integrity_results = run_startup_integrity_gates(db)
     except StorageIntegrityError:
         db.close()
         logger.error("Storage integrity check failed; refusing destructive startup services")
@@ -130,6 +132,21 @@ def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -
 
     repo = Repository(db)
     mark_interrupted_maintenance_status(repo)
+    try:
+        previous = repo.maintenance.get_maintenance_setting() or {}
+        integrity_payload = dict(previous.get("integrity") or {})
+        for item in integrity_results:
+            key = "quick_check" if item.kind == "quick" else "foreign_key_check"
+            integrity_payload[key] = {
+                "status": "ok" if item.ok else "failed",
+                "checked_at": item.checked_at,
+                "violation_count": item.violation_count,
+            }
+        previous["integrity"] = integrity_payload
+        with repo.transaction():
+            repo.maintenance.set_maintenance_setting(previous)
+    except Exception:
+        logger.error("Storage integrity status persistence failed safely")
     maintenance_result = run_storage_maintenance(repo, cfg)
     if not maintenance_result.success and maintenance_result.error_code == "integrity_check_failed":
         db.close()
@@ -172,10 +189,17 @@ def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -
     ctx.evaluation_scheduler = PeriodicEvaluationScheduler(ctx.evaluation) if ctx.evaluation else None
     if ctx.evaluation_scheduler is not None and not cfg.mode.mock:
         ctx.evaluation_scheduler.start()
+    from zigbeelens.topology.service import get_topology_service
+
+    def _active_pending_snapshot_id() -> str | None:
+        service = get_topology_service()
+        return None if service is None else service.active_pending_snapshot_id
+
     ctx.storage_scheduler = StorageMaintenanceScheduler(
         repo,
         cfg,
         on_result=lambda result: _on_storage_maintenance(ctx, result),
+        active_pending_provider=_active_pending_snapshot_id,
     )
     if not cfg.mode.mock:
         ctx.storage_scheduler.start()

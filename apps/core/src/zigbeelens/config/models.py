@@ -191,9 +191,11 @@ class StorageConfig(BaseModel):
         mode="before",
     )
     @classmethod
-    def _reject_bool_days(cls, value: object) -> object:
-        if isinstance(value, bool):
-            raise ValueError("must be an integer, not a boolean")
+    def _strict_int_days(cls, value: object) -> object:
+        if value is None:
+            return value
+        if isinstance(value, bool) or type(value) is not int:
+            raise ValueError("must be an integer")
         return value
 
 

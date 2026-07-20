@@ -10,6 +10,7 @@ from importlib import resources
 from pathlib import Path
 
 from zigbeelens.db.locked_connection import LockedSQLiteConnection
+from zigbeelens.db.retention_time import register_retention_sql_functions
 
 
 class Database:
@@ -19,11 +20,41 @@ class Database:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        register_retention_sql_functions(self._conn)
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.execute("PRAGMA journal_mode = WAL")
         self._conn.execute("PRAGMA busy_timeout = 5000")
         self._locked = LockedSQLiteConnection(self._conn, self._lock)
         self.migration_version = 0
+
+    @classmethod
+    def open_existing(cls, path: str | Path) -> Database:
+        """Open an existing database without creating parents or running migrations.
+
+        Still enables WAL for normal Core writers. CLI apply uses this so Core
+        remains the migration owner.
+        """
+        db_path = Path(path).expanduser().resolve()
+        if not db_path.is_file():
+            raise FileNotFoundError(str(db_path))
+        instance = cls.__new__(cls)
+        instance.path = db_path
+        instance._lock = threading.RLock()
+        instance._conn = sqlite3.connect(db_path, check_same_thread=False)
+        instance._conn.row_factory = sqlite3.Row
+        register_retention_sql_functions(instance._conn)
+        instance._conn.execute("PRAGMA foreign_keys = ON")
+        instance._conn.execute("PRAGMA journal_mode = WAL")
+        instance._conn.execute("PRAGMA busy_timeout = 5000")
+        instance._locked = LockedSQLiteConnection(instance._conn, instance._lock)
+        try:
+            row = instance._conn.execute(
+                "SELECT MAX(version) FROM schema_migrations"
+            ).fetchone()
+            instance.migration_version = int(row[0] or 0) if row else 0
+        except sqlite3.Error:
+            instance.migration_version = 0
+        return instance
 
     @property
     def conn(self) -> LockedSQLiteConnection:

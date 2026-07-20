@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal, Protocol
 
-from zigbeelens.db.connection import Database
 from zigbeelens.storage.repository import utc_now_iso
 
 
@@ -27,12 +26,17 @@ class StorageIntegrityResult:
     checked_at: str
 
 
-def quick_check(db: Database) -> StorageIntegrityResult:
+class _ConnDatabase(Protocol):
+    @property
+    def conn(self) -> Any: ...
+
+
+def quick_check(db: _ConnDatabase) -> StorageIntegrityResult:
     checked_at = utc_now_iso()
     try:
         row = db.conn.execute("PRAGMA quick_check").fetchone()
-    except sqlite3.Error as exc:
-        raise StorageIntegrityError("quick_check") from exc
+    except sqlite3.Error:
+        raise StorageIntegrityError("quick_check") from None
     value = str(row[0]) if row is not None else ""
     ok = value == "ok"
     result = StorageIntegrityResult(
@@ -46,12 +50,12 @@ def quick_check(db: Database) -> StorageIntegrityResult:
     return result
 
 
-def foreign_key_check(db: Database) -> StorageIntegrityResult:
+def foreign_key_check(db: _ConnDatabase) -> StorageIntegrityResult:
     checked_at = utc_now_iso()
     try:
         rows = db.conn.execute("PRAGMA foreign_key_check").fetchall()
-    except sqlite3.Error as exc:
-        raise StorageIntegrityError("foreign_key_check") from exc
+    except sqlite3.Error:
+        raise StorageIntegrityError("foreign_key_check") from None
     count = len(rows)
     result = StorageIntegrityResult(
         kind="foreign_keys",
@@ -64,12 +68,12 @@ def foreign_key_check(db: Database) -> StorageIntegrityResult:
     return result
 
 
-def full_check(db: Database) -> StorageIntegrityResult:
+def full_check(db: _ConnDatabase) -> StorageIntegrityResult:
     checked_at = utc_now_iso()
     try:
         rows = db.conn.execute("PRAGMA integrity_check").fetchall()
-    except sqlite3.Error as exc:
-        raise StorageIntegrityError("integrity_check") from exc
+    except sqlite3.Error:
+        raise StorageIntegrityError("integrity_check") from None
     values = [str(row[0]) for row in rows]
     ok = values == ["ok"]
     result = StorageIntegrityResult(
@@ -83,6 +87,6 @@ def full_check(db: Database) -> StorageIntegrityResult:
     return result
 
 
-def run_startup_integrity_gates(db: Database) -> list[StorageIntegrityResult]:
+def run_startup_integrity_gates(db: _ConnDatabase) -> list[StorageIntegrityResult]:
     """Fast gates before any destructive retention."""
     return [quick_check(db), foreign_key_check(db)]

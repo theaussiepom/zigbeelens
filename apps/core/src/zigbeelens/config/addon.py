@@ -37,11 +37,22 @@ def _addon_security_block() -> dict[str, Any]:
     }
 
 
+def _addon_strict_int(raw: Any, *, default: int | None = None) -> int:
+    """Accept only real JSON/YAML integers; reject bool/float/string surprises."""
+    if raw is None or raw == "":
+        if default is None:
+            raise ValueError("must be an integer")
+        return default
+    if isinstance(raw, bool) or type(raw) is not int:
+        raise ValueError("must be an integer")
+    return raw
+
+
 def _addon_optional_retention_days(raw: Any) -> int | None:
     """Map add-on retention days: 0 → null (retain indefinitely / manual-only)."""
     if raw is None or raw == "":
         return None
-    value = int(raw)
+    value = _addon_strict_int(raw)
     if value == 0:
         return None
     return value
@@ -54,8 +65,10 @@ def _addon_storage_block(storage: dict[str, Any]) -> dict[str, Any]:
     """
     block: dict[str, Any] = {
         "path": "/data/zigbeelens/zigbeelens.sqlite",
-        "retention_days": int(storage.get("retention_days") or 7),
-        "maintenance_interval_hours": int(storage.get("maintenance_interval_hours") or 24),
+        "retention_days": _addon_strict_int(storage.get("retention_days"), default=7),
+        "maintenance_interval_hours": _addon_strict_int(
+            storage.get("maintenance_interval_hours"), default=24
+        ),
     }
     if "resolved_incident_retention_days" in storage:
         block["resolved_incident_retention_days"] = _addon_optional_retention_days(
@@ -66,7 +79,6 @@ def _addon_storage_block(storage: dict[str, Any]) -> dict[str, Any]:
             storage.get("report_retention_days")
         )
     return block
-
 
 def options_to_config_dict(options: dict[str, Any]) -> dict[str, Any]:
     """Map Home Assistant add-on options to a ZigbeeLens AppConfig-compatible dict.

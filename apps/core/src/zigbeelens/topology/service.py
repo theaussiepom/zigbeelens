@@ -107,6 +107,13 @@ class TopologyService:
         self._status.networks = self._network_summaries()
         return self._status
 
+    @property
+    def active_pending_snapshot_id(self) -> str | None:
+        """Read-only ID of the in-memory pending capture, if any."""
+        with self._lock:
+            pending = self._pending
+        return None if pending is None else pending.snapshot_id
+
     def capture_warning(self) -> str:
         return CAPTURE_WARNING
 
@@ -260,11 +267,16 @@ class TopologyService:
                 parsed,
                 status="complete",
             )
-            self._repo.enforce_topology_retention(
-                pending.network_id, self._config.topology.max_snapshots_per_network
-            )
             self._status.last_capture_error = None
             self._refresh_diagnostics()
+            try:
+                self._repo.enforce_topology_retention(
+                    pending.network_id, self._config.topology.max_snapshots_per_network
+                )
+            except Exception:
+                logger.error(
+                    "Topology count retention failed safely; completed capture retained"
+                )
             return True
         except Exception:
             logger.exception("Topology response handling failed")

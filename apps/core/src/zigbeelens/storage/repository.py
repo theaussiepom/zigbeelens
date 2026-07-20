@@ -2419,32 +2419,35 @@ class Repository:
         Reports and resolved incidents are not governed by this helper; use the
         Track 6 maintenance executor with an explicit StorageRetentionPolicy.
         Topology deletes terminal rows only (complete/error).
+
+        Each batch owns its own bounded transaction (no outer history-wide txn).
         """
         from zigbeelens.storage.retention_policy import TELEMETRY_CATEGORIES
 
         counts: dict[str, int] = {}
         maint = self.maintenance
-        with self.transaction():
-            for table, column, pk in TELEMETRY_CATEGORIES:
-                if not self._has_table(table):
-                    counts[table] = 0
-                    continue
-                deleted = 0
-                while True:
+        for table, column, pk in TELEMETRY_CATEGORIES:
+            if not self._has_table(table):
+                counts[table] = 0
+                continue
+            deleted = 0
+            while True:
+                with self.transaction():
                     batch = maint.purge_telemetry_batch(
                         table, column, pk, cutoff_iso, limit=500
                     )
-                    deleted += batch
-                    if batch < 500:
-                        break
-                counts[table] = deleted
-            topology_deleted = 0
-            while True:
-                batch = maint.purge_topology_age_batch(cutoff_iso, limit=500)
-                topology_deleted += batch
+                deleted += batch
                 if batch < 500:
                     break
-            counts["topology_snapshots"] = topology_deleted
-            counts["reports"] = 0
-            counts["incidents_resolved"] = 0
+            counts[table] = deleted
+        topology_deleted = 0
+        while True:
+            with self.transaction():
+                batch = maint.purge_topology_age_batch(cutoff_iso, limit=500)
+            topology_deleted += batch
+            if batch < 500:
+                break
+        counts["topology_snapshots"] = topology_deleted
+        counts["reports"] = 0
+        counts["incidents_resolved"] = 0
         return counts
