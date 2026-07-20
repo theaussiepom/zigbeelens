@@ -259,6 +259,7 @@ class TopologyService:
         if not is_networkmap_response_topic(message.topic, pending.base_topic):
             return False
 
+        # Pre-store failures own the capture failure path.
         try:
             parsed = parse_networkmap_payload(message.payload)
             self._repo.store_topology_parsed(
@@ -267,28 +268,6 @@ class TopologyService:
                 parsed,
                 status="complete",
             )
-            self._status.last_capture_error = None
-            try:
-                self._repo.enforce_topology_retention(
-                    pending.network_id, self._config.topology.max_snapshots_per_network
-                )
-            except Exception:
-                logger.error(
-                    "Topology count retention failed safely; completed capture retained"
-                )
-            # Every successful capture changes topology history. Publish once
-            # whether count cleanup deleted zero, one, or many rows. SSE failure
-            # must not turn a stored complete capture into an error.
-            try:
-                self._ctx.broadcaster.publish_sync(
-                    "topology_updated", {"type": "topology_updated"}
-                )
-            except Exception:
-                logger.error("topology_updated publish failed safely after capture")
-            # Refresh decisions only after best-effort count cleanup so retained
-            # history matches what topology surfaces will show.
-            self._refresh_diagnostics()
-            return True
         except Exception:
             logger.exception("Topology response handling failed")
             self._repo.update_topology_snapshot(
@@ -297,9 +276,41 @@ class TopologyService:
                 error="Topology response handling failed",
             )
             self._status.last_capture_error = "Topology response handling failed"
+            self._clear_matching_pending(pending.snapshot_id)
             return False
-        finally:
-            with self._lock:
+
+        # Completed capture is authoritative; remaining work is best-effort.
+        self._status.last_capture_error = None
+        try:
+            self._repo.enforce_topology_retention(
+                pending.network_id, self._config.topology.max_snapshots_per_network
+            )
+        except Exception:
+            logger.error(
+                "Topology count retention failed safely; completed capture retained"
+            )
+        try:
+            self._refresh_diagnostics()
+        except Exception:
+            logger.error(
+                "Topology diagnostic refresh failed safely; completed capture retained"
+            )
+            self._status.last_capture_error = "Topology diagnostic refresh failed"
+
+        # Consumers must observe capture_in_progress=false at event time.
+        self._clear_matching_pending(pending.snapshot_id)
+        try:
+            self._ctx.broadcaster.publish_sync(
+                "topology_updated", {"type": "topology_updated"}
+            )
+        except Exception:
+            logger.error("topology_updated publish failed safely after capture")
+        return True
+
+    def _clear_matching_pending(self, snapshot_id: str) -> None:
+        """Clear the in-memory pending capture only when it is still this one."""
+        with self._lock:
+            if self._pending is not None and self._pending.snapshot_id == snapshot_id:
                 self._pending = None
 
     def _clear_stale_pending_unlocked(self) -> None:

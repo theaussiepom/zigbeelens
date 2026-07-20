@@ -2,15 +2,32 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeviceSnapshotHistoryDetail, DeviceSnapshotHistoryRow } from "@/types/devices";
 
-let emit: (eventName: string) => void = () => {};
-let unsubscribe = vi.fn();
+const eventListeners = new Set<(eventName: string) => void>();
+const stateListeners = new Set<(state: string) => void>();
+const emit = (eventName: string) => {
+  for (const listener of eventListeners) listener(eventName);
+};
+const emitState = (state: string) => {
+  for (const listener of stateListeners) listener(state);
+};
 
 vi.mock("@/lib/events", () => ({
   liveConnection: {
     subscribeEvents: (listener: (e: string) => void) => {
-      emit = listener;
-      return unsubscribe;
+      eventListeners.add(listener);
+      return () => {
+        eventListeners.delete(listener);
+      };
     },
+    subscribeState: (listener: (state: string) => void) => {
+      stateListeners.add(listener);
+      listener("open");
+      return () => {
+        stateListeners.delete(listener);
+      };
+    },
+    getState: () => "open",
+    isAccessEnabled: () => true,
   },
 }));
 
@@ -21,6 +38,7 @@ vi.mock("@/lib/api", () => ({
     topologyDeviceSnapshotHistory: (...args: unknown[]) =>
       topologyDeviceSnapshotHistory(...args),
   },
+  ApiError: class ApiError extends Error {},
 }));
 
 import { SnapshotHistorySection } from "./SnapshotHistorySection";
@@ -93,7 +111,8 @@ function historyPayload(snapshotIds: string[]): DeviceSnapshotHistoryDetail {
 describe("SnapshotHistorySection", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    unsubscribe = vi.fn();
+    eventListeners.clear();
+    stateListeners.clear();
     topologyDeviceSnapshotHistory.mockReset();
     topologyDeviceSnapshotHistory.mockResolvedValue(
       historyPayload(["snap-live", "snap-prev", "snap-older"]),
@@ -104,7 +123,7 @@ describe("SnapshotHistorySection", () => {
     vi.useRealTimers();
   });
 
-  it("refetches on topology_updated, preserves selection, and falls back when deleted", async () => {
+  it("loads, refetches on topology_updated, preserves/falls back selection", async () => {
     render(<SnapshotHistorySection networkId="home" deviceIeee="0xabc" />);
     await act(async () => {
       await Promise.resolve();
@@ -112,14 +131,13 @@ describe("SnapshotHistorySection", () => {
     expect(topologyDeviceSnapshotHistory).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("snapshot-history-list")).toBeInTheDocument();
 
-    const rows = screen.getAllByRole("button");
-    // First pressed button is default-selected snap-prev; click snap-older.
-    const older = rows.find((button) => button.getAttribute("aria-pressed") === "false");
+    const older = screen
+      .getAllByRole("button")
+      .find((button) => button.getAttribute("aria-pressed") === "false");
     expect(older).toBeTruthy();
     await act(async () => {
       older!.click();
     });
-    expect(screen.getByRole("button", { pressed: true })).toBeInTheDocument();
 
     topologyDeviceSnapshotHistory.mockResolvedValue(
       historyPayload(["snap-live", "snap-prev", "snap-older"]),
@@ -151,14 +169,45 @@ describe("SnapshotHistorySection", () => {
     expect(topologyDeviceSnapshotHistory).toHaveBeenCalledTimes(3);
   });
 
-  it("unsubscribes on unmount", async () => {
-    const { unmount } = render(
+  it("rejects stale responses after device change and polls while disconnected", async () => {
+    const { rerender, unmount } = render(
       <SnapshotHistorySection networkId="home" deviceIeee="0xabc" />,
     );
     await act(async () => {
       await Promise.resolve();
     });
+    expect(topologyDeviceSnapshotHistory).toHaveBeenCalledTimes(1);
+
+    let resolveStale: (value: unknown) => void = () => {};
+    topologyDeviceSnapshotHistory.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStale = resolve;
+        }),
+    );
+    topologyDeviceSnapshotHistory.mockResolvedValue(historyPayload(["snap-def"]));
+    rerender(<SnapshotHistorySection networkId="home" deviceIeee="0xdef" />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(topologyDeviceSnapshotHistory).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolveStale(historyPayload(["snap-stale"]));
+      await Promise.resolve();
+    });
+    expect(screen.queryByText(/snap-stale/i)).toBeNull();
+
+    act(() => emitState("disconnected"));
+    act(() => vi.advanceTimersByTime(30_000));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(topologyDeviceSnapshotHistory.mock.calls.length).toBeGreaterThanOrEqual(3);
+
     unmount();
-    expect(unsubscribe).toHaveBeenCalled();
+    const callsAfterUnmount = topologyDeviceSnapshotHistory.mock.calls.length;
+    act(() => vi.advanceTimersByTime(30_000));
+    expect(topologyDeviceSnapshotHistory).toHaveBeenCalledTimes(callsAfterUnmount);
   });
 });

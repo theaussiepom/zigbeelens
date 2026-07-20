@@ -65,20 +65,21 @@ def test_no_subsec_in_migration_or_retention_sql():
 
 
 def test_parse_retention_instant_timestamp_forms():
-    forms = [
-        "2026-01-01T00:00:00+00:00",
-        "2026-01-01T00:00:00Z",
-        "2026-01-01T00:00:00z",
+    accepted = [
+        "2026-01-01T00:00:00",
         "2026-01-01 00:00:00",
-        "2026-01-01T10:00:00+10:00",
-        "2026-01-01 10:00:00+10:00",
         "2026-01-01T00:00:00.123456",
         "2026-01-01 00:00:00.123",
+        "2026-01-01T00:00:00Z",
+        "2026-01-01T00:00:00z",
+        "2026-01-01T00:00:00+00:00",
+        "2026-01-01T00:00:00-00:00",
+        "2026-01-01T10:00:00+10:00",
+        "2026-01-01 10:00:00+10:00",
+        "2026-01-01T10:00:00-10:00",
+        "2026-01-01T00:00:00+14:00",
+        "2026-01-01T00:00:00+14:59",
     ]
-    instants = [parse_retention_instant(value) for value in forms[:6]]
-    assert all(value is not None for value in instants)
-    assert len(set(instants)) == 1
-    assert parse_retention_instant("2026-01-01T00:00:00.123456") is not None
     rejected = [
         " 2026-01-01T00:00:00",
         "2026-01-01T00:00:00 ",
@@ -89,9 +90,34 @@ def test_parse_retention_instant_timestamp_forms():
         "2026-01-01",
         "2026-01-01  00:00:00",
         "2026-01-01T00:00:00 UTC",
+        "2026-01-01T00:00:00+15:00",
+        "2026-01-01T00:00:00-15:00",
+        "2026-01-01T00:00:00+10:60",
+        "2026-01-01T00:00:00-10:60",
+        "2026-01-01T00:00:00+10:99",
+        "2026-01-01T00:00:00+99:00",
         "not-a-timestamp",
     ]
-    assert all(parse_retention_instant(value) is None for value in rejected)
+    conn = sqlite3.connect(":memory:")
+    for value in accepted:
+        assert parse_retention_instant(value) is not None, value
+        assert conn.execute("SELECT julianday(?) IS NOT NULL", (value,)).fetchone()[0] == 1, value
+    for value in rejected:
+        assert parse_retention_instant(value) is None, value
+    # Equivalent UTC forms still collapse.
+    assert len(
+        {
+            parse_retention_instant(value)
+            for value in (
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:00z",
+                "2026-01-01 00:00:00",
+                "2026-01-01T10:00:00+10:00",
+                "2026-01-01 10:00:00+10:00",
+            )
+        }
+    ) == 1
 
 
 def test_terminalize_excluded_until_next_cycle(tmp_path: Path):
@@ -887,34 +913,35 @@ def test_rejected_timestamp_retained_and_counted(tmp_path: Path):
     db = Database(tmp_path / "badts.sqlite")
     db.migrate()
     repo = Repository(db)
-    repo.db.conn.execute(
-        """
-        INSERT INTO events (id, event_type, severity, title, summary, occurred_at)
-        VALUES ('bad', 'test', 'watch', 't', 's', ?)
-        """,
-        ("2026-01-01T00:00:00 UTC",),
-    )
+    rejected = [
+        "2026-01-01T00:00:00 UTC",
+        "2026-01-01T00:00:00+15:00",
+        "2026-01-01T00:00:00+10:60",
+    ]
+    for index, value in enumerate(rejected):
+        repo.db.conn.execute(
+            """
+            INSERT INTO events (id, event_type, severity, title, summary, occurred_at)
+            VALUES (?, 'test', 'watch', 't', 's', ?)
+            """,
+            (f"bad-{index}", value),
+        )
     repo.db.conn.commit()
     cfg = _cfg(tmp_path / "badts.sqlite")
     result = run_storage_maintenance(repo, cfg, reference_now=REF)
     assert (
-        repo.db.conn.execute("SELECT COUNT(*) FROM events WHERE id='bad'").fetchone()[0]
-        == 1
+        repo.db.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE id LIKE 'bad-%'"
+        ).fetchone()[0]
+        == len(rejected)
     )
-    assert result.malformed_timestamps_by_category.get("events", 0) >= 1
+    assert result.malformed_timestamps_by_category.get("events", 0) >= len(rejected)
 
 
-def test_capture_emits_one_topology_updated(tmp_path: Path):
-    from unittest.mock import patch
-
-    from zigbeelens.app.context import bootstrap, reset_context
+def _capture_cfg(tmp_path: Path) -> AppConfig:
     from zigbeelens.config.models import FeaturesConfig, TopologyConfig
-    from zigbeelens.mqtt.models import RawMqttMessage
-    from zigbeelens.topology.publisher import FakeTopologyRequestPublisher
-    from zigbeelens.topology.service import TopologyService
 
-    reset_context()
-    cfg = AppConfig(
+    return AppConfig(
         mode=ModeConfig(mock=True),
         networks=[NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt")],
         storage=StorageConfig(path=str(tmp_path / "cap-event.sqlite")),
@@ -928,63 +955,101 @@ def test_capture_emits_one_topology_updated(tmp_path: Path):
             max_snapshots_per_network=30,
         ),
     )
+
+
+def test_capture_lifecycle_clears_pending_before_event(tmp_path: Path):
+    from unittest.mock import patch
+
+    from zigbeelens.app.context import bootstrap, reset_context
+    from zigbeelens.mqtt.models import RawMqttMessage
+    from zigbeelens.topology.publisher import FakeTopologyRequestPublisher
+    from zigbeelens.topology.service import TopologyService
+
+    reset_context()
+    cfg = _capture_cfg(tmp_path)
     with patch("zigbeelens.app.context.start_discovery", return_value=None):
         ctx = bootstrap(config=cfg)
+    service = TopologyService(ctx, publisher=FakeTopologyRequestPublisher(cfg))
+    observed: list[bool] = []
     events: list[str] = []
-    original_publish = ctx.broadcaster.publish_sync
 
     def publish(event: str, data: dict) -> None:
         events.append(event)
-        return original_publish(event, data)
+        if event == "topology_updated":
+            observed.append(service.status.capture_in_progress)
 
-    service = TopologyService(ctx, publisher=FakeTopologyRequestPublisher(cfg))
+    def _msg() -> RawMqttMessage:
+        return RawMqttMessage(
+            topic="zigbee2mqtt/bridge/response/networkmap",
+            payload=b'{"nodes": {}, "links": []}',
+            retained=False,
+            received_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    # A. normal successful capture
     service.request_capture("home", confirmed=True)
-    message = RawMqttMessage(
-        topic="zigbee2mqtt/bridge/response/networkmap",
-        payload=b'{"nodes": {}, "links": []}',
-        retained=False,
-        received_at=datetime.now(timezone.utc).isoformat(),
-    )
     with patch.object(ctx.broadcaster, "publish_sync", side_effect=publish):
-        assert service.try_handle_response(message) is True
+        assert service.try_handle_response(_msg()) is True
     assert events.count("topology_updated") == 1
+    assert observed == [False]
+    assert service.status.capture_in_progress is False
+    assert ctx.repo.get_latest_topology_snapshot("home")["status"] == "complete"
 
-    # Count cleanup failure still emits one topology_updated and keeps complete.
-    service.request_capture("home", confirmed=True)
+    # B. count-cleanup failure
     events.clear()
+    observed.clear()
+    service.request_capture("home", confirmed=True)
     with (
         patch.object(
             ctx.repo, "enforce_topology_retention", side_effect=RuntimeError("busy")
         ),
         patch.object(ctx.broadcaster, "publish_sync", side_effect=publish),
     ):
-        assert service.try_handle_response(
-            RawMqttMessage(
-                topic="zigbee2mqtt/bridge/response/networkmap",
-                payload=b'{"nodes": {}, "links": []}',
-                retained=False,
-                received_at=datetime.now(timezone.utc).isoformat(),
-            )
-        ) is True
+        assert service.try_handle_response(_msg()) is True
     assert events.count("topology_updated") == 1
-    latest = ctx.repo.get_latest_topology_snapshot("home")
-    assert latest is not None
-    assert latest["status"] == "complete"
+    assert observed == [False]
+    assert ctx.repo.get_latest_topology_snapshot("home")["status"] == "complete"
 
-    # Store failure does not emit a successful topology_updated.
-    service.request_capture("home", confirmed=True)
+    # C. diagnostic-refresh failure
     events.clear()
+    observed.clear()
+    service.request_capture("home", confirmed=True)
+    with (
+        patch.object(
+            TopologyService, "_refresh_diagnostics", side_effect=RuntimeError("eval")
+        ),
+        patch.object(ctx.broadcaster, "publish_sync", side_effect=publish),
+    ):
+        assert service.try_handle_response(_msg()) is True
+    assert events.count("topology_updated") == 1
+    assert observed == [False]
+    assert ctx.repo.get_latest_topology_snapshot("home")["status"] == "complete"
+    assert service.status.last_capture_error == "Topology diagnostic refresh failed"
+
+    # D. event-publication failure
+    events.clear()
+    service.request_capture("home", confirmed=True)
+    with patch.object(
+        ctx.broadcaster, "publish_sync", side_effect=RuntimeError("sse")
+    ):
+        assert service.try_handle_response(_msg()) is True
+    assert service.status.capture_in_progress is False
+    assert ctx.repo.get_latest_topology_snapshot("home")["status"] == "complete"
+
+    # E. parse/store failure
+    events.clear()
+    service.request_capture("home", confirmed=True)
+    snap_id = service.active_pending_snapshot_id
     with (
         patch.object(ctx.repo, "store_topology_parsed", side_effect=RuntimeError("db")),
         patch.object(ctx.broadcaster, "publish_sync", side_effect=publish),
     ):
-        assert service.try_handle_response(
-            RawMqttMessage(
-                topic="zigbee2mqtt/bridge/response/networkmap",
-                payload=b'{"nodes": {}, "links": []}',
-                retained=False,
-                received_at=datetime.now(timezone.utc).isoformat(),
-            )
-        ) is False
+        assert service.try_handle_response(_msg()) is False
     assert "topology_updated" not in events
+    assert service.status.capture_in_progress is False
+    row = ctx.repo.db.conn.execute(
+        "SELECT status FROM topology_snapshots WHERE snapshot_id=?",
+        (snap_id,),
+    ).fetchone()
+    assert row["status"] == "error"
     reset_context()

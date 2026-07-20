@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import { liveConnection } from "@/lib/events";
+import { useLiveResource } from "@/hooks/useLiveResource";
 import { DrawerSection } from "@/components/meshGraph/DrawerShell";
 import {
   buildSnapshotHistoryViewModel,
@@ -172,77 +172,38 @@ export function SnapshotHistorySection({
   networkId: string;
   deviceIeee: string;
 }) {
-  const [history, setHistory] = useState<Awaited<
-    ReturnType<typeof api.topologyDeviceSnapshotHistory>
-  > | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const history = useLiveResource(
+    () => api.topologyDeviceSnapshotHistory(networkId, deviceIeee),
+    [networkId, deviceIeee],
+    { refetchOn: ["topology_updated"] },
+  );
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
 
+  // Reset selection when the device/network identity changes. Background
+  // topology_updated refetches keep prior history visible until new data arrives.
   useEffect(() => {
-    let cancelled = false;
-    let debounce: ReturnType<typeof setTimeout> | null = null;
-    let requestToken = 0;
-
-    const applyHistory = (
-      data: Awaited<ReturnType<typeof api.topologyDeviceSnapshotHistory>>,
-      preserveSelection: boolean,
-    ) => {
-      if (cancelled) return;
-      setHistory(data);
-      setError(false);
-      setLoading(false);
-      setSelectedSnapshotId((current) => {
-        if (
-          preserveSelection &&
-          current != null &&
-          data.snapshots.some((row) => row.snapshot_id === current)
-        ) {
-          return current;
-        }
-        return defaultSelectedSnapshotId(data);
-      });
-    };
-
-    const load = (preserveSelection: boolean) => {
-      const token = ++requestToken;
-      if (!preserveSelection) {
-        setHistory(null);
-        setLoading(true);
-        setError(false);
-        setSelectedSnapshotId(null);
-      }
-      api.topologyDeviceSnapshotHistory(networkId, deviceIeee).then(
-        (data) => {
-          if (cancelled || token !== requestToken) return;
-          applyHistory(data, preserveSelection);
-        },
-        () => {
-          if (cancelled || token !== requestToken) return;
-          setError(true);
-          setLoading(false);
-        },
-      );
-    };
-
-    load(false);
-    const unsubscribe = liveConnection.subscribeEvents((eventName) => {
-      if (eventName !== "topology_updated") return;
-      if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(() => load(true), 350);
-    });
-    return () => {
-      cancelled = true;
-      if (debounce) clearTimeout(debounce);
-      unsubscribe();
-    };
+    setSelectedSnapshotId(null);
   }, [networkId, deviceIeee]);
 
+  useEffect(() => {
+    const data = history.data;
+    if (!data) return;
+    setSelectedSnapshotId((current) => {
+      if (
+        current != null &&
+        data.snapshots.some((row) => row.snapshot_id === current)
+      ) {
+        return current;
+      }
+      return defaultSelectedSnapshotId(data);
+    });
+  }, [history.data]);
+
   const viewModel = useMemo(() => {
-    if (loading) return loadingSnapshotHistoryViewModel();
-    if (error || !history) return errorSnapshotHistoryViewModel();
-    return buildSnapshotHistoryViewModel(history, selectedSnapshotId);
-  }, [loading, error, history, selectedSnapshotId]);
+    if (history.loading && !history.data) return loadingSnapshotHistoryViewModel();
+    if (history.error || !history.data) return errorSnapshotHistoryViewModel();
+    return buildSnapshotHistoryViewModel(history.data, selectedSnapshotId);
+  }, [history.loading, history.error, history.data, selectedSnapshotId]);
 
   return (
     <DrawerSection title={viewModel.sectionTitle}>

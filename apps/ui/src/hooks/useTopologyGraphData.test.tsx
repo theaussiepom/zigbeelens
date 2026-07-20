@@ -18,7 +18,7 @@ vi.mock("@/lib/events", () => ({
     getState: () => "open",
     isAccessEnabled: () => true,
   },
-  LIVE_EVENTS: ["topology_updated"],
+  LIVE_EVENTS: ["topology_updated", "dashboard_updated", "incidents_updated"],
 }));
 
 vi.mock("@/context/ScenarioContext", () => ({
@@ -60,7 +60,7 @@ describe("useTopologyGraphData", () => {
     vi.useRealTimers();
   });
 
-  it("refetches evidence graph on topology_updated and ignores unrelated events", async () => {
+  it("separates topology and device-inventory invalidations", async () => {
     renderHook(() => useTopologyGraphData("home"));
     await act(async () => {
       await Promise.resolve();
@@ -74,8 +74,23 @@ describe("useTopologyGraphData", () => {
       await Promise.resolve();
     });
     expect(topologyEvidenceGraph).toHaveBeenCalledTimes(2);
-    // Inventory must not churn on topology capture events.
     expect(devices).toHaveBeenCalledTimes(1);
+
+    act(() => emit("dashboard_updated"));
+    act(() => vi.advanceTimersByTime(350));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(2);
+    expect(devices).toHaveBeenCalledTimes(2);
+
+    act(() => emit("incidents_updated"));
+    act(() => vi.advanceTimersByTime(350));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(2);
+    expect(devices).toHaveBeenCalledTimes(3);
 
     act(() => emit("collector_status"));
     act(() => vi.advanceTimersByTime(350));
@@ -83,6 +98,6 @@ describe("useTopologyGraphData", () => {
       await Promise.resolve();
     });
     expect(topologyEvidenceGraph).toHaveBeenCalledTimes(2);
-    expect(devices).toHaveBeenCalledTimes(1);
+    expect(devices).toHaveBeenCalledTimes(3);
   });
 });

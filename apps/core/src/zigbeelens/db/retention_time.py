@@ -9,9 +9,9 @@ Accepted forms match the portable SQLite ``julianday()`` grammar subset:
 - ``YYYY-MM-DDTHH:MM:SS[.fraction]``
 - ``YYYY-MM-DD HH:MM:SS[.fraction]``
 
-with optional timezone ``Z``, ``z``, ``+HH:MM``, or ``-HH:MM``. Naïve values
-are interpreted as UTC. Malformed values return NULL and are never eligible
-for deletion.
+with optional timezone ``Z``, ``z``, ``+HH:MM``, or ``-HH:MM`` where
+``HH`` is 0..14 and ``MM`` is 0..59. Naïve values are interpreted as UTC.
+Malformed values return NULL and are never eligible for deletion.
 """
 
 from __future__ import annotations
@@ -20,14 +20,15 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-# Documented grammar only. No leading/trailing whitespace, no date-only,
-# no compact offsets, no timezone seconds, no unrestricted fromisoformat.
+# Documented grammar only. ASCII digits; no surrounding whitespace; no
+# date-only; no compact offsets; no timezone seconds; offset range checked
+# before fromisoformat so Python cannot normalize invalid offsets.
 _RETENTION_TIMESTAMP_RE = re.compile(
-    r"^(?P<date>\d{4}-\d{2}-\d{2})"
+    r"^(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})"
     r"(?P<sep>[T ])"
-    r"(?P<time>\d{2}:\d{2}:\d{2})"
-    r"(?P<fraction>\.\d{1,6})?"
-    r"(?P<tz>Z|z|[+-]\d{2}:\d{2})?$"
+    r"(?P<time>[0-9]{2}:[0-9]{2}:[0-9]{2})"
+    r"(?P<fraction>\.[0-9]{1,6})?"
+    r"(?P<tz>Z|z|[+-]([0-9]{2}):([0-9]{2}))?$"
 )
 
 
@@ -38,14 +39,17 @@ def parse_retention_instant(value: object) -> float | None:
     match = _RETENTION_TIMESTAMP_RE.fullmatch(value)
     if match is None:
         return None
+    tz = match.group("tz")
+    if tz is not None and tz not in ("Z", "z"):
+        hour = int(tz[1:3])
+        minute = int(tz[4:6])
+        if hour > 14 or minute > 59:
+            return None
     text = (
         f"{match.group('date')}T{match.group('time')}"
         f"{match.group('fraction') or ''}"
     )
-    tz = match.group("tz")
-    if tz is None:
-        text = f"{text}+00:00"
-    elif tz in ("Z", "z"):
+    if tz is None or tz in ("Z", "z"):
         text = f"{text}+00:00"
     else:
         text = f"{text}{tz}"

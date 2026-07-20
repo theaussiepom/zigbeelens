@@ -5,6 +5,17 @@ import { api } from "@/lib/api";
 import { buildLiveMeshEvidence } from "@/lib/meshEvidenceLive";
 import type { TopologyEvidenceGraphDetail } from "@/types/topology";
 
+/** Factual device-inventory invalidations; excludes topology_updated. */
+const DEVICE_INVENTORY_EVENTS = [
+  "device_health_updated",
+  "health_updated",
+  "dashboard_updated",
+  "incidents_updated",
+  "incident_opened",
+  "incident_updated",
+  "incident_resolved",
+] as const;
+
 export function useTopologyGraphData(networkId: string | undefined) {
   const { status, scenario } = useScenario();
 
@@ -25,8 +36,7 @@ export function useTopologyGraphData(networkId: string | undefined) {
     [networkId, scenario],
     {
       enabled: Boolean(networkId),
-      // Inventory is not topology history; do not refetch on capture events.
-      refetchOn: [],
+      refetchOn: [...DEVICE_INVENTORY_EVENTS],
     },
   );
 
