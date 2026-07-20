@@ -7,7 +7,6 @@ import os
 import sqlite3
 import stat
 import threading
-import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -278,7 +277,7 @@ def test_backup_concurrent_wal_writer(tmp_path: Path):
     db = Database(db_path)
     db.migrate()
     repo = Repository(db)
-    for i in range(200):
+    for i in range(400):
         repo.db.conn.execute(
             """
             INSERT INTO events (id, event_type, severity, title, summary, occurred_at)
@@ -300,56 +299,65 @@ def test_backup_concurrent_wal_writer(tmp_path: Path):
         )
     repo.db.conn.commit()
 
-    stop = threading.Event()
-    errors: list[str] = []
-    writes = {"n": 0}
+    progress_started = threading.Event()
+    writer_done = threading.Event()
+    progress_calls = {"n": 0}
+    writer_commits = {"n": 0}
+
+    def progress(remaining: int, total: int) -> None:
+        progress_calls["n"] += 1
+        if progress_calls["n"] == 1:
+            progress_started.set()
+            assert writer_done.wait(5.0)
 
     def writer() -> None:
-        # Separate connection so backup/source RO and writer do not share one handle.
+        assert progress_started.wait(5.0)
         conn = sqlite3.connect(str(db_path), check_same_thread=False)
         try:
-            while not stop.is_set() and writes["n"] < 50:
-                try:
-                    conn.execute(
-                        """
-                        INSERT INTO events (id, event_type, severity, title, summary, occurred_at)
-                        VALUES (?, 'test', 'watch', 't', 's', ?)
-                        """,
-                        (f"w{writes['n']}", REF.isoformat()),
-                    )
-                    conn.commit()
-                    writes["n"] += 1
-                except Exception as exc:  # noqa: BLE001 — collect for assertion
-                    errors.append(type(exc).__name__)
-                    return
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                """
+                INSERT INTO events (id, event_type, severity, title, summary, occurred_at)
+                VALUES ('txn-a', 'test', 'watch', 't', 's', ?)
+                """,
+                (REF.isoformat(),),
+            )
+            conn.execute(
+                """
+                INSERT INTO events (id, event_type, severity, title, summary, occurred_at)
+                VALUES ('txn-b', 'test', 'watch', 't', 's', ?)
+                """,
+                (REF.isoformat(),),
+            )
+            conn.commit()
+            writer_commits["n"] += 1
         finally:
             conn.close()
+            writer_done.set()
 
     thread = threading.Thread(target=writer, daemon=True)
     thread.start()
     out = tmp_path / "backup.sqlite"
-    seen_progress = {"calls": 0}
-
-    def progress(remaining: int, total: int) -> None:
-        seen_progress["calls"] += 1
-        # Prove a writer can commit while backup progresses.
-        if writes["n"] == 0:
-            time.sleep(0.01)
-
     result = backup_sqlite_database(
         output=out,
         database=str(db_path),
-        pages_per_step=8,
+        pages_per_step=1,
         progress=progress,
     )
-    stop.set()
     thread.join(timeout=5)
-    assert writes["n"] > 0 or seen_progress["calls"] >= 0
-    assert not errors
+    assert progress_calls["n"] > 0
+    assert writer_commits["n"] > 0
     assert result.schema_version == CURRENT_SCHEMA_VERSION
     validate = sqlite3.connect(str(out))
     assert validate.execute("PRAGMA quick_check").fetchone()[0] == "ok"
     assert validate.execute("PRAGMA foreign_key_check").fetchall() == []
+    ids = {
+        row[0]
+        for row in validate.execute(
+            "SELECT id FROM events WHERE id IN ('txn-a', 'txn-b')"
+        ).fetchall()
+    }
+    assert ids in (set(), {"txn-a", "txn-b"})
     bodies = {
         row[0]: row[1]
         for row in validate.execute("SELECT id, body_json FROM reports").fetchall()
@@ -357,6 +365,10 @@ def test_backup_concurrent_wal_writer(tmp_path: Path):
     assert bodies["r1"] == '{"report_version":1}'
     assert bodies["r2"] == '{"report_version":2}'
     assert bodies["r3"] == '{"report_version":3}'
+    # Source remains usable after online backup.
+    assert (
+        repo.db.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] >= 400
+    )
     validate.close()
     db.close()
 
@@ -373,6 +385,12 @@ def test_history_scale_explain_uses_indexes(tmp_path: Path):
     )
     old = "2026-01-01T00:00:00+00:00"
     # Bulk-load history-scale fixtures (executemany) so EXPLAIN sees real cardinality.
+    repo.db.conn.execute(
+        """
+        INSERT INTO devices (network_id, ieee_address, friendly_name, device_type)
+        VALUES ('home', 'aa', 'Sensor', 'EndDevice')
+        """
+    )
     repo.db.conn.executemany(
         """
         INSERT INTO metric_samples
@@ -380,6 +398,36 @@ def test_history_scale_explain_uses_indexes(tmp_path: Path):
         VALUES ('home', 'aa', 'linkquality', 1, ?)
         """,
         [(old,)] * 10_000,
+    )
+    repo.db.conn.executemany(
+        """
+        INSERT INTO device_snapshots
+          (network_id, ieee_address, availability, captured_at)
+        VALUES ('home', 'aa', 'online', ?)
+        """,
+        [(old,)] * 5_000,
+    )
+    repo.db.conn.executemany(
+        """
+        INSERT INTO bridge_snapshots (network_id, bridge_state, captured_at)
+        VALUES ('home', 'online', ?)
+        """,
+        [(old,)] * 5_000,
+    )
+    repo.db.conn.executemany(
+        """
+        INSERT INTO unresolved_device_messages
+          (network_id, friendly_name, message_kind, received_at)
+        VALUES ('home', 'unknown', 'state', ?)
+        """,
+        [(old,)] * 5_000,
+    )
+    repo.db.conn.executemany(
+        """
+        INSERT INTO reports (id, format, redaction_json, summary, generated_at, body_json)
+        VALUES (?, 'json', '{}', 'r', ?, '{}')
+        """,
+        [(f"rep-{i}", old) for i in range(2_000)],
     )
     repo.db.conn.executemany(
         """
@@ -407,7 +455,30 @@ def test_history_scale_explain_uses_indexes(tmp_path: Path):
           't', 's', 'e', '[]', '[]', '[]', ?, ?, ?
         )
         """,
-        [(f"inc-{i}", f"d{i}", old, old, old) for i in range(1_500)],
+        [
+            (
+                f"inc-{i}",
+                f"d{i}",
+                old,
+                old,
+                (datetime(2025, 1, 1, tzinfo=timezone.utc) + timedelta(hours=i)).isoformat(),
+            )
+            for i in range(1_500)
+        ],
+    )
+    # Mix open incidents so lifecycle-only indexes are less attractive.
+    repo.db.conn.executemany(
+        """
+        INSERT INTO incidents (
+          id, dedup_key, incident_type, lifecycle_state, severity, scope, confidence,
+          title, summary, explanation, evidence_json, counter_evidence_json,
+          limitations_json, opened_at, updated_at, resolved_at
+        ) VALUES (
+          ?, ?, 'single_device_unavailable', 'open', 'incident', 'device', 'high',
+          't', 's', 'e', '[]', '[]', '[]', ?, ?, NULL
+        )
+        """,
+        [(f"open-{i}", f"o{i}", old, old) for i in range(1_500)],
     )
     repo.db.conn.executemany(
         """
@@ -426,10 +497,7 @@ def test_history_scale_explain_uses_indexes(tmp_path: Path):
         [(old,)] * 2_000,
     )
     repo.db.conn.commit()
-
-    def _plan(sql: str, params: tuple = ()) -> str:
-        rows = repo.db.conn.execute(f"EXPLAIN QUERY PLAN {sql}", params)
-        return "\n".join(" | ".join(str(p) for p in row) for row in rows).lower()
+    repo.db.conn.execute("ANALYZE")
 
     events = "\n".join(
         repo.maintenance.explain_retention_select("events", "occurred_at", "id")
@@ -442,30 +510,59 @@ def test_history_scale_explain_uses_indexes(tmp_path: Path):
             "availability_changes", "changed_at", "id"
         )
     ).lower()
-    incidents = _plan(
-        """
-        SELECT id FROM incidents
-        WHERE lifecycle_state = 'resolved'
-          AND resolved_at IS NOT NULL
-          AND unixepoch(resolved_at, 'subsec') <= unixepoch(?, 'subsec')
-          AND retention_instant(resolved_at) < retention_instant(?)
-        ORDER BY retention_instant(resolved_at) ASC, id ASC
-        LIMIT 500
-        """,
-        (old, old),
-    )
+    device_snaps = "\n".join(
+        repo.maintenance.explain_retention_select(
+            "device_snapshots", "captured_at", "id"
+        )
+    ).lower()
+    bridge_snaps = "\n".join(
+        repo.maintenance.explain_retention_select(
+            "bridge_snapshots", "captured_at", "id"
+        )
+    ).lower()
+    health = "\n".join(
+        repo.maintenance.explain_retention_select(
+            "health_snapshots", "captured_at", "id"
+        )
+    ).lower()
+    unresolved = "\n".join(
+        repo.maintenance.explain_retention_select(
+            "unresolved_device_messages", "received_at", "id"
+        )
+    ).lower()
+    reports = "\n".join(
+        repo.maintenance.explain_retention_select("reports", "generated_at", "id")
+    ).lower()
+    incidents = "\n".join(repo.maintenance.explain_resolved_incident_select()).lower()
     event_ref = "\n".join(repo.maintenance.explain_incident_event_null_select()).lower()
+    topology_age = "\n".join(repo.maintenance.explain_topology_age_select()).lower()
     topology_count = "\n".join(repo.maintenance.explain_topology_count_cap_select()).lower()
     abandoned = "\n".join(repo.maintenance.explain_abandoned_pending_select()).lower()
 
-    def _uses_index(plan: str, *names: str) -> bool:
-        return any(name in plan for name in names) or "using index" in plan or "using covering index" in plan
+    def _uses_named_index(plan: str, *names: str) -> bool:
+        return any(name in plan for name in names)
 
-    assert _uses_index(events, "idx_events_retention")
+    assert _uses_named_index(events, "idx_events_retention")
     assert "scan events" not in events
-    assert _uses_index(metrics, "idx_metric_samples_retention")
-    assert _uses_index(availability, "idx_availability_changes_retention")
-    assert _uses_index(incidents, "idx_incidents_resolved_retention")
-    assert _uses_index(event_ref, "idx_events_incident_id", "idx_events_incident")
-    assert "topology" in topology_count
-    assert "topology_snapshots" in abandoned
+    assert "use temp b-tree for order by" not in events
+    assert _uses_named_index(metrics, "idx_metric_samples_retention")
+    assert _uses_named_index(availability, "idx_availability_changes_retention")
+    assert _uses_named_index(device_snaps, "idx_device_snapshots_retention")
+    assert _uses_named_index(bridge_snaps, "idx_bridge_snapshots_retention")
+    assert _uses_named_index(health, "idx_health_snapshots_retention")
+    assert _uses_named_index(unresolved, "idx_unresolved_device_messages_retention")
+    assert _uses_named_index(reports, "idx_reports_retention")
+    assert _uses_named_index(incidents, "idx_incidents_resolved_retention")
+    assert "use temp b-tree for order by" not in incidents
+    assert _uses_named_index(event_ref, "idx_events_incident")
+    assert _uses_named_index(topology_age, "idx_topology_terminal_age")
+    assert "use temp b-tree for order by" not in topology_age
+    assert _uses_named_index(
+        topology_count,
+        "idx_topology_terminal_history",
+        "idx_topology_snapshots_retention",
+    )
+    # Count-cap uses WINDOW/ROW_NUMBER; SQLite may build a bounded temp structure
+    # for the window/order. That is expected; the range scan itself is indexed.
+    assert _uses_named_index(abandoned, "idx_topology_snapshots_retention")
+    assert "subsec" not in incidents

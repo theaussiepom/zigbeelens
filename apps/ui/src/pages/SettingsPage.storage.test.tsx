@@ -5,6 +5,76 @@ import { SettingsPage } from "./SettingsPage";
 
 const storageStatus = vi.fn();
 const health = vi.fn();
+const liveResourceCalls: Array<{ refetchOn?: string[] }> = [];
+
+const storagePayload = {
+  policy: {
+    policy_version: 2,
+    telemetry_retention_days: 7,
+    resolved_incident_retention_days: null,
+    report_retention_days: null,
+    maintenance_interval_hours: 24,
+    topology_max_snapshots_per_network: 30,
+  },
+  maintenance: {
+    running: false,
+    last_started_at: null,
+    last_completed_at: null,
+    last_successful_at: null,
+    next_scheduled_at: null,
+    last_error_code: null,
+    total_rows_deleted: null,
+    more_work_pending: false,
+    duration_ms: null,
+    malformed_timestamps_by_category: { events: 2 },
+    future_timestamps_by_category: {},
+    wal_checkpoint: { busy: false },
+  },
+  footprint: {
+    database_bytes: 1024,
+    wal_bytes: null,
+    shm_bytes: 0,
+    total_sqlite_bytes: null,
+    page_size: null,
+    page_count: null,
+    freelist_page_count: null,
+    reusable_bytes: null,
+    schema_version: 12,
+  },
+  integrity: {
+    startup_gates: "quick_and_foreign_keys",
+    quick_check: { status: "ok", checked_at: "2026-07-20T00:00:00+00:00", violation_count: 0 },
+    foreign_key_check: { status: null, checked_at: null, violation_count: null },
+  },
+};
+
+vi.mock("@/hooks/useLiveResource", () => ({
+  useLiveResource: (
+    loader: () => Promise<unknown>,
+    _deps: unknown[],
+    opts?: { refetchOn?: string[] },
+  ) => {
+    liveResourceCalls.push({ refetchOn: opts?.refetchOn });
+    const refetchOn = opts?.refetchOn ?? [];
+    if (refetchOn.includes("storage_maintenance_completed")) {
+      return {
+        data: storagePayload,
+        error: null,
+        loading: false,
+        refetch: vi.fn(),
+      };
+    }
+    if (refetchOn.includes("collector_status")) {
+      return {
+        data: { status: "ok", database: "ok", migration_version: 12, collector: {} },
+        error: null,
+        loading: false,
+        refetch: vi.fn(),
+      };
+    }
+    return { data: undefined, error: null, loading: false, refetch: vi.fn() };
+  },
+}));
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -66,47 +136,19 @@ describe("SettingsPage storage card", () => {
   beforeEach(() => {
     storageStatus.mockReset();
     health.mockReset();
-    health.mockResolvedValue({ status: "ok", database: "ok", migration_version: 12, collector: {} });
-    storageStatus.mockResolvedValue({
-      policy: {
-        policy_version: 2,
-        telemetry_retention_days: 7,
-        resolved_incident_retention_days: null,
-        report_retention_days: null,
-        maintenance_interval_hours: 24,
-        topology_max_snapshots_per_network: 30,
-      },
-      maintenance: {
-        running: false,
-        last_started_at: null,
-        last_completed_at: null,
-        last_successful_at: null,
-        next_scheduled_at: null,
-        last_error_code: null,
-        total_rows_deleted: null,
-        more_work_pending: false,
-        duration_ms: null,
-        malformed_timestamps_by_category: { events: 2 },
-        future_timestamps_by_category: {},
-        wal_checkpoint: { busy: false },
-      },
-      footprint: {
-        database_bytes: 1024,
-        wal_bytes: null,
-        shm_bytes: 0,
-        total_sqlite_bytes: null,
-        page_size: null,
-        page_count: null,
-        freelist_page_count: null,
-        reusable_bytes: null,
-        schema_version: 12,
-      },
-      integrity: {
-        startup_gates: "quick_and_foreign_keys",
-        quick_check: { status: "ok", checked_at: "2026-07-20T00:00:00+00:00", violation_count: 0 },
-        foreign_key_check: { status: null, checked_at: null, violation_count: null },
-      },
-    });
+    liveResourceCalls.length = 0;
+  });
+
+  it("refetches storage status on no-op/failure/success completion events", () => {
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+    const storageHook = liveResourceCalls.find((call) =>
+      call.refetchOn?.includes("storage_maintenance_completed"),
+    );
+    expect(storageHook?.refetchOn).toEqual(["storage_maintenance_completed"]);
   });
 
   it("renders retention copy and unknown deletion counts as em dash", async () => {
@@ -119,7 +161,6 @@ describe("SettingsPage storage card", () => {
     expect(screen.getByText("Kept indefinitely")).toBeInTheDocument();
     expect(screen.getByText("Until manually deleted")).toBeInTheDocument();
     expect(screen.getByText("Never run")).toBeInTheDocument();
-    // Rows removed unknown → —
     const rows = screen.getAllByText("—");
     expect(rows.length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /purge/i })).toBeNull();
