@@ -194,3 +194,63 @@ def test_no_double_release_after_execute_baseexception(tmp_path):
     assert locked._lock.acquire(blocking=False)
     locked._lock.release()
     _assert_usable(locked)
+
+
+def test_begin_then_raise_detects_physical_transaction_and_rolls_back(tmp_path):
+    """BEGIN that takes effect before execute() raises must still clean up."""
+    locked = _locked(tmp_path)
+    rollbacks = {"n": 0}
+    locked.set_transaction_observer(
+        on_rollback=lambda: rollbacks.__setitem__("n", rollbacks["n"] + 1),
+    )
+    real = locked._conn
+
+    class _BeginThenRaise:
+        def __init__(self, conn: sqlite3.Connection) -> None:
+            self._real = conn
+
+        def execute(self, sql: str, params: Any = ()) -> Any:
+            if "BEGIN IMMEDIATE" in str(sql).upper():
+                self._real.execute(sql, params)
+                assert self._real.in_transaction
+                raise _Interrupt("begin-then-raise")
+            return self._real.execute(sql, params)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._real, name)
+
+    locked._conn = _BeginThenRaise(real)  # type: ignore[assignment]
+    with pytest.raises(_Interrupt, match="begin-then-raise"):
+        with locked.transaction():
+            pass
+    locked._conn = real
+    assert not real.in_transaction
+    assert locked.transaction_depth == 0
+    assert not locked._rollback_only()
+    assert rollbacks["n"] == 1
+    _assert_other_thread_can_acquire(locked)
+    _assert_usable(locked)
+
+
+def test_failed_begin_that_never_starts_skips_rollback_observer(tmp_path):
+    locked = _locked(tmp_path)
+    rollbacks = {"n": 0}
+    locked.set_transaction_observer(
+        on_rollback=lambda: rollbacks.__setitem__("n", rollbacks["n"] + 1),
+    )
+
+    def on_execute(sql: str, params: Any) -> BaseException | None:
+        if "BEGIN IMMEDIATE" in str(sql).upper():
+            return _Interrupt("begin-never-started")
+        return None
+
+    locked._conn = _ConnProxy(locked._conn, on_execute=on_execute)
+    with pytest.raises(_Interrupt, match="begin-never-started"):
+        with locked.transaction():
+            pass
+    locked._conn = locked._conn._real  # type: ignore[attr-defined]
+    assert not locked._conn.in_transaction
+    assert locked.transaction_depth == 0
+    assert not locked._rollback_only()
+    assert rollbacks["n"] == 0
+    _assert_usable(locked)

@@ -193,13 +193,20 @@ class LockedSQLiteConnection:
             # One cleanup-safe setup unit: lock + rollback-only init + BEGIN + depth.
             self._lock.acquire()
             began = False
+            was_in_transaction = False
             try:
                 self._state.rollback_only = False
+                # Detect BEGIN-then-raise: execute() may start a transaction even
+                # when it re-raises before returning (PR #79 corrective).
+                was_in_transaction = bool(self._conn.in_transaction)
                 self._conn.execute("BEGIN IMMEDIATE")
                 began = True
                 self._set_depth(1)
             except BaseException:
-                self._cleanup_failed_begin(began=began)
+                began_here = began or (
+                    not was_in_transaction and bool(self._conn.in_transaction)
+                )
+                self._cleanup_failed_begin(began=began_here)
                 raise
         else:
             self._lock.acquire()

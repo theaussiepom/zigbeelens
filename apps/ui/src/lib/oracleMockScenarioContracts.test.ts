@@ -1,3 +1,8 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import oracleMockScenarios from "@/test/fixtures/oracleMockScenarios.json";
 import {
@@ -10,6 +15,13 @@ import {
 } from "@/lib/decisionContract";
 
 const scenarioIds = Object.keys(oracleMockScenarios).sort();
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+const checkedInFixture = path.join(
+  repoRoot,
+  "apps/ui/src/test/fixtures/oracleMockScenarios.json",
+);
+const generator = path.join(repoRoot, "apps/core/scripts/generate_oracle_mock_fixtures.py");
+const corePython = path.join(repoRoot, "apps/core/.venv/bin/python");
 
 describe("oracle mock scenario contracts", () => {
   it.each(scenarioIds)("validates dashboard for %s", (scenarioId) => {
@@ -35,11 +47,10 @@ describe("oracle mock scenario contracts", () => {
     }
   });
 
-  it.each(scenarioIds)("validates report when present for %s", (scenarioId) => {
+  it.each(scenarioIds)("validates report for %s", (scenarioId) => {
     const scenario = oracleMockScenarios[scenarioId as keyof typeof oracleMockScenarios];
-    if (scenario.report !== null) {
-      validateReportDetailV3(scenario.report);
-    }
+    expect(scenario.report).not.toBeNull();
+    validateReportDetailV3(scenario.report);
   });
 
   it("bridge_offline fixture does not throw", () => {
@@ -51,8 +62,23 @@ describe("oracle mock scenario contracts", () => {
     for (const incident of scenario.incidents) {
       expect(() => parseIncident(incident)).not.toThrow();
     }
-    if (scenario.report !== null) {
-      expect(() => validateReportDetailV3(scenario.report)).not.toThrow();
+    expect(scenario.report).not.toBeNull();
+    expect(() => validateReportDetailV3(scenario.report)).not.toThrow();
+  });
+
+  it("checked-in oracle fixture matches Core generation", () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "oracle-fixture-"));
+    const generatedPath = path.join(tempDir, "oracleMockScenarios.json");
+    try {
+      execFileSync(corePython, [generator, "--output", generatedPath], {
+        cwd: repoRoot,
+        stdio: "pipe",
+      });
+      const generated = readFileSync(generatedPath, "utf8");
+      const checkedIn = readFileSync(checkedInFixture, "utf8");
+      expect(generated).toBe(checkedIn);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
     }
   });
 });

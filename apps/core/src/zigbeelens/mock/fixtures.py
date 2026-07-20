@@ -874,14 +874,15 @@ def _build_router_risk() -> ScenarioData:
             limitations=[("Routing path not proven", "ZigbeeLens cannot confirm end devices route through this router from MQTT data alone")],
         ),
     )
-    nets = [network("home2", "Home 2", "zigbee2mqtt-home2", devices=devices, active_incident_severity=Severity.incident, active_incidents=1)]
+    # Decision-only router risk: no Incident fixture → zero incident counts (Option B).
+    nets = [network("home2", "Home 2", "zigbee2mqtt-home2", devices=devices)]
     finding = risk.risk
     dash = scenario_dashboard(
         generated_at=iso(NOW),
         scenario="router_risk_candidate",
         overall_severity=Severity.incident,
         current_finding=finding,
-        active_incident_count=1,
+        active_incident_count=0,
         watching_incident_count=0,
         networks=nets,
         top_affected_devices=affected,
@@ -898,7 +899,7 @@ def _build_router_risk() -> ScenarioData:
             network_count=1,
             device_count=4,
             unavailable_count=3,
-            incident_count=1,
+            incident_count=0,
             networks=[{"network_id": "home2", "severity": "incident", "unavailable_count": 3}],
         ),
     )
@@ -918,7 +919,7 @@ def _build_stale_battery() -> ScenarioData:
         overall_severity=Severity.watch,
         current_finding=finding,
         active_incident_count=0,
-        watching_incident_count=1,
+        watching_incident_count=0,
         networks=nets,
         top_affected_devices=[],
         router_risks=[],
@@ -955,7 +956,7 @@ def _build_low_battery_cluster() -> ScenarioData:
         overall_severity=Severity.watch,
         current_finding=finding,
         active_incident_count=0,
-        watching_incident_count=1,
+        watching_incident_count=0,
         networks=nets,
         top_affected_devices=[],
         router_risks=[],
@@ -991,7 +992,7 @@ def _build_interview_failures() -> ScenarioData:
         overall_severity=Severity.watch,
         current_finding=finding,
         active_incident_count=0,
-        watching_incident_count=1,
+        watching_incident_count=0,
         networks=nets,
         top_affected_devices=devices,
         router_risks=[],
@@ -1076,9 +1077,10 @@ def _build_multi_unstable() -> ScenarioData:
         device("home2", f"0x001788010{i}a1b2c3", f"home2_flap_{i}", health=unstable, sort_priority=i)
         for i in range(1, 3)
     ]
+    # Decision-only multi-network instability signal: no Incident fixtures (Option B).
     nets = [
-        network("home", "Home", "zigbee2mqtt", devices=home_d, active_incident_severity=Severity.incident, active_incidents=1),
-        network("home2", "Home 2", "zigbee2mqtt-home2", devices=home2_d, active_incident_severity=Severity.incident, active_incidents=1),
+        network("home", "Home", "zigbee2mqtt", devices=home_d),
+        network("home2", "Home 2", "zigbee2mqtt-home2", devices=home2_d),
     ]
     finding = conclusion(
         "multi_network_instability",
@@ -1092,7 +1094,7 @@ def _build_multi_unstable() -> ScenarioData:
         scenario="multiple_networks_unstable",
         overall_severity=Severity.incident,
         current_finding=finding,
-        active_incident_count=2,
+        active_incident_count=0,
         watching_incident_count=0,
         networks=nets,
         top_affected_devices=home_d + home2_d,
@@ -1109,7 +1111,7 @@ def _build_multi_unstable() -> ScenarioData:
             network_count=2,
             device_count=5,
             unavailable_count=0,
-            incident_count=2,
+            incident_count=0,
             networks=[
                 {"network_id": "home", "severity": "incident", "unavailable_count": 0},
                 {"network_id": "home2", "severity": "incident", "unavailable_count": 0},
@@ -1133,7 +1135,7 @@ def _build_weak_link() -> ScenarioData:
         overall_severity=Severity.watch,
         current_finding=finding,
         active_incident_count=0,
-        watching_incident_count=1,
+        watching_incident_count=0,
         networks=nets,
         top_affected_devices=[],
         router_risks=[],
@@ -1170,7 +1172,7 @@ def _build_stale_cluster() -> ScenarioData:
         overall_severity=Severity.watch,
         current_finding=finding,
         active_incident_count=0,
-        watching_incident_count=1,
+        watching_incident_count=0,
         networks=nets,
         top_affected_devices=[],
         router_risks=[],
