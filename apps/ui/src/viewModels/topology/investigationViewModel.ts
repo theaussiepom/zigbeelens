@@ -56,8 +56,6 @@ export interface InvestigationPanelViewModel {
   cards: InvestigationCardViewModel[];
 }
 
-type ContextRichness = 0 | 1 | 2 | 3;
-
 function actionGroupForCard(card: InvestigationCard): InvestigationActionGroup {
   if (card.action_group) {
     return card.action_group;
@@ -86,105 +84,67 @@ function isBareIeee(value: string): boolean {
   return /^0x[0-9a-f]+$/i.test(value.trim());
 }
 
-function usableSummary(card: InvestigationCard): string | null {
+/**
+ * Base human context for accessible action names.
+ * Includes title, then summary / latest evidence / supporting line when usable.
+ * Does not resolve sibling collisions and never throws.
+ */
+export function buildInvestigationHumanContext(card: InvestigationCard): string {
+  const title = card.title.trim();
+  const parts = [title];
+
   const summary = card.summary.trim();
-  if (!summary || summary === card.title.trim()) return null;
-  return summary;
-}
+  if (summary && summary !== title) {
+    parts.push(summary);
+  }
 
-function usableEvidenceAt(card: InvestigationCard): string | null {
   const evidenceAt = card.latest_supporting_evidence_at?.trim() ?? "";
-  return evidenceAt || null;
-}
+  if (evidenceAt) {
+    parts.push(`latest evidence ${evidenceAt}`);
+  }
 
-/** First human supporting line that is not a bare IEEE / opaque id. */
-function usableSupportingFallback(card: InvestigationCard): string | null {
   for (const item of card.supporting_evidence) {
     const line = item.trim();
     if (!line || isBareIeee(line)) continue;
-    return line;
+    if (line === title || line === summary) continue;
+    parts.push(line);
+    break;
   }
-  return null;
-}
 
-/**
- * Progressive human context for action aria-labels.
- * Richness: title → +summary → +latest evidence → +supporting evidence fallback.
- */
-export function buildAccessibleContextKey(
-  card: InvestigationCard,
-  richness: ContextRichness = 0,
-): string {
-  const title = card.title.trim();
-  const parts = [title];
-  if (richness >= 1) {
-    const summary = usableSummary(card);
-    if (summary) parts.push(summary);
-  }
-  if (richness >= 2) {
-    const evidenceAt = usableEvidenceAt(card);
-    if (evidenceAt) parts.push(`latest evidence ${evidenceAt}`);
-  }
-  if (richness >= 3) {
-    const fallback = usableSupportingFallback(card);
-    if (fallback) parts.push(fallback);
-  }
   return parts.join(" — ");
 }
 
 /**
- * Assign distinguishable human context keys across a card set.
- * Escalates title → summary → latest evidence → supporting evidence.
- * Never uses array index, bare IEEE, or opaque card ids.
+ * List-level accessible contexts: human facts first, then duplicate-group
+ * ordinals (`item N of M`) only when the full human context still collides.
+ * Uses rendered/server order. Never throws; never exposes card IDs or IEEE.
  */
 export function assignAccessibleContextKeys(
   cards: InvestigationCard[],
 ): Map<string, string> {
-  const levels = new Map<string, ContextRichness>(
-    cards.map((card) => [card.id, 0]),
+  const baseById = new Map(
+    cards.map((card) => [card.id, buildInvestigationHumanContext(card)]),
   );
 
-  const keyFor = (card: InvestigationCard): string =>
-    buildAccessibleContextKey(card, levels.get(card.id) ?? 0);
-
-  let changed = true;
-  while (changed) {
-    changed = false;
-    const keys = cards.map((card) => ({ card, key: keyFor(card) }));
-    const counts = new Map<string, number>();
-    for (const { key } of keys) {
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    for (const { card, key } of keys) {
-      if ((counts.get(key) ?? 0) < 2) continue;
-      const level = levels.get(card.id) ?? 0;
-      if (level >= 3) continue;
-      const next = (level + 1) as ContextRichness;
-      const nextKey = buildAccessibleContextKey(card, next);
-      if (nextKey !== key || next > level) {
-        levels.set(card.id, next);
-        changed = true;
-      }
-    }
+  const groups = new Map<string, string[]>();
+  for (const card of cards) {
+    const base = baseById.get(card.id) ?? card.title;
+    const group = groups.get(base);
+    if (group) group.push(card.id);
+    else groups.set(base, [card.id]);
   }
 
   const assigned = new Map<string, string>();
-  const finalCounts = new Map<string, number>();
   for (const card of cards) {
-    const key = keyFor(card);
-    assigned.set(card.id, key);
-    finalCounts.set(key, (finalCounts.get(key) ?? 0) + 1);
+    const base = baseById.get(card.id) ?? card.title;
+    const group = groups.get(base) ?? [card.id];
+    if (group.length === 1) {
+      assigned.set(card.id, base);
+      continue;
+    }
+    const index = group.indexOf(card.id) + 1;
+    assigned.set(card.id, `${base} — item ${index} of ${group.length}`);
   }
-
-  const duplicates = [...finalCounts.entries()].filter(([, n]) => n > 1);
-  if (duplicates.length > 0) {
-    throw new Error(
-      "Investigation action accessible names collide after title, summary, " +
-        "latest evidence, and supporting-evidence fallback; refusing to expose " +
-        "IEEE addresses or opaque card ids as disambiguators.",
-    );
-  }
-
   return assigned;
 }
 
@@ -231,8 +191,9 @@ export function buildInvestigationCardViewModel(
     isRouterArea && primaryNeighbourhoodIeee
       ? INVESTIGATION_OPEN_ROUTER_DETAILS_LABEL
       : null;
-  // Single-card calls use title-only context; panel assignment escalates when needed.
-  const contextKey = accessibleContextKey ?? buildAccessibleContextKey(card, 0);
+  // Standalone calls use unsuffixed human context; panel assignment adds ordinals.
+  const contextKey =
+    accessibleContextKey ?? buildInvestigationHumanContext(card);
   return {
     id: card.id,
     priorityLabel: identity.priorityLabel,
