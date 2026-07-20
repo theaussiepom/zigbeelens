@@ -169,8 +169,34 @@ class NetworkConfig(BaseModel):
 
 
 class StorageConfig(BaseModel):
+    """SQLite path and retention policy.
+
+    ``retention_days`` is telemetry-history retention only (metric samples,
+    availability changes, snapshots, events, unresolved messages, and terminal
+    topology history). It does not govern reports, incidents, inventory, or
+    current-state projections.
+    """
+
     path: str = "./data/zigbeelens.sqlite"
-    retention_days: int = Field(default=7, ge=1)
+    retention_days: int = Field(default=7, ge=1, le=3650)
+    resolved_incident_retention_days: int | None = Field(default=90, ge=1, le=3650)
+    report_retention_days: int | None = Field(default=None, ge=1, le=3650)
+    maintenance_interval_hours: int = Field(default=24, ge=1, le=168)
+
+    @field_validator(
+        "retention_days",
+        "resolved_incident_retention_days",
+        "report_retention_days",
+        "maintenance_interval_hours",
+        mode="before",
+    )
+    @classmethod
+    def _strict_int_days(cls, value: object) -> object:
+        if value is None:
+            return value
+        if isinstance(value, bool) or type(value) is not int:
+            raise ValueError("must be an integer")
+        return value
 
 
 class DiagnosticsConfig(BaseModel):

@@ -29,7 +29,14 @@ networks:
 
 storage:
   path: ./data/zigbeelens.sqlite
+  # Telemetry history only (metrics, availability, snapshots, events, topology terminal).
   retention_days: 7
+  # Resolved incidents; omit or null to keep indefinitely. Open/watching never age-purged.
+  resolved_incident_retention_days: 90
+  # Reports; omit or null = until manually deleted. Opt-in finite days only if desired.
+  # report_retention_days: null
+  # Periodic maintenance after startup cycle (hours).
+  maintenance_interval_hours: 24
 
 diagnostics:
   incident_window_seconds: 180

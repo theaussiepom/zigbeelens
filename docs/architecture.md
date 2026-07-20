@@ -87,6 +87,20 @@ SQLite database (default `data/zigbeelens.sqlite`):
 
 Reports are stored **in SQLite**, already redacted. See [backups.md](backups.md).
 
+### Storage maintenance ownership
+
+Core owns SQLite lifecycle end-to-end:
+
+- **Migrations** — Core startup only (maintenance CLI never migrates)
+- **Integrity gates** — startup `quick_check` + `foreign_key_check` before destructive work
+- **Retention** — startup cycle plus periodic scheduler (`storage.maintenance_interval_hours`); telemetry vs resolved-incident vs report cutoffs are separate
+- **Active topology captures** — in-memory pending snapshots are excluded from periodic maintenance; abandoned persisted pending rows are terminalized safely
+- **No automatic `VACUUM`** — deleted pages become reusable; file size may not shrink
+- **CLI** — `storage check` / `maintenance --dry-run` are non-mutating; `--apply` runs the same executor without migrations
+- **SSE invalidation** after successful deletes/updates: `storage_maintenance_completed`, plus `incidents_updated` / `reports_updated` / `timeline_updated` / `topology_updated` when those categories change
+
+Settings shows policy and last-maintenance facts only — no UI purge/vacuum/backup controls.
+
 Identity: **`network_id` + `ieee_address`**. Friendly names are not globally unique.
 
 ## Multi-network

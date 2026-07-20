@@ -503,21 +503,40 @@ vi.mock("@/context/ScenarioContext", () => ({
   }),
 }));
 
-vi.mock("@/hooks/useLiveResource", () => ({
-  useLiveResource: (
-    _fetcher: () => Promise<unknown>,
-    deps: unknown[],
-    options?: { enabled?: boolean },
-  ) => {
-    if (options?.enabled === false) {
-      return { data: null, loading: false, error: null, refetch: vi.fn() };
-    }
-    if (deps.length === 2) {
-      return { data: { items: mockDevices, total: mockDevices.length }, loading: false, error: null, refetch: vi.fn() };
-    }
-    return { data: mockDetail, loading: false, error: null, refetch: vi.fn() };
-  },
-}));
+vi.mock("@/hooks/useLiveResource", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/hooks/useLiveResource")>();
+  return {
+    useLiveResource: (
+      fetcher: () => Promise<unknown>,
+      deps: unknown[],
+      options?: { enabled?: boolean; refetchOn?: string[] },
+    ) => {
+      if (options?.enabled === false) {
+        return { data: null, loading: false, error: null, refetch: vi.fn() };
+      }
+      // Device inventory: networkId + scenario with factual inventory events.
+      // Snapshot history also uses two deps, so do not key only on deps.length.
+      if (
+        deps.length === 2 &&
+        options?.refetchOn != null &&
+        options.refetchOn.includes("dashboard_updated")
+      ) {
+        return {
+          data: { items: mockDevices, total: mockDevices.length },
+          loading: false,
+          error: null,
+          refetch: vi.fn(),
+        };
+      }
+      // Evidence graph: single networkId dependency.
+      if (deps.length === 1) {
+        return { data: mockDetail, loading: false, error: null, refetch: vi.fn() };
+      }
+      // Snapshot history and other live resources use the real hook + API spies.
+      return actual.useLiveResource(fetcher, deps, options);
+    },
+  };
+});
 
 /** Minimal device snapshot history so any opened Device details panel has a
  * calm Snapshot history section by default. */

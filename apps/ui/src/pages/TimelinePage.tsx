@@ -12,6 +12,7 @@ const TIMELINE_EVENTS = [
   "incident_updated",
   "incident_resolved",
   "incidents_updated",
+  "timeline_updated",
   "health_updated",
   "collector_status",
 ];

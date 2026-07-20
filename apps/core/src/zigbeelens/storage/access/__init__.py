@@ -42,14 +42,19 @@ IncidentRepository (2B-5, done):
 ReportRepository (2B-5, done):
   save_report, get_report, list_reports, delete_report
 
+MaintenanceRepository (Track 6):
+  preview_retention, purge_*_batch, terminalize_abandoned_topology_captures,
+  storage_footprint, get/set_maintenance_setting, enforce_topology_count_retention
+
 Remaining on Repository until explicitly split:
-  events, health_snapshots, HA enrichment, retention/purge, unresolved messages,
+  events, health_snapshots, HA enrichment, unresolved messages,
   store_unresolved, reconcile_unresolved, has_collected_data, count_events
 """
 
 from zigbeelens.storage.access.availability import AvailabilityRepository
 from zigbeelens.storage.access.devices import DeviceRepository
 from zigbeelens.storage.access.incidents import IncidentRepository
+from zigbeelens.storage.access.maintenance import MaintenanceRepository
 from zigbeelens.storage.access.metrics import MetricRepository
 from zigbeelens.storage.access.network import NetworkRepository
 from zigbeelens.storage.access.reports import ReportRepository
@@ -59,6 +64,7 @@ __all__ = [
     "AvailabilityRepository",
     "DeviceRepository",
     "IncidentRepository",
+    "MaintenanceRepository",
     "MetricRepository",
     "NetworkRepository",
     "ReportRepository",

@@ -18,8 +18,16 @@ from zigbeelens.mqtt.lifecycle import create_broadcaster, start_collector, stop_
 from zigbeelens.mqtt_discovery import start_discovery, stop_discovery
 from zigbeelens.topology import start_topology, stop_topology
 from zigbeelens.services.data_service import DataService
+from zigbeelens.storage.integrity import StorageIntegrityError, run_startup_integrity_gates
+from zigbeelens.storage.maintenance import (
+    mark_interrupted_maintenance_status,
+    run_storage_maintenance,
+)
+from zigbeelens.storage.maintenance_scheduler import (
+    StorageMaintenanceScheduler,
+    publish_maintenance_side_effects,
+)
 from zigbeelens.storage.repository import Repository
-from zigbeelens.storage.retention import enforce_storage_retention
 
 from zigbeelens.security.browser_sessions import BrowserSessionManager
 
@@ -43,6 +51,7 @@ class AppContext:
     session_manager: BrowserSessionManager = field(repr=False)
     evaluation: EvaluationCoordinator | None = None
     evaluation_scheduler: PeriodicEvaluationScheduler | None = None
+    storage_scheduler: StorageMaintenanceScheduler | None = None
     collector: MqttCollector | None = None
     discovery: MqttDiscoveryService | None = None
     dashboard_scheduler: DashboardPublishScheduler | None = None
@@ -55,6 +64,10 @@ class AppContext:
         return int(time.time() - self.started_at)
 
     def close(self) -> None:
+        # Stop storage maintenance first so its completion callback still sees a
+        # coherent application context (topology/collector still available).
+        if self.storage_scheduler is not None:
+            self.storage_scheduler.stop(wait=True)
         stop_topology()
         stop_collector(self.collector, self.broadcaster)
         if self.evaluation_scheduler is not None:
@@ -91,6 +104,14 @@ def _on_incident_update(ctx: AppContext, event_type: str) -> None:
     _schedule_dashboard(ctx, event_type)
 
 
+def _on_storage_maintenance(ctx: AppContext, result) -> None:
+    publish_maintenance_side_effects(
+        result,
+        publish_sync=ctx.broadcaster.publish_sync,
+        schedule_dashboard=lambda: _schedule_dashboard_only(ctx),
+    )
+
+
 def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -> AppContext:
     global _context
     if config is None:
@@ -102,8 +123,35 @@ def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -
 
     db = Database(cfg.storage.path)
     migration_version = db.migrate()
+    try:
+        integrity_results = run_startup_integrity_gates(db)
+    except StorageIntegrityError:
+        db.close()
+        logger.error("Storage integrity check failed; refusing destructive startup services")
+        raise
+
     repo = Repository(db)
-    enforce_storage_retention(repo, cfg.storage.retention_days)
+    mark_interrupted_maintenance_status(repo)
+    try:
+        previous = repo.maintenance.get_maintenance_setting() or {}
+        integrity_payload = dict(previous.get("integrity") or {})
+        for item in integrity_results:
+            key = "quick_check" if item.kind == "quick" else "foreign_key_check"
+            integrity_payload[key] = {
+                "status": "ok" if item.ok else "failed",
+                "checked_at": item.checked_at,
+                "violation_count": item.violation_count,
+            }
+        previous["integrity"] = integrity_payload
+        with repo.transaction():
+            repo.maintenance.set_maintenance_setting(previous)
+    except Exception:
+        logger.error("Storage integrity status persistence failed safely")
+    maintenance_result = run_storage_maintenance(repo, cfg)
+    if not maintenance_result.success and maintenance_result.error_code == "integrity_check_failed":
+        db.close()
+        raise StorageIntegrityError("foreign_key_check")
+
     repo.sync_networks(cfg.networks)
 
     broadcaster = create_broadcaster()
@@ -141,6 +189,27 @@ def bootstrap(config_path: str | None = None, config: AppConfig | None = None) -
     ctx.evaluation_scheduler = PeriodicEvaluationScheduler(ctx.evaluation) if ctx.evaluation else None
     if ctx.evaluation_scheduler is not None and not cfg.mode.mock:
         ctx.evaluation_scheduler.start()
+    from zigbeelens.topology.service import get_topology_service
+
+    def _active_pending_snapshot_id() -> str | None:
+        service = get_topology_service()
+        return None if service is None else service.active_pending_snapshot_id
+
+    ctx.storage_scheduler = StorageMaintenanceScheduler(
+        repo,
+        cfg,
+        on_result=lambda result: _on_storage_maintenance(ctx, result),
+        active_pending_provider=_active_pending_snapshot_id,
+    )
+    if not cfg.mode.mock:
+        from zigbeelens.storage.retention_policy import MORE_WORK_CONTINUATION_SECONDS
+
+        initial_delay = (
+            MORE_WORK_CONTINUATION_SECONDS
+            if maintenance_result.more_work_pending
+            else None
+        )
+        ctx.storage_scheduler.start(initial_delay_seconds=initial_delay)
     _context = ctx
     logger.info(
         "ZigbeeLens ready (mock=%s, collector=%s, db=%s, migration=%d)",

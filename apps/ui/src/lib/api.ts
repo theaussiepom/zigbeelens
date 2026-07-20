@@ -8,6 +8,7 @@ import type {
   MockScenarioId,
   NetworkSummary,
   RouterRisk,
+  StorageStatus,
   TimelineEvent,
   ZigbeeLensConfigStatus,
 } from "@zigbeelens/shared";
@@ -587,6 +588,7 @@ export const api = {
   health: () => fetchJson<HealthResponse>("api/health"),
   configStatus: (scenario?: string) =>
     fetchJson<ZigbeeLensConfigStatus>("api/config/status", { scenario }),
+  storageStatus: () => fetchJson<StorageStatus>("api/storage/status"),
   scenarios: () => fetchJson<Array<{ id: string; label: string }>>("api/scenarios"),
   dashboard: (scenario?: string) =>
     fetchJson<DashboardPayload>("api/dashboard", { scenario }).then(validateDashboardPayload),

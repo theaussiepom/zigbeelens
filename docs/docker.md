@@ -39,7 +39,10 @@ Copy `deploy/docker/config.example.yaml` to `config/config.yaml`.
 | `networks[].name` | Display label only |
 | `networks[].base_topic` | Zigbee2MQTT base topic (must match exactly) |
 | `storage.path` | Use `/data/zigbeelens.sqlite` in containers |
-| `storage.retention_days` | Keep collected telemetry for this many days (default **7**; purged on startup) |
+| `storage.retention_days` | Telemetry history retention in days (default **7**; startup + periodic maintenance) |
+| `storage.resolved_incident_retention_days` | Resolved incident retention (default **90**; omit/null to keep) |
+| `storage.report_retention_days` | Optional report auto-retention (default **null** = until manually deleted) |
+| `storage.maintenance_interval_hours` | Periodic maintenance interval (default **24**) |
 
 ### Multiple Zigbee2MQTT networks
 

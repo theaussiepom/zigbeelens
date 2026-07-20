@@ -16,6 +16,10 @@ export const LIVE_EVENTS = [
   "collector_connected",
   "collector_disconnected",
   "collector_status",
+  "topology_updated",
+  "timeline_updated",
+  "reports_updated",
+  "storage_maintenance_completed",
 ] as const;
 
 export type SessionProbeReason = "sse_error";

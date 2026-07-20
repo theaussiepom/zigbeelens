@@ -21,7 +21,8 @@ Run all automated checks:
 - [ ] Add-on package builds (`./scripts/package-addon-repo.sh`)
 - [ ] Core smoke passes (`./scripts/smoke-core.sh`)
 - [ ] Version alignment check passes (`./scripts/check-version-alignment.sh`)
-- [ ] Storage retention enforcement runs on startup (`storage.retention_days`)
+- [ ] Storage retention policy v2: telemetry / resolved incidents / reports; startup + periodic maintenance
+- [ ] `zigbeelens storage check` / `backup` / `maintenance --dry-run` validated on a release candidate DB
 
 ## Security acknowledgement
 

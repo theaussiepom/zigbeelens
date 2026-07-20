@@ -5,6 +5,17 @@ import { api } from "@/lib/api";
 import { buildLiveMeshEvidence } from "@/lib/meshEvidenceLive";
 import type { TopologyEvidenceGraphDetail } from "@/types/topology";
 
+/** Factual device-inventory invalidations; excludes topology_updated. */
+const DEVICE_INVENTORY_EVENTS = [
+  "device_health_updated",
+  "health_updated",
+  "dashboard_updated",
+  "incidents_updated",
+  "incident_opened",
+  "incident_updated",
+  "incident_resolved",
+] as const;
+
 export function useTopologyGraphData(networkId: string | undefined) {
   const { status, scenario } = useScenario();
 
@@ -14,12 +25,19 @@ export function useTopologyGraphData(networkId: string | undefined) {
         ? api.topologyEvidenceGraph(networkId)
         : Promise.reject(new Error("No network selected")),
     [networkId],
-    { enabled: Boolean(networkId) },
+    {
+      enabled: Boolean(networkId),
+      // Explicit topology history invalidation; do not rely on default-all-events.
+      refetchOn: ["topology_updated"],
+    },
   );
   const inventory = useLiveResource(
     () => api.devices(scenario || undefined, networkId),
     [networkId, scenario],
-    { enabled: Boolean(networkId) },
+    {
+      enabled: Boolean(networkId),
+      refetchOn: [...DEVICE_INVENTORY_EVENTS],
+    },
   );
 
   const liveEvidence = useMemo(() => {

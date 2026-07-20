@@ -189,6 +189,35 @@ See [topology.md](topology.md).
 - Duplicate friendly names reduce match quality
 - HACS auto-push is not wired in v0.1.0 — manual API or future integration update
 
+## Storage maintenance failed
+
+Symptoms: Settings shows a last maintenance error; `/api/storage/status` has `maintenance.last_error_code` / `failure_category`; logs mention storage maintenance.
+
+| `last_error_code` | Meaning | What to do |
+|-------------------|---------|------------|
+| `database_busy` | SQLite locked / busy during a batch | Normal under load; committed batches are kept, `more_work_pending` may be true. Wait for the next scheduled cycle or retry when quieter. Avoid concurrent `--apply` against a live Core process. |
+| `integrity_check_failed` | Preflight or post-cycle foreign-key/integrity gate failed | Do **not** force purge. Run `zigbeelens storage check --database <path>` (optionally `--full`). Restore from a known-good backup if checks fail. See [backups.md](backups.md). |
+| `maintenance_failed` | Unexpected error mid-cycle | Check Core logs. Partial deletes from earlier batches may already be committed; re-run after the cause is fixed. |
+| `interrupted` | Process stopped while `running: true` | Cleared/marked on next Core start; next cycle continues safely. |
+| `schema_mismatch` / `schema_too_old` (CLI) | Maintenance CLI opened a DB that is not at the current schema | Start Core so migrations run (including `012`), then retry. CLI `--apply` never migrates. |
+
+Also remember:
+
+- `check` and `maintenance --dry-run` are truly non-mutating
+- Invalid/future timestamps are retained (counted as warnings), not deleted
+- Active in-memory topology captures are excluded from periodic maintenance
+- Track 6 does not run automatic `VACUUM`
+
+## Storage integrity check failed at startup
+
+Symptoms: Core refuses to start destructive services; logs show storage integrity failure.
+
+1. Stop Core / add-on.
+2. Keep the current DB as a rollback copy.
+3. Run `zigbeelens storage check --database /path/to/zigbeelens.sqlite` (add `--full` for a deeper check).
+4. If checks fail, restore a verified backup (online `storage backup` snapshot or HA add-on backup), then start Core so migrations + integrity + maintenance run in order.
+5. Confirm `/api/storage/status` integrity facts show `status: ok` after a healthy start.
+
 ## Security configuration errors
 
 | Symptom / log | Likely cause | Fix |

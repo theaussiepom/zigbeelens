@@ -9,11 +9,19 @@ from zigbeelens.app.context import AppContext
 from zigbeelens.mqtt.collector import collector_enabled
 from zigbeelens.mqtt.lifecycle import collector_status_dict
 from zigbeelens.mqtt_discovery import discovery_enabled
+from zigbeelens.services.storage_status import build_storage_policy_summary
 
 
 # Stable contract version for HACS / companion decision surfaces.
 # Track 5: decision-only public diagnostic payloads (no Health/Lens authority).
 DECISION_CONTRACT_VERSION = 2
+
+
+def _storage_status_subset(ctx: AppContext) -> dict[str, Any]:
+    try:
+        return build_storage_policy_summary(ctx)
+    except Exception:
+        return {}
 
 
 def capabilities_dict(ctx: AppContext) -> dict[str, Any]:
@@ -51,6 +59,10 @@ def capabilities_dict(ctx: AppContext) -> dict[str, Any]:
             "home_assistant_ingress_identity": True,
             "trusted_ingress_peer_enforcement": True,
             "ingress_browser_authentication": True,
+            "retention_policy_v2": True,
+            "periodic_storage_maintenance": True,
+            "online_sqlite_backup_cli": True,
+            "storage_integrity_checks": True,
         },
         "decision_surfaces": {
             "dashboard_decision_summary": True,
@@ -126,6 +138,7 @@ def service_status_dict(ctx: AppContext) -> dict[str, Any]:
         "storage": {
             "available": db_ok,
             "ready": ctx.db.path.exists(),
+            **_storage_status_subset(ctx),
         },
         "reports": {
             "available": True,

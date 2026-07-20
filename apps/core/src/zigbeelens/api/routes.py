@@ -35,6 +35,7 @@ from zigbeelens.mqtt.lifecycle import collector_status_dict
 from zigbeelens.mqtt_discovery import discovery_status_dict
 from zigbeelens.topology.service import get_topology_service, topology_status_dict
 from zigbeelens.topology.topics import CAPTURE_WARNING
+from zigbeelens.services.storage_status import build_storage_status
 from zigbeelens.schemas import (
     BrowserSessionStatus,
     DashboardPayload,
@@ -48,6 +49,7 @@ from zigbeelens.schemas import (
     ReportRequest,
     ReportScope,
     ReportSummary,
+    StorageStatus,
     TopologyCaptureRequest,
     ZigbeeLensConfigStatus,
 )
@@ -277,6 +279,11 @@ def status(ctx: AppContext = Depends(ctx_dep)) -> dict:
     return service_status_dict(ctx)
 
 
+@read_router.get("/storage/status", response_model=StorageStatus)
+def storage_status(ctx: AppContext = Depends(ctx_dep)) -> StorageStatus:
+    return StorageStatus.model_validate(build_storage_status(ctx))
+
+
 @read_router.get("/config/status", response_model=ZigbeeLensConfigStatus)
 def config_status(
     scenario: str | None = Query(default=None),
@@ -287,6 +294,7 @@ def config_status(
         active_scenario = ctx.config.mode.default_scenario
 
     collector = collector_status_dict(ctx)
+    storage = StorageStatus.model_validate(build_storage_status(ctx))
     return ZigbeeLensConfigStatus(
         version=__version__,
         uptime_seconds=ctx.uptime_seconds(),
@@ -299,6 +307,10 @@ def config_status(
         storage_path=ctx.config.storage.path,
         storage_ready=ctx.db.path.exists(),
         retention_days=ctx.config.storage.retention_days,
+        resolved_incident_retention_days=ctx.config.storage.resolved_incident_retention_days,
+        report_retention_days=ctx.config.storage.report_retention_days,
+        maintenance_interval_hours=ctx.config.storage.maintenance_interval_hours,
+        storage=storage,
         features=ctx.config.features.model_dump(),
         mqtt_discovery=ctx.config.mqtt_discovery.model_dump(),
         topology=ctx.config.topology.model_dump(),

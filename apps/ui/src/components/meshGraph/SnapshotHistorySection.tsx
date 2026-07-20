@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { useLiveResource } from "@/hooks/useLiveResource";
 import { DrawerSection } from "@/components/meshGraph/DrawerShell";
 import {
   buildSnapshotHistoryViewModel,
@@ -171,42 +172,38 @@ export function SnapshotHistorySection({
   networkId: string;
   deviceIeee: string;
 }) {
-  const [history, setHistory] = useState<Awaited<
-    ReturnType<typeof api.topologyDeviceSnapshotHistory>
-  > | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const history = useLiveResource(
+    () => api.topologyDeviceSnapshotHistory(networkId, deviceIeee),
+    [networkId, deviceIeee],
+    { refetchOn: ["topology_updated"] },
+  );
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
 
+  // Reset selection when the device/network identity changes. Background
+  // topology_updated refetches keep prior history visible until new data arrives.
   useEffect(() => {
-    let cancelled = false;
-    setHistory(null);
-    setLoading(true);
-    setError(false);
     setSelectedSnapshotId(null);
-    api.topologyDeviceSnapshotHistory(networkId, deviceIeee).then(
-      (data) => {
-        if (cancelled) return;
-        setHistory(data);
-        setSelectedSnapshotId(defaultSelectedSnapshotId(data));
-        setLoading(false);
-      },
-      () => {
-        if (cancelled) return;
-        setError(true);
-        setLoading(false);
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
   }, [networkId, deviceIeee]);
 
+  useEffect(() => {
+    const data = history.data;
+    if (!data) return;
+    setSelectedSnapshotId((current) => {
+      if (
+        current != null &&
+        data.snapshots.some((row) => row.snapshot_id === current)
+      ) {
+        return current;
+      }
+      return defaultSelectedSnapshotId(data);
+    });
+  }, [history.data]);
+
   const viewModel = useMemo(() => {
-    if (loading) return loadingSnapshotHistoryViewModel();
-    if (error || !history) return errorSnapshotHistoryViewModel();
-    return buildSnapshotHistoryViewModel(history, selectedSnapshotId);
-  }, [loading, error, history, selectedSnapshotId]);
+    if (history.loading && !history.data) return loadingSnapshotHistoryViewModel();
+    if (history.error || !history.data) return errorSnapshotHistoryViewModel();
+    return buildSnapshotHistoryViewModel(history.data, selectedSnapshotId);
+  }, [history.loading, history.error, history.data, selectedSnapshotId]);
 
   return (
     <DrawerSection title={viewModel.sectionTitle}>

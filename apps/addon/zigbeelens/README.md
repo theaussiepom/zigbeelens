@@ -103,6 +103,22 @@ Diagnostics thresholds, report limits, and feature flags are available under **D
 - `features.manual_network_map` — leave **off** unless you use manual topology snapshots.
 - `features.automatic_network_map` — leave **off** (not supported).
 
+### Storage retention
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `storage.retention_days` | `7` | Telemetry history only (metrics, availability, snapshots, events, unresolved messages, terminal topology). Does **not** govern reports or incidents. |
+| `storage.resolved_incident_retention_days` | `90` | Resolved incidents. Use `0` in add-on options for Core `null` (kept indefinitely). Open/watching incidents are never age-purged. |
+| `storage.report_retention_days` | `0` | Reports. Add-on `0` → Core `null` (kept until manually deleted). Set a positive day count only if you want opt-in auto-retention. |
+| `storage.maintenance_interval_hours` | `24` | Periodic maintenance interval after the startup cycle. |
+
+Maintenance runs at Core startup (after migrations + integrity gates) and on the interval above. There is **no Purge / Vacuum / Backup button** in the UI — Settings shows policy and last-maintenance facts only. See [docs/backups.md](../../../docs/backups.md).
+
+Local Core CLI (outside the add-on container, against a copied DB or stopped instance):
+
+- `zigbeelens storage check` / `storage maintenance --dry-run` — truly non-mutating (read-only open; dry-run does not update status)
+- `zigbeelens storage maintenance --apply` — runs retention; does **not** run migrations (Core startup owns migrations)
+
 ## Reports
 
 Open **Reports** in the ZigbeeLens UI to generate snapshots:
@@ -124,10 +140,10 @@ Secrets (MQTT passwords, tokens, network keys) are **always** redacted before st
 
 All persistent data lives under `/data/zigbeelens/` inside the add-on:
 
-- `zigbeelens.sqlite` — telemetry, incidents, reports
+- `zigbeelens.sqlite` — telemetry, incidents, reports (reports stay until you delete them unless you set finite `report_retention_days`)
 - `config.yaml` — generated from your add-on options
 
-Include the add-on in your **Home Assistant backup** so history and stored reports are preserved.
+Include the add-on in your **Home Assistant backup** so history and stored reports are preserved. For online SQLite snapshots from a running Core process, use `zigbeelens storage backup` (symlink-safe atomic publish); see [docs/backups.md](../../../docs/backups.md).
 
 ## Troubleshooting
 
