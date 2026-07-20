@@ -60,7 +60,7 @@ describe("shared decision contract", () => {
       config_summary: {},
       decision_summary: {
         subject_count: 0,
-        overall_status: "no_notable_change",
+        overall_status: "data_unavailable",
         highest_priority: "none",
         status_counts: {},
         priority_counts: {},

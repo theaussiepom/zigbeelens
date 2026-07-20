@@ -63,6 +63,8 @@ async def recording_core(aiohttp_server, sample_health, sample_dashboard, sample
                     "shared_decisions": True,
                     "companion_decision_summary": True,
                     "decision_only_diagnostic_payloads": True,
+                    "report_contract_v3": True,
+                    "decision_mqtt_summary": True,
                     "legacy_health_lens_payloads": False,
                 },
                 "decision_surfaces": {

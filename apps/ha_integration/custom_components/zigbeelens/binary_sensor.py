@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
 
-from .compatibility import nonneg_int_not_bool
+from .compatibility import nonneg_int_not_bool, validate_decision_count_summary
 from .const import DOMAIN
 from .coordinator import ZigbeeLensDataUpdateCoordinator
 from .entity import ZigbeeLensEntity
@@ -87,14 +87,19 @@ class ZigbeeLensBinarySensor(ZigbeeLensEntity, BinarySensorEntity):
             return {}
         key = self.entity_description.key
         if key == "active_incident":
-            decision = self.dashboard.get("decision_summary") or {}
-            return {
-                "active_incident_count": self.dashboard.get("active_incident_count"),
-                "watching_incident_count": self.dashboard.get("watching_incident_count"),
-                "overall_decision_status": (
-                    decision.get("overall_status") if isinstance(decision, dict) else None
-                ),
-            }
+            attrs: dict = {}
+            active = nonneg_int_not_bool(self.dashboard.get("active_incident_count"))
+            watching = nonneg_int_not_bool(self.dashboard.get("watching_incident_count"))
+            if active is not None:
+                attrs["active_incident_count"] = active
+            if watching is not None:
+                attrs["watching_incident_count"] = watching
+            # Decision attributes only when companion decisions are available.
+            if self.coordinator.data.shared_decisions_available:
+                summary = self.dashboard.get("decision_summary")
+                if validate_decision_count_summary(summary):
+                    attrs["overall_decision_status"] = summary["overall_status"]
+            return attrs
         if key == "core_connected":
             return {
                 "core_url": self.coordinator.client.core_url,

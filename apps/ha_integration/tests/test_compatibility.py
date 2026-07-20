@@ -65,6 +65,8 @@ def _contract_payload(
     shared: object = True,
     companion: object = True,
     decision_only: object = True,
+    report_v3: object = True,
+    decision_mqtt: object = True,
     legacy_health: object = False,
     surfaces: object | None = None,
 ) -> dict:
@@ -85,6 +87,8 @@ def _contract_payload(
             "shared_decisions": shared,
             "companion_decision_summary": companion,
             "decision_only_diagnostic_payloads": decision_only,
+            "report_contract_v3": report_v3,
+            "decision_mqtt_summary": decision_mqtt,
             "legacy_health_lens_payloads": legacy_health,
         },
         "decision_surfaces": surfaces,
@@ -142,7 +146,29 @@ def test_supports_companion_decisions_exact_contract_v2():
     assert supports_companion_decisions(_contract_payload(shared=1)) is False
     assert supports_companion_decisions(_contract_payload(companion="true")) is False
     assert supports_companion_decisions(_contract_payload(decision_only=False)) is False
+    assert supports_companion_decisions(_contract_payload(report_v3=False)) is False
+    assert supports_companion_decisions(_contract_payload(report_v3=1)) is False
+    assert supports_companion_decisions(_contract_payload(decision_mqtt=False)) is False
+    assert supports_companion_decisions(_contract_payload(decision_mqtt="true")) is False
     assert supports_companion_decisions(_contract_payload(legacy_health=True)) is False
+    # Missing / null / string / 0 must not pass as "not True" for legacy flag.
+    for legacy in (None, "false", 0, 1, "False"):
+        payload = _contract_payload()
+        payload["capabilities"]["legacy_health_lens_payloads"] = legacy
+        assert supports_companion_decisions(payload) is False
+    missing_legacy = _contract_payload()
+    del missing_legacy["capabilities"]["legacy_health_lens_payloads"]
+    assert supports_companion_decisions(missing_legacy) is False
+    for name in (
+        "shared_decisions",
+        "companion_decision_summary",
+        "decision_only_diagnostic_payloads",
+        "report_contract_v3",
+        "decision_mqtt_summary",
+    ):
+        payload = _contract_payload()
+        del payload["capabilities"][name]
+        assert supports_companion_decisions(payload) is False
     assert supports_companion_decisions(_contract_payload(surfaces={})) is False
     assert (
         supports_companion_decisions(
@@ -190,3 +216,51 @@ def test_dashboard_decision_payload_valid_v2():
     )
     assert validate_decision_count_summary({"subject_count": True}) is False
     assert validate_decision_count_summary({"subject_count": 1, "overall_status": "nope"}) is False
+    assert (
+        validate_decision_count_summary(
+            {
+                "subject_count": 0,
+                "overall_status": "no_notable_change",
+                "highest_priority": "none",
+                "status_counts": {},
+                "priority_counts": {},
+                "coverage_warning_count": 0,
+            }
+        )
+        is False
+    )
+    assert (
+        validate_decision_count_summary(
+            {
+                "subject_count": 2,
+                "overall_status": "watch",
+                "highest_priority": "high",
+                "status_counts": {"watch": 1, "review_first": 1},
+                "priority_counts": {"high": 1, "low": 1},
+                "coverage_warning_count": 0,
+            }
+        )
+        is False
+    )
+
+
+def test_validate_decision_badge_known_coverage_labels():
+    from zigbeelens.compatibility import validate_decision_badge
+
+    valid = {
+        "status": "watch",
+        "priority": "low",
+        "headline_code": "network_watch",
+        "coverage_label_codes": ["availability_tracking_off"],
+    }
+    assert validate_decision_badge(valid) is True
+    assert (
+        validate_decision_badge({**valid, "coverage_label_codes": ["future_label"]})
+        is False
+    )
+    assert validate_decision_badge({**valid, "coverage_label_codes": [1]}) is False
+    assert validate_decision_badge({**valid, "coverage_label_codes": [None]}) is False
+    assert validate_decision_badge({**valid, "coverage_label_codes": [{}]}) is False
+    missing = dict(valid)
+    del missing["coverage_label_codes"]
+    assert validate_decision_badge(missing) is False

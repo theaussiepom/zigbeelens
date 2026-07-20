@@ -18,8 +18,13 @@ import type {
   LegacyStoredReportBody,
   NetworkSummary,
   ReportDetailV3,
+  ReportDomainDetailsV3,
+  ReportFormat,
+  ReportRedactionStatus,
+  ReportScope,
 } from "@zigbeelens/shared";
 import { ApiError } from "@/lib/api";
+import { COVERAGE_LABEL_CODES } from "@/viewModels/decisionCopy";
 
 const DECISION_STATUSES: readonly DecisionStatus[] = [
   "informational",
@@ -32,7 +37,61 @@ const DECISION_STATUSES: readonly DecisionStatus[] = [
   "data_unavailable",
 ];
 
+const DECISION_STATUS_ORDER: readonly DecisionStatus[] = [
+  "review_first",
+  "worth_reviewing",
+  "improve_data_coverage",
+  "watch",
+  "changed",
+  "informational",
+  "no_notable_change",
+  "data_unavailable",
+];
+
 const DECISION_PRIORITIES: readonly DecisionPriority[] = ["none", "low", "medium", "high"];
+
+const DECISION_PRIORITY_ORDER: readonly DecisionPriority[] = [
+  "high",
+  "medium",
+  "low",
+  "none",
+];
+
+const REPORT_SCOPES: readonly ReportScope[] = ["full", "incident", "network", "device"];
+const REPORT_FORMATS: readonly ReportFormat[] = ["json", "yaml", "markdown"];
+const REDACTION_PROFILES = ["standard", "strict", "public_safe"] as const;
+const REDACTION_MODES = ["preserved", "labeled", "hashed", "redacted"] as const;
+
+const REPORT_DETAIL_V3_KEYS = [
+  "id",
+  "product",
+  "report_version",
+  "generated_at",
+  "version",
+  "scope",
+  "format",
+  "redaction",
+  "config_summary",
+  "decision_summary",
+  "investigation_priorities",
+  "device_stories",
+  "data_coverage_warnings",
+  "incidents",
+  "collector_status",
+  "domain_details",
+  "events_or_timeline",
+  "limitations",
+  "raw_counts",
+  "markdown_summary",
+] as const;
+
+const DOMAIN_DETAILS_KEYS = [
+  "networks",
+  "devices",
+  "device_details",
+  "router_risks",
+  "topology_snapshot_count",
+] as const;
 
 export function isDecisionStatus(value: unknown): value is DecisionStatus {
   return typeof value === "string" && (DECISION_STATUSES as readonly string[]).includes(value);
@@ -40,6 +99,10 @@ export function isDecisionStatus(value: unknown): value is DecisionStatus {
 
 export function isDecisionPriority(value: unknown): value is DecisionPriority {
   return typeof value === "string" && (DECISION_PRIORITIES as readonly string[]).includes(value);
+}
+
+export function isCoverageLabelCode(value: unknown): value is CoverageLabelCode {
+  return typeof value === "string" && (COVERAGE_LABEL_CODES as readonly string[]).includes(value);
 }
 
 function protocolFailure(): never {
@@ -53,64 +116,76 @@ function nonNegativeInt(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && !Number.isNaN(value) && value >= 0;
 }
 
-export function parseDecisionBadge(value: unknown): DecisionBadge {
-  if (!value || typeof value !== "object") {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function exactKeySet(value: Record<string, unknown>, keys: readonly string[]): void {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length) {
     protocolFailure();
   }
-  const badge = value as Record<string, unknown>;
-  if (!isDecisionStatus(badge.status)) {
-    protocolFailure();
-  }
-  if (!isDecisionPriority(badge.priority)) {
-    protocolFailure();
-  }
-  if (typeof badge.headline_code !== "string" || !badge.headline_code) {
-    protocolFailure();
-  }
-  if (!Array.isArray(badge.coverage_label_codes)) {
-    protocolFailure();
-  }
-  const coverage_label_codes = badge.coverage_label_codes.map((code) => {
-    if (typeof code !== "string") {
+  for (let i = 0; i < expected.length; i += 1) {
+    if (actual[i] !== expected[i]) {
       protocolFailure();
     }
-    return code as CoverageLabelCode;
+  }
+}
+
+export function parseDecisionBadge(value: unknown): DecisionBadge {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  if (!isDecisionStatus(value.status)) {
+    protocolFailure();
+  }
+  if (!isDecisionPriority(value.priority)) {
+    protocolFailure();
+  }
+  if (typeof value.headline_code !== "string" || !value.headline_code) {
+    protocolFailure();
+  }
+  if (!Array.isArray(value.coverage_label_codes)) {
+    protocolFailure();
+  }
+  const coverage_label_codes = value.coverage_label_codes.map((code) => {
+    if (!isCoverageLabelCode(code)) {
+      protocolFailure();
+    }
+    return code;
   });
   return {
-    status: badge.status,
-    priority: badge.priority,
-    headline_code: badge.headline_code,
+    status: value.status,
+    priority: value.priority,
+    headline_code: value.headline_code,
     coverage_label_codes,
   };
 }
 
 export function parseDecisionCountSummary(value: unknown): DecisionCountSummary {
-  if (!value || typeof value !== "object") {
+  if (!isPlainObject(value)) {
     protocolFailure();
   }
-  const summary = value as Record<string, unknown>;
-  if (!nonNegativeInt(summary.subject_count)) {
+  if (!nonNegativeInt(value.subject_count)) {
     protocolFailure();
   }
-  if (!isDecisionStatus(summary.overall_status)) {
+  if (!isDecisionStatus(value.overall_status)) {
     protocolFailure();
   }
-  if (!isDecisionPriority(summary.highest_priority)) {
+  if (!isDecisionPriority(value.highest_priority)) {
     protocolFailure();
   }
-  if (!nonNegativeInt(summary.coverage_warning_count)) {
+  if (!nonNegativeInt(value.coverage_warning_count)) {
     protocolFailure();
   }
-  if (!summary.status_counts || typeof summary.status_counts !== "object") {
-    protocolFailure();
-  }
-  if (!summary.priority_counts || typeof summary.priority_counts !== "object") {
+  if (!isPlainObject(value.status_counts) || !isPlainObject(value.priority_counts)) {
     protocolFailure();
   }
 
   const status_counts: Partial<Record<DecisionStatus, number>> = {};
   let statusTotal = 0;
-  for (const [key, count] of Object.entries(summary.status_counts as Record<string, unknown>)) {
+  for (const [key, count] of Object.entries(value.status_counts)) {
     if (!isDecisionStatus(key) || !nonNegativeInt(count)) {
       protocolFailure();
     }
@@ -120,7 +195,7 @@ export function parseDecisionCountSummary(value: unknown): DecisionCountSummary 
 
   const priority_counts: Partial<Record<DecisionPriority, number>> = {};
   let priorityTotal = 0;
-  for (const [key, count] of Object.entries(summary.priority_counts as Record<string, unknown>)) {
+  for (const [key, count] of Object.entries(value.priority_counts)) {
     if (!isDecisionPriority(key) || !nonNegativeInt(count)) {
       protocolFailure();
     }
@@ -128,32 +203,56 @@ export function parseDecisionCountSummary(value: unknown): DecisionCountSummary 
     priorityTotal += count;
   }
 
-  const subject_count = summary.subject_count;
+  const subject_count = value.subject_count;
   if (subject_count === 0) {
     if (statusTotal !== 0 || priorityTotal !== 0) {
       protocolFailure();
     }
-  } else if (statusTotal !== subject_count || priorityTotal !== subject_count) {
-    protocolFailure();
+    if (value.overall_status !== "data_unavailable" || value.highest_priority !== "none") {
+      protocolFailure();
+    }
+  } else {
+    if (statusTotal !== subject_count || priorityTotal !== subject_count) {
+      protocolFailure();
+    }
+    let expectedOverall: DecisionStatus = "data_unavailable";
+    for (const status of DECISION_STATUS_ORDER) {
+      if ((status_counts[status] ?? 0) > 0) {
+        expectedOverall = status;
+        break;
+      }
+    }
+    if (value.overall_status !== expectedOverall) {
+      protocolFailure();
+    }
+    let expectedPriority: DecisionPriority = "none";
+    for (const priority of DECISION_PRIORITY_ORDER) {
+      if ((priority_counts[priority] ?? 0) > 0) {
+        expectedPriority = priority;
+        break;
+      }
+    }
+    if (value.highest_priority !== expectedPriority) {
+      protocolFailure();
+    }
   }
 
   return {
     subject_count,
-    overall_status: summary.overall_status,
-    highest_priority: summary.highest_priority,
+    overall_status: value.overall_status,
+    highest_priority: value.highest_priority,
     status_counts,
     priority_counts,
-    coverage_warning_count: summary.coverage_warning_count,
+    coverage_warning_count: value.coverage_warning_count,
   };
 }
 
 export function parseDeviceSummary(value: unknown): DeviceSummary {
-  if (!value || typeof value !== "object") {
+  if (!isPlainObject(value)) {
     protocolFailure();
   }
-  const device = value as DeviceSummary;
-  parseDecisionBadge(device.decision);
-  return device;
+  parseDecisionBadge(value.decision);
+  return value as unknown as DeviceSummary;
 }
 
 export function parseDeviceDetail(value: unknown): DeviceDetail {
@@ -161,36 +260,43 @@ export function parseDeviceDetail(value: unknown): DeviceDetail {
 }
 
 export function parseNetworkSummary(value: unknown): NetworkSummary {
-  if (!value || typeof value !== "object") {
+  if (!isPlainObject(value)) {
     protocolFailure();
   }
-  const network = value as NetworkSummary;
-  parseDecisionBadge(network.decision);
-  parseDecisionCountSummary(network.decision_summary);
-  return network;
+  parseDecisionBadge(value.decision);
+  parseDecisionCountSummary(value.decision_summary);
+  return value as unknown as NetworkSummary;
 }
 
 export function parseIncident(value: unknown): Incident {
-  if (!value || typeof value !== "object") {
+  if (!isPlainObject(value)) {
     protocolFailure();
   }
-  const incident = value as Incident;
-  for (const ref of incident.affected_devices ?? []) {
+  const affected = value.affected_devices;
+  if (affected !== undefined && !Array.isArray(affected)) {
+    protocolFailure();
+  }
+  for (const ref of (affected as unknown[]) ?? []) {
+    if (!isPlainObject(ref)) {
+      protocolFailure();
+    }
     parseDecisionBadge(ref.decision);
   }
-  return incident;
+  return value as unknown as Incident;
 }
 
 export function validateDashboardPayload(value: unknown): DashboardPayload {
-  if (!value || typeof value !== "object") {
+  if (!isPlainObject(value)) {
     protocolFailure();
   }
-  const payload = value as DashboardPayload;
-  parseDecisionCountSummary(payload.decision_summary);
-  for (const network of payload.networks ?? []) {
+  parseDecisionCountSummary(value.decision_summary);
+  if (!Array.isArray(value.networks)) {
+    protocolFailure();
+  }
+  for (const network of value.networks) {
     parseNetworkSummary(network);
   }
-  return payload;
+  return value as unknown as DashboardPayload;
 }
 
 export function validateDeviceSummaries(items: unknown): DeviceSummary[] {
@@ -214,57 +320,215 @@ export function validateIncidents(items: unknown): Incident[] {
   return items.map(parseIncident);
 }
 
-export function storedReportVersion(body: LegacyStoredReportBody): number {
+export type StoredReportVersionKind = "legacy" | "current" | "protocol_error";
+
+export interface StoredReportVersionClassification {
+  kind: StoredReportVersionKind;
+  version?: number;
+}
+
+export function classifyStoredReportVersion(
+  body: Record<string, unknown>,
+): StoredReportVersionClassification {
+  if (!("report_version" in body)) {
+    return { kind: "legacy", version: 1 };
+  }
   const raw = body.report_version;
-  if (typeof raw === "number" && Number.isInteger(raw)) {
-    return raw;
+  if (typeof raw === "number" && Number.isInteger(raw) && !Number.isNaN(raw)) {
+    if (raw === 1 || raw === 2) {
+      return { kind: "legacy", version: raw };
+    }
+    if (raw === 3) {
+      return { kind: "current", version: 3 };
+    }
+    return { kind: "protocol_error" };
+  }
+  if (typeof raw === "string") {
+    const stripped = raw.trim();
+    if (stripped === "1" || stripped === "2") {
+      return { kind: "legacy", version: Number(stripped) };
+    }
+    return { kind: "protocol_error" };
+  }
+  return { kind: "protocol_error" };
+}
+
+/** @deprecated Prefer classifyStoredReportVersion for exact classification. */
+export function storedReportVersion(body: LegacyStoredReportBody): number {
+  const classification = classifyStoredReportVersion(body);
+  if (classification.kind === "legacy" || classification.kind === "current") {
+    return classification.version ?? 1;
   }
   return 1;
 }
 
 export function isLegacyStoredReportBody(body: unknown): body is LegacyStoredReportBody {
-  if (!body || typeof body !== "object") {
+  if (!isPlainObject(body)) {
     return false;
   }
-  return storedReportVersion(body as LegacyStoredReportBody) < 3;
+  return classifyStoredReportVersion(body).kind === "legacy";
+}
+
+function parseRedaction(value: unknown): ReportRedactionStatus {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  if (typeof value.applied !== "boolean") {
+    protocolFailure();
+  }
+  if (
+    typeof value.profile !== "string" ||
+    !(REDACTION_PROFILES as readonly string[]).includes(value.profile)
+  ) {
+    protocolFailure();
+  }
+  for (const key of [
+    "mqtt_credentials",
+    "secrets",
+    "hostnames",
+    "ip_addresses",
+    "ieee_addresses_hashed",
+  ] as const) {
+    if (typeof value[key] !== "boolean") {
+      protocolFailure();
+    }
+  }
+  for (const key of ["friendly_names", "network_names"] as const) {
+    if (
+      typeof value[key] !== "string" ||
+      !(REDACTION_MODES as readonly string[]).includes(value[key] as string)
+    ) {
+      protocolFailure();
+    }
+  }
+  return value as unknown as ReportRedactionStatus;
+}
+
+function parseDomainDetails(value: unknown): ReportDomainDetailsV3 {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  exactKeySet(value, DOMAIN_DETAILS_KEYS);
+  if (!Array.isArray(value.networks) || !Array.isArray(value.devices)) {
+    protocolFailure();
+  }
+  if (!Array.isArray(value.device_details) || !Array.isArray(value.router_risks)) {
+    protocolFailure();
+  }
+  if (!nonNegativeInt(value.topology_snapshot_count)) {
+    protocolFailure();
+  }
+  for (const network of value.networks) {
+    parseNetworkSummary(network);
+  }
+  for (const device of value.devices) {
+    parseDeviceSummary(device);
+  }
+  for (const detail of value.device_details) {
+    parseDeviceDetail(detail);
+  }
+  return value as unknown as ReportDomainDetailsV3;
+}
+
+function parseDeviceStory(value: unknown): void {
+  if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  for (const key of ["network_id", "ieee_address", "friendly_name", "subject_id", "headline_code"]) {
+    if (typeof value[key] !== "string" || !value[key]) {
+      protocolFailure();
+    }
+  }
+  if (!isDecisionStatus(value.status) || !isDecisionPriority(value.priority)) {
+    protocolFailure();
+  }
 }
 
 export function validateReportDetailV3(value: unknown): ReportDetailV3 {
-  if (!value || typeof value !== "object") {
+  if (!isPlainObject(value)) {
     protocolFailure();
   }
-  const report = value as Record<string, unknown>;
-  if (report.report_version !== 3) {
+  exactKeySet(value, REPORT_DETAIL_V3_KEYS);
+
+  if (typeof value.id !== "string" || !value.id) {
     protocolFailure();
   }
-  parseDecisionCountSummary(report.decision_summary);
-  for (const story of (report.device_stories as unknown[]) ?? []) {
-    if (!story || typeof story !== "object") {
-      protocolFailure();
-    }
-    const row = story as Record<string, unknown>;
-    if (!isDecisionStatus(row.status) || !isDecisionPriority(row.priority)) {
+  if (typeof value.product !== "string" || !value.product) {
+    protocolFailure();
+  }
+  if (value.report_version !== 3) {
+    protocolFailure();
+  }
+  if (typeof value.generated_at !== "string" || !value.generated_at) {
+    protocolFailure();
+  }
+  if (typeof value.version !== "string") {
+    protocolFailure();
+  }
+  if (
+    typeof value.scope !== "string" ||
+    !(REPORT_SCOPES as readonly string[]).includes(value.scope)
+  ) {
+    protocolFailure();
+  }
+  if (
+    typeof value.format !== "string" ||
+    !(REPORT_FORMATS as readonly string[]).includes(value.format)
+  ) {
+    protocolFailure();
+  }
+  parseRedaction(value.redaction);
+  if (!isPlainObject(value.config_summary)) {
+    protocolFailure();
+  }
+  parseDecisionCountSummary(value.decision_summary);
+
+  for (const key of [
+    "investigation_priorities",
+    "device_stories",
+    "data_coverage_warnings",
+    "incidents",
+    "events_or_timeline",
+    "limitations",
+  ] as const) {
+    if (!Array.isArray(value[key])) {
       protocolFailure();
     }
   }
-  const domain = report.domain_details;
-  if (domain && typeof domain === "object") {
-    for (const network of (domain as { networks?: unknown[] }).networks ?? []) {
-      parseNetworkSummary(network);
-    }
-    for (const device of (domain as { devices?: unknown[] }).devices ?? []) {
-      parseDeviceSummary(device);
+  for (const story of value.device_stories as unknown[]) {
+    parseDeviceStory(story);
+  }
+  for (const incident of value.incidents as unknown[]) {
+    parseIncident(incident);
+  }
+  if (!isPlainObject(value.collector_status)) {
+    protocolFailure();
+  }
+  parseDomainDetails(value.domain_details);
+  if (!isPlainObject(value.raw_counts)) {
+    protocolFailure();
+  }
+  for (const count of Object.values(value.raw_counts)) {
+    if (!nonNegativeInt(count)) {
+      protocolFailure();
     }
   }
-  return value as ReportDetailV3;
+  if (typeof value.markdown_summary !== "string") {
+    protocolFailure();
+  }
+  return value as unknown as ReportDetailV3;
 }
 
 export function parseStoredReport(value: unknown): ReportDetailV3 | LegacyStoredReportBody {
-  if (!value || typeof value !== "object") {
+  if (!isPlainObject(value)) {
     protocolFailure();
   }
-  if (isLegacyStoredReportBody(value)) {
-    return value;
+  const classification = classifyStoredReportVersion(value);
+  if (classification.kind === "legacy") {
+    return value as LegacyStoredReportBody;
   }
-  return validateReportDetailV3(value);
+  if (classification.kind === "current") {
+    return validateReportDetailV3(value);
+  }
+  protocolFailure();
 }

@@ -143,7 +143,7 @@ def test_summary_projects_priorities_preserving_order_and_cap(
             },
             "decision_summary": {
                 "subject_count": 0,
-                "overall_status": "no_notable_change",
+                "overall_status": "data_unavailable",
                 "highest_priority": "none",
                 "status_counts": {},
                 "priority_counts": {},

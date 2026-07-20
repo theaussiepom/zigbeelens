@@ -50,17 +50,29 @@ export function makeDeviceSummary(overrides: Partial<DeviceSummary> = {}): Devic
 }
 
 export function makeNetworkSummary(overrides: Partial<NetworkSummary> = {}): NetworkSummary {
-  const decision = overrides.decision ?? makeDecisionBadge({
-    status: "no_notable_change",
-    headline_code: "network_no_notable_change",
-  });
+  const deviceCount = overrides.device_count ?? 0;
+  const decision =
+    overrides.decision ??
+    (deviceCount === 0
+      ? makeDecisionBadge({
+          status: "data_unavailable",
+          headline_code: "network_data_unavailable",
+        })
+      : makeDecisionBadge({
+          status: "no_notable_change",
+          headline_code: "network_no_notable_change",
+        }));
   const decision_summary =
     overrides.decision_summary ??
-    makeDecisionSummary({
-      subject_count: overrides.device_count ?? 0,
-      overall_status: decision.status,
-      highest_priority: decision.priority,
-    });
+    (deviceCount === 0
+      ? makeDecisionSummary()
+      : makeDecisionSummary({
+          subject_count: deviceCount,
+          overall_status: decision.status,
+          highest_priority: decision.priority,
+          status_counts: { [decision.status]: deviceCount },
+          priority_counts: { [decision.priority]: deviceCount },
+        }));
   return {
     id: "home",
     name: "Home",
@@ -86,12 +98,7 @@ export function makeDashboardPayload(
   overrides: Partial<DashboardPayload> = {},
 ): DashboardPayload {
   const networks = overrides.networks ?? [makeNetworkSummary()];
-  const decision_summary =
-    overrides.decision_summary ??
-    makeDecisionSummary({
-      subject_count: overrides.device_count ?? 0,
-      overall_status: "no_notable_change",
-    });
+  const decision_summary = overrides.decision_summary ?? makeDecisionSummary();
   return {
     generated_at: new Date().toISOString(),
     active_incident_count: 0,

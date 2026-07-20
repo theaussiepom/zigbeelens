@@ -19,6 +19,8 @@ REQUIRED_COMPANION_CAPABILITIES = frozenset(
         "shared_decisions",
         "companion_decision_summary",
         "decision_only_diagnostic_payloads",
+        "report_contract_v3",
+        "decision_mqtt_summary",
     }
 )
 
@@ -45,12 +47,54 @@ KNOWN_DECISION_STATUSES = frozenset(
     }
 )
 
+DECISION_STATUS_ORDER = (
+    "review_first",
+    "worth_reviewing",
+    "improve_data_coverage",
+    "watch",
+    "changed",
+    "informational",
+    "no_notable_change",
+    "data_unavailable",
+)
+
 KNOWN_DECISION_PRIORITIES = frozenset(
     {
         "none",
         "low",
         "medium",
         "high",
+    }
+)
+
+DECISION_PRIORITY_ORDER = (
+    "high",
+    "medium",
+    "low",
+    "none",
+)
+
+KNOWN_COVERAGE_LABEL_CODES = frozenset(
+    {
+        "availability_tracking_off",
+        "availability_history_building",
+        "availability_status_unknown",
+        "availability_available",
+        "route_hints_unavailable",
+        "ha_areas_not_linked",
+        "snapshot_stale",
+        "battery_history_sparse",
+        "battery_history_available",
+        "lqi_history_sparse",
+        "lqi_history_available",
+        "last_seen_available",
+        "last_seen_unknown",
+        "last_payload_available",
+        "last_payload_unknown",
+        "topology_history_available",
+        "topology_history_sparse",
+        "topology_history_not_observed",
+        "ha_area_linked",
     }
 )
 
@@ -112,7 +156,8 @@ def supports_companion_decisions(capabilities: dict[str, Any] | None) -> bool:
     for name in REQUIRED_COMPANION_CAPABILITIES:
         if caps.get(name) is not True:
             return False
-    if caps.get("legacy_health_lens_payloads") is True:
+    # Explicit negative fact — missing/null/string/0 must not pass.
+    if caps.get("legacy_health_lens_payloads") is not False:
         return False
     surfaces = capabilities.get("decision_surfaces")
     if not isinstance(surfaces, dict):
@@ -124,7 +169,7 @@ def supports_companion_decisions(capabilities: dict[str, Any] | None) -> bool:
 
 
 def validate_decision_count_summary(summary: Any) -> bool:
-    """True when a DecisionCountSummary dict is structurally valid for contract v2."""
+    """True when a DecisionCountSummary dict is a pure subject-count fold."""
     if not isinstance(summary, dict):
         return False
     subject_count = nonneg_int_not_bool(summary.get("subject_count"))
@@ -165,8 +210,32 @@ def validate_decision_count_summary(summary: Any) -> bool:
         priority_total += parsed
 
     if subject_count == 0:
-        return not status_counts and not priority_counts
-    return status_total == subject_count and priority_total == subject_count
+        return (
+            not status_counts
+            and not priority_counts
+            and overall == "data_unavailable"
+            and highest == "none"
+        )
+
+    if status_total != subject_count or priority_total != subject_count:
+        return False
+
+    expected_overall = "data_unavailable"
+    for status in DECISION_STATUS_ORDER:
+        parsed = nonneg_int_not_bool(status_counts.get(status))
+        if parsed is not None and parsed > 0:
+            expected_overall = status
+            break
+    if overall != expected_overall:
+        return False
+
+    expected_priority = "none"
+    for priority in DECISION_PRIORITY_ORDER:
+        parsed = nonneg_int_not_bool(priority_counts.get(priority))
+        if parsed is not None and parsed > 0:
+            expected_priority = priority
+            break
+    return highest == expected_priority
 
 
 def validate_decision_badge(badge: Any) -> bool:
@@ -182,10 +251,15 @@ def validate_decision_badge(badge: Any) -> bool:
     headline = badge.get("headline_code")
     if not isinstance(headline, str) or not headline.strip():
         return False
-    codes = badge.get("coverage_label_codes", [])
+    if "coverage_label_codes" not in badge:
+        return False
+    codes = badge.get("coverage_label_codes")
     if not isinstance(codes, list):
         return False
-    return all(isinstance(code, str) for code in codes)
+    for code in codes:
+        if not isinstance(code, str) or code not in KNOWN_COVERAGE_LABEL_CODES:
+            return False
+    return True
 
 
 def _validate_dashboard_factual_fields(dashboard: dict[str, Any]) -> bool:

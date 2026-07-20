@@ -17,7 +17,7 @@ function makeDashboard(
     networks: [makeNetworkSummary({ id: "home", name: "Home" })],
     decision_summary: {
       subject_count: 0,
-      overall_status: "no_notable_change",
+      overall_status: "data_unavailable",
       highest_priority: "none",
       status_counts: {},
       priority_counts: {},
@@ -30,7 +30,7 @@ function makeDashboard(
 const mockState = vi.hoisted(() => {
   const decision_summary = {
     subject_count: 0,
-    overall_status: "no_notable_change",
+    overall_status: "data_unavailable",
     highest_priority: "none",
     status_counts: {} as Record<string, number>,
     priority_counts: {} as Record<string, number>,
@@ -59,9 +59,9 @@ const mockState = vi.hoisted(() => {
           recent_bridge_warnings: 0,
           recent_bridge_errors: 0,
           decision: {
-            status: "no_notable_change",
+            status: "data_unavailable",
             priority: "none",
-            headline_code: "network_no_notable_change",
+            headline_code: "network_data_unavailable",
             coverage_label_codes: [] as string[],
           },
           decision_summary,
@@ -356,7 +356,7 @@ describe("OverviewPage investigation priorities", () => {
       ],
     });
     renderOverview();
-    expect(screen.getAllByText("No notable change").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Data unavailable").length).toBeGreaterThan(0);
     expect(screen.getByText("Historical shared event worth reviewing")).toBeInTheDocument();
     expect(
       screen.getByText(
