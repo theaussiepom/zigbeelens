@@ -333,6 +333,12 @@ export const INVESTIGATION_ACTION_LEADS: Record<InvestigationActionGroup, string
     "Keep watching — weaker passive evidence is present, but no stronger check is suggested yet.",
 };
 
+/** Focus-action labels — identity is action_group, not rendered English elsewhere. */
+export const INVESTIGATION_FOCUS_LABEL_DEFAULT = "Focus graph";
+export const INVESTIGATION_FOCUS_LABEL_ROUTER_AREA = "Focus router area";
+export const INVESTIGATION_OPEN_ROUTER_DETAILS_LABEL = "Open router details";
+
+
 /* ------------------------------------------------------------------------ */
 /* Evidence class labels                                                     */
 /* ------------------------------------------------------------------------ */

@@ -252,8 +252,12 @@ export function NetworkDetailPage() {
       {(routers.data?.length ?? 0) > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
-            Router risks
+            Observed router signals
           </h2>
+          <p className="text-sm text-zl-muted">
+            Review observed router areas in Mesh / Investigate. Device names open the router as a
+            device.
+          </p>
           <div className="grid gap-3 lg:grid-cols-2">
             {routers.data!.map((r) => (
               <RouterRiskCard key={`${r.network_id}-${r.ieee_address}`} router={r} />

@@ -106,6 +106,21 @@ export function GraphPanel({
     onSelectNode(device);
   };
 
+  const canOpenPrimaryDevice = (card: InvestigationCard): boolean => {
+    const ieee = card.primary_neighbourhood_ieee;
+    return Boolean(ieee && devices.some((device) => device.ieee_address === ieee));
+  };
+
+  const openPrimaryDevice = (card: InvestigationCard) => {
+    const ieee = card.primary_neighbourhood_ieee;
+    if (!ieee) return;
+    const device = devices.find((entry) => entry.ieee_address === ieee);
+    if (!device) return;
+    // Keep investigation focus while opening the existing device drawer.
+    setActiveInvestigation(card);
+    onSelectNode(device);
+  };
+
   return (
     <div className="space-y-4">
       <GraphToolbar
@@ -144,6 +159,8 @@ export function GraphPanel({
           activeInvestigationId={activeInvestigation?.id ?? null}
           onFocusInvestigation={setActiveInvestigation}
           onClearInvestigationFocus={() => setActiveInvestigation(null)}
+          canOpenPrimaryDevice={canOpenPrimaryDevice}
+          onOpenPrimaryDevice={openPrimaryDevice}
           hasPassiveHints={hasPassiveHints}
           hasLastKnownLinks={hasLastKnownLinks}
           hasRouteHints={hasRouteHints}

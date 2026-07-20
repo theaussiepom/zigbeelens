@@ -25,6 +25,8 @@ export function GraphSidebar({
   activeInvestigationId,
   onFocusInvestigation,
   onClearInvestigationFocus,
+  canOpenPrimaryDevice,
+  onOpenPrimaryDevice,
   hasPassiveHints,
   hasLastKnownLinks,
   hasRouteHints,
@@ -40,6 +42,8 @@ export function GraphSidebar({
   activeInvestigationId: string | null;
   onFocusInvestigation: (card: InvestigationCard) => void;
   onClearInvestigationFocus: () => void;
+  canOpenPrimaryDevice?: (card: InvestigationCard) => boolean;
+  onOpenPrimaryDevice?: (card: InvestigationCard) => void;
   hasPassiveHints: boolean;
   hasLastKnownLinks: boolean;
   hasRouteHints: boolean;
@@ -65,6 +69,8 @@ export function GraphSidebar({
           activeInvestigationId={activeInvestigationId}
           onFocus={onFocusInvestigation}
           onClearFocus={onClearInvestigationFocus}
+          canOpenPrimaryDevice={canOpenPrimaryDevice}
+          onOpenPrimaryDevice={onOpenPrimaryDevice}
         />
       </Card>
       <Card>

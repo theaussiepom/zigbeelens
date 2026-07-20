@@ -2169,7 +2169,7 @@ describe("TopologyGraphPage investigation panel", () => {
   });
 
   function focusButton() {
-    return screen.getByRole("button", { name: /focus graph on/i });
+    return screen.getByRole("button", { name: /^focus (graph|router area)$/i });
   }
 
   it("renders the Where to look first panel with ranked cards and priority labels", async () => {
@@ -2255,6 +2255,67 @@ describe("TopologyGraphPage investigation panel", () => {
     await user.click(focusButton());
     expect(connectionCheckbox(/recent missing links/i)).toBeChecked();
     expect(connectionCheckbox(/route hints/i)).toBeChecked();
+  });
+
+  it("router-area cards use Focus router area and open existing NodeDrawer", async () => {
+    const user = userEvent.setup();
+    mockDetail = {
+      ...liveDetailWithInvestigations,
+      investigations: [
+        makeInvestigationCard({
+          id: "router-area-0xr1",
+          type: "router_neighbourhood_review",
+          action_group: "review_observed_router_area",
+          title: "Observed router area around Live Hall Router",
+          summary: "Several issue devices are represented around this router in stored evidence.",
+          device_ieees: ["0xr1", "0xe1"],
+          edge_ids: ["neighbor-0xr1|0xe1"],
+          primary_neighbourhood_ieee: "0xr1",
+        }),
+      ],
+    };
+    const { container } = await renderLiveAndWaitForLayout();
+    const beforePos = nodePosition(container, "0xr1");
+    const preset = screen.getByLabelText("Graph view preset") as HTMLSelectElement;
+    const presetBefore = preset.value;
+
+    const card = screen.getByTestId("investigation-card");
+    expect(card).toHaveAttribute("data-investigation-type", "router_neighbourhood_review");
+    expect(
+      within(card).getByRole("button", { name: /^focus router area$/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(card).getByRole("button", { name: /^open router details$/i }),
+    ).toBeInTheDocument();
+
+    await user.click(within(card).getByRole("button", { name: /^open router details$/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /device details/i })).toBeInTheDocument();
+    });
+    expect(within(screen.getByRole("dialog")).getByText("0xr1")).toBeInTheDocument();
+    expect(nodePosition(container, "0xr1")).toBe(beforePos);
+    expect(preset.value).toBe(presetBefore);
+  });
+
+  it("omits Open router details when the neighbourhood IEEE is absent from inventory", async () => {
+    mockDetail = {
+      ...liveDetailWithInvestigations,
+      investigations: [
+        makeInvestigationCard({
+          id: "router-area-missing",
+          type: "router_neighbourhood_review",
+          action_group: "review_observed_router_area",
+          primary_neighbourhood_ieee: "0xmissing",
+          device_ieees: ["0xe1"],
+        }),
+      ],
+    };
+    await renderLiveAndWaitForLayout();
+    const card = screen.getByTestId("investigation-card");
+    expect(within(card).getByRole("button", { name: /^focus router area$/i })).toBeInTheDocument();
+    expect(
+      within(card).queryByRole("button", { name: /^open router details$/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("Clear focus restores the graph without touching positions or controls", async () => {
@@ -2473,7 +2534,7 @@ describe("device search", () => {
     mockDetail = liveDetailWithInvestigations;
     const user = userEvent.setup();
     const { container } = await renderLiveAndWaitForLayout();
-    await user.click(screen.getByRole("button", { name: /focus graph on/i }));
+    await user.click(screen.getByRole("button", { name: /^focus graph$/i }));
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-node--investigation-focus").length).toBe(2);
     });

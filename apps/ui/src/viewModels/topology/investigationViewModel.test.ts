@@ -34,7 +34,35 @@ describe("investigationViewModel", () => {
     expect(vm.actionLead).toMatch(/power and are reporting/i);
     expect(vm.contextTitle).toBe("Several recent missing links involve Live Lamp");
     expect(vm.whyItMatters).toMatch(/does not prove a failure/i);
-    expect(vm.focusLabel).toBe(vm.actionLead);
+    expect(vm.focusLabel).toBe("Focus graph");
+    expect(vm.openRouterDetailsLabel).toBeNull();
+  });
+
+  it("uses router-area focus and open-details labels for observed router areas", () => {
+    const vm = buildInvestigationCardViewModel(
+      makeCard({
+        type: "router_neighbourhood_review",
+        action_group: "review_observed_router_area",
+        primary_neighbourhood_ieee: "0xr1",
+        title: "Observed router area around Hall Router",
+      }),
+    );
+    expect(vm.isRouterArea).toBe(true);
+    expect(vm.focusLabel).toBe("Focus router area");
+    expect(vm.openRouterDetailsLabel).toBe("Open router details");
+    expect(vm.primaryNeighbourhoodIeee).toBe("0xr1");
+  });
+
+  it("omits open-router-details when the card has no neighbourhood IEEE", () => {
+    const vm = buildInvestigationCardViewModel(
+      makeCard({
+        type: "router_neighbourhood_review",
+        action_group: "review_observed_router_area",
+        primary_neighbourhood_ieee: null,
+      }),
+    );
+    expect(vm.focusLabel).toBe("Focus router area");
+    expect(vm.openRouterDetailsLabel).toBeNull();
   });
 
   it("maps each action group label", () => {

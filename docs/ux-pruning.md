@@ -34,7 +34,7 @@ The Mesh / topology workspace becomes the main investigation surface. Device det
 
 ## Navigation target
 
-### Phase 6A status — current primary navigation
+### Phase 6A / 6B navigation status
 
 ```text
 Overview
@@ -50,23 +50,26 @@ Canonical investigation routes:
 - `/investigate` — lightweight network chooser
 - `/investigate/:networkId` — evidence-graph investigation workspace
 
-Supporting routes remain reachable under **Advanced & support**:
+Supporting routes under **Advanced & support**:
 
 ```text
 Networks
-Router diagnostics
 Timeline
 Topology snapshots
 How it works
 ```
 
-Legacy deep link `/topology/:networkId/graph` replace-redirects to
-`/investigate/:networkId`. Raw snapshot routes `/topology` and
-`/topology/:networkId` stay as Advanced views (no API/route removal).
+Legacy deep links:
+
+- `/topology/:networkId/graph` → `/investigate/:networkId`
+- `/routers` → `/investigate` (standalone router page removed; router facts retained)
+
+Observed router areas are investigated in Mesh via backend
+`router_neighbourhood_review` cards. They do not imply parentage, current
+routing, or cause.
 
 Later ownership:
 
-- Phase 6B — router-area consolidation
 - Phase 6C — snapshot UX consolidation
 - Phase 6D — contextual report workflow
 

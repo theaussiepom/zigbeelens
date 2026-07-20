@@ -1777,15 +1777,23 @@ Composer 2.5 is sufficient.
 
 ## Phase 6B — Router UX consolidation
 
+### Status
+
+Implemented on `refactor/router-area-ux` (awaiting review): standalone router
+page removed; `/routers` compatibility redirect; Mesh router-area focus and
+existing NodeDrawer integration; Core/API/HACS/report router facts retained.
+
 ### Goal
 
-Fold router-risk UX into router-area review.
+Fold router-risk UX into observed router-area review in Mesh / Investigate.
 
 ### Acceptance criteria
 
 - Router data remains.
-- Separate router-risk page is removed, demoted or re-scoped.
-- Router intelligence appears in Mesh/investigation.
+- Separate router-risk page is removed; `/routers` stays as a compatibility redirect.
+- Router intelligence appears in Mesh/investigation via backend
+  `router_neighbourhood_review` cards.
+- Focus does not mutate layout, presets, or connection controls.
 
 ### Composer model
 

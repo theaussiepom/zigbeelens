@@ -7,6 +7,9 @@
 import type { InvestigationCard } from "@/types/topology";
 import {
   INVESTIGATION_EMPTY_COPY,
+  INVESTIGATION_FOCUS_LABEL_DEFAULT,
+  INVESTIGATION_FOCUS_LABEL_ROUTER_AREA,
+  INVESTIGATION_OPEN_ROUTER_DETAILS_LABEL,
   INVESTIGATION_PANEL_SUBTITLE,
   INVESTIGATION_PANEL_TITLE,
   INVESTIGATION_SECTION_CHECKS,
@@ -30,6 +33,10 @@ export interface InvestigationCardViewModel {
   limitations: string[];
   suggestedChecks: string[];
   focusLabel: string;
+  /** IEEE for open-router-details; null when the card does not expose one. */
+  primaryNeighbourhoodIeee: string | null;
+  openRouterDetailsLabel: string | null;
+  isRouterArea: boolean;
 }
 
 export interface InvestigationPanelViewModel {
@@ -71,6 +78,10 @@ export function buildInvestigationCardViewModel(
     priority: card.priority,
     actionGroup,
   });
+  const isRouterArea =
+    card.type === "router_neighbourhood_review" ||
+    actionGroup === "review_observed_router_area";
+  const primaryNeighbourhoodIeee = card.primary_neighbourhood_ieee ?? null;
   return {
     id: card.id,
     priorityLabel: identity.priorityLabel,
@@ -83,7 +94,15 @@ export function buildInvestigationCardViewModel(
     supportingEvidence: card.supporting_evidence,
     limitations: card.limitations,
     suggestedChecks: card.suggested_next_steps,
-    focusLabel: identity.actionLead,
+    focusLabel: isRouterArea
+      ? INVESTIGATION_FOCUS_LABEL_ROUTER_AREA
+      : INVESTIGATION_FOCUS_LABEL_DEFAULT,
+    primaryNeighbourhoodIeee,
+    openRouterDetailsLabel:
+      isRouterArea && primaryNeighbourhoodIeee
+        ? INVESTIGATION_OPEN_ROUTER_DETAILS_LABEL
+        : null,
+    isRouterArea,
   };
 }
 
