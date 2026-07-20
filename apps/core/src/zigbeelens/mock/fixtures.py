@@ -168,7 +168,6 @@ def network(
     *,
     bridge: BridgeState = BridgeState.online,
     devices: list[DeviceSummary],
-    incident_state: Severity | None = None,
     active_incident_severity: Severity | None = None,
     active_incidents: int = 0,
     warnings: int = 0,
@@ -183,8 +182,7 @@ def network(
         device_badges=[d.decision for d in devices],
         has_active_incident=active_incidents > 0,
     )
-    # Factual: only explicit active-incident severity (legacy incident_state ignored).
-    del incident_state
+    # PR #93: factual active-incident severity only (no legacy incident_state).
     severity = active_incident_severity
     return NetworkSummary(
         id=net_id,
@@ -480,7 +478,7 @@ def _build_single_device_unavailable() -> ScenarioData:
         ),
         device("home", "0x00158d0002b3c4d5", "kitchen_router", device_type=DeviceType.Router),
     ]
-    nets = [network("home", "Home", "zigbee2mqtt", devices=devices, incident_state=Severity.incident, active_incidents=1)]
+    nets = [network("home", "Home", "zigbee2mqtt", devices=devices, active_incident_severity=Severity.incident, active_incidents=1)]
     finding = conclusion(
         "single_device_unavailable",
         Severity.incident,
@@ -620,7 +618,7 @@ def _build_four_devices_same_room() -> ScenarioData:
             "Home 2",
             "zigbee2mqtt-home2",
             devices=home2_all,
-            incident_state=Severity.incident,
+            active_incident_severity=Severity.incident,
             active_incidents=1,
             warnings=2,
         ),
@@ -753,7 +751,7 @@ def _build_bridge_offline() -> ScenarioData:
             "zigbee2mqtt",
             bridge=BridgeState.offline,
             devices=devices,
-            incident_state=Severity.critical,
+            active_incident_severity=Severity.critical,
             active_incidents=1,
             errors=3,
         )
@@ -778,7 +776,7 @@ def _build_bridge_offline() -> ScenarioData:
         summary="Zigbee2MQTT bridge stopped reporting on Home.",
         interpretation="The Zigbee2MQTT bridge for this network is offline. Device health cannot be reliably assessed until it returns.",
         network_ids=["home"],
-        affected_device_count=1,
+        affected_device_count=0,
         affected_devices=[],
         opened_at=ago(minutes=45),
         updated_at=ago(minutes=1),
@@ -876,7 +874,7 @@ def _build_router_risk() -> ScenarioData:
             limitations=[("Routing path not proven", "ZigbeeLens cannot confirm end devices route through this router from MQTT data alone")],
         ),
     )
-    nets = [network("home2", "Home 2", "zigbee2mqtt-home2", devices=devices, incident_state=Severity.incident, active_incidents=1)]
+    nets = [network("home2", "Home 2", "zigbee2mqtt-home2", devices=devices, active_incident_severity=Severity.incident, active_incidents=1)]
     finding = risk.risk
     dash = scenario_dashboard(
         generated_at=iso(NOW),
@@ -912,7 +910,7 @@ def _build_stale_battery() -> ScenarioData:
     devices = [
         device("home", "0x00158d0001a1b2c3", "garden_sensor", power=PowerSource.Battery, battery=45, last_seen=ago(hours=50), health=stale, sort_priority=6),
     ]
-    nets = [network("home", "Home", "zigbee2mqtt", devices=devices, incident_state=Severity.watch)]
+    nets = [network("home", "Home", "zigbee2mqtt", devices=devices)]
     finding = conclusion("stale_reporting", Severity.watch, IncidentScope.device, Confidence.medium, "One battery device has stale reporting on Home.")
     dash = scenario_dashboard(
         generated_at=iso(NOW),
@@ -949,7 +947,7 @@ def _build_low_battery_cluster() -> ScenarioData:
         device("home", f"0x00158d000{i}a1b2c3", f"sensor_{i}", power=PowerSource.Battery, battery=10 + i * 2, health=low, sort_priority=7 + i)
         for i in range(1, 5)
     ]
-    nets = [network("home", "Home", "zigbee2mqtt", devices=devices, incident_state=Severity.watch)]
+    nets = [network("home", "Home", "zigbee2mqtt", devices=devices)]
     finding = conclusion("low_battery_cluster", Severity.watch, IncidentScope.network, Confidence.high, "4 battery devices report low battery on Home.")
     dash = scenario_dashboard(
         generated_at=iso(NOW),
@@ -985,7 +983,7 @@ def _build_interview_failures() -> ScenarioData:
     devices = [
         device("home", "0x00158d0009a1b2c3", "new_plug", interview_state=InterviewState.failed, health=bad, sort_priority=8),
     ]
-    nets = [network("home", "Home", "zigbee2mqtt", devices=devices, incident_state=Severity.watch)]
+    nets = [network("home", "Home", "zigbee2mqtt", devices=devices)]
     finding = conclusion("interview_failure", Severity.watch, IncidentScope.device, Confidence.high, "One device failed interview on Home.")
     dash = scenario_dashboard(
         generated_at=iso(NOW),
@@ -1030,7 +1028,7 @@ def _build_unknown_insufficient() -> ScenarioData:
             sort_priority=90,
         ),
     ]
-    nets = [network("home", "Home", "zigbee2mqtt", devices=devices, incident_state=Severity.watch)]
+    nets = [network("home", "Home", "zigbee2mqtt", devices=devices)]
     finding = conclusion(
         "unknown_insufficient_data",
         Severity.watch,
@@ -1079,8 +1077,8 @@ def _build_multi_unstable() -> ScenarioData:
         for i in range(1, 3)
     ]
     nets = [
-        network("home", "Home", "zigbee2mqtt", devices=home_d, incident_state=Severity.incident, active_incidents=1),
-        network("home2", "Home 2", "zigbee2mqtt-home2", devices=home2_d, incident_state=Severity.incident, active_incidents=1),
+        network("home", "Home", "zigbee2mqtt", devices=home_d, active_incident_severity=Severity.incident, active_incidents=1),
+        network("home2", "Home 2", "zigbee2mqtt-home2", devices=home2_d, active_incident_severity=Severity.incident, active_incidents=1),
     ]
     finding = conclusion(
         "multi_network_instability",
@@ -1127,7 +1125,7 @@ def _build_weak_link() -> ScenarioData:
         device("home", "0x00158d0001a1b2c3", "far_garage_sensor", power=PowerSource.Battery, linkquality=28, health=weak, sort_priority=7),
         device("home", "0x00158d0002b3c4d5", "attic_motion", power=PowerSource.Battery, linkquality=32, health=weak, sort_priority=8),
     ]
-    nets = [network("home", "Home", "zigbee2mqtt", devices=devices, incident_state=Severity.watch)]
+    nets = [network("home", "Home", "zigbee2mqtt", devices=devices)]
     finding = conclusion("weak_link_devices", Severity.watch, IncidentScope.network, Confidence.high, "2 devices report weak link quality on Home.")
     dash = scenario_dashboard(
         generated_at=iso(NOW),
@@ -1164,7 +1162,7 @@ def _build_stale_cluster() -> ScenarioData:
         device("home2", f"0x001788010{i}a1b2c3", f"stale_{i}", power=PowerSource.Battery, last_seen=ago(hours=50 + i), health=stale, sort_priority=6 + i)
         for i in range(1, 4)
     ]
-    nets = [network("home2", "Home 2", "zigbee2mqtt-home2", devices=devices, incident_state=Severity.watch)]
+    nets = [network("home2", "Home 2", "zigbee2mqtt-home2", devices=devices)]
     finding = conclusion("stale_reporting_cluster", Severity.watch, IncidentScope.network, Confidence.medium, "3 devices on Home 2 have stale reporting.")
     dash = scenario_dashboard(
         generated_at=iso(NOW),
