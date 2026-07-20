@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   encodeRouteSegment,
   investigatePath,
+  legacyRoutersPath,
   legacyTopologyGraphPath,
   topologySnapshotPath,
 } from "@/lib/routes";
@@ -17,6 +18,15 @@ const ALLOWED_LEGACY_GRAPH_FILES = new Set([
   "main.tsx",
   "components/LegacyTopologyGraphRedirect.tsx",
   "pages/LegacyTopologyGraphRedirect.test.tsx",
+]);
+
+const ALLOWED_ROUTERS_PATH_FILES = new Set([
+  "lib/routes.ts",
+  "lib/routes.test.ts",
+  "main.tsx",
+  "components/LegacyRoutersRedirect.tsx",
+  "pages/LegacyRoutersRedirect.test.tsx",
+  "navigation/model.test.ts",
 ]);
 
 function walkTsFiles(dir: string): string[] {
@@ -70,6 +80,27 @@ describe("routes helpers", () => {
         if (!ALLOWED_LEGACY_GRAPH_FILES.has(rel)) {
           offenders.push(rel);
         }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("keeps literal /routers only in compatibility routing/tests", () => {
+    expect(legacyRoutersPath()).toBe("/routers");
+    const offenders: string[] = [];
+    for (const file of walkTsFiles(srcRoot)) {
+      const rel = path.relative(srcRoot, file).replaceAll("\\", "/");
+      if (ALLOWED_ROUTERS_PATH_FILES.has(rel)) continue;
+      const text = readFileSync(file, "utf8");
+      // Product links / to= targets — allow API paths like api/routers.
+      if (
+        /to=["']\/routers["']/.test(text) ||
+        /href=["']\/routers["']/.test(text) ||
+        /Navigate to=["']\/routers["']/.test(text) ||
+        /`\/routers`/.test(text) ||
+        /to:\s*["']\/routers["']/.test(text)
+      ) {
+        offenders.push(rel);
       }
     }
     expect(offenders).toEqual([]);

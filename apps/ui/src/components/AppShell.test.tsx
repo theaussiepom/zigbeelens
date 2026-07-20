@@ -84,10 +84,7 @@ describe("AppShell navigation", () => {
     const desktopToggle = screen.getByRole("button", { name: /advanced & support/i });
     await user.click(desktopToggle);
     expect(screen.getByRole("link", { name: "Networks" })).toHaveAttribute("href", "/networks");
-    expect(screen.getByRole("link", { name: "Router diagnostics" })).toHaveAttribute(
-      "href",
-      "/routers",
-    );
+    expect(screen.queryByRole("link", { name: "Router diagnostics" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Timeline" })).toHaveAttribute("href", "/timeline");
     expect(screen.getByRole("link", { name: "Topology snapshots" })).toHaveAttribute(
       "href",

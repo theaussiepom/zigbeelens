@@ -28,7 +28,7 @@ import {
   scopeLabel,
   severityDot,
 } from "@/lib/format";
-import { topologySnapshotPath } from "@/lib/routes";
+import { investigatePath, topologySnapshotPath } from "@/lib/routes";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
 
@@ -224,6 +224,12 @@ export function RouterRiskCard({ router }: { router: RouterRisk }) {
           {router.risk.limitations[0]?.summary}
         </p>
       )}
+      <Link
+        to={investigatePath(router.network_id)}
+        className="mt-4 inline-flex min-h-11 items-center text-sm text-zl-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+      >
+        Review in Mesh →
+      </Link>
     </Card>
   );
 }
