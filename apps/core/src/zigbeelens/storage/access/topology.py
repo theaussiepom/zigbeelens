@@ -47,8 +47,8 @@ class TopologyRepository:
     ) -> None:
         self._repo.store_topology_parsed(snapshot_id, network_id, parsed, status=status)
 
-    def enforce_topology_retention(self, network_id: str, max_snapshots: int) -> None:
-        self._repo.enforce_topology_retention(network_id, max_snapshots)
+    def enforce_topology_retention(self, network_id: str, max_snapshots: int) -> int:
+        return self._repo.enforce_topology_retention(network_id, max_snapshots)
 
     def delete_topology_snapshot(self, snapshot_id: str) -> None:
         self._repo.delete_topology_snapshot(snapshot_id)

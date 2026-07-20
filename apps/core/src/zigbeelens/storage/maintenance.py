@@ -302,7 +302,7 @@ def _execute_deletes(
     limit = plan.batch_size
     telemetry_iso = plan.cutoffs.telemetry_iso()
     now_iso = plan.reference_now_iso()
-    exclude = plan.exclude_topology_snapshot_ids
+    exclude: set[str] = set(plan.exclude_topology_snapshot_ids)
 
     for table, column, pk in TELEMETRY_CATEGORIES:
         if not repo._has_table(table):
@@ -323,23 +323,26 @@ def _execute_deletes(
     while True:
         try:
             with repo.transaction():
-                abandoned = maint.terminalize_abandoned_topology_captures(
+                terminalized = maint.terminalize_abandoned_topology_captures(
                     reference_now_iso=now_iso,
                     limit=limit,
-                    exclude_ids=exclude,
+                    exclude_ids=frozenset(exclude),
                 )
         except Exception:
             result.failure_category = "abandoned_pending_topology"
             raise
-        _record_updated(result, "abandoned_pending_topology", abandoned)
-        if abandoned < limit:
+        _record_updated(result, "abandoned_pending_topology", len(terminalized))
+        exclude.update(terminalized)
+        if len(terminalized) < limit:
             break
+
+    exclude_frozen = frozenset(exclude)
 
     while True:
         try:
             with repo.transaction():
                 batch = maint.purge_topology_age_batch(
-                    telemetry_iso, limit=limit, exclude_ids=exclude
+                    telemetry_iso, limit=limit, exclude_ids=exclude_frozen
                 )
         except Exception:
             result.failure_category = "topology_snapshots"
@@ -356,7 +359,7 @@ def _execute_deletes(
                     telemetry_cutoff_iso=telemetry_iso,
                     reference_now_iso=now_iso,
                     limit=limit,
-                    exclude_ids=exclude,
+                    exclude_ids=exclude_frozen,
                 )
         except Exception:
             result.failure_category = "topology_count_cap"
@@ -420,15 +423,19 @@ def _post_maintenance_housekeeping(repo: Repository) -> dict[str, int | bool | N
     }
 
 
+def maintenance_evidence_changed(result: StorageMaintenanceResult) -> bool:
+    return result.total_rows_deleted > 0 or sum(result.rows_updated_by_category.values()) > 0
+
+
 def affected_invalidation_events(result: StorageMaintenanceResult) -> tuple[str, ...]:
-    """Safe collection invalidation event names after a successful cycle."""
+    """Safe status + collection invalidation names for any terminal cycle.
+
+    Always includes ``storage_maintenance_completed``. Collection events follow
+    committed delete/update counts even when a later batch failed.
+    """
+    events = ["storage_maintenance_completed"]
     deleted = result.rows_deleted_by_category
     updated = result.rows_updated_by_category
-    if not result.success:
-        return ()
-    if result.total_rows_deleted <= 0 and sum(updated.values()) <= 0:
-        return ()
-    events = ["storage_maintenance_completed"]
     if deleted.get("incidents_resolved", 0) > 0:
         events.append("incidents_updated")
     if deleted.get("reports", 0) > 0:
@@ -447,6 +454,9 @@ def affected_invalidation_events(result: StorageMaintenanceResult) -> tuple[str,
 def maintenance_event_payload(result: StorageMaintenanceResult) -> Mapping[str, Any]:
     return {
         "type": "storage_maintenance_completed",
+        "success": result.success,
+        "error_code": result.error_code,
+        "failure_category": result.failure_category,
         "total_rows_deleted": result.total_rows_deleted,
         "rows_deleted_by_category": dict(result.rows_deleted_by_category),
         "rows_updated_by_category": dict(result.rows_updated_by_category),

@@ -2175,9 +2175,9 @@ class Repository:
             )
         self.db.conn.commit()
 
-    def enforce_topology_retention(self, network_id: str, max_snapshots: int) -> None:
+    def enforce_topology_retention(self, network_id: str, max_snapshots: int) -> int:
         """Retain newest terminal snapshots per network; exclude active pending."""
-        self.maintenance.enforce_topology_count_retention(network_id, max_snapshots)
+        return self.maintenance.enforce_topology_count_retention(network_id, max_snapshots)
 
     def delete_topology_snapshot(self, snapshot_id: str) -> None:
         with self.transaction():
