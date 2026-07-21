@@ -32,6 +32,8 @@ from zigbeelens.topology.parser import ParsedTopology, ParsedTopologyLink, Parse
 from .expected_baselines import (
     EXPECTED_BASELINES,
     EXPECTED_PHASE_BASELINES,
+    PHASE_7A_BASELINE_OVERRIDES,
+    PHASE_7A_READ_EXECUTE_TOTALS,
     TRACK_3A_COMMIT_TOTALS,
     TRACK_3B_OPERATION_TOTALS,
     TRACK_3B_PHASE_BASELINES,
@@ -39,6 +41,7 @@ from .expected_baselines import (
     TRACK_3E_REPORT_EXECUTE_TOTALS,
     TRACK_3F_READ_EXECUTE_TOTALS,
     TRACK_3G_READ_EXECUTE_TOTALS,
+    TRACK_5_EXPECTED_BASELINES,
     TRACK_5_READ_EXECUTE_TOTALS,
 )
 from .query_instrumentation import OperationMeasurement, PhaseAccumulator, install_counter, measure_operation
@@ -1019,13 +1022,26 @@ def test_markdown_baseline_table_matches_structured_snapshot():
         "report_network": "Network report preview",
         "report_network_beast": "Network report preview",
     }
-    assert "## Track 5 total baseline table" in doc
+    assert "## Track 5 total baseline table (historical)" in doc
+    assert "## Phase 7A total baseline table" in doc
+    assert "## Track 5 → Phase 7A execute comparison" in doc
     assert "## Track 3G total baseline table (historical)" in doc
     assert "## Track 3F total baseline table (historical)" in doc
     assert "## Track 3E total baseline table (historical)" in doc
     assert "## Track 3E → Track 3F report execute comparison" in doc
     assert "## Track 3F → Track 3G execute comparison" in doc
     assert "## Track 3G → Track 5 execute comparison" in doc
+    # Historical Track 5 exact snapshots remain frozen and documented.
+    assert TRACK_5_EXPECTED_BASELINES["availability_ingestion_beast"][
+        "top_repeated_statements"
+    ] != EXPECTED_BASELINES["availability_ingestion_beast"]["top_repeated_statements"]
+    assert PHASE_7A_READ_EXECUTE_TOTALS == TRACK_5_READ_EXECUTE_TOTALS
+    assert set(PHASE_7A_BASELINE_OVERRIDES) == {
+        "availability_ingestion_beast",
+        "payload_ingestion_beast",
+        "report_incident",
+        "report_incident_history",
+    }
     for key, baseline in EXPECTED_BASELINES.items():
         other = baseline["category_counts"].get("other", 0)
         row_fragment = (
@@ -1034,6 +1050,15 @@ def test_markdown_baseline_table_matches_structured_snapshot():
             f"{baseline['commit_count']} | {baseline['rollback_count']} | {other} |"
         )
         assert row_fragment in doc, key
+        # Frozen Track 5 execute row remains present (same cardinalities).
+        track5 = TRACK_5_EXPECTED_BASELINES[key]
+        track5_row = (
+            f"| {labels[key]} | {track5['fixture']} | {track5['state']} | "
+            f"{track5['execute_count']} | {track5['executemany_count']} | "
+            f"{track5['commit_count']} | {track5['rollback_count']} | "
+            f"{track5['category_counts'].get('other', 0)} |"
+        )
+        assert track5_row in doc, key
         section = doc.split(f"### {key}", 1)[1].split("\n### ", 1)[0]
         for item in baseline["top_repeated_statements"]:
             assert f"- {item['count']}× `{item['statement']}`" in section

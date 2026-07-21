@@ -234,8 +234,8 @@ TRACK_5_READ_EXECUTE_TOTALS: dict[str, int] = {
     "report_device_history": 29
 }
 
-# Exact Track 5 total-operation snapshots. They are not product budgets.
-EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
+# Exact Track 5 total-operation snapshots (historical). Do not overwrite.
+TRACK_5_EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
   "availability_ingestion": {
     "fixture": "compact",
     "state": "warm",
@@ -1314,3 +1314,213 @@ EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
     ]
   }
 }''')
+
+
+# Phase 7A tip read execute totals (same cardinalities as Track 5; SQL shapes updated).
+PHASE_7A_READ_EXECUTE_TOTALS: dict[str, int] = dict(TRACK_5_READ_EXECUTE_TOTALS)
+
+# Phase 7A exact snapshot overrides vs frozen Track 5 (statement text / plan shape).
+PHASE_7A_BASELINE_OVERRIDES: dict[str, dict[str, object]] = json.loads(r'''{
+  "availability_ingestion_beast": {
+    "fixture": "beast",
+    "state": "warm",
+    "execute_count": 73,
+    "executemany_count": 0,
+    "commit_count": 4,
+    "rollback_count": 0,
+    "category_counts": {
+      "read.networks": 3,
+      "read.devices": 2,
+      "read.incidents": 10,
+      "read.incident_devices": 9,
+      "read.schema": 5,
+      "read.topology_snapshots": 3,
+      "read.topology_nodes": 4,
+      "read.topology_links": 5,
+      "read.device_current_state": 2,
+      "write.device_current_state": 2,
+      "write.availability_changes": 1,
+      "write.events": 3,
+      "transaction.commit": 4,
+      "read.availability_changes": 3,
+      "read.health_snapshots": 3,
+      "write.health_snapshots": 2,
+      "read.ha_enrichment": 2,
+      "write.incidents": 2,
+      "write.incident_devices": 10,
+      "write.incident_networks": 2
+    },
+    "top_repeated_statements": [
+      {
+        "statement": "SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ? ORDER BY network_id, ieee_address, role",
+        "count": 9
+      },
+      {
+        "statement": "WITH selected AS ( SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ? ) SELECT s.id, s.incident_type, s.lifecycle_state, s.severity, s.scope, s.confidence, s.title, s.summary, s.explanation, s.evidence_json, s.counter_evidence_json, s.limitations_json, s.opened_at, s.updated_at, s.resolved_at, s.dedup_key, n.network_id FROM selected s LEFT JOIN incident_networks n ON n.incident_id = s.id ORDER BY n.network_id",
+        "count": 9
+      },
+      {
+        "statement": "INSERT INTO incident_devices (incident_id, network_id, ieee_address, role) VALUES (?)",
+        "count": 9
+      },
+      {
+        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
+        "count": 5
+      },
+      {
+        "statement": "SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM ( SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error, ROW_NUMBER() OVER ( PARTITION BY network_id ORDER BY captured_at DESC, snapshot_id DESC ) AS rn FROM topology_snapshots WHERE network_id IN (?) AND status = ? ) ranked WHERE rn = ?",
+        "count": 3
+      }
+    ]
+  },
+  "payload_ingestion_beast": {
+    "fixture": "beast",
+    "state": "warm",
+    "execute_count": 58,
+    "executemany_count": 0,
+    "commit_count": 2,
+    "rollback_count": 0,
+    "category_counts": {
+      "read.networks": 3,
+      "read.devices": 2,
+      "read.incidents": 10,
+      "read.incident_devices": 9,
+      "read.schema": 5,
+      "read.topology_snapshots": 3,
+      "read.topology_nodes": 4,
+      "read.topology_links": 5,
+      "write.device_current_state": 2,
+      "write.device_snapshots": 1,
+      "write.metric_samples": 2,
+      "write.events": 2,
+      "transaction.commit": 2,
+      "read.availability_changes": 3,
+      "read.device_current_state": 1,
+      "read.health_snapshots": 3,
+      "read.ha_enrichment": 2,
+      "write.incidents": 1
+    },
+    "top_repeated_statements": [
+      {
+        "statement": "SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ? ORDER BY network_id, ieee_address, role",
+        "count": 9
+      },
+      {
+        "statement": "WITH selected AS ( SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ? ) SELECT s.id, s.incident_type, s.lifecycle_state, s.severity, s.scope, s.confidence, s.title, s.summary, s.explanation, s.evidence_json, s.counter_evidence_json, s.limitations_json, s.opened_at, s.updated_at, s.resolved_at, s.dedup_key, n.network_id FROM selected s LEFT JOIN incident_networks n ON n.incident_id = s.id ORDER BY n.network_id",
+        "count": 9
+      },
+      {
+        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
+        "count": 5
+      },
+      {
+        "statement": "SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM ( SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error, ROW_NUMBER() OVER ( PARTITION BY network_id ORDER BY captured_at DESC, snapshot_id DESC ) AS rn FROM topology_snapshots WHERE network_id IN (?) AND status = ? ) ranked WHERE rn = ?",
+        "count": 3
+      },
+      {
+        "statement": "SELECT friendly_name FROM topology_nodes WHERE snapshot_id = ? AND ieee_address = ?",
+        "count": 3
+      }
+    ]
+  },
+  "report_incident": {
+    "fixture": "compact",
+    "state": "warm",
+    "execute_count": 40,
+    "executemany_count": 0,
+    "commit_count": 0,
+    "rollback_count": 0,
+    "category_counts": {
+      "read.networks": 2,
+      "read.devices": 3,
+      "read.events": 4,
+      "read.incidents": 3,
+      "read.incident_devices": 2,
+      "read.schema": 4,
+      "read.topology_snapshots": 3,
+      "read.topology_nodes": 1,
+      "read.topology_links": 1,
+      "read.incident_networks": 2,
+      "read.availability_changes": 6,
+      "read.ha_enrichment": 4,
+      "read.device_snapshots": 1,
+      "read.metric_samples": 3,
+      "read.bridge_snapshots": 1
+    },
+    "top_repeated_statements": [
+      {
+        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
+        "count": 4
+      },
+      {
+        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
+        "count": 3
+      },
+      {
+        "statement": "SELECT metric_name, metric_value, sampled_at FROM metric_samples WHERE network_id = ? AND ieee_address = ? ORDER BY sampled_at DESC, id DESC LIMIT ?",
+        "count": 3
+      },
+      {
+        "statement": "SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at FROM events WHERE network_id = ? AND ieee_address = ? ORDER BY occurred_at DESC, id DESC LIMIT ?",
+        "count": 3
+      },
+      {
+        "statement": "SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE id = ?",
+        "count": 2
+      }
+    ]
+  },
+  "report_incident_history": {
+    "fixture": "history",
+    "state": "warm",
+    "execute_count": 40,
+    "executemany_count": 0,
+    "commit_count": 0,
+    "rollback_count": 0,
+    "category_counts": {
+      "read.incidents": 3,
+      "read.incident_networks": 2,
+      "read.incident_devices": 2,
+      "read.networks": 2,
+      "read.devices": 3,
+      "read.topology_snapshots": 3,
+      "read.topology_links": 1,
+      "read.topology_nodes": 1,
+      "read.availability_changes": 6,
+      "read.schema": 4,
+      "read.ha_enrichment": 4,
+      "read.device_snapshots": 1,
+      "read.metric_samples": 3,
+      "read.events": 4,
+      "read.bridge_snapshots": 1
+    },
+    "top_repeated_statements": [
+      {
+        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
+        "count": 4
+      },
+      {
+        "statement": "SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?",
+        "count": 3
+      },
+      {
+        "statement": "SELECT metric_name, metric_value, sampled_at FROM metric_samples WHERE network_id = ? AND ieee_address = ? ORDER BY sampled_at DESC, id DESC LIMIT ?",
+        "count": 3
+      },
+      {
+        "statement": "SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at FROM events WHERE network_id = ? AND ieee_address = ? ORDER BY occurred_at DESC, id DESC LIMIT ?",
+        "count": 3
+      },
+      {
+        "statement": "SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE id = ?",
+        "count": 2
+      }
+    ]
+  }
+}''')
+
+# Current tip exact total-operation snapshots (Track 5 base + Phase 7A overrides).
+EXPECTED_BASELINES: dict[str, dict[str, object]] = {
+    **TRACK_5_EXPECTED_BASELINES,
+    **PHASE_7A_BASELINE_OVERRIDES,
+}
