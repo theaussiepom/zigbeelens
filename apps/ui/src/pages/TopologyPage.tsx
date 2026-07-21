@@ -6,9 +6,10 @@ import { api, type TopologyNetworkDetail, type TopologyOverview } from "@/lib/ap
 import { Badge, Card, EmptyState, ErrorState, LoadingState, MetricPill } from "@/components/ui";
 import { relativeTime } from "@/lib/format";
 import { topologyRequestedByLabel, topologyStatusLabel } from "@/lib/topologyLabels";
-import { resolveTopologyDisplayCounts, snapshotSummaryLooksLimited } from "@/lib/topologyStats";
+import { resolveTopologyDisplayCounts } from "@/lib/topologyStats";
 import { TopologyViewTabs } from "@/components/meshGraph/TopologyViewTabs";
 import { topologySnapshotPath } from "@/lib/routes";
+import { buildTopologyLandingSnapshotViewModel } from "@/viewModels/topology/topologyLandingSnapshotViewModel";
 
 const CAPTURE_WARNING =
   "Capturing a Zigbee network map asks Zigbee2MQTT to scan the mesh. On larger networks this may temporarily make Zigbee less responsive. ZigbeeLens will not change Zigbee state, but this diagnostic request can create temporary network load.";
@@ -18,6 +19,12 @@ const LIMITED_LAYOUT_COPY =
 
 const POINT_IN_TIME_LIMITATION =
   "This is point-in-time snapshot evidence. It does not prove a live route, current parentage, or that a link failed.";
+
+const CAPTURE_DISABLED_NOTICE =
+  "Topology capture is disabled in configuration. Retained snapshots remain readable as support evidence.";
+
+const NO_SNAPSHOT_COPY =
+  "No topology snapshot is stored for this network. Missing topology data is not an incident by itself — it only limits mesh enrichment for incident context.";
 
 function CaptureModal({
   networkId,
@@ -60,19 +67,6 @@ function CaptureModal({
   );
 }
 
-function networkSnapshotSummary(
-  latest: NonNullable<TopologyOverview["networks"][number]["latest_snapshot"]> | null | undefined,
-): string {
-  if (!latest) {
-    return "No topology snapshot captured yet";
-  }
-  const captured = `Latest snapshot ${relativeTime(latest.captured_at)}`;
-  if (snapshotSummaryLooksLimited(latest)) {
-    return `${captured} · topology layout limited`;
-  }
-  return `${captured} · ${latest.router_count} topology routers · ${latest.link_count} topology links`;
-}
-
 function NetworkSnapshotNav({
   networks,
   activeId,
@@ -113,14 +107,7 @@ function TopologyNetworkDetailView({ detail }: { detail: TopologyNetworkDetail }
       <Card title="Diagnostics limited">
         <div className="space-y-3 text-sm text-zl-muted">
           <Badge severity="watch">diagnostics limited</Badge>
-          <p>
-            Waiting for a topology snapshot. After startup, ZigbeeLens requests one network map per
-            network once MQTT and the bridge are ready, then relies on passive updates.
-          </p>
-          <p>
-            Missing topology data is not an incident by itself — it only limits mesh enrichment for
-            incident context.
-          </p>
+          <p>{NO_SNAPSHOT_COPY}</p>
         </div>
       </Card>
     );
@@ -273,36 +260,32 @@ function TopologyLanding({
       </div>
 
       {!enabled && (
-        <Card title="Topology disabled">
-          <p className="text-sm text-zl-muted">
-            Topology capture is disabled in configuration. Enable{" "}
-            <code className="rounded bg-zl-surface-2 px-1">topology.enabled</code> to store
-            snapshots and enrich diagnostics.
-          </p>
+        <Card title="Topology capture disabled">
+          <p className="text-sm text-zl-muted">{CAPTURE_DISABLED_NOTICE}</p>
         </Card>
       )}
 
-      {enabled && topology.capture_in_progress && (
+      {topology.capture_in_progress && (
         <div className="rounded-lg border border-zl-watch/40 bg-zl-watch/10 px-4 py-3 text-sm text-zl-watch">
           Topology capture in progress…
         </div>
       )}
 
-      {enabled && topology.last_capture_error && (
+      {topology.last_capture_error && (
         <div className="rounded-lg border border-zl-critical/40 bg-zl-critical/10 px-4 py-3 text-sm text-zl-critical">
           Last capture error: {topology.last_capture_error}
         </div>
       )}
 
-      {enabled && networks.length === 0 && (
+      {networks.length === 0 && (
         <EmptyState title="No networks configured" detail="Add networks in configuration first." />
       )}
 
-      {enabled && networks.length > 0 && (
+      {networks.length > 0 && (
         <Card title="Configured networks">
           <ul className="space-y-3 text-sm">
             {networks.map((network) => {
-              const latest = network.latest_snapshot;
+              const presentation = buildTopologyLandingSnapshotViewModel(network.latest_snapshot);
               return (
                 <li key={network.network_id} className="flex flex-wrap items-stretch gap-2">
                   <Link
@@ -311,16 +294,10 @@ function TopologyLanding({
                   >
                     <div>
                       <div className="font-medium">{network.network_name}</div>
-                      <div className="text-xs text-zl-muted">
-                        {networkSnapshotSummary(latest)}
-                      </div>
+                      <div className="text-xs text-zl-muted">{presentation.summaryText}</div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      {latest ? (
-                        <Badge severity="healthy">snapshot</Badge>
-                      ) : (
-                        <Badge severity="watch">diagnostics limited</Badge>
-                      )}
+                      <Badge severity={presentation.severity}>{presentation.label}</Badge>
                       <span className="text-sm text-zl-accent">View snapshot details →</span>
                     </div>
                   </Link>
@@ -359,23 +336,8 @@ function TopologyNetworkDetailPage({
   const detail = useLiveResource(
     () => api.topologyNetwork(networkId),
     [networkId],
-    { refetchOn: ["topology_updated"], enabled: enabled && known },
+    { refetchOn: ["topology_updated"], enabled: known },
   );
-
-  if (!enabled) {
-    return (
-      <div className="max-w-5xl space-y-6">
-        <Link to="/topology" className="text-sm text-zl-accent hover:underline">
-          ← Topology snapshots
-        </Link>
-        <Card title="Topology disabled">
-          <p className="text-sm text-zl-muted">
-            Topology capture is disabled in configuration.
-          </p>
-        </Card>
-      </div>
-    );
-  }
 
   if (!known) {
     return (
@@ -399,6 +361,12 @@ function TopologyNetworkDetailPage({
           Point-in-time stored topology evidence for this network.
         </p>
       </div>
+
+      {!enabled && (
+        <Card title="Topology capture disabled">
+          <p className="text-sm text-zl-muted">{CAPTURE_DISABLED_NOTICE}</p>
+        </Card>
+      )}
 
       <NetworkSnapshotNav networks={networks} activeId={networkId} />
       <TopologyViewTabs networkId={networkId} />
@@ -439,7 +407,8 @@ function TopologyNetworkDetailPage({
 export function TopologyPage() {
   const { status } = useScenario();
   const { networkId: routeNetworkId } = useParams<{ networkId?: string }>();
-  const networkId = routeNetworkId ? decodeURIComponent(routeNetworkId) : undefined;
+  // React Router already decodes path params — use the logical ID once.
+  const networkId = routeNetworkId || undefined;
   const overview = useLiveResource(() => api.topology(), [], {
     refetchOn: ["topology_updated"],
   });
@@ -500,4 +469,4 @@ export function TopologyPage() {
   );
 }
 
-export { LIMITED_LAYOUT_COPY, POINT_IN_TIME_LIMITATION };
+export { LIMITED_LAYOUT_COPY, POINT_IN_TIME_LIMITATION, CAPTURE_DISABLED_NOTICE, NO_SNAPSHOT_COPY };

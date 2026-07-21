@@ -134,6 +134,29 @@ describe("deviceStory API client", () => {
   });
 });
 
+describe("device API client path encoding", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("encodes network and ieee path segments exactly once", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.device("Home Office", "0xabc").catch(() => undefined);
+    const url1 = fetchCallParts(fetchMock.mock.calls[0] ?? []).url;
+    expect(url1).toContain(`api/devices/${encodeURIComponent("Home Office")}/0xabc`);
+    expect(url1).not.toContain("Home%2520Office");
+
+    await api.device("50%mesh", "0xab/cd").catch(() => undefined);
+    const url2 = fetchCallParts(fetchMock.mock.calls[1] ?? []).url;
+    expect(url2).toContain(
+      `api/devices/${encodeURIComponent("50%mesh")}/${encodeURIComponent("0xab/cd")}`,
+    );
+  });
+});
+
 describe("fetchJson retry policy", () => {
   afterEach(() => {
     vi.unstubAllGlobals();

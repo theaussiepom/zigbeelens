@@ -301,28 +301,30 @@ function Select({
 }
 
 export function DeviceDetailPage() {
-  const { networkId, ieeeAddress } = useParams();
+  const { networkId: routeNetworkId, ieeeAddress: routeIeee } = useParams();
   const { scenario } = useScenario();
   const s = scenario || undefined;
-  const ieee = ieeeAddress ? decodeURIComponent(ieeeAddress) : "";
+  // React Router already decodes path params — use logical values once.
+  const networkId = routeNetworkId || "";
+  const ieee = routeIeee || "";
 
   const detail = useLiveResource(
-    () => api.device(networkId!, ieee, s),
-    [networkId, ieeeAddress, scenario],
-    { refetchOn: DEVICE_EVENTS, enabled: Boolean(networkId && ieeeAddress) },
+    () => api.device(networkId, ieee, s),
+    [networkId, ieee, scenario],
+    { refetchOn: DEVICE_EVENTS, enabled: Boolean(networkId && ieee) },
   );
   const incidents = useLiveResource(
     () =>
       api
         .incidents({
           scenario: s,
-          network_id: networkId!,
+          network_id: networkId,
           device_ieee: ieee,
           limit: 50,
         })
         .then((r) => r.items),
-    [networkId, ieeeAddress, scenario],
-    { refetchOn: DEVICE_EVENTS, enabled: Boolean(networkId && ieeeAddress) },
+    [networkId, ieee, scenario],
+    { refetchOn: DEVICE_EVENTS, enabled: Boolean(networkId && ieee) },
   );
 
   if (detail.error) return <ErrorState message={detail.error} onRetry={detail.refetch} />;

@@ -11,6 +11,7 @@ import type {
   RouterRisk,
   Severity,
 } from "@zigbeelens/shared";
+import { encodeRouteSegment } from "@/lib/routes";
 
 export function severityColor(severity: Severity): string {
   switch (severity) {
@@ -217,7 +218,7 @@ export function relativeTime(iso?: string): string {
 }
 
 export function devicePath(networkId: string, ieee: string): string {
-  return `/devices/${networkId}/${encodeURIComponent(ieee)}`;
+  return `/devices/${encodeRouteSegment(networkId)}/${encodeURIComponent(ieee)}`;
 }
 
 /** Severity ranking for sorting; lower = worse / more urgent. */

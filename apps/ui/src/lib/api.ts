@@ -607,9 +607,12 @@ export const api = {
       }),
     ),
   device: (networkId: string, ieee: string, scenario?: string) =>
-    fetchJson<DeviceDetail>(`api/devices/${networkId}/${encodeURIComponent(ieee)}`, {
-      scenario,
-    }).then(parseDeviceDetail),
+    fetchJson<DeviceDetail>(
+      `api/devices/${encodeURIComponent(networkId)}/${encodeURIComponent(ieee)}`,
+      {
+        scenario,
+      },
+    ).then(parseDeviceDetail),
   deviceStory: (
     networkId: string,
     ieee: string,
