@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { ReportSummary } from "@zigbeelens/shared";
 
@@ -24,6 +24,20 @@ const scenarioState = vi.hoisted(() => {
   };
 });
 
+const liveEvents = vi.hoisted(() => {
+  const listeners = new Set<(eventName: string) => void>();
+  return {
+    emit: (eventName: string) => {
+      for (const listener of listeners) listener(eventName);
+    },
+    subscribe: (listener: (eventName: string) => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    reset: () => listeners.clear(),
+  };
+});
+
 vi.mock("@/context/ScenarioContext", async () => {
   const React = await import("react");
   return {
@@ -37,6 +51,16 @@ vi.mock("@/context/ScenarioContext", async () => {
     },
   };
 });
+
+vi.mock("@/lib/events", () => ({
+  liveConnection: {
+    subscribeEvents: (listener: (e: string) => void) => liveEvents.subscribe(listener),
+    subscribeState: () => () => {},
+    getState: () => "open",
+    isAccessEnabled: () => true,
+  },
+  LIVE_EVENTS: [],
+}));
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -144,7 +168,9 @@ function renderPage() {
 
 beforeEach(() => {
   scenarioState.reset();
+  liveEvents.reset();
   vi.clearAllMocks();
+  vi.useRealTimers();
   listReports.mockResolvedValue([]);
   previewReport.mockResolvedValue(makePreview());
   createReport.mockResolvedValue(makeStored({ id: "rep-new", scope: "full" }));
@@ -157,6 +183,10 @@ beforeEach(() => {
     value: { writeText: vi.fn(async () => {}) },
     configurable: true,
   });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("ReportsPage saved history", () => {
@@ -230,10 +260,10 @@ describe("ReportsPage saved history", () => {
       screen.getByRole("button", { name: /Download network JSON report generated/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Copy Markdown from network report generated/i }),
+      screen.getByRole("button", { name: /Copy Markdown from network JSON report generated/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Delete network report generated/i }),
+      screen.getByRole("button", { name: /Delete network JSON report generated/i }),
     ).toBeInTheDocument();
   });
 
@@ -251,23 +281,57 @@ describe("ReportsPage saved history", () => {
     listReports.mockResolvedValue([makeStored()]);
     renderPage();
     fireEvent.click(
-      await screen.findByRole("button", { name: /Copy Markdown from network report generated/i }),
+      await screen.findByRole("button", {
+        name: /Copy Markdown from network JSON report generated/i,
+      }),
     );
     await waitFor(() => expect(reportDetail).toHaveBeenCalledWith("rep-1", undefined));
     expect(writeProtectedClipboardText).toHaveBeenCalled();
+  });
+
+  it("does not copy when legacy Markdown is unavailable", async () => {
+    listReports.mockResolvedValue([makeStored()]);
+    reportDetail.mockResolvedValueOnce({ report_version: 1, body: {} });
+    renderPage();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /Copy Markdown from network JSON report generated/i,
+      }),
+    );
+    expect(
+      await screen.findByText("Markdown summary is not available for this stored report."),
+    ).toBeInTheDocument();
+    expect(writeProtectedClipboardText).not.toHaveBeenCalled();
+  });
+
+  it("does not copy an empty Markdown string", async () => {
+    listReports.mockResolvedValue([makeStored()]);
+    reportDetail.mockResolvedValueOnce({ report_version: 3, markdown_summary: "   " });
+    renderPage();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /Copy Markdown from network JSON report generated/i,
+      }),
+    );
+    expect(
+      await screen.findByText("Markdown summary is not available for this stored report."),
+    ).toBeInTheDocument();
+    expect(writeProtectedClipboardText).not.toHaveBeenCalled();
   });
 
   it("requires delete confirmation and retains the row on failure", async () => {
     listReports.mockResolvedValue([makeStored()]);
     deleteReport.mockRejectedValueOnce(new Error("nope"));
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /Delete network report generated/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Delete network JSON report generated/i }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
     await waitFor(() => expect(deleteReport).toHaveBeenCalledWith("rep-1"));
     expect(screen.getByText("Network report summary")).toBeInTheDocument();
   });
 
-  it("uses ordinal accessible names when human context collides", async () => {
+  it("uses group-local ordinal accessible names when human context collides", async () => {
     const row = makeStored();
     listReports.mockResolvedValue([
       row,
@@ -284,6 +348,61 @@ describe("ReportsPage saved history", () => {
         name: /Download network JSON report generated .*, item 2 of 2/i,
       }),
     ).toBeInTheDocument();
+  });
+
+  it("keeps saved rows visible when a background refresh fails", async () => {
+    listReports.mockResolvedValueOnce([makeStored()]);
+    renderPage();
+    expect(await screen.findByText("Network report summary")).toBeInTheDocument();
+    listReports.mockRejectedValueOnce(new Error("refresh failed"));
+    vi.useFakeTimers();
+    await act(async () => {
+      liveEvents.emit("reports_updated");
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText("Network report summary")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Saved reports could not be refreshed. Showing the last loaded list.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Loading reports…")).not.toBeInTheDocument();
+    vi.useRealTimers();
+    listReports.mockResolvedValueOnce([makeStored({ id: "rep-2", summary: "Refreshed" })]);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Refreshed")).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Saved reports could not be refreshed. Showing the last loaded list.",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("returns focus to the empty-state launcher", async () => {
+    listReports.mockResolvedValue([]);
+    renderPage();
+    await screen.findByText("No saved reports yet.");
+    const buttons = screen.getAllByRole("button", { name: "Create full report" });
+    const emptyLauncher = buttons[buttons.length - 1]!;
+    fireEvent.click(emptyLauncher);
+    await screen.findByRole("dialog");
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(emptyLauncher).toHaveFocus());
+  });
+
+  it("returns focus to the header launcher", async () => {
+    listReports.mockResolvedValue([makeStored()]);
+    renderPage();
+    await screen.findByText("Network report summary");
+    const header = screen.getAllByRole("button", { name: "Create full report" })[0]!;
+    fireEvent.click(header);
+    await screen.findByRole("dialog");
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(header).toHaveFocus());
   });
 
   it("source contract: no target pickers or mount-time discovery in ReportsPage", () => {
