@@ -120,30 +120,68 @@ def build_device_snapshot_history_response(
     stale_after_hours: int | None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
+    """Exact device snapshot-history endpoint with row/link bounds.
+
+    Loads at most ``MAX_SNAPSHOT_HISTORY`` complete snapshots and only
+    target-device links for those IDs. Preserves coded device topology facts
+    without the broad all-history NetworkEvidenceContext path.
+    """
     from datetime import datetime, timezone
 
-    from zigbeelens.services.network_evidence import EVIDENCE_GRAPH_FACTS_REQUIREMENTS
-    from zigbeelens.services.network_evidence_composition import (
-        compose_network_evidence_context,
+    from zigbeelens.topology.device_compare import (
+        MAX_SNAPSHOT_HISTORY,
+        load_device_snapshot_history_network_context,
     )
 
     reference_now = now or datetime.now(timezone.utc)
     if reference_now.tzinfo is None:
         reference_now = reference_now.replace(tzinfo=timezone.utc)
-    context = compose_network_evidence_context(
+
+    usable = list(
+        repo.list_complete_topology_snapshots(network_id, limit=MAX_SNAPSHOT_HISTORY)
+    )
+    snapshot_ids = [str(row["snapshot_id"]) for row in usable]
+    links_by_snapshot_id = (
+        repo.list_topology_links_for_device_in_snapshots(snapshot_ids, device_ieee)
+        if snapshot_ids
+        else {}
+    )
+    earliest_availability_at = repo.availability.get_earliest_availability_change_at(
+        network_id
+    )
+    devices = repo.list_devices(network_id)
+    network_context = load_device_snapshot_history_network_context(
         repo,
         network_id,
-        reference_now=reference_now,
-        requirements=EVIDENCE_GRAPH_FACTS_REQUIREMENTS,
-        stale_after_hours=stale_after_hours,
+        max_snapshots=MAX_SNAPSHOT_HISTORY,
+        snapshots=usable,
+        links_by_snapshot_id=links_by_snapshot_id,
+        earliest_availability_at=earliest_availability_at,
+        earliest_availability_supplied=True,
+        devices=devices,
     )
     history = device_snapshot_history(
         repo,
         network_id,
         device_ieee,
-        network_context=context.snapshot_history_context,
+        max_snapshots=MAX_SNAPSHOT_HISTORY,
+        network_context=network_context,
     )
-    graph = service.build(network_id, now=reference_now, context=context)
+
+    latest = usable[0] if usable else None
+    latest_id = str(latest["snapshot_id"]) if latest is not None else None
+    latest_nodes: list[dict[str, Any]] = []
+    if latest_id is not None:
+        node_row = repo.get_topology_node(latest_id, device_ieee)
+        if node_row is not None:
+            latest_nodes = [node_row]
+
+    evidence_graph = {
+        "latest_snapshot": dict(latest) if latest is not None else None,
+        "nodes": latest_nodes,
+        "links": list(links_by_snapshot_id.get(latest_id, [])) if latest_id else [],
+        "counts": {},
+    }
     return {
         **history,
         "topology_facts": compose_device_topology_facts_payload(
@@ -153,7 +191,7 @@ def build_device_snapshot_history_response(
             device_snapshot_history_payload=history,
             stale_after_hours=stale_after_hours,
             now=reference_now,
-            evidence_graph=graph,
-            network_evidence_context=context,
+            evidence_graph=evidence_graph,
+            network_evidence_context=None,
         ),
     }

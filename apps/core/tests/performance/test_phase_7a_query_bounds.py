@@ -47,6 +47,7 @@ def _seed_complete_snapshot(
     captured_at: datetime,
     target_ieee: str | None = None,
     link_count: int = 8,
+    status: str = "complete",
 ) -> None:
     repo.create_topology_snapshot(
         snapshot_id=snapshot_id,
@@ -54,6 +55,14 @@ def _seed_complete_snapshot(
         requested_by="phase7a",
         status="pending",
     )
+    if status != "complete":
+        repo.update_topology_snapshot(snapshot_id, status=status, error="err" if status == "error" else None)
+        repo.db.conn.execute(
+            "UPDATE topology_snapshots SET captured_at = ? WHERE snapshot_id = ?",
+            (captured_at.isoformat(), snapshot_id),
+        )
+        repo.db.conn.commit()
+        return
     nodes = [
         ParsedTopologyNode(
             ieee_address="0xcoord",
@@ -173,43 +182,92 @@ def test_topology_overview_statement_count_constant_within_chunk(tmp_path: Path,
         assert len(run()["networks"]) == networks
         return measured.execute_count
 
-    two = measure(2)
-    forty = measure(40)
-    assert two == forty
+    assert measure(2) == measure(40)
+
+
+def test_latest_snapshot_1_vs_1000_retained_same_statement_count(tmp_path: Path):
+    def measure(retained: int) -> tuple[int, str | None]:
+        repo, _ = _repo(tmp_path / f"ret{retained}", networks=["home"])
+        for index in range(retained):
+            _seed_complete_snapshot(
+                repo,
+                network_id="home",
+                snapshot_id=f"snap-{index:04d}",
+                captured_at=REFERENCE_TIME - timedelta(minutes=index),
+            )
+        counter = install_counter(repo)
+
+        def run():
+            return repo.get_latest_topology_snapshots_for_networks(["home"])
+
+        measured = measure_operation(
+            f"latest_{retained}",
+            "phase7a",
+            "warm",
+            counter.stats,
+            run,
+        )
+        result = run()["home"]
+        assert result is not None
+        assert result["snapshot_id"] == "snap-0000"
+        return measured.execute_count, result["snapshot_id"]
+
+    c1, id1 = measure(1)
+    c1000, id1000 = measure(1000)
+    assert c1 == c1000
+    assert id1 == id1000 == "snap-0000"
 
 
 def test_latest_snapshot_bulk_parity_and_tie_break(tmp_path: Path):
     repo, _ = _repo(tmp_path, networks=["home", "office", "empty"])
     tie = REFERENCE_TIME
-    _seed_complete_snapshot(
-        repo,
-        network_id="home",
-        snapshot_id="home-a",
-        captured_at=tie,
-    )
-    _seed_complete_snapshot(
-        repo,
-        network_id="home",
-        snapshot_id="home-b",
-        captured_at=tie,
-    )
+    _seed_complete_snapshot(repo, network_id="home", snapshot_id="home-a", captured_at=tie)
+    _seed_complete_snapshot(repo, network_id="home", snapshot_id="home-b", captured_at=tie)
     _seed_complete_snapshot(
         repo,
         network_id="office",
         snapshot_id="office-1",
         captured_at=REFERENCE_TIME - timedelta(hours=1),
     )
+    # Newer pending/error must not win over older complete.
+    _seed_complete_snapshot(
+        repo,
+        network_id="office",
+        snapshot_id="office-pending",
+        captured_at=REFERENCE_TIME,
+        status="pending",
+    )
     bulk = repo.get_latest_topology_snapshots_for_networks(["home", "office", "empty"])
     assert bulk["empty"] is None
-    assert bulk["home"]["snapshot_id"] == "home-b"  # snapshot_id DESC tie-break
+    assert bulk["home"]["snapshot_id"] == "home-b"
     assert bulk["office"]["snapshot_id"] == "office-1"
     for network_id in ("home", "office", "empty"):
         assert bulk[network_id] == repo.get_latest_topology_snapshot(network_id)
 
 
-def test_device_snapshot_history_bounds_10_vs_30(tmp_path: Path):
-    def measure(retained: int) -> tuple[int, dict]:
-        repo, cfg = _repo(tmp_path / f"hist{retained}", networks=["home"])
+def test_latest_topology_production_explain_uses_index(tmp_path: Path):
+    repo, _ = _repo(tmp_path, networks=[f"n{i:02d}" for i in range(5)])
+    for network in repo.list_networks():
+        _seed_complete_snapshot(
+            repo,
+            network_id=network.id,
+            snapshot_id=f"s-{network.id}",
+            captured_at=REFERENCE_TIME,
+        )
+    ids = [n.id for n in repo.list_networks()]
+    sql, params = repo._latest_topology_snapshots_for_networks_sql(ids)
+    assert "ROW_NUMBER" not in sql
+    plan = " | ".join(
+        str(row[-1]) for row in repo.db.conn.execute(f"EXPLAIN QUERY PLAN {sql}", params)
+    )
+    assert "idx_topology_snapshots_latest_complete" in plan
+    assert "USE TEMP B-TREE FOR ORDER BY" not in plan
+    assert "SCAN topology_snapshots" not in plan
+
+
+def test_device_snapshot_history_bounds_10_30_300(tmp_path: Path):
+    def measure(retained: int, *, unrelated_links: int = 20) -> tuple[int, int, set[str], dict]:
+        repo, cfg = _repo(tmp_path / f"hist{retained}_{unrelated_links}", networks=["home"])
         target = "0xtarget"
         repo.upsert_device(
             network_id="home",
@@ -226,17 +284,22 @@ def test_device_snapshot_history_bounds_10_vs_30(tmp_path: Path):
                 snapshot_id=f"snap-{index:03d}",
                 captured_at=REFERENCE_TIME - timedelta(minutes=index),
                 target_ieee=target if index % 2 == 0 else None,
-                link_count=20,
+                link_count=unrelated_links,
             )
-        # Non-complete should not expand the window.
-        repo.create_topology_snapshot(
-            snapshot_id="pending-x",
-            network_id="home",
-            requested_by="phase7a",
-            status="pending",
-        )
         service = EvidenceGraphService(repo)
         counter = install_counter(repo)
+        link_statements: list[str] = []
+
+        original = repo.list_topology_links_for_device_in_snapshots
+
+        def spy(snapshot_ids, ieee_address):
+            result = original(snapshot_ids, ieee_address)
+            link_statements.append(
+                f"ids={len(list(snapshot_ids))} rows={sum(len(v) for v in result.values())}"
+            )
+            return result
+
+        repo.list_topology_links_for_device_in_snapshots = spy  # type: ignore[method-assign]
 
         def run():
             return build_device_snapshot_history_response(
@@ -256,14 +319,76 @@ def test_device_snapshot_history_bounds_10_vs_30(tmp_path: Path):
             run,
         )
         payload = run()
-        return measured.execute_count, payload
-
-    ten_count, ten_payload = measure(10)
-    thirty_count, thirty_payload = measure(30)
-    assert ten_count == thirty_count
-    for payload in (ten_payload, thirty_payload):
         history_len = (1 if payload["latest_snapshot"] else 0) + len(payload["snapshots"])
-        assert history_len == MAX_SNAPSHOT_HISTORY
+        snap_ids = set()
+        if payload["latest_snapshot"]:
+            snap_ids.add(payload["latest_snapshot"]["snapshot_id"])
+        snap_ids.update(row["snapshot_id"] for row in payload["snapshots"])
+        # Must not call all-history bulk snapshot loader for this endpoint.
+        statements = " | ".join(counter.stats.statement_counts)
+        assert "list_topology_snapshots_for_networks" not in statements
+        assert "FROM topology_snapshots WHERE network_id IN" not in (
+            " ".join(counter.stats.statements)
+        ) or "status = ?" in " ".join(counter.stats.statements)
+        all_history = any(
+            "FROM topology_snapshots WHERE network_id IN" in s
+            and "status" not in s.lower()
+            for s in counter.stats.statements
+        )
+        assert not all_history
+        return measured.execute_count, history_len, snap_ids, payload
+
+    c10, len10, ids10, p10 = measure(10)
+    c30, len30, ids30, p30 = measure(30)
+    c300, len300, ids300, p300 = measure(300)
+    assert len10 == len30 == len300 == MAX_SNAPSHOT_HISTORY
+    assert ids10 == ids30 == ids300
+    assert c10 == c30 == c300
+    # Dense unrelated links must not change coded history length.
+    _, len_dense, _, p_dense = measure(30, unrelated_links=200)
+    assert len_dense == MAX_SNAPSHOT_HISTORY
+    assert p_dense["topology_facts"]["device_facts"]
+    assert set(p10["topology_facts"].keys()) == set(p_dense["topology_facts"].keys())
+
+
+def test_device_snapshot_history_response_parity_fixture(tmp_path: Path):
+    """Bounded endpoint matches prior response shape on a small compatibility estate."""
+    repo, _ = _repo(tmp_path, networks=["home"])
+    target = "0xtarget"
+    repo.upsert_device(
+        network_id="home",
+        ieee_address=target,
+        friendly_name="Target",
+        device_type="EndDevice",
+        power_source="Battery",
+        interview_state="successful",
+    )
+    for index in range(5):
+        _seed_complete_snapshot(
+            repo,
+            network_id="home",
+            snapshot_id=f"snap-{index:02d}",
+            captured_at=REFERENCE_TIME - timedelta(hours=index),
+            target_ieee=target if index != 1 else None,
+            link_count=4,
+        )
+    service = EvidenceGraphService(repo)
+    payload = build_device_snapshot_history_response(
+        repo,
+        service,
+        network_id="home",
+        device_ieee=target,
+        stale_after_hours=24,
+        now=REFERENCE_TIME,
+    )
+    assert payload["latest_snapshot"] is not None
+    assert payload["latest_snapshot"]["snapshot_id"] == "snap-00"
+    assert "topology_facts" in payload
+    assert "device_facts" in payload["topology_facts"]
+    assert "comparison_facts_by_snapshot_id" in payload["topology_facts"]
+    assert set(payload["topology_facts"]["comparison_facts_by_snapshot_id"]) == {
+        row["snapshot_id"] for row in payload["snapshots"]
+    }
 
 
 def test_incident_recent_first_page_scales_constant(tmp_path: Path):
@@ -301,8 +426,7 @@ def test_incident_recent_first_page_scales_constant(tmp_path: Path):
             counter.stats,
             run,
         )
-        page = run()
-        assert len(page.rows) == 50
+        assert len(run().rows) == 50
         return measured.execute_count
 
     assert measure(100) == measure(1500)
@@ -323,13 +447,20 @@ def test_metric_samples_window_and_plan(tmp_path: Path):
         tie = REFERENCE_TIME.isoformat()
         for index in range(rows):
             name = f"m{index % 5}"
-            # Insert via SQL to control sampled_at / create many rows quickly.
             repo.db.conn.execute(
                 """
                 INSERT INTO metric_samples (network_id, ieee_address, metric_name, metric_value, sampled_at)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                ("home", ieee, name, float(index), tie if index < 10 else (REFERENCE_TIME - timedelta(seconds=index)).isoformat()),
+                (
+                    "home",
+                    ieee,
+                    name,
+                    float(index),
+                    tie
+                    if index < 10
+                    else (REFERENCE_TIME - timedelta(seconds=index)).isoformat(),
+                ),
             )
         repo.db.conn.commit()
         counter = install_counter(repo)
@@ -370,7 +501,7 @@ def test_metric_samples_window_and_plan(tmp_path: Path):
 
 
 def test_topology_link_source_target_plans_use_primary_key(tmp_path: Path):
-    """Source/target candidate indexes were rejected: PK autoindex wins EXPLAIN."""
+    """Source/target candidate indexes remain rejected: PK autoindex wins EXPLAIN."""
     repo, _ = _repo(tmp_path, networks=["home"])
     _seed_complete_snapshot(
         repo,
@@ -378,7 +509,7 @@ def test_topology_link_source_target_plans_use_primary_key(tmp_path: Path):
         snapshot_id="snap-1",
         captured_at=REFERENCE_TIME,
         target_ieee="0xtarget",
-        link_count=40,
+        link_count=200,
     )
     children_sql = """
         SELECT target_ieee FROM topology_links
@@ -445,35 +576,55 @@ def test_availability_offline_plan(tmp_path: Path):
     assert all(row["to_state"] == "offline" for row in rows)
 
 
-def test_latest_topology_snapshot_plan(tmp_path: Path):
-    repo, _ = _repo(tmp_path, networks=[f"n{i:02d}" for i in range(5)])
-    for network in repo.list_networks():
-        _seed_complete_snapshot(
-            repo,
-            network_id=network.id,
-            snapshot_id=f"s-{network.id}",
-            captured_at=REFERENCE_TIME,
+def test_recent_incident_production_explain(tmp_path: Path):
+    repo, _ = _repo(tmp_path, networks=["home"])
+    for index in range(200):
+        ts = (REFERENCE_TIME - timedelta(minutes=index)).isoformat()
+        repo.insert_incident(
+            incident_id=f"i-{index:04d}",
+            dedup_key=f"d:{index}",
+            incident_type="device_offline",
+            lifecycle_state="open",
+            severity="watch",
+            scope="device",
+            confidence="medium",
+            title="t",
+            summary="s",
+            explanation="e",
+            evidence=[],
+            counter_evidence=[],
+            limitations=[],
+            opened_at=ts,
+            updated_at=ts,
         )
-    ids = [n.id for n in repo.list_networks()]
-    placeholders = ",".join("?" for _ in ids)
-    sql = f"""
-        SELECT snapshot_id, network_id, captured_at, requested_by, status,
-               router_count, end_device_count, link_count, warning_acknowledged, error
-        FROM (
-            SELECT snapshot_id, network_id, captured_at, requested_by, status,
-                   router_count, end_device_count, link_count, warning_acknowledged, error,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY network_id
-                       ORDER BY captured_at DESC, snapshot_id DESC
-                   ) AS rn
-            FROM topology_snapshots
-            WHERE network_id IN ({placeholders}) AND status = 'complete'
-        ) ranked
-        WHERE rn = 1
-    """
-    plan = " | ".join(
-        str(row[-1]) for row in repo.db.conn.execute(f"EXPLAIN QUERY PLAN {sql}", ids).fetchall()
+    first = repo.list_incidents_page(
+        build_incident_collection_query(limit=50, order="recent")
     )
-    assert "idx_topology_snapshots_latest_complete" in plan or "topology_snapshots" in plan
-    bulk = repo.get_latest_topology_snapshots_for_networks(ids)
-    assert all(bulk[nid] is not None for nid in ids)
+    assert first.next_cursor
+    plans = {
+        "first": repo._incident_collection_page_sql(
+            build_incident_collection_query(limit=50, order="recent"),
+            include_cursor=False,
+        ),
+        "cursor": repo._incident_collection_page_sql(
+            build_incident_collection_query(
+                limit=50, order="recent", cursor=first.next_cursor
+            ),
+            include_cursor=True,
+        ),
+        "updated_after": repo._incident_collection_page_sql(
+            build_incident_collection_query(
+                updated_after=(REFERENCE_TIME - timedelta(hours=2)).isoformat(),
+                limit=50,
+                order="recent",
+            ),
+            include_cursor=False,
+        ),
+    }
+    for name, (sql, params) in plans.items():
+        plan = " | ".join(
+            str(row[-1])
+            for row in repo.db.conn.execute(f"EXPLAIN QUERY PLAN {sql}", params)
+        )
+        assert "idx_incidents_recent_order" in plan, (name, plan)
+        assert "USE TEMP B-TREE FOR ORDER BY" not in plan, (name, plan)

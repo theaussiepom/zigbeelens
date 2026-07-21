@@ -1589,6 +1589,38 @@ class Repository:
                     result[snapshot_id].append(item)
         return result
 
+    def list_topology_links_for_device_in_snapshots(
+        self,
+        snapshot_ids: Collection[str],
+        ieee_address: str,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Bulk links involving one device across selected snapshots."""
+        ordered_ids = list(dict.fromkeys(sid for sid in snapshot_ids if sid))
+        result: dict[str, list[dict[str, Any]]] = {sid: [] for sid in ordered_ids}
+        ieee = str(ieee_address).strip()
+        if not ordered_ids or not ieee:
+            return result
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            placeholders = ",".join("?" for _ in chunk)
+            cur = self.db.conn.execute(
+                f"""
+                SELECT snapshot_id, source_ieee, target_ieee, source_type, target_type,
+                       linkquality, depth, relationship, route_count
+                FROM topology_links
+                WHERE snapshot_id IN ({placeholders})
+                  AND (source_ieee = ? OR target_ieee = ?)
+                ORDER BY snapshot_id ASC
+                """,
+                (*chunk, ieee, ieee),
+            )
+            for row in cur.fetchall():
+                snapshot_id = str(row["snapshot_id"])
+                if snapshot_id in result:
+                    item = dict(row)
+                    item.pop("snapshot_id", None)
+                    result[snapshot_id].append(item)
+        return result
+
     def list_devices_for_networks(
         self, network_ids: Collection[str]
     ) -> dict[str, list[DeviceRow]]:
@@ -2279,15 +2311,70 @@ class Repository:
         return cur.fetchone() is not None
 
     def get_latest_topology_snapshot(self, network_id: str) -> dict[str, Any] | None:
-        latest = self.get_latest_topology_snapshots_for_networks([network_id])
-        return latest.get(network_id)
+        """Latest complete snapshot for one network (indexed seek, LIMIT 1)."""
+        if not self._has_table("topology_snapshots"):
+            return None
+        cur = self.db.conn.execute(
+            """
+            SELECT snapshot_id, network_id, captured_at, requested_by, status,
+                   router_count, end_device_count, link_count, warning_acknowledged, error
+            FROM topology_snapshots
+            WHERE network_id = ? AND status = 'complete'
+            ORDER BY captured_at DESC, snapshot_id DESC
+            LIMIT 1
+            """,
+            (network_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+    def _latest_topology_snapshots_for_networks_sql(
+        self, chunk: list[str]
+    ) -> tuple[str, list[Any]]:
+        """Production bulk latest-complete SELECT (one indexed seek per network)."""
+        placeholders = ",".join("(?)" for _ in chunk)
+        sql = f"""
+            WITH requested(network_id) AS (
+                VALUES {placeholders}
+            ),
+            selected AS (
+                SELECT
+                    r.network_id AS network_id,
+                    (
+                        SELECT s.snapshot_id
+                        FROM topology_snapshots s
+                        WHERE s.network_id = r.network_id
+                          AND s.status = 'complete'
+                        ORDER BY s.captured_at DESC, s.snapshot_id DESC
+                        LIMIT 1
+                    ) AS snapshot_id
+                FROM requested r
+            )
+            SELECT
+                s.snapshot_id,
+                selected.network_id,
+                s.captured_at,
+                s.requested_by,
+                s.status,
+                s.router_count,
+                s.end_device_count,
+                s.link_count,
+                s.warning_acknowledged,
+                s.error
+            FROM selected
+            LEFT JOIN topology_snapshots s
+              ON s.snapshot_id = selected.snapshot_id
+        """
+        return sql, list(chunk)
 
     def get_latest_topology_snapshots_for_networks(
         self, network_ids: Collection[str]
     ) -> dict[str, dict[str, Any] | None]:
         """Latest complete snapshot per network (captured_at DESC, snapshot_id DESC).
 
-        One chunked read per ``_SAFE_ID_CHUNK``; missing networks map to ``None``.
+        One statement per ``_SAFE_ID_CHUNK``; each network uses an indexed
+        LIMIT-1 seek rather than ranking retained history. Missing networks
+        map to ``None``.
         """
         ordered_ids = list(dict.fromkeys(nid for nid in network_ids if nid))
         result: dict[str, dict[str, Any] | None] = {nid: None for nid in ordered_ids}
@@ -2296,30 +2383,16 @@ class Repository:
         if not self._has_table("topology_snapshots"):
             return result
         for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
-            placeholders = ",".join("?" for _ in chunk)
-            cur = self.db.conn.execute(
-                f"""
-                SELECT snapshot_id, network_id, captured_at, requested_by, status,
-                       router_count, end_device_count, link_count, warning_acknowledged, error
-                FROM (
-                    SELECT snapshot_id, network_id, captured_at, requested_by, status,
-                           router_count, end_device_count, link_count, warning_acknowledged, error,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY network_id
-                               ORDER BY captured_at DESC, snapshot_id DESC
-                           ) AS rn
-                    FROM topology_snapshots
-                    WHERE network_id IN ({placeholders}) AND status = 'complete'
-                ) ranked
-                WHERE rn = 1
-                """,
-                chunk,
-            )
+            sql, params = self._latest_topology_snapshots_for_networks_sql(chunk)
+            cur = self.db.conn.execute(sql, params)
             for row in cur.fetchall():
                 network_id = str(row["network_id"])
-                if network_id in result:
-                    item = dict(row)
-                    result[network_id] = item
+                if network_id not in result:
+                    continue
+                if row["snapshot_id"] is None:
+                    result[network_id] = None
+                    continue
+                result[network_id] = dict(row)
         return result
 
     def list_topology_snapshots(self, network_id: str) -> list[dict[str, Any]]:
@@ -2398,6 +2471,21 @@ class Repository:
         )
         row = cur.fetchone()
         return row[0] if row else None
+
+    def get_topology_node(
+        self, snapshot_id: str, ieee_address: str
+    ) -> dict[str, Any] | None:
+        cur = self.db.conn.execute(
+            """
+            SELECT ieee_address, friendly_name, node_type, depth, lqi
+            FROM topology_nodes
+            WHERE snapshot_id = ? AND ieee_address = ?
+            LIMIT 1
+            """,
+            (snapshot_id, ieee_address),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
 
     def list_topology_children(self, snapshot_id: str, router_ieee: str) -> list[str]:
         cur = self.db.conn.execute(
