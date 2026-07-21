@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReportSummary } from "@zigbeelens/shared";
 import {
   api,
@@ -13,6 +13,10 @@ import { ContextualReportDialog } from "@/components/reports/ContextualReportDia
 import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui";
 import { formatTime } from "@/lib/format";
 import { scopeLabel } from "@/reports/contextualReportTarget";
+import {
+  ReportRowOperationRegistry,
+  type ReportRowOperation,
+} from "@/reports/reportRowOperations";
 import {
   assignSavedReportActionGroups,
   savedReportActionName,
@@ -30,18 +34,27 @@ export function ReportsPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [rowBusyId, setRowBusyId] = useState<string | null>(null);
+  const [busyReportIds, setBusyReportIds] = useState<ReadonlySet<string>>(() => new Set());
   const headerCreateRef = useRef<HTMLButtonElement>(null);
   const emptyCreateRef = useRef<HTMLButtonElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
-  const deletingRef = useRef(false);
-  const downloadInFlightRef = useRef<string | null>(null);
-  const copyInFlightRef = useRef<string | null>(null);
+  const registryRef = useRef(new ReportRowOperationRegistry());
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const registry = registryRef.current;
+    return () => {
+      mountedRef.current = false;
+      registry.clear();
+    };
+  }, []);
 
   const stored = useLiveResource(() => api.listReports(), [reloadKey], {
     refetchOn: ["reports_updated"],
   });
 
+  const hasAcceptedList = stored.data !== null;
   const reports = stored.data ?? [];
   const actionGroups = useMemo(
     () => assignSavedReportActionGroups(reports),
@@ -49,8 +62,26 @@ export function ReportsPage() {
   );
 
   function flash(message: string) {
+    if (!mountedRef.current) return;
     setToast(message);
-    window.setTimeout(() => setToast(null), 2500);
+    window.setTimeout(() => {
+      if (mountedRef.current) setToast(null);
+    }, 2500);
+  }
+
+  function beginReportOperation(reportId: string, operation: ReportRowOperation): boolean {
+    const started = registryRef.current.begin(reportId, operation);
+    if (started && mountedRef.current) {
+      setBusyReportIds(registryRef.current.snapshot());
+    }
+    return started;
+  }
+
+  function endReportOperation(reportId: string): void {
+    registryRef.current.end(reportId);
+    if (mountedRef.current) {
+      setBusyReportIds(registryRef.current.snapshot());
+    }
   }
 
   function openFullReport(launcher: HTMLButtonElement | null) {
@@ -59,12 +90,11 @@ export function ReportsPage() {
   }
 
   async function copyStored(report: ReportSummary) {
-    if (copyInFlightRef.current === report.id) return;
-    copyInFlightRef.current = report.id;
-    setRowBusyId(report.id);
+    if (!beginReportOperation(report.id, "copy")) return;
     try {
       const accessGeneration = authRuntime.getAccessGeneration();
       const detail = await api.report(report.id, scen);
+      if (!mountedRef.current) return;
       const raw =
         detail && typeof detail === "object" && "markdown_summary" in detail
           ? (detail as { markdown_summary?: unknown }).markdown_summary
@@ -79,46 +109,41 @@ export function ReportsPage() {
     } catch {
       flash("Could not copy report markdown.");
     } finally {
-      copyInFlightRef.current = null;
-      setRowBusyId(null);
+      endReportOperation(report.id);
     }
   }
 
   async function deleteStored(report: ReportSummary) {
-    if (deletingRef.current) return;
-    deletingRef.current = true;
-    setRowBusyId(report.id);
+    if (!beginReportOperation(report.id, "delete")) return;
     try {
       await api.deleteReport(report.id);
+      if (!mountedRef.current) return;
       setConfirmDeleteId(null);
       setReloadKey((k) => k + 1);
       flash("Report deleted.");
     } catch {
       flash("Could not delete report.");
     } finally {
-      deletingRef.current = false;
-      setRowBusyId(null);
+      endReportOperation(report.id);
     }
   }
 
   async function downloadStored(report: ReportSummary) {
-    if (downloadInFlightRef.current === report.id) return;
-    downloadInFlightRef.current = report.id;
-    setRowBusyId(report.id);
+    if (!beginReportOperation(report.id, "download")) return;
     try {
       const file = await downloadStoredReport(report.id, scen);
+      if (!mountedRef.current) return;
       await triggerBrowserDownload(file);
       flash("Report download started.");
     } catch {
       flash("Could not download report.");
     } finally {
-      downloadInFlightRef.current = null;
-      setRowBusyId(null);
+      endReportOperation(report.id);
     }
   }
 
-  const initialError = stored.error && !stored.data;
-  const refreshWarning = stored.error && stored.data;
+  const initialError = Boolean(stored.error && !hasAcceptedList);
+  const refreshWarning = Boolean(stored.error && hasAcceptedList);
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -176,23 +201,8 @@ export function ReportsPage() {
       >
         {initialError ? (
           <ErrorState message={stored.error!} onRetry={stored.refetch} />
-        ) : stored.loading && !stored.data ? (
+        ) : stored.loading && !hasAcceptedList ? (
           <LoadingState label="Loading reports…" />
-        ) : reports.length === 0 ? (
-          <div className="space-y-3">
-            <EmptyState
-              title="No saved reports yet."
-              detail="Create reports from a device, incident, network, or Mesh investigation."
-            />
-            <button
-              ref={emptyCreateRef}
-              type="button"
-              onClick={() => openFullReport(emptyCreateRef.current)}
-              className="min-h-11 rounded-lg bg-zl-accent px-4 py-2 text-sm font-medium text-white"
-            >
-              Create full report
-            </button>
-          </div>
         ) : (
           <div className="space-y-3">
             {refreshWarning && (
@@ -210,78 +220,95 @@ export function ReportsPage() {
                 </button>
               </div>
             )}
-            <ul className="divide-y divide-zl-border/60">
-              {reports.map((report, index) => {
-                const group = actionGroups[index] ?? { groupIndex: 0, groupSize: 1 };
-                const busy = rowBusyId === report.id;
-                const confirming = confirmDeleteId === report.id;
-                return (
-                  <li key={report.id} className="flex flex-wrap items-center gap-3 py-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm text-zl-text">{report.summary}</p>
-                      <p className="text-xs text-zl-muted" title={report.generated_at}>
-                        {formatTime(report.generated_at)} · {scopeLabel(report.scope)} ·{" "}
-                        {report.format.toUpperCase()} · {report.redaction_profile}
-                      </p>
-                    </div>
-                    {confirming ? (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm text-zl-watch">
-                          Delete this {scopeLabel(report.scope).toLowerCase()} report generated{" "}
-                          {formatTime(report.generated_at)}?
+            {reports.length === 0 ? (
+              <div className="space-y-3">
+                <EmptyState
+                  title="No saved reports yet."
+                  detail="Create reports from a device, incident, network, or Mesh investigation."
+                />
+                <button
+                  ref={emptyCreateRef}
+                  type="button"
+                  onClick={() => openFullReport(emptyCreateRef.current)}
+                  className="min-h-11 rounded-lg bg-zl-accent px-4 py-2 text-sm font-medium text-white"
+                >
+                  Create full report
+                </button>
+              </div>
+            ) : (
+              <ul className="divide-y divide-zl-border/60">
+                {reports.map((report, index) => {
+                  const group = actionGroups[index] ?? { groupIndex: 0, groupSize: 1 };
+                  const busy = busyReportIds.has(report.id);
+                  const confirming = confirmDeleteId === report.id;
+                  return (
+                    <li key={report.id} className="flex flex-wrap items-center gap-3 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm text-zl-text">{report.summary}</p>
+                        <p className="text-xs text-zl-muted" title={report.generated_at}>
+                          {formatTime(report.generated_at)} · {scopeLabel(report.scope)} ·{" "}
+                          {report.format.toUpperCase()} · {report.redaction_profile}
                         </p>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void deleteStored(report)}
-                          className="min-h-11 rounded-lg border border-zl-critical/40 px-4 py-2 text-sm text-zl-critical hover:bg-zl-surface-2 disabled:opacity-50"
-                        >
-                          Confirm delete
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => setConfirmDeleteId(null)}
-                          className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 disabled:opacity-50"
-                        >
-                          Cancel
-                        </button>
                       </div>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          aria-label={savedReportActionName("Download", report, group)}
-                          onClick={() => void downloadStored(report)}
-                          className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 disabled:opacity-50"
-                        >
-                          Download
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          aria-label={savedReportActionName("Copy Markdown", report, group)}
-                          onClick={() => void copyStored(report)}
-                          className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 disabled:opacity-50"
-                        >
-                          Copy Markdown
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          aria-label={savedReportActionName("Delete", report, group)}
-                          onClick={() => setConfirmDeleteId(report.id)}
-                          className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm text-zl-muted hover:bg-zl-surface-2 disabled:opacity-50"
-                        >
-                          Delete
-                        </button>
-                      </>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+                      {confirming ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm text-zl-watch">
+                            Delete this {scopeLabel(report.scope).toLowerCase()} report generated{" "}
+                            {formatTime(report.generated_at)}?
+                          </p>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void deleteStored(report)}
+                            className="min-h-11 rounded-lg border border-zl-critical/40 px-4 py-2 text-sm text-zl-critical hover:bg-zl-surface-2 disabled:opacity-50"
+                          >
+                            Confirm delete
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            aria-label={savedReportActionName("Download", report, group)}
+                            onClick={() => void downloadStored(report)}
+                            className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 disabled:opacity-50"
+                          >
+                            Download
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            aria-label={savedReportActionName("Copy Markdown", report, group)}
+                            onClick={() => void copyStored(report)}
+                            className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 disabled:opacity-50"
+                          >
+                            Copy Markdown
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            aria-label={savedReportActionName("Delete", report, group)}
+                            onClick={() => setConfirmDeleteId(report.id)}
+                            className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm text-zl-muted hover:bg-zl-surface-2 disabled:opacity-50"
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
         )}
       </Card>

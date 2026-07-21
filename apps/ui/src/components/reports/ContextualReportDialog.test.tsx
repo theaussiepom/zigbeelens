@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReportSummary } from "@zigbeelens/shared";
+import { getDialogFocusable } from "@/components/reports/dialogFocusable";
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -280,7 +282,7 @@ describe("ContextualReportDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save report" }));
     await screen.findByText("Report saved.");
     const before = previewReport.mock.calls.length;
-    fireEvent.click(screen.getByRole("radio", { name: "YAML" }));
+    fireEvent.click(screen.getByRole("button", { name: "YAML" }));
     await waitFor(() => expect(previewReport.mock.calls.length).toBeGreaterThan(before));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Save report" })).not.toBeDisabled(),
@@ -434,54 +436,146 @@ describe("ContextualReportDialog", () => {
     expect(await screen.findByText("Could not copy preview Markdown.")).toBeInTheDocument();
   });
 
-  it("announces format and redaction profile selection", async () => {
+  it("announces format and redaction profile selection with aria-pressed", async () => {
+    const user = userEvent.setup();
     renderDialog();
-    const formatGroup = screen.getByRole("radiogroup", { name: "Format" });
-    expect(within(formatGroup).getByRole("radio", { name: "JSON" })).toHaveAttribute(
-      "aria-checked",
+    await screen.findByText(/Decision summary/i);
+    const formatGroup = screen.getByRole("group", { name: "Format" });
+    expect(within(formatGroup).getByRole("button", { name: "JSON" })).toHaveAttribute(
+      "aria-pressed",
       "true",
     );
-    const profileGroup = screen.getByRole("radiogroup", { name: "Redaction profile" });
-    expect(within(profileGroup).getByRole("radio", { name: "Standard" })).toHaveAttribute(
-      "aria-checked",
+    const profileGroup = screen.getByRole("group", { name: "Redaction profile" });
+    expect(within(profileGroup).getByRole("button", { name: "Standard" })).toHaveAttribute(
+      "aria-pressed",
       "true",
     );
-    fireEvent.click(within(profileGroup).getByRole("radio", { name: "Public safe" }));
+    await user.click(within(profileGroup).getByRole("button", { name: "Public safe" }));
     await waitFor(() => {
-      expect(within(profileGroup).getByRole("radio", { name: "Public safe" })).toHaveAttribute(
-        "aria-checked",
+      expect(within(profileGroup).getByRole("button", { name: "Public safe" })).toHaveAttribute(
+        "aria-pressed",
         "true",
       );
+      expect(within(profileGroup).getByRole("button", { name: "Standard" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
     });
+    const last = previewReport.mock.calls.at(-1)?.[0];
+    expect(last.redaction.profile).toBe("public_safe");
+    expect(last.redaction.preserve_friendly_names).toBe(false);
   });
 
-  it("traps Tab focus inside the dialog and restores focus on Escape", async () => {
+  it("traps Tab among visible controls and excludes closed Advanced inputs", async () => {
+    const user = userEvent.setup();
     const { onClose, returnFocusRef } = renderDialog();
     const dialog = await screen.findByRole("dialog");
+    await screen.findByText(/Decision summary/i);
     const close = within(dialog).getByRole("button", { name: "Close" });
     expect(close).toHaveFocus();
 
-    const all = Array.from(
-      dialog.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), summary, input:not([disabled]), [role="radio"]',
-      ),
-    );
-    const last = all[all.length - 1]!;
-    // Forward Tab from last wraps to first.
+    const focusable = getDialogFocusable(dialog);
+    expect(focusable.some((el) => el.tagName === "INPUT")).toBe(false);
+    expect(focusable.some((el) => el.tagName === "SUMMARY")).toBe(true);
+
+    const last = focusable[focusable.length - 1]!;
     last.focus();
-    fireEvent.keyDown(document, { key: "Tab" });
-    expect(document.activeElement).toBe(close);
-    // Backward Shift+Tab from first wraps to last.
-    close.focus();
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    await user.tab();
+    expect(close).toHaveFocus();
+    await user.tab({ shift: true });
     expect(document.activeElement).toBe(last);
 
-    // Background control is not in the dialog focus order.
     expect(dialog.contains(screen.getByTestId("background-control"))).toBe(false);
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
     await waitFor(() => expect(returnFocusRef.current).toHaveFocus());
+  });
+
+  it("includes Advanced checkboxes in the trap when open", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+    await screen.findByText(/Decision summary/i);
+    await user.click(within(dialog).getByText("Advanced redaction"));
+    await waitFor(() => {
+      expect(getDialogFocusable(dialog).some((el) => el.tagName === "INPUT")).toBe(true);
+    });
+  });
+
+  it("includes Retry in focus order when preview fails", async () => {
+    previewReport.mockRejectedValueOnce(new Error("preview failed"));
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+    expect(await screen.findByText("preview failed")).toBeInTheDocument();
+    const focusable = getDialogFocusable(dialog);
+    expect(focusable.some((el) => /try again/i.test(el.textContent ?? ""))).toBe(true);
+  });
+
+  it("scenario change while create is pending does not call the new onCreated", async () => {
+    let resolveCreate!: (value: ReportSummary) => void;
+    createReport.mockImplementation(
+      () =>
+        new Promise<ReportSummary>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const onCreatedA = vi.fn();
+    const onCreatedB = vi.fn();
+    const returnFocusRef = { current: document.createElement("button") };
+    const { rerender } = render(
+      <ContextualReportDialog
+        open
+        target={deviceTarget}
+        scenario="alpha"
+        onClose={() => {}}
+        onCreated={onCreatedA}
+        returnFocusRef={returnFocusRef}
+      />,
+    );
+    await screen.findByText(/Decision summary/i);
+    fireEvent.click(screen.getByRole("button", { name: "Save report" }));
+    expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
+    rerender(
+      <ContextualReportDialog
+        open
+        target={deviceTarget}
+        scenario="beta"
+        onClose={() => {}}
+        onCreated={onCreatedB}
+        returnFocusRef={returnFocusRef}
+      />,
+    );
+    resolveCreate(summary);
+    await waitFor(() =>
+      expect(
+        screen.getByText(/may have been saved for the previous selection/i),
+      ).toBeInTheDocument(),
+    );
+    expect(onCreatedA).not.toHaveBeenCalled();
+    expect(onCreatedB).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save report" })).not.toBeDisabled(),
+    );
+  });
+
+  it("unmount while create is pending does not throw or call onCreated", async () => {
+    let resolveCreate!: (value: ReportSummary) => void;
+    createReport.mockImplementation(
+      () =>
+        new Promise<ReportSummary>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const onCreated = vi.fn();
+    const { unmount } = renderDialog({ onCreated });
+    await screen.findByText(/Decision summary/i);
+    fireEvent.click(screen.getByRole("button", { name: "Save report" }));
+    unmount();
+    resolveCreate(summary);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(onCreated).not.toHaveBeenCalled();
   });
 
   it("Escape does not close while creating", async () => {
@@ -504,7 +598,7 @@ describe("ContextualReportDialog", () => {
   it("changing profile resets overrides to profile defaults", async () => {
     renderDialog();
     await screen.findByText(/Decision summary/i);
-    fireEvent.click(screen.getByRole("radio", { name: "Public safe" }));
+    fireEvent.click(screen.getByRole("button", { name: "Public safe" }));
     await waitFor(() => {
       const last = previewReport.mock.calls.at(-1)?.[0];
       expect(last.redaction.profile).toBe("public_safe");

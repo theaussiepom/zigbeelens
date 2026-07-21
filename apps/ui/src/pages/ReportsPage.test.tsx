@@ -382,6 +382,140 @@ describe("ReportsPage saved history", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows refresh failure for an accepted empty list and recovers on Retry", async () => {
+    listReports.mockResolvedValueOnce([]);
+    renderPage();
+    expect(await screen.findByText("No saved reports yet.")).toBeInTheDocument();
+    listReports.mockRejectedValueOnce(new Error("refresh failed"));
+    vi.useFakeTimers();
+    await act(async () => {
+      liveEvents.emit("reports_updated");
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText("No saved reports yet.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Saved reports could not be refreshed. Showing the last loaded list.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
+    vi.useRealTimers();
+    listReports.mockResolvedValueOnce([makeStored({ id: "rep-new", summary: "After retry" })]);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("After retry")).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Saved reports could not be refreshed. Showing the last loaded list.",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("uses per-report busy ownership across concurrent rows and actions", async () => {
+    let resolveA!: () => void;
+    let resolveB!: () => void;
+    const download = downloadStoredReport as Mock;
+    download.mockImplementation((id: string) => {
+      return new Promise((resolve) => {
+        const done = () =>
+          resolve({
+            blob: new Blob(["{}"], { type: "application/json" }),
+            filename: `${id}.json`,
+            contentType: "application/json",
+            authGeneration: 1,
+          });
+        if (id === "rep-1") resolveA = done;
+        else resolveB = done;
+      });
+    });
+    listReports.mockResolvedValue([
+      makeStored({ id: "rep-1", summary: "Report A" }),
+      makeStored({ id: "rep-2", summary: "Report B" }),
+    ]);
+    renderPage();
+    const downloadA = await screen.findByRole("button", {
+      name: /Download network JSON report generated .*Report A/i,
+    });
+    const downloadB = screen.getByRole("button", {
+      name: /Download network JSON report generated .*Report B/i,
+    });
+    fireEvent.click(downloadA);
+    fireEvent.click(downloadB);
+    await waitFor(() => expect(download).toHaveBeenCalledTimes(2));
+    expect(downloadA).toBeDisabled();
+    expect(downloadB).toBeDisabled();
+    // Same-report cross-action blocked while A download is pending.
+    fireEvent.click(
+      screen.getByRole("button", { name: /Copy Markdown from network JSON report generated .*Report A/i }),
+    );
+    expect(reportDetail).not.toHaveBeenCalled();
+    // Second activation of B remains blocked.
+    fireEvent.click(downloadB);
+    expect(download).toHaveBeenCalledTimes(2);
+    resolveA!();
+    await waitFor(() => expect(downloadA).not.toBeDisabled());
+    expect(downloadB).toBeDisabled();
+    resolveB!();
+    await waitFor(() => expect(downloadB).not.toBeDisabled());
+  });
+
+  it("refuses a second Confirm delete while delete is pending", async () => {
+    let resolveDelete!: () => void;
+    deleteReport.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveDelete = resolve;
+        }),
+    );
+    listReports.mockResolvedValue([makeStored()]);
+    renderPage();
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Delete network JSON report generated/i }),
+    );
+    const confirm = screen.getByRole("button", { name: "Confirm delete" });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    await waitFor(() => expect(deleteReport).toHaveBeenCalledTimes(1));
+    expect(confirm).toBeDisabled();
+    resolveDelete!();
+    await waitFor(() => expect(listReports.mock.calls.length).toBeGreaterThan(1));
+  });
+
+  it("blocks copy while download is pending for the same report", async () => {
+    let resolveDownload!: () => void;
+    (downloadStoredReport as Mock).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveDownload = () =>
+            resolve({
+              blob: new Blob(["{}"], { type: "application/json" }),
+              filename: "report.json",
+              contentType: "application/json",
+              authGeneration: 1,
+            });
+        }),
+    );
+    listReports.mockResolvedValue([makeStored()]);
+    renderPage();
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Download network JSON report generated/i }),
+    );
+    await waitFor(() => expect(downloadStoredReport).toHaveBeenCalledTimes(1));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Copy Markdown from network JSON report generated/i }),
+    );
+    expect(reportDetail).not.toHaveBeenCalled();
+    resolveDownload!();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Download network JSON report generated/i }),
+      ).not.toBeDisabled(),
+    );
+  });
+
   it("returns focus to the empty-state launcher", async () => {
     listReports.mockResolvedValue([]);
     renderPage();

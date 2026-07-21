@@ -19,6 +19,7 @@ import {
   type ContextualReportOptions,
   type ContextualReportTarget,
 } from "@/reports/contextualReportTarget";
+import { getDialogFocusable } from "@/components/reports/dialogFocusable";
 
 const FORMATS: { value: ReportFormat; label: string }[] = [
   { value: "json", label: "JSON" },
@@ -45,15 +46,6 @@ type PreviewState = {
   error: string | null;
   data: Awaited<ReturnType<typeof api.previewReport>> | null;
 };
-
-function getFocusable(container: HTMLElement): HTMLElement[] {
-  const nodes = container.querySelectorAll<HTMLElement>(
-    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
-  );
-  return Array.from(nodes).filter(
-    (el) => !el.hasAttribute("disabled") && el.getAttribute("aria-hidden") !== "true",
-  );
-}
 
 export function ContextualReportDialog({
   target,
@@ -220,7 +212,7 @@ export function ContextualReportDialog({
         return;
       }
       if (event.key !== "Tab") return;
-      const focusable = getFocusable(panel);
+      const focusable = getDialogFocusable(panel);
       if (focusable.length === 0) {
         event.preventDefault();
         return;
@@ -735,7 +727,7 @@ function Segmented<T extends string>({
 }) {
   return (
     <div
-      role="radiogroup"
+      role="group"
       aria-labelledby={groupLabelId}
       aria-label={groupLabel}
       className="flex flex-wrap gap-1.5"
@@ -746,8 +738,7 @@ function Segmented<T extends string>({
           <button
             key={o.value}
             type="button"
-            role="radio"
-            aria-checked={selected}
+            aria-pressed={selected}
             disabled={disabled}
             onClick={() => onChange(o.value)}
             className={`min-h-11 rounded-lg px-4 py-2 text-sm disabled:opacity-50 ${
