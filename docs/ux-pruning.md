@@ -68,12 +68,14 @@ Observed router areas are investigated in Mesh via backend
 `router_neighbourhood_review` cards. They do not imply parentage, current
 routing, or cause.
 
-Phase 6C snapshot workflow:
+Phase 6C snapshot workflow (including route-identity / retained-read corrections):
 
 - Device Detail owns primary snapshot-history comparison (after Device Story)
 - NodeDrawer links to full Device Detail instead of duplicating comparison
 - `/topology` is an Advanced/support landing (no auto-redirect)
 - `/topology/:networkId` is exact raw point-in-time detail with collapsed contents
+- retained snapshots remain readable when capture is disabled
+- landing status is factual (not a healthy “snapshot” badge for every row)
 - whole-network compare remains API/debug-only
 - manual capture remains on the support surfaces
 

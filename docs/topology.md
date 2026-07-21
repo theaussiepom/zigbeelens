@@ -25,6 +25,10 @@ Advanced & support:
 - `/topology` — landing for capture status and per-network raw snapshot entry
 - `/topology/:networkId` — exact point-in-time raw detail (collapsed node/link contents)
 
+`topology.enabled` controls capture/collection posture, not authorization to read
+retained snapshots. When capture is disabled, configured networks and stored
+raw detail remain readable; manual capture actions stay hidden.
+
 Whole-network `GET /api/topology/{network_id}/snapshots/compare` remains an
 API/debug capability, not a current product workflow.
 

@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Phase 6B corrective:** Overview/Network Detail no longer render RouterRisk DiagnosticConclusion cards; Mesh remains the router-area authority via `investigation_priorities` / `router_neighbourhood_review`; manual topology capture encodes the network path segment; investigation actions use contextual accessible names
 - **Phase 6B accessibility:** investigation Focus/Clear/View/Open names use title/summary/evidence context and fail soft with accessible-only `item N of M` suffixes when sibling cards still collide — never throws, never exposes IEEE/card ids, and never duplicates router-area action-group wording
 - **Phase 6C snapshot UX:** Device Detail owns primary Snapshot history after Device Story; NodeDrawer links to full device details without fetching history; `/topology` is an Advanced/support landing; `/topology/:networkId` is exact raw detail with collapsed contents; Overview no longer promotes raw snapshots; whole-network compare remains API/debug-only
+- **Phase 6C corrections:** route params are consumed exactly once; Device Detail path/API segments encode once; retained topology remains readable when capture is disabled; landing cards present truthful latest-snapshot status; Device Detail history loading/failure stays section-local
 
 ### Added
 

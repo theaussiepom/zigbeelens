@@ -729,6 +729,8 @@ Completed: device-led snapshot history is primary on Device Detail; NodeDrawer
 links to full device details; `/topology` is an Advanced/support landing;
 `/topology/:networkId` is exact raw point-in-time detail with collapsed contents;
 whole-network compare remains API/debug-only; manual capture remains.
+Route params are consumed once; retained snapshots stay readable when capture is
+disabled; landing status is factual; Device Detail history load/error is section-local.
 
 ### Phase 6D — Reports UX consolidation
 
