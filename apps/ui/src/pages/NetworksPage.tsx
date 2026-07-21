@@ -19,7 +19,7 @@ import {
 } from "@/components/cards";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
 import { bridgeStateLabel, bridgeStateSeverity, compareDevices } from "@/lib/format";
-import { investigatePath } from "@/lib/routes";
+import { investigatePath, topologySnapshotPath } from "@/lib/routes";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
 import { decisionStatusLabel } from "@/viewModels/decisionCopy";
 
@@ -62,7 +62,7 @@ export function NetworksPage() {
             <NetworkDecisionCard
               key={n.id}
               network={n}
-              topologyEnabled={status?.topology?.enabled ?? false}
+              showRawSnapshotLink={status?.topology?.enabled ?? false}
             />
           ))}
         </div>
@@ -90,7 +90,7 @@ function networkStatusLine(net: NetworkSummary): string {
 
 export function NetworkDetailPage() {
   const { networkId } = useParams();
-  const { scenario } = useScenario();
+  const { scenario, status } = useScenario();
   const s = scenario || undefined;
 
   const net = useLiveResource(() => api.network(networkId!, s), [networkId, scenario], {
@@ -158,12 +158,22 @@ export function NetworkDetailPage() {
         </div>
         <p className="break-all font-mono text-sm text-zl-muted">{n.base_topic}</p>
         <p className="mt-2 text-zl-text">{networkStatusLine(n)}</p>
-        <Link
-          to={investigatePath(n.id)}
-          className="mt-3 inline-flex min-h-11 items-center text-sm text-zl-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
-        >
-          Review this network in Mesh →
-        </Link>
+        <div className="mt-3 flex flex-wrap items-center gap-4">
+          <Link
+            to={investigatePath(n.id)}
+            className="inline-flex min-h-11 items-center text-sm text-zl-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+          >
+            Review this network in Mesh →
+          </Link>
+          {status?.topology?.enabled && (
+            <Link
+              to={topologySnapshotPath(n.id)}
+              className="inline-flex min-h-11 items-center text-sm text-zl-muted hover:text-zl-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+            >
+              Raw snapshot →
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

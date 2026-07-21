@@ -53,7 +53,6 @@ describe("deviceDetailsViewModel", () => {
       "deviceStory",
       "currentStatus",
       "topologyEvidence",
-      "snapshotHistory",
     ]);
   });
 
@@ -146,7 +145,7 @@ describe("deviceDetailsViewModel", () => {
     expect(ids.indexOf("deviceStory")).toBeLessThan(ids.indexOf("topologyEvidence"));
   });
 
-  it("places snapshot history after topology and recent missing sections", () => {
+  it("omits snapshot history from the drawer ViewModel", () => {
     const vm = buildVm(
       makeDevice({
         historical_topology_summary: "Recent missing links were observed.",
@@ -160,14 +159,10 @@ describe("deviceDetailsViewModel", () => {
       "currentStatus",
       "topologyEvidence",
       "recentMissing",
-      "snapshotHistory",
       "passiveHints",
       "openIssue",
     ]);
-    const snapshotHistory = vm.sections.find((section) => section.id === "snapshotHistory");
-    if (snapshotHistory?.id !== "snapshotHistory") return;
-    expect(snapshotHistory.networkId).toBe("home");
-    expect(snapshotHistory.deviceIeee).toBe("0xr1");
+    expect(sectionIds(vm)).not.toContain("snapshotHistory");
   });
 
   it("omits dataCoverage while device coverage is loading", () => {
@@ -205,12 +200,12 @@ describe("deviceDetailsViewModel", () => {
       "unavailable",
     );
     const ids = sectionIds(vm);
-    expect(ids.indexOf("dataCoverage")).toBeGreaterThan(ids.indexOf("snapshotHistory"));
+    expect(ids.indexOf("dataCoverage")).toBeGreaterThan(ids.indexOf("recentMissing"));
     expect(ids.indexOf("dataCoverage")).toBeLessThan(ids.indexOf("passiveHints"));
     expect(ids.indexOf("dataCoverage")).toBeLessThan(ids.indexOf("openIssue"));
   });
 
-  it("includes per-device coverage after snapshot history", () => {
+  it("includes per-device coverage after recent missing when present", () => {
     const coverage: DataCoverageDto[] = [
       {
         dimension: "availability",
@@ -252,7 +247,7 @@ describe("deviceDetailsViewModel", () => {
       "Topology history: 0 of 0 snapshots",
       "HA area: missing",
     ]);
-    expect(ids.indexOf("dataCoverage")).toBeGreaterThan(ids.indexOf("snapshotHistory"));
+    expect(ids.indexOf("dataCoverage")).toBeGreaterThan(ids.indexOf("topologyEvidence"));
     expect(ids.indexOf("dataCoverage")).toBeLessThan(ids.indexOf("passiveHints"));
   });
 });

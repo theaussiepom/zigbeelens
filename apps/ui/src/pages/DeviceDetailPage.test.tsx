@@ -25,6 +25,20 @@ vi.mock("@/lib/api", () => ({
     device: vi.fn(async () => mockState.detail),
     incidents: vi.fn(async () => ({ items: mockState.incidents })),
     deviceStory: vi.fn(async () => mockState.story),
+    topologyDeviceSnapshotHistory: vi.fn(async () => ({
+      network_id: "home",
+      device_ieee: "0xa1",
+      friendly_name: "Kitchen Plug",
+      has_current_issue: false,
+      availability_tracking: { enabled: true, earliest_observation_at: null },
+      latest_snapshot: null,
+      snapshots: [],
+      topology_facts: {
+        stale_threshold_hours: null,
+        device_facts: [],
+        comparison_facts_by_snapshot_id: {},
+      },
+    })),
   },
 }));
 
@@ -47,6 +61,27 @@ vi.mock("@/hooks/useLiveResource", () => ({
             (d) => d.network_id === "home" && d.ieee_address === "0xa1",
           ),
         ),
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+    }
+    if (source.includes("topologyDeviceSnapshotHistory")) {
+      return {
+        data: {
+          network_id: "home",
+          device_ieee: "0xa1",
+          friendly_name: "Kitchen Plug",
+          has_current_issue: false,
+          availability_tracking: { enabled: true, earliest_observation_at: null },
+          latest_snapshot: null,
+          snapshots: [],
+          topology_facts: {
+            stale_threshold_hours: null,
+            device_facts: [],
+            comparison_facts_by_snapshot_id: {},
+          },
+        },
         loading: false,
         error: null,
         refetch: vi.fn(),
@@ -206,6 +241,20 @@ describe("DeviceDetailPage decision authority", () => {
     });
     const story = screen.getByTestId("device-story-section");
     expect(within(story).getByText(/Availability tracking off/i)).toBeInTheDocument();
+  });
+
+  it("places Snapshot history after Device Story and before Current state", async () => {
+    renderDetail();
+    await waitFor(() => {
+      expect(screen.getByTestId("device-snapshot-history")).toBeInTheDocument();
+    });
+    const body = document.body.textContent ?? "";
+    expect(body.indexOf("Device story")).toBeLessThan(body.indexOf("Snapshot history"));
+    expect(body.indexOf("Snapshot history")).toBeLessThan(body.indexOf("Current state"));
+    expect(screen.getByRole("link", { name: /raw snapshot/i })).toHaveAttribute(
+      "href",
+      "/topology/home",
+    );
   });
 
   it("renders data_unavailable through canonical decision copy", () => {

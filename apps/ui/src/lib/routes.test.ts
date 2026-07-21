@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { devicePath } from "@/lib/format";
 import {
   encodeRouteSegment,
   investigatePath,
@@ -63,6 +64,14 @@ describe("routes helpers", () => {
 
   it("does not double-encode already-decoded logical IDs", () => {
     expect(investigatePath("home%20office")).toBe("/investigate/home%2520office");
+    expect(devicePath("home%20office", "0xabc")).toBe("/devices/home%2520office/0xabc");
+  });
+
+  it("encodes both Device Detail path segments exactly once", () => {
+    expect(devicePath("Home Office", "0xabc")).toBe("/devices/Home%20Office/0xabc");
+    expect(devicePath("home#2", "0xabc")).toBe("/devices/home%232/0xabc");
+    expect(devicePath("50%mesh", "0xabc")).toBe("/devices/50%25mesh/0xabc");
+    expect(devicePath("home", "0xab/cd")).toBe(`/devices/home/${encodeURIComponent("0xab/cd")}`);
   });
 
   it("keeps /topology/:networkId/graph only in compatibility routing/tests", () => {

@@ -7,7 +7,35 @@ ZigbeeLens can capture **point-in-time Zigbee2MQTT network map snapshots** to en
 - Ask Zigbee2MQTT for a network map via the single allowed request topic: `{base_topic}/bridge/request/networkmap`
 - Store a redacted snapshot with nodes, links, and counts
 - Enrich router risk and correlated incident evidence
-- Show snapshot status in the Topology page and Settings
+- Show snapshot status in Advanced Topology snapshots support and Settings
+
+## Product surfaces
+
+Primary comparison workflow:
+
+1. Devices → Device Detail
+2. Device Story
+3. Snapshot history (compare an earlier usable snapshot with the latest usable snapshot)
+
+Mesh NodeDrawer remains a compact inspector and links to full Device Detail
+instead of duplicating snapshot-history comparison.
+
+Advanced & support:
+
+- `/topology` — landing for capture status and per-network raw snapshot entry
+- `/topology/:networkId` — exact point-in-time raw detail (collapsed node/link contents)
+
+`topology.enabled` controls capture/collection posture, not authorization to read
+retained snapshots. When capture is disabled, configured networks and stored
+raw detail remain readable; manual capture actions stay hidden (UI requires both
+`topology.enabled` and `manual_capture_enabled`).
+
+Background `topology_updated` refresh failures keep the last accepted Device
+Detail snapshot history and `/topology/:networkId` raw detail visible, with a
+non-blocking retry notice.
+
+Whole-network `GET /api/topology/{network_id}/snapshots/compare` remains an
+API/debug capability, not a current product workflow.
 
 ## Default behaviour
 

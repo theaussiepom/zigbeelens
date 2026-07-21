@@ -29,6 +29,9 @@ describe("TopologyPage disabled", () => {
         <TopologyPage />
       </MemoryRouter>,
     );
-    expect(screen.getByText("Topology disabled")).toBeInTheDocument();
+    expect(screen.getByText("Topology capture disabled")).toBeInTheDocument();
+    expect(
+      screen.getByText(/retained snapshots remain readable as support evidence/i),
+    ).toBeInTheDocument();
   });
 });

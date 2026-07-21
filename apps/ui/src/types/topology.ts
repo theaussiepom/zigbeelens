@@ -3,6 +3,19 @@
 import type { DeviceDiagnosticStats, DeviceStatsWindow } from "@/types/devices";
 import type { TopologyNetworkFactsDto } from "@/types/decisions";
 
+export interface TopologySnapshotSummary {
+  snapshot_id: string;
+  /** Present on network-detail payloads; overview rows may omit it. */
+  network_id?: string;
+  captured_at?: string | null;
+  requested_by?: string | null;
+  status?: string | null;
+  router_count?: number | null;
+  end_device_count?: number | null;
+  link_count?: number | null;
+  error?: string | null;
+}
+
 export interface TopologyOverview {
   enabled: boolean;
   manual_capture_enabled: boolean;
@@ -12,26 +25,8 @@ export interface TopologyOverview {
   networks: Array<{
     network_id: string;
     network_name: string;
-    latest_snapshot?: {
-      snapshot_id: string;
-      captured_at: string;
-      router_count: number;
-      link_count: number;
-      end_device_count: number;
-    } | null;
+    latest_snapshot?: TopologySnapshotSummary | null;
   }>;
-}
-
-export interface TopologySnapshotSummary {
-  snapshot_id: string;
-  network_id: string;
-  captured_at?: string | null;
-  requested_by?: string | null;
-  status?: string | null;
-  router_count?: number | null;
-  end_device_count?: number | null;
-  link_count?: number | null;
-  error?: string | null;
 }
 
 export interface TopologyNodeRow {
