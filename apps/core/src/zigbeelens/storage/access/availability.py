@@ -42,8 +42,22 @@ class AvailabilityRepository:
     ) -> list[dict[str, Any]]:
         return self._repo.list_availability_changes_since(network_id, since_iso)
 
+    def list_availability_offline_transitions_since(
+        self, network_id: str, since_iso: str
+    ) -> list[dict[str, Any]]:
+        return self._repo.list_availability_offline_transitions_since(
+            network_id, since_iso
+        )
+
     def list_availability_changes_for_networks_since(self, network_ids, since_iso: str):
         return self._repo.list_availability_changes_for_networks_since(network_ids, since_iso)
+
+    def list_availability_offline_transitions_for_networks_since(
+        self, network_ids, since_iso: str
+    ):
+        return self._repo.list_availability_offline_transitions_for_networks_since(
+            network_ids, since_iso
+        )
 
     def get_earliest_availability_change_at_for_networks(self, network_ids):
         return self._repo.get_earliest_availability_change_at_for_networks(network_ids)

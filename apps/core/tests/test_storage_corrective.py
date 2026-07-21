@@ -210,7 +210,7 @@ def test_dry_run_does_not_migrate_or_mutate(tmp_path: Path, capsys):
     db = Database(db_path)
     db.migrate()
     # Downgrade recorded version to prove dry-run refuses without migrating.
-    db.conn.execute("DELETE FROM schema_migrations WHERE version = 12")
+    db.conn.execute("DELETE FROM schema_migrations WHERE version >= 12")
     db.conn.commit()
     db.migration_version = 11
     db.close()
@@ -237,7 +237,7 @@ storage:
     payload = __import__("json").loads(capsys.readouterr().out)
     assert payload["error_code"] == "schema_too_old"
     assert hashlib.sha256(db_path.read_bytes()).hexdigest() == before
-    # Ensure version 12 was not applied.
+    # Ensure versions 12+ were not applied.
     ro = ReadOnlyDatabase(db_path)
     assert ro.migration_version == 11
     ro.close()

@@ -167,7 +167,7 @@ def test_pre_track6_upgrade_preserves_reports_and_active_incidents(tmp_path: Pat
     assert db.migration_version == 11
 
     # Upgrade path: migration 012, integrity, default Track 6 maintenance.
-    assert db.migrate() == 12
+    assert db.migrate() == 13
     quick_check(db)
     foreign_key_check(db)
     cfg = AppConfig(

@@ -357,21 +357,28 @@ def load_device_snapshot_history_network_context(
     devices: list | None = None,
 ) -> DeviceSnapshotHistoryNetworkContext:
     """Load network-scoped snapshot-history evidence once for a network."""
-    snapshot_rows = (
-        snapshots if snapshots is not None else repo.list_topology_snapshots(network_id)
-    )
-    usable = [
-        snapshot
-        for snapshot in snapshot_rows
-        if snapshot.get("status") == "complete"
-    ][:max_snapshots]
+    if snapshots is not None:
+        usable = [
+            snapshot
+            for snapshot in snapshots
+            if snapshot.get("status") == "complete"
+        ][:max_snapshots]
+    else:
+        usable = list(
+            repo.list_complete_topology_snapshots(network_id, limit=max_snapshots)
+        )
     resolved_links: dict[str, list[dict[str, Any]]] = {}
+    missing_link_ids: list[str] = []
     for snapshot in usable:
         snapshot_id = str(snapshot["snapshot_id"])
         if links_by_snapshot_id is not None and snapshot_id in links_by_snapshot_id:
             resolved_links[snapshot_id] = links_by_snapshot_id[snapshot_id]
         else:
-            resolved_links[snapshot_id] = list(repo.list_topology_links(snapshot_id))
+            missing_link_ids.append(snapshot_id)
+    if missing_link_ids:
+        bulk_links = repo.list_topology_links_for_snapshots(missing_link_ids)
+        for snapshot_id in missing_link_ids:
+            resolved_links[snapshot_id] = list(bulk_links.get(snapshot_id, []))
     if earliest_availability_supplied:
         resolved_earliest = earliest_availability_at  # may be None
     else:

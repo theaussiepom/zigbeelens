@@ -34,7 +34,7 @@ from typing import Mapping
 from zigbeelens.config.models import AppConfig, StorageConfig, TopologyConfig
 
 POLICY_VERSION = 2
-CURRENT_SCHEMA_VERSION = 12
+CURRENT_SCHEMA_VERSION = 13
 MAINTENANCE_BATCH_SIZE = 500
 # Active topology capture excludes at most one pending ID; terminalization adds
 # at most one batch. Topology selector NOT IN lists must stay within this bound.

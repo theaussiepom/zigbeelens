@@ -119,7 +119,9 @@ def _instability_events(
     rows = (
         list(availability_rows)
         if availability_rows is not None
-        else repo.availability.list_availability_changes_since(network_id, cutoff_iso)
+        else repo.availability.list_availability_offline_transitions_since(
+            network_id, cutoff_iso
+        )
     )
     # Rows are oldest-first; walk newest-first so the per-device cap keeps
     # the most recent events.

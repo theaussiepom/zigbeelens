@@ -56,8 +56,16 @@ class TopologyRepository:
     def get_latest_topology_snapshot(self, network_id: str) -> dict[str, Any] | None:
         return self._repo.get_latest_topology_snapshot(network_id)
 
+    def get_latest_topology_snapshots_for_networks(self, network_ids):
+        return self._repo.get_latest_topology_snapshots_for_networks(network_ids)
+
     def list_topology_snapshots(self, network_id: str) -> list[dict[str, Any]]:
         return self._repo.list_topology_snapshots(network_id)
+
+    def list_complete_topology_snapshots(
+        self, network_id: str, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        return self._repo.list_complete_topology_snapshots(network_id, limit=limit)
 
     def get_topology_snapshot(
         self, network_id: str, snapshot_id: str

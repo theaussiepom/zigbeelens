@@ -34,7 +34,7 @@ def test_migrations_idempotent(tmp_path: Path):
     db = Database(db_path)
     version1 = db.migrate()
     version2 = db.migrate()
-    assert version1 == version2 == 12
+    assert version1 == version2 == 13
 
     tables = {
         row[0]
@@ -153,7 +153,7 @@ def test_upgrade_v10_to_v11_incident_networks_backfill(tmp_path: Path):
         )
     }
 
-    assert db.migrate() == 12
+    assert db.migrate() == 13
     assert "incident_networks" in {
         row[0]
         for row in db.conn.execute(
@@ -189,11 +189,11 @@ def test_upgrade_v10_to_v11_incident_networks_backfill(tmp_path: Path):
     assert after == before
 
     # Idempotent migrate + Python multi-network backfill retry path.
-    assert db.migrate() == 12
+    assert db.migrate() == 13
     assert networks_for("inc-multi") == ["home", "home2"]
     assert networks_for("inc-unprovable") == []
     count = db.conn.execute("SELECT COUNT(*) FROM incident_networks").fetchone()[0]
-    assert db.migrate() == 12
+    assert db.migrate() == 13
     assert db.conn.execute("SELECT COUNT(*) FROM incident_networks").fetchone()[0] == count
     db.close()
 
@@ -250,7 +250,7 @@ def test_friendly_name_not_globally_unique(tmp_path: Path):
 
 def test_composition_read_indexes_exist(tmp_path: Path):
     db = Database(tmp_path / "indexes.sqlite")
-    assert db.migrate() == 12
+    assert db.migrate() == 13
     indexes = {
         row[0]
         for row in db.conn.execute(
@@ -262,9 +262,58 @@ def test_composition_read_indexes_exist(tmp_path: Path):
     assert "idx_incident_devices_device" in indexes
     assert "idx_incidents_collection_order" in indexes
     assert "idx_incidents_lifecycle" in indexes
+    assert "idx_incidents_recent_order" in indexes
+    assert "idx_topology_snapshots_latest_complete" in indexes
+    assert "idx_topology_links_snapshot_source" not in indexes
+    assert "idx_topology_links_snapshot_target" not in indexes
+    assert "idx_metric_samples_device_time" in indexes
+    assert "idx_availability_changes_offline_since" in indexes
     assert "idx_events_retention" in indexes
     assert "idx_metric_samples_retention" in indexes
     assert "idx_incidents_resolved_retention" in indexes
     assert "idx_topology_snapshots_retention" in indexes
     assert "idx_incident_networks_network" in indexes
+    db.close()
+
+
+def test_upgrade_v12_to_v13_query_performance_indexes(tmp_path: Path):
+    """Real schema-version-12 → 13 upgrade adds Phase 7A indexes only."""
+    import sqlite3
+
+    db = Database(tmp_path / "v12_upgrade.sqlite")
+    _apply_migrations_through(db, 12)
+    assert db.migration_version == 12
+    before = {
+        row[0]
+        for row in db.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+        ).fetchall()
+    }
+    assert "idx_incidents_recent_order" not in before
+    assert db.migrate() == 13
+    after = {
+        row[0]
+        for row in db.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+        ).fetchall()
+    }
+    for name in (
+        "idx_incidents_recent_order",
+        "idx_topology_snapshots_latest_complete",
+        "idx_metric_samples_device_time",
+        "idx_availability_changes_offline_since",
+    ):
+        assert name in after
+    assert "idx_topology_links_snapshot_source" not in after
+    assert "idx_topology_links_snapshot_target" not in after
+    assert db.conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+    assert db.conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert db.migrate() == 13
+    # Migration 013 uses only features available since SQLite 3.25+/3.34.1
+    # (CREATE INDEX IF NOT EXISTS; no generated columns / table rebuilds).
+    runtime = sqlite3.sqlite_version_info
+    assert runtime >= (3, 34, 1), runtime
+    sql_013 = (Path(__file__).resolve().parents[1] / "src/zigbeelens/db/migrations/013_query_performance_indexes.sql").read_text()
+    for banned in ("GENERATED ALWAYS", "STRICT", "RETURNING", "unixepoch("):
+        assert banned not in sql_013
     db.close()
