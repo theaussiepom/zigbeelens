@@ -130,7 +130,7 @@ Frozen pre-Phase-7A tip. Execute/commit cardinalities match Phase 7A; top-repeat
 
 ## Phase 7A total baseline table
 
-Current tip after query bounds, additive `order=recent`, topology bulk latest reads, and migration `013_query_performance_indexes.sql`. No wall-clock budget.
+Current tip after final Phase 7A bounded production paths: indexed latest-topology seeks, row-bounded device snapshot-history, additive `order=recent`, History-scale full/network report measurements, and migration `013_query_performance_indexes.sql`. Distinguish from Track 5 (historical tip) and the initial Phase 7A attempt that still used history-wide `ROW_NUMBER` latest-snapshot windows. No wall-clock budget.
 
 | Operation | Fixture | State | Executes | Executemany | Commits | Rollbacks | Other | Top repeated category |
 |---|---|---|---:|---:|---:|---:|---:|---|
@@ -153,10 +153,13 @@ Current tip after query bounds, additive `order=recent`, topology bulk latest re
 | Device report preview | history | warm | 29 | 0 | 0 | 0 | 0 | read.devices (4) |
 | Full report preview | compact | warm | 29 | 0 | 0 | 0 | 0 | read.schema (4) |
 | Full report preview | beast | warm | 32 | 0 | 0 | 0 | 0 | read.schema (5) |
+| Full report preview | history | warm | 40 | 0 | 0 | 0 | 0 | read.events (5) |
 | Incident report preview | compact | warm | 40 | 0 | 0 | 0 | 0 | read.availability_changes (6) |
 | Incident report preview | history | warm | 40 | 0 | 0 | 0 | 0 | read.availability_changes (6) |
 | Network report preview | compact | warm | 29 | 0 | 0 | 0 | 0 | read.schema (4) |
 | Network report preview | beast | warm | 29 | 0 | 0 | 0 | 0 | read.schema (4) |
+| Network report preview | history | warm | 39 | 0 | 0 | 0 | 0 | read.events (5) |
+
 
 ## Track 3G total baseline table (historical)
 
@@ -318,19 +321,21 @@ No page class above may contain `USE TEMP B-TREE FOR ORDER BY`.
 | Area | Result |
 |---|---|
 | PR #83 recent changes | Overview uses `order=recent`; true `updated_at DESC, id DESC` page |
-| Recent index | `idx_incidents_recent_order` selected; no TEMP B-TREE on recent first page |
-| Topology overview | `get_latest_topology_snapshots_for_networks`; 2-vs-40 networks same chunk cost |
-| Snapshot history | SQL-limited complete snapshots + bulk links; 10-vs-30 retained same query count |
-| Topology link indexes | rejected — PK autoindex selected by EXPLAIN |
+| Recent index | `idx_incidents_recent_order` selected; no TEMP B-TREE on recent first/cursor/`updated_after` |
+| Latest topology | per-network indexed seek (`idx_topology_snapshots_latest_complete`); no history-wide `ROW_NUMBER`; 1-vs-1000 snapshots and 2-vs-40 networks same statement count within a chunk |
+| Device snapshot history | exact endpoint SQL-limits `MAX_SNAPSHOT_HISTORY` complete rows + target-device links for those IDs; 10/30/300 retained row volume plateaus; dense unrelated links do not inflate target reads |
+| Topology link indexes | rejected — PK autoindex selected by EXPLAIN on dense snapshots |
 | Metrics | `ORDER BY sampled_at DESC, id DESC` + `idx_metric_samples_device_time` |
 | Availability grouping | offline-only SQL path for `_instability_events`; `idx_availability_changes_offline_since` |
-| Reports | Compact/Beast/History execute totals unchanged vs Track 5; no new N+1 |
-| Ingestion | MQTT ingestion execute/commit baselines unchanged |
-| Migration | `013` index-only; v12→v13; SQLite 3.34.1-compatible |
+| Reports | Compact/Beast unchanged vs Track 5; History full/network ops added (`report_full_history`=40, `report_network_history`=39); no per-incident/device N+1 |
+| Cursors | encode/decode accept only exact `int` versions `{1,2}`; v1 lifecycle tokens byte-stable |
+| Ingestion | MQTT ingestion execute/commit baselines unchanged; post-commit latest-topology SQL shape updated to indexed seek |
+| Migration | `013` index-only; v12→v13; runtime-smoked on SQLite **3.34.1** |
 
 ## Track 5 → Phase 7A execute comparison
 
-Execute totals are unchanged from Track 5 for every measured operation. Phase 7A changes are plan/shape correctness and additive query modes, not cardinality regressions.
+Shared Track 5 operations keep the same execute/commit cardinalities. Phase 7A adds History-scale full/network report measurements and replaces history-wide latest-snapshot window SQL with indexed seeks (same execute counts on beast ingestion post-commit paths). Initial Phase 7A tip that still used `ROW_NUMBER` over retained snapshot history is superseded by this final bounded tip.
+
 
 ## Top repeated normalized statement shapes
 
@@ -346,7 +351,8 @@ Execute totals are unchanged from Track 5 for every measured operation. Phase 7A
 - 9× `WITH selected AS ( SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ? ) SELECT s.id, s.incident_type, s.lifecycle_state, s.severity, s.scope, s.confidence, s.title, s.summary, s.explanation, s.evidence_json, s.counter_evidence_json, s.limitations_json, s.opened_at, s.updated_at, s.resolved_at, s.dedup_key, n.network_id FROM selected s LEFT JOIN incident_networks n ON n.incident_id = s.id ORDER BY n.network_id`
 - 9× `INSERT INTO incident_devices (incident_id, network_id, ieee_address, role) VALUES (?)`
 - 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM ( SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error, ROW_NUMBER() OVER ( PARTITION BY network_id ORDER BY captured_at DESC, snapshot_id DESC ) AS rn FROM topology_snapshots WHERE network_id IN (?) AND status = ? ) ranked WHERE rn = ?`
+- 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC, snapshot_id DESC LIMIT ?`
+
 
 
 ### dashboard
@@ -437,8 +443,9 @@ Execute totals are unchanged from Track 5 for every measured operation. Phase 7A
 - 9× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ? ORDER BY network_id, ieee_address, role`
 - 9× `WITH selected AS ( SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ? ) SELECT s.id, s.incident_type, s.lifecycle_state, s.severity, s.scope, s.confidence, s.title, s.summary, s.explanation, s.evidence_json, s.counter_evidence_json, s.limitations_json, s.opened_at, s.updated_at, s.resolved_at, s.dedup_key, n.network_id FROM selected s LEFT JOIN incident_networks n ON n.incident_id = s.id ORDER BY n.network_id`
 - 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM ( SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error, ROW_NUMBER() OVER ( PARTITION BY network_id ORDER BY captured_at DESC, snapshot_id DESC ) AS rn FROM topology_snapshots WHERE network_id IN (?) AND status = ? ) ranked WHERE rn = ?`
+- 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC, snapshot_id DESC LIMIT ?`
 - 3× `SELECT friendly_name FROM topology_nodes WHERE snapshot_id = ? AND ieee_address = ?`
+
 
 
 ### report_device
@@ -469,6 +476,13 @@ Execute totals are unchanged from Track 5 for every measured operation. Phase 7A
 - 2× `SELECT coordinator_ieee, channel, pan_id, extended_pan_id, payload_json, captured_at FROM bridge_snapshots WHERE network_id = ? ORDER BY captured_at DESC LIMIT ?`
 - 2× `SELECT COUNT(*) FROM topology_snapshots WHERE network_id IN (?)`
 
+### report_full_history
+- 4× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id IN (?) ORDER BY incident_id, network_id, ieee_address, role`
+- 4× `SELECT incident_id, network_id FROM incident_networks WHERE incident_id IN (?) ORDER BY incident_id, network_id`
+- 4× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 4× `SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at FROM ( SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at, ROW_NUMBER() OVER ( PARTITION BY incident_id ORDER BY occurred_at DESC, id DESC ) AS rn FROM events WHERE incident_id IN (?) ) WHERE rn <= ? ORDER BY incident_id, occurred_at DESC, id DESC`
+- 3× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
+
 ### report_incident
 - 4× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 3× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
@@ -477,12 +491,14 @@ Execute totals are unchanged from Track 5 for every measured operation. Phase 7A
 - 2× `SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE id = ?`
 
 
+
 ### report_incident_history
 - 4× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 3× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
 - 3× `SELECT metric_name, metric_value, sampled_at FROM metric_samples WHERE network_id = ? AND ieee_address = ? ORDER BY sampled_at DESC, id DESC LIMIT ?`
 - 3× `SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at FROM events WHERE network_id = ? AND ieee_address = ? ORDER BY occurred_at DESC, id DESC LIMIT ?`
 - 2× `SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE id = ?`
+
 
 
 ### report_network
@@ -498,6 +514,13 @@ Execute totals are unchanged from Track 5 for every measured operation. Phase 7A
 - 1× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
 - 1× `SELECT COUNT(*) FROM devices`
 - 1× `SELECT id, name, base_topic, bridge_state FROM networks WHERE id = ?`
+
+### report_network_history
+- 4× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id IN (?) ORDER BY incident_id, network_id, ieee_address, role`
+- 4× `SELECT incident_id, network_id FROM incident_networks WHERE incident_id IN (?) ORDER BY incident_id, network_id`
+- 4× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 4× `SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at FROM ( SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at, ROW_NUMBER() OVER ( PARTITION BY incident_id ORDER BY occurred_at DESC, id DESC ) AS rn FROM events WHERE incident_id IN (?) ) WHERE rn <= ? ORDER BY incident_id, occurred_at DESC, id DESC`
+- 2× `SELECT COUNT(*) FROM topology_snapshots WHERE network_id IN (?)`
 
 ## Track 3F corrective hot-path incident_networks
 

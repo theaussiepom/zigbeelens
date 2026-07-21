@@ -1316,8 +1316,14 @@ TRACK_5_EXPECTED_BASELINES: dict[str, dict[str, object]] = json.loads(r'''{
 }''')
 
 
-# Phase 7A tip read execute totals (same cardinalities as Track 5; SQL shapes updated).
-PHASE_7A_READ_EXECUTE_TOTALS: dict[str, int] = dict(TRACK_5_READ_EXECUTE_TOTALS)
+# Phase 7A tip read execute totals.
+# Track 5 cardinalities retained for shared ops; History full/network report ops added.
+PHASE_7A_READ_EXECUTE_TOTALS: dict[str, int] = {
+    **TRACK_5_READ_EXECUTE_TOTALS,
+    "report_full_history": 40,
+    "report_network_history": 39,
+}
+
 
 # Phase 7A exact snapshot overrides vs frozen Track 5 (statement text / plan shape).
 PHASE_7A_BASELINE_OVERRIDES: dict[str, dict[str, object]] = json.loads(r'''{
@@ -1368,7 +1374,7 @@ PHASE_7A_BASELINE_OVERRIDES: dict[str, dict[str, object]] = json.loads(r'''{
         "count": 5
       },
       {
-        "statement": "SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM ( SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error, ROW_NUMBER() OVER ( PARTITION BY network_id ORDER BY captured_at DESC, snapshot_id DESC ) AS rn FROM topology_snapshots WHERE network_id IN (?) AND status = ? ) ranked WHERE rn = ?",
+        "statement": "SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC, snapshot_id DESC LIMIT ?",
         "count": 3
       }
     ]
@@ -1414,11 +1420,57 @@ PHASE_7A_BASELINE_OVERRIDES: dict[str, dict[str, object]] = json.loads(r'''{
         "count": 5
       },
       {
-        "statement": "SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM ( SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error, ROW_NUMBER() OVER ( PARTITION BY network_id ORDER BY captured_at DESC, snapshot_id DESC ) AS rn FROM topology_snapshots WHERE network_id IN (?) AND status = ? ) ranked WHERE rn = ?",
+        "statement": "SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC, snapshot_id DESC LIMIT ?",
         "count": 3
       },
       {
         "statement": "SELECT friendly_name FROM topology_nodes WHERE snapshot_id = ? AND ieee_address = ?",
+        "count": 3
+      }
+    ]
+  },
+  "report_full_history": {
+    "fixture": "history",
+    "state": "warm",
+    "execute_count": 40,
+    "executemany_count": 0,
+    "commit_count": 0,
+    "rollback_count": 0,
+    "category_counts": {
+      "read.networks": 3,
+      "read.devices": 3,
+      "read.incidents": 2,
+      "read.incident_devices": 4,
+      "read.incident_networks": 4,
+      "read.topology_snapshots": 3,
+      "read.topology_links": 1,
+      "read.topology_nodes": 1,
+      "read.availability_changes": 3,
+      "read.schema": 4,
+      "read.ha_enrichment": 4,
+      "read.device_snapshots": 1,
+      "read.events": 5,
+      "read.bridge_snapshots": 2
+    },
+    "top_repeated_statements": [
+      {
+        "statement": "SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id IN (?) ORDER BY incident_id, network_id, ieee_address, role",
+        "count": 4
+      },
+      {
+        "statement": "SELECT incident_id, network_id FROM incident_networks WHERE incident_id IN (?) ORDER BY incident_id, network_id",
+        "count": 4
+      },
+      {
+        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
+        "count": 4
+      },
+      {
+        "statement": "SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at FROM ( SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at, ROW_NUMBER() OVER ( PARTITION BY incident_id ORDER BY occurred_at DESC, id DESC ) AS rn FROM events WHERE incident_id IN (?) ) WHERE rn <= ? ORDER BY incident_id, occurred_at DESC, id DESC",
+        "count": 4
+      },
+      {
+        "statement": "SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name",
         "count": 3
       }
     ]
@@ -1513,6 +1565,52 @@ PHASE_7A_BASELINE_OVERRIDES: dict[str, dict[str, object]] = json.loads(r'''{
       },
       {
         "statement": "SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE id = ?",
+        "count": 2
+      }
+    ]
+  },
+  "report_network_history": {
+    "fixture": "history",
+    "state": "warm",
+    "execute_count": 39,
+    "executemany_count": 0,
+    "commit_count": 0,
+    "rollback_count": 0,
+    "category_counts": {
+      "read.networks": 3,
+      "read.devices": 3,
+      "read.incidents": 2,
+      "read.incident_devices": 4,
+      "read.incident_networks": 4,
+      "read.topology_snapshots": 3,
+      "read.topology_links": 1,
+      "read.topology_nodes": 1,
+      "read.availability_changes": 3,
+      "read.schema": 4,
+      "read.ha_enrichment": 4,
+      "read.device_snapshots": 1,
+      "read.events": 5,
+      "read.bridge_snapshots": 1
+    },
+    "top_repeated_statements": [
+      {
+        "statement": "SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id IN (?) ORDER BY incident_id, network_id, ieee_address, role",
+        "count": 4
+      },
+      {
+        "statement": "SELECT incident_id, network_id FROM incident_networks WHERE incident_id IN (?) ORDER BY incident_id, network_id",
+        "count": 4
+      },
+      {
+        "statement": "SELECT ? FROM sqlite_master WHERE type=? AND name=?",
+        "count": 4
+      },
+      {
+        "statement": "SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at FROM ( SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at, ROW_NUMBER() OVER ( PARTITION BY incident_id ORDER BY occurred_at DESC, id DESC ) AS rn FROM events WHERE incident_id IN (?) ) WHERE rn <= ? ORDER BY incident_id, occurred_at DESC, id DESC",
+        "count": 4
+      },
+      {
+        "statement": "SELECT COUNT(*) FROM topology_snapshots WHERE network_id IN (?)",
         "count": 2
       }
     ]

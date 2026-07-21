@@ -1,65 +1,86 @@
-# Phase 7A investigation — pre-change measurement
+# Phase 7A investigation — measurement and final disposition
 
-Recorded before production query changes on branch `perf/release-query-bounds`.
+Branch `perf/release-query-bounds`. Distinguishes:
+
+1. **Track 5 historical** — frozen tip before Phase 7A;
+2. **Initial Phase 7A attempt** — bulk latest-complete via history-wide `ROW_NUMBER`, statement-count device-history claims;
+3. **Final Phase 7A bounded production paths** — indexed latest seeks, row/link-bounded device history, History full/network report ops, strict cursor versions, SQLite 3.34.1 runtime smoke.
 
 ## Environment
 
 | Item | Value |
 |---|---|
 | Command | `cd apps/core && uv run pytest -q tests/performance` |
-| Result | **47 passed** |
-| Python | 3.14.5 |
-| Host SQLite | 3.53.2 |
-| Base HEAD | `4595edd22e3a0cc8fba236493b0f2cbe995b9728` (Phase 6D merge of tip `125f94b`) |
+| Python | 3.14.x (host) |
+| Host SQLite | 3.53.x |
+| Smoke SQLite | **3.34.1** via `python:3.12-slim-bullseye` |
+| Phase 7A merge base | `4595edd22e3a0cc8fba236493b0f2cbe995b9728` |
 
-## Candidates
+## Candidates and final disposition
 
-### 1. Overview recent changes (PR #83)
+### 1. Overview recent changes (PR #83) — retained
 
-- **Fault:** `/api/incidents?updated_after=…&limit=50` uses lifecycle-ranked order, so newer watching/resolved updates can be omitted when ≥50 older open incidents match the filter.
-- **Fixture:** >50 open incidents updated after cutoff, older than newer watching/resolved rows; equal `updated_at` ties; multi-page estate.
-- **Correction:** additive `order=recent` (`updated_at DESC, id DESC`) with separate recent cursor; Overview passes `order=recent`.
-- **Invariants:** default lifecycle order unchanged; lifecycle cursors byte-compatible; no Python page sort; keyset pagination only.
+- Additive `order=recent` (`updated_at DESC, id DESC`); Overview passes `order=recent`.
+- Default lifecycle order unchanged; lifecycle v1 cursors byte-compatible.
+- Cursor versions must be exact `int` in `{1, 2}` (reject bool/float/str/null).
 
-### 2. Topology overview N+1
+### 2. Latest topology — final: indexed seek
 
-- **Fault:** `_network_summaries` / `topology_status_dict` call `get_latest_topology_snapshot` once per network.
-- **Correction:** `get_latest_topology_snapshots_for_networks` (chunked, one `_has_table` check).
-- **Invariants:** complete-only latest semantics; network order; payload shape.
+- **Initial 7A:** one chunked statement with `ROW_NUMBER() OVER (PARTITION BY network_id …)` over all complete snapshots for requested IDs (still proportional to retained history).
+- **Final 7A:** `WITH requested(network_id) AS (VALUES …)` + correlated `ORDER BY captured_at DESC, snapshot_id DESC LIMIT 1` seek per network; single-network method restored to the same indexed `LIMIT 1` query.
+- Proofs: 1-vs-1000 retained snapshots same statement count; 2-vs-40 networks same chunk statement count; EXPLAIN selects `idx_topology_snapshots_latest_complete`; no TEMP B-TREE; no `ROW_NUMBER`.
 
-### 3. Device snapshot history
+### 3. Device snapshot history — final: row/link bounded endpoint
 
-- **Fault:** load all snapshots then slice; one `list_topology_links` per usable snapshot when links not preloaded.
-- **Correction:** SQL-limited complete snapshots + bulk links for selected IDs.
-- **Invariants:** `MAX_SNAPSHOT_HISTORY` window; topology facts parity.
+- Exact entry point: `build_device_snapshot_history_response`.
+- Loads at most `MAX_SNAPSHOT_HISTORY` complete snapshots; comparison links only for those IDs (target-device scoped); latest nodes/links once.
+- Instrumentation records snapshot/link/node row volumes; 10/30/300 retained proofs; dense unrelated links do not inflate target reads.
+- Full response parity retained including coded `topology_facts`.
 
-### 4. Topology link source/target plans
+### 4. Topology link source/target indexes — rejected
 
-- **Candidate indexes:** `(snapshot_id, source_ieee)`, `(snapshot_id, target_ieee)`.
-- **Gate:** add only when production EXPLAIN selects them without TEMP B-TREE / full scan.
+- Dense-snapshot EXPLAIN still prefers PK autoindex.
+- Write/storage cost not justified while planner ignores candidates.
 
-### 5. Metric sample window
+### 5. Metric sample window — retained
 
-- **Fault risk:** mixed-metric newest-N without deterministic `id` tie-break; name-leading index may not cover the query.
-- **Correction:** `ORDER BY sampled_at DESC, id DESC`; device-time index only if EXPLAIN requires it.
+- `ORDER BY sampled_at DESC, id DESC` + `idx_metric_samples_device_time`.
 
-### 6. Shared availability grouping
+### 6. Shared availability grouping — retained
 
-- **Finding:** `_instability_events` consumes only `to_state = 'offline'`.
-- **Correction:** dedicated offline-transition SQL read for the default path; model-pattern / other consumers keep full transitions.
-- **Invariants:** no arbitrary count cap; lookback unchanged.
+- Offline-transition SQL for `_instability_events` + `idx_availability_changes_offline_since`.
 
-### 7. Reports
+### 7. Reports — History full/network measured
 
-- Measure Compact/Beast/History scopes for N+1 and configured SQL limits; do not shrink ReportDetailV3 contents.
+| Operation | Fixture | Executes | Commits |
+|---|---|---:|---:|
+| `report_full_history` | history | 40 | 0 |
+| `report_network_history` | history | 39 | 0 |
+| `report_incident_history` | history | 40 | 0 |
+| `report_device_history` | history | 29 | 0 |
 
-## Index disposition
+No per-incident / per-device query loops; timeline/metrics/availability remain SQL-limited. History fixture syncs/warms the office network so full-estate composition maps every device.
+
+## Index disposition (migration 013)
 
 | Index | Disposition |
 |---|---|
 | `idx_incidents_recent_order` | **required** — recent first page / cursor / `updated_after` |
-| `idx_topology_snapshots_latest_complete` | **required** — bulk latest-complete |
+| `idx_topology_snapshots_latest_complete` | **required** — indexed latest-complete seek |
 | `idx_metric_samples_device_time` | **required** — mixed-metric newest-N |
 | `idx_availability_changes_offline_since` | **required** — offline lookback |
-| `idx_topology_links_snapshot_source` | **rejected** — PK `(snapshot_id, source_ieee, target_ieee)` already covers |
-| `idx_topology_links_snapshot_target` | **rejected** — production EXPLAIN prefers PK prefix on `snapshot_id` |
+| `idx_topology_links_snapshot_source` | **rejected** — PK sufficient / planner ignores |
+| `idx_topology_links_snapshot_target` | **rejected** — PK sufficient / planner ignores |
+
+## SQLite 3.34.1 smoke
+
+Runtime proof (not host-version assertion alone):
+
+- v12 → v13 migration + rerun;
+- `PRAGMA quick_check` / `foreign_key_check`;
+- recent incident first/cursor page;
+- bulk latest topology query;
+- metric window;
+- offline-transition query.
+
+See `tests/performance/test_sqlite_3_34_1_smoke.py` evidence and Docker smoke output.
