@@ -121,10 +121,11 @@ export function DeviceDecisionCard({ device }: { device: DeviceSummary }) {
 
 export function NetworkDecisionCard({
   network,
-  topologyEnabled = false,
+  showRawSnapshotLink = false,
 }: {
   network: NetworkSummary;
-  topologyEnabled?: boolean;
+  /** Advanced Networks support link only — never promote on Overview. */
+  showRawSnapshotLink?: boolean;
 }) {
   const summary = network.decision_summary;
   const reviewFirst = summary.status_counts.review_first ?? 0;
@@ -169,12 +170,12 @@ export function NetworkDecisionCard({
           )}
         </div>
       </Link>
-      {topologyEnabled && (
+      {showRawSnapshotLink && (
         <Link
           to={topologySnapshotPath(network.id)}
-          className="relative z-10 mt-4 inline-flex min-h-11 items-center rounded-lg text-sm text-zl-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+          className="relative z-10 mt-4 inline-flex min-h-11 items-center rounded-lg text-sm text-zl-muted hover:text-zl-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
         >
-          View topology →
+          Raw snapshot →
         </Link>
       )}
     </div>
