@@ -1,18 +1,16 @@
+import { useRef, useState } from "react";
 import { DeviceSearch } from "@/components/meshGraph/DeviceSearch";
-import { EvidenceReportMenu } from "@/components/meshGraph/EvidenceReportMenu";
-import type { InvestigationCard } from "@/lib/api";
-import { buildMeshEvidenceReport } from "@/lib/meshEvidenceReport";
+import { ContextualReportDialog } from "@/components/reports/ContextualReportDialog";
+import { useScenario } from "@/context/ScenarioContext";
 import type { MeshEvidenceDevice, MeshEvidenceEdge } from "@/lib/meshEvidence";
+import { MESH_CREATE_NETWORK_REPORT_LABEL } from "@/lib/meshGraphCopy";
 import { MESH_LAYOUT_MODES, type MeshLayoutMode } from "@/lib/meshGraphSmartLayout";
 
 export function GraphToolbar({
   devices,
   edges,
-  investigations,
   networkId,
   networkName,
-  latestSnapshotCapturedAt,
-  selectedNodeId,
   layoutMode,
   onLayoutModeChange,
   onResetLayout,
@@ -20,16 +18,16 @@ export function GraphToolbar({
 }: {
   devices: MeshEvidenceDevice[];
   edges: MeshEvidenceEdge[];
-  investigations: InvestigationCard[];
   networkId: string;
   networkName?: string | null;
-  latestSnapshotCapturedAt?: string | null;
-  selectedNodeId: string | null;
   layoutMode: MeshLayoutMode;
   onLayoutModeChange: (mode: MeshLayoutMode) => void;
   onResetLayout: () => void;
   onSelectDevice: (device: MeshEvidenceDevice) => void;
 }) {
+  const { scenario } = useScenario();
+  const [reportOpen, setReportOpen] = useState(false);
+  const reportButtonRef = useRef<HTMLButtonElement>(null);
   const layoutModeInfo = MESH_LAYOUT_MODES.find((mode) => mode.id === layoutMode);
 
   return (
@@ -60,27 +58,14 @@ export function GraphToolbar({
         >
           Reset layout
         </button>
-        <EvidenceReportMenu
-          buildReport={() =>
-            buildMeshEvidenceReport({
-              networkId,
-              networkName,
-              latestSnapshotCapturedAt,
-              generatedAt: new Date(),
-              devices,
-              edges,
-              investigations,
-              // Snapshot compare is device-led (in the Device details
-              // panel), so reports carry no whole-network compare section.
-              compare: null,
-              selectedDevice: selectedNodeId
-                ? (devices.find((device) => device.ieee_address === selectedNodeId) ?? null)
-                : null,
-              // Phase 5: pass buildDeviceStoryViewModel(...) as deviceStory when selected.
-              deviceStory: null,
-            })
-          }
-        />
+        <button
+          ref={reportButtonRef}
+          type="button"
+          onClick={() => setReportOpen(true)}
+          className="rounded-lg border border-zl-border bg-zl-surface-2 px-3 py-1.5 text-sm text-zl-text hover:border-zl-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+        >
+          {MESH_CREATE_NETWORK_REPORT_LABEL}
+        </button>
       </div>
       {layoutModeInfo && (
         <p
@@ -90,6 +75,17 @@ export function GraphToolbar({
           {layoutModeInfo.description}
         </p>
       )}
+      <ContextualReportDialog
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        scenario={scenario || undefined}
+        returnFocusRef={reportButtonRef}
+        target={{
+          scope: "network",
+          networkId,
+          subjectLabel: networkName?.trim() || networkId,
+        }}
+      />
     </div>
   );
 }

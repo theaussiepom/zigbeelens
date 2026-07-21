@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Phase 6C snapshot UX:** Device Detail owns primary Snapshot history after Device Story; NodeDrawer links to full device details without fetching history; `/topology` is an Advanced/support landing; `/topology/:networkId` is exact raw detail with collapsed contents; Overview no longer promotes raw snapshots; whole-network compare remains API/debug-only
 - **Phase 6C corrections:** route params are consumed exactly once; Device Detail path/API segments encode once; retained topology remains readable when capture is disabled; landing cards present truthful latest-snapshot status; Device Detail history loading/failure stays section-local
 - **Phase 6C refresh resilience:** loaded snapshot history and raw detail remain visible when a background refresh fails, with section-local retry; raw detail presentation is status-aware; capture actions require both topology enabled and manual capture
+- **Phase 6D contextual reports:** Create device/incident/network reports from their detail pages and Mesh; Reports is Saved reports history with Create full report; shared dialog uses Core `ReportDetailV3`; client-only Mesh evidence export removed from production; legacy v1/v2 stored reports remain immutable
+- **Phase 6D corrections:** stable semantic request identity; separate preview/mutation ownership; one-report post-save download; modal focus trap and launcher return; radiogroup format/profile selection; collision-safe saved-row action names; honest legacy Markdown copy; retained Saved reports list on refresh failure
+- **Phase 6D seal:** per-report Saved row operation ownership; refresh warning for accepted empty lists; dialog focus trap excludes closed Advanced controls; format/profile use `aria-pressed` button groups
 
 ### Added
 

@@ -1822,7 +1822,7 @@ Completed on `refactor/snapshot-ux-consolidation`.
 - Whole-network compare remains debug-only.
 - No primary network-diff UX returns.
 - Manual capture remains on support surfaces.
-- Phase 6D still owns contextual reports.
+- Phase 6D contextual reports are complete.
 
 ### Composer model
 
@@ -1833,6 +1833,13 @@ Composer 2.5 is sufficient.
 ### Goal
 
 Make report creation contextual and Reports page saved-history oriented.
+
+### Status
+
+**Complete.** Shared `ContextualReportDialog` + `ContextualReportTarget` request
+builder; contextual actions on Device / Incident / Network / Mesh; Reports is
+Saved reports + Create full report; client-only Mesh export removed from
+production.
 
 ### Acceptance criteria
 

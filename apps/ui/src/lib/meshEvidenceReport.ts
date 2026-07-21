@@ -1,11 +1,9 @@
 /**
- * Evidence summary report builder.
+ * Non-product compatibility helper for Device Story / report parity tests.
  *
- * Builds a deterministic, human Markdown report (plus an optional JSON
- * summary) from evidence state the graph page already holds. Read-only:
- * nothing is persisted, nothing is fetched, nothing is inferred. Sections
- * with nothing useful to say are omitted — silence is better than
- * unnecessary reassurance. All wording follows docs/ubiquitous-language.md.
+ * Production Mesh no longer uses this client-only exporter (Phase 6D).
+ * Current report creation goes through Core ReportDetailV3 via
+ * ContextualReportDialog. Keep this module only for documented test consumers.
  */
 
 import type { InvestigationCard, SnapshotCompareDetail } from "@/lib/api";

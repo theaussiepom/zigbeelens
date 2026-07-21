@@ -19,7 +19,6 @@ export function GraphPanel({
   signatureSeed,
   networkId,
   networkName,
-  latestSnapshotCapturedAt,
   positionStorageId,
   onSelectEdge,
   onSelectNode,
@@ -33,7 +32,6 @@ export function GraphPanel({
   signatureSeed: string;
   networkId: string;
   networkName?: string | null;
-  latestSnapshotCapturedAt?: string | null;
   positionStorageId: string;
   onSelectEdge: (edge: MeshEvidenceEdge) => void;
   onSelectNode: (device: MeshEvidenceDevice) => void;
@@ -126,11 +124,8 @@ export function GraphPanel({
       <GraphToolbar
         devices={devices}
         edges={edges}
-        investigations={investigations}
         networkId={networkId}
         networkName={networkName}
-        latestSnapshotCapturedAt={latestSnapshotCapturedAt}
-        selectedNodeId={selectedNodeId}
         layoutMode={layoutMode}
         onLayoutModeChange={setLayoutMode}
         onResetLayout={resetLayout}

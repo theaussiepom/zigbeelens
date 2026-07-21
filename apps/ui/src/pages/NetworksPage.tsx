@@ -1,4 +1,5 @@
 import { Link, useParams } from "react-router-dom";
+import { useRef, useState } from "react";
 import type { NetworkSummary } from "@zigbeelens/shared";
 import { api } from "@/lib/api";
 import { useScenario } from "@/context/ScenarioContext";
@@ -17,6 +18,7 @@ import {
   NetworkDecisionCard,
   TimelineEventRow,
 } from "@/components/cards";
+import { ContextualReportDialog } from "@/components/reports/ContextualReportDialog";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
 import { bridgeStateLabel, bridgeStateSeverity, compareDevices } from "@/lib/format";
 import { investigatePath, topologySnapshotPath } from "@/lib/routes";
@@ -92,6 +94,8 @@ export function NetworkDetailPage() {
   const { networkId } = useParams();
   const { scenario, status } = useScenario();
   const s = scenario || undefined;
+  const [reportOpen, setReportOpen] = useState(false);
+  const reportButtonRef = useRef<HTMLButtonElement>(null);
 
   const net = useLiveResource(() => api.network(networkId!, s), [networkId, scenario], {
     refetchOn: NETWORK_EVENTS,
@@ -165,6 +169,14 @@ export function NetworkDetailPage() {
           >
             Review this network in Mesh →
           </Link>
+          <button
+            ref={reportButtonRef}
+            type="button"
+            onClick={() => setReportOpen(true)}
+            className="inline-flex min-h-11 items-center rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+          >
+            Create network report
+          </button>
           {status?.topology?.enabled && (
             <Link
               to={topologySnapshotPath(n.id)}
@@ -175,6 +187,18 @@ export function NetworkDetailPage() {
           )}
         </div>
       </div>
+
+      <ContextualReportDialog
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        scenario={s}
+        returnFocusRef={reportButtonRef}
+        target={{
+          scope: "network",
+          networkId: n.id,
+          subjectLabel: n.name,
+        }}
+      />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile

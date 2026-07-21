@@ -1,5 +1,5 @@
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
@@ -13,6 +13,7 @@ import {
   LoadingState,
   NetworkBadge,
 } from "@/components/ui";
+import { ContextualReportDialog } from "@/components/reports/ContextualReportDialog";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
 import { DeviceStorySection } from "@/components/meshGraph/DeviceStorySection";
 import { DeviceSnapshotHistory } from "@/components/meshGraph/DeviceSnapshotHistory";
@@ -307,6 +308,8 @@ export function DeviceDetailPage() {
   // React Router already decodes path params — use logical values once.
   const networkId = routeNetworkId || "";
   const ieee = routeIeee || "";
+  const [reportOpen, setReportOpen] = useState(false);
+  const reportButtonRef = useRef<HTMLButtonElement>(null);
 
   const detail = useLiveResource(
     () => api.device(networkId, ieee, s),
@@ -342,6 +345,14 @@ export function DeviceDetailPage() {
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold">{device.friendly_name}</h1>
           <DeviceDecisionBadge decision={decision} />
+          <button
+            ref={reportButtonRef}
+            type="button"
+            onClick={() => setReportOpen(true)}
+            className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+          >
+            Create device report
+          </button>
         </div>
         <p className="mt-2 text-sm font-medium text-zl-text">{decision.headline}</p>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-zl-muted">
@@ -351,6 +362,19 @@ export function DeviceDetailPage() {
           <span>{powerSourceLabel(device.power_source)}</span>
         </div>
       </div>
+
+      <ContextualReportDialog
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        scenario={s}
+        returnFocusRef={reportButtonRef}
+        target={{
+          scope: "device",
+          networkId: device.network_id,
+          deviceIeee: device.ieee_address,
+          subjectLabel: device.friendly_name,
+        }}
+      />
 
       {networkId && ieee && (
         <Card>
