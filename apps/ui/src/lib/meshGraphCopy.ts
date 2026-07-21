@@ -182,14 +182,25 @@ export function deviceSearchNoResultsCopy(query: string): string {
 /* Evidence report / export                                                  */
 /* ------------------------------------------------------------------------ */
 
+/** Mesh launches the shared contextual network report dialog (Phase 6D). */
+export const MESH_CREATE_NETWORK_REPORT_LABEL = "Create network report";
+export const MESH_EXPORT_NETWORK_EVIDENCE_HINT = "Export network evidence";
+
+/** @deprecated Removed from production Mesh; retained for test helpers only. */
 export const REPORT_MENU_LABEL = "Create report";
+/** @deprecated Removed from production Mesh; retained for test helpers only. */
 export const REPORT_COPY_LABEL = "Copy summary";
+/** @deprecated Removed from production Mesh; retained for test helpers only. */
 export const REPORT_DOWNLOAD_MARKDOWN_LABEL = "Download Markdown";
+/** @deprecated Removed from production Mesh; retained for test helpers only. */
 export const REPORT_DOWNLOAD_JSON_LABEL = "Download JSON evidence summary";
+/** @deprecated Removed from production Mesh; retained for test helpers only. */
 export const REPORT_COPIED_MESSAGE = "Copied evidence summary.";
+/** @deprecated Removed from production Mesh; retained for test helpers only. */
 export const REPORT_COPY_FAILED_MESSAGE =
   "Copy did not complete. Download the Markdown report instead.";
 
+/** Used by non-product meshEvidenceReport helper / parity tests only. */
 export const REPORT_TITLE = "ZigbeeLens evidence summary";
 export const REPORT_SAFETY_NOTE =
   "This is an evidence summary, not a live routing map.";

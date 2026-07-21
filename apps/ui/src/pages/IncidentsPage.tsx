@@ -16,6 +16,7 @@ import {
   LoadingState,
   NetworkBadge,
 } from "@/components/ui";
+import { ContextualReportDialog } from "@/components/reports/ContextualReportDialog";
 import { IncidentRecordCard } from "@/components/incidents/IncidentRecordCard";
 import { TimelineEventRow } from "@/components/cards";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
@@ -322,6 +323,8 @@ function Select({
 export function IncidentDetailPage() {
   const { incidentId } = useParams();
   const { scenario } = useScenario();
+  const [reportOpen, setReportOpen] = useState(false);
+  const reportButtonRef = useRef<HTMLButtonElement>(null);
   const { data: inc, error, loading, refetch } = useLiveResource(
     () => api.incident(incidentId!, scenario || undefined),
     [incidentId, scenario],
@@ -339,7 +342,17 @@ export function IncidentDetailPage() {
         <Link to="/incidents" className="text-sm text-zl-accent hover:underline">
           ← Incidents
         </Link>
-        <h1 className="mt-2 text-2xl font-semibold">{detail.record.title}</h1>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold">{detail.record.title}</h1>
+          <button
+            ref={reportButtonRef}
+            type="button"
+            onClick={() => setReportOpen(true)}
+            className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+          >
+            Create incident report
+          </button>
+        </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <LifecycleBadge status={detail.record.lifecycle} />
           <Badge>{detail.record.typeLabel}</Badge>
@@ -356,6 +369,18 @@ export function IncidentDetailPage() {
           {incidentTimingLine(inc)}
         </p>
       </div>
+
+      <ContextualReportDialog
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        scenario={scenario || undefined}
+        returnFocusRef={reportButtonRef}
+        target={{
+          scope: "incident",
+          incidentId: inc.id,
+          subjectLabel: detail.record.title,
+        }}
+      />
 
       <Card title="Incident record">
         <p className="leading-relaxed text-zl-text">{detail.record.recordSummary}</p>

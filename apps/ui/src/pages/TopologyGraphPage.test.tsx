@@ -2812,161 +2812,90 @@ describe("NodeDrawer device details without snapshot history", () => {
   });
 });
 
-describe("evidence report export", () => {
-  let clipboardText: string;
-  let clipboardWrite: ReturnType<typeof vi.fn>;
-  let capturedBlobs: Blob[];
-  let downloadedNames: string[];
-
+describe("contextual network report", () => {
   beforeEach(() => {
-    clipboardText = "";
-    clipboardWrite = vi.fn((text: string) => {
-      clipboardText = text;
-      return Promise.resolve();
-    });
-    Object.defineProperty(navigator, "clipboard", {
-      value: { writeText: clipboardWrite },
-      configurable: true,
-    });
-
-    capturedBlobs = [];
-    downloadedNames = [];
-    URL.createObjectURL = vi.fn((blob: Blob) => {
-      capturedBlobs.push(blob);
-      return "blob:mock-report";
-    }) as typeof URL.createObjectURL;
-    URL.revokeObjectURL = vi.fn() as typeof URL.revokeObjectURL;
-    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
-      this: HTMLAnchorElement,
-    ) {
-      downloadedNames.push(this.download);
-    });
+    vi.spyOn(api, "previewReport").mockResolvedValue({
+      id: "preview",
+      product: "ZigbeeLens",
+      report_version: 3,
+      format: "json",
+      scope: "network",
+      version: "test",
+      markdown_summary: "# preview",
+      limitations: [],
+      redaction: {
+        applied: true,
+        profile: "standard",
+        mqtt_credentials: true,
+        secrets: true,
+        hostnames: false,
+        ip_addresses: false,
+        ieee_addresses_hashed: true,
+        friendly_names: "preserved",
+        network_names: "preserved",
+      },
+      decision_summary: {
+        subject_count: 4,
+        status_counts: { no_notable_change: 4 },
+        coverage_warning_count: 0,
+      },
+      generated_at: "2026-07-18T00:00:00Z",
+      device_stories: [],
+      investigation_priorities: [],
+      data_coverage_warnings: [],
+      incidents: [],
+      collector_status: {},
+      config_summary: {},
+      domain_details: { networks: [{}], devices: [], device_details: [], router_risks: [] },
+      events_or_timeline: [],
+      raw_counts: { networks_included: 1, devices_included: 4, incidents_included: 0 },
+    } as never);
   });
 
-  function reportButton() {
-    return screen.getByRole("button", { name: /create report/i });
-  }
-
-  function openReportMenu() {
-    fireEvent.click(reportButton());
-    return screen.getByRole("menu", { name: /create report/i });
-  }
-
-  it("renders the Create report control with an accessible menu", async () => {
+  it("opens a fixed network-scope contextual report dialog", async () => {
     await renderLiveAndWaitForLayout();
-    expect(reportButton()).toBeInTheDocument();
-    const menu = openReportMenu();
-    expect(within(menu).getByRole("menuitem", { name: "Copy summary" })).toBeInTheDocument();
-    expect(
-      within(menu).getByRole("menuitem", { name: "Download Markdown" }),
-    ).toBeInTheDocument();
-    expect(
-      within(menu).getByRole("menuitem", { name: "Download JSON evidence summary" }),
-    ).toBeInTheDocument();
+    const button = screen.getByRole("button", { name: /create network report/i });
+    fireEvent.click(button);
+    const dialog = await screen.findByRole("dialog", { name: /create network report/i });
+    expect(within(dialog).getByText(/Export stored evidence for/i)).toHaveTextContent("Home");
+    expect(within(dialog).queryByRole("button", { name: /^device$/i })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /^incident$/i })).not.toBeInTheDocument();
+    expect(api.previewReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "network",
+        network_id: "home",
+        incident_id: null,
+        device: null,
+      }),
+      undefined,
+    );
   });
 
-  it("Escape closes the report menu and returns focus to the toggle", async () => {
+  it("Escape closes the dialog and returns focus to the launch control", async () => {
     await renderLiveAndWaitForLayout();
-    openReportMenu();
+    const button = screen.getByRole("button", { name: /create network report/i });
+    fireEvent.click(button);
+    await screen.findByRole("dialog", { name: /create network report/i });
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => {
-      expect(screen.queryByRole("menu", { name: /create report/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: /create network report/i })).not.toBeInTheDocument();
     });
-    expect(reportButton()).toHaveFocus();
+    expect(button).toHaveFocus();
   });
 
-  it("Copy summary writes the Markdown report to the clipboard and shows a success message", async () => {
-    await renderLiveAndWaitForLayout();
-    const menu = openReportMenu();
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy summary" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Copied evidence summary.");
-    expect(clipboardWrite).toHaveBeenCalledTimes(1);
-    expect(clipboardText).toContain("# ZigbeeLens evidence summary");
-    expect(clipboardText).toContain("Network: Home (home)");
-    expect(clipboardText).toContain("Latest topology snapshot: ");
-    expect(clipboardText).toContain("known devices");
-    expect(clipboardText).toContain(
-      "This is an evidence summary, not a live routing map.",
-    );
-  });
-
-  it("shows a calm failure message when the clipboard is unavailable", async () => {
-    clipboardWrite.mockImplementation(() => Promise.reject(new Error("denied")));
-    await renderLiveAndWaitForLayout();
-    const menu = openReportMenu();
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy summary" }));
-    expect(await screen.findByRole("status")).toHaveTextContent(
-      "Copy did not complete. Download the Markdown report instead.",
-    );
-  });
-
-  it("Download Markdown produces a sanitised .md file with the report content", async () => {
-    await renderLiveAndWaitForLayout();
-    const menu = openReportMenu();
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Download Markdown" }));
-    expect(downloadedNames).toHaveLength(1);
-    expect(downloadedNames[0]).toMatch(
-      /^zigbeelens-home-evidence-summary-\d{4}-\d{2}-\d{2}-\d{4}\.md$/,
-    );
-    expect(capturedBlobs[0].type).toBe("text/markdown");
-    const content = await capturedBlobs[0].text();
-    expect(content).toContain("# ZigbeeLens evidence summary");
-  });
-
-  it("Download JSON produces structured evidence with null for unknown values", async () => {
-    await renderLiveAndWaitForLayout();
-    const menu = openReportMenu();
-    fireEvent.click(
-      within(menu).getByRole("menuitem", { name: "Download JSON evidence summary" }),
-    );
-    expect(downloadedNames[0]).toMatch(/\.json$/);
-    const parsed = JSON.parse(await capturedBlobs[0].text());
-    expect(parsed.network_id).toBe("home");
-    // Compare is not active: the comparison stays null, never an empty stub.
-    expect(parsed.snapshot_comparison).toBeNull();
-    expect(parsed.selected_device).toBeNull();
-    expect(parsed.counts.known_devices).toBeGreaterThan(0);
-  });
-
-  it("omits irrelevant sections from the normal-view report", async () => {
-    await renderLiveAndWaitForLayout();
-    const menu = openReportMenu();
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy summary" }));
-    await screen.findByRole("status");
-    // Snapshot compare is device-led now: reports never carry a
-    // whole-network What changed section.
-    expect(clipboardText).not.toContain("## What changed");
-    expect(clipboardText).not.toContain("## Selected device");
-    expect(clipboardText).not.toContain("None.");
-  });
-
-  it("includes the selected device section when a device is selected", async () => {
+  it("does not serialize selected graph state into the report request", async () => {
     await renderLiveAndWaitForLayout();
     fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
     await screen.findByRole("dialog", { name: /device details/i });
-
-    const menu = openReportMenu();
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy summary" }));
-    await screen.findByRole("status");
-    expect(clipboardText).toContain("## Selected device");
-    expect(clipboardText).toContain("Device: Live Hall Router");
-    expect(clipboardText).toContain("IEEE: 0xr1");
-    expect(clipboardText).toContain("Role: Router");
-  });
-
-  it("exported reports contain no forbidden user-facing phrases", async () => {
-    mockDetail = liveDetailWithHistory;
-    await renderLiveAndWaitForLayout();
-    // The richest report: historical evidence plus a selected device.
-    fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
-    await screen.findByRole("dialog", { name: /device details/i });
-
-    const menu = openReportMenu();
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy summary" }));
-    await screen.findByRole("status");
-    expect(findForbiddenUserFacingPhrases(clipboardText)).toEqual([]);
-    expect(clipboardText).not.toMatch(
-      /\blost\b|\bbroken\b|\bdropped\b|\bdisconnected\b|root cause|caused by|parent router|child device|current route|AI suggested|confidence score|nothing to see|no problems found/i,
+    fireEvent.click(screen.getByRole("button", { name: /create network report/i }));
+    await screen.findByRole("dialog", { name: /create network report/i });
+    expect(api.previewReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "network",
+        network_id: "home",
+        device: null,
+      }),
+      undefined,
     );
   });
 });

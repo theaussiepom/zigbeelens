@@ -185,7 +185,6 @@ export function TopologyGraphPage() {
             signatureSeed={liveSignatureSeed}
             networkId={networkId ?? "unknown-network"}
             networkName={detail.data?.network_name ?? null}
-            latestSnapshotCapturedAt={snapshot.captured_at ?? null}
             positionStorageId={networkId ?? "unknown-network"}
             onSelectEdge={selectEdge}
             onSelectNode={selectNode}
