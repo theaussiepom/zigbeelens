@@ -288,17 +288,22 @@ Open the dashboard: **http://localhost:8377**
 - [ ] Devices list shows Device Story decision badges
 - [ ] Device Detail uses Device Story
 - [ ] Incidents separate recorded event from current device decisions
-- [ ] Reports Version 2 uses shared decisions (`device_stories` present)
+- [ ] Reports Version 3 uses shared decisions (`device_stories` present)
 - [ ] Incidents appear only if real conditions warrant (empty is OK)
 - [ ] Settings page shows collector status and both networks
 - [ ] Settings storage section shows retention policy (telemetry / resolved incidents / reports) and no Purge/Vacuum/Backup controls
-- [ ] Reports page generates **JSON**
-- [ ] Reports page generates **YAML**
-- [ ] Reports page generates **Markdown**
+- [ ] Device Detail → Create device report opens fixed device-scope dialog
+- [ ] Incident Detail → Create incident report opens fixed incident-scope dialog
+- [ ] Network Detail / Mesh → Create network report opens fixed network-scope dialog
+- [ ] Reports → Create full report; Saved reports lists the new row
+- [ ] Save and download creates one report then downloads that stored ID
+- [ ] Contextual dialog can generate **JSON**, **YAML**, and **Markdown**
 - [ ] `public_safe` report redacts names/IEEE/host/IP as expected (API example below)
 - [ ] No MQTT password in downloaded report
 - [ ] No `network_key` in downloaded report
 - [ ] Container logs do not show MQTT password (`docker logs zigbeelens`)
+- [ ] Mesh has no client-only “Create report” menu / evidence-summary Blob export
+- [ ] Legacy stored v1/v2 reports still download unchanged
 
 ### Track 6 storage upgrade / backup / dry-run checklist
 

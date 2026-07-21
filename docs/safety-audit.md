@@ -65,6 +65,10 @@ Tests: report and redaction tests in `apps/core/tests/`
 | Topology capture requires warning modal + confirmation | Enforced |
 | Incident language uses evidence/limitations | Enforced |
 | Reports page explains redaction profiles | Enforced |
+| Contextual report dialog shows redaction profile and summary before save | Enforced |
+| Reports mount fetches saved list only (no target discovery / preview) | Enforced |
+| Save-and-download creates one stored report then downloads that ID | Enforced |
+| Legacy v1/v2 stored reports remain immutable on download/copy | Enforced |
 
 ## HACS integration
 

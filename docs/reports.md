@@ -56,7 +56,24 @@ No SQLite migration rewrites report rows.
 | **YAML** | Human-readable structured export |
 | **Markdown** | Forums, GitHub issues, quick sharing |
 
-Generate from the **Reports** page or `POST /api/reports`.
+Current report creation uses Core `ReportDetailV3` via `POST /api/reports`.
+Creation is **contextual** (Phase 6D): the launching page fixes the target.
+
+| Surface | Action | Scope |
+|---------|--------|-------|
+| Device Detail | Create device report | `device` (`network_id` + IEEE) |
+| Incident Detail | Create incident report | `incident` |
+| Network Detail | Create network report | `network` |
+| Mesh / Investigate | Create network report | `network` (route network; not graph layout) |
+| Reports | Create full report | `full` |
+
+The **Reports** page is primarily **Saved reports** history. It does not host a
+device/incident/network target wizard. Opening Create full report uses the same
+shared dialog as the other surfaces (format, redaction profile, compact preview,
+Save / Save and download).
+
+The former client-only Mesh `MeshEvidenceReport` export path is removed from
+production UI.
 
 ## Scopes
 
@@ -68,7 +85,8 @@ Reports can be scoped to:
 - Single incident
 
 Scope controls which devices, incidents, and timeline events are included.
-Composition remains scope-first and history-bounded.
+Composition remains scope-first and history-bounded. The contextual dialog cannot
+change scope or target — only format and redaction options.
 
 ## Storage
 
@@ -76,8 +94,8 @@ Reports are stored **inline in SQLite** (`reports` table). They are redacted
 **before** storage — backups contain already-redacted content.
 
 List stored reports: `GET /api/reports`  
-Download: Reports page or API  
-Delete: Reports page or `DELETE /api/reports/{id}`
+Download: Saved reports on the Reports page or API  
+Delete: Saved reports on the Reports page or `DELETE /api/reports/{id}`
 
 See [backups.md](backups.md).
 

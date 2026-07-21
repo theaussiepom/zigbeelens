@@ -83,7 +83,7 @@ Phase 6C snapshot workflow (including route-identity / retained-read corrections
 
 Later ownership:
 
-- Phase 6D — contextual report workflow
+- Phase 6D — contextual report workflow (complete)
 
 ## Pruning principles
 
@@ -202,16 +202,19 @@ Rationale: network-level diffs can be technically true but operationally noisy o
 
 ### Reports
 
-Reports should be contextual first.
+Reports are contextual first (Phase 6D complete).
 
-Target actions:
+Canonical actions:
 
-- `Copy evidence for this device`;
-- `Copy investigation summary`;
-- `Download network evidence summary`;
-- `Export incident evidence`.
+- Device Detail → `Create device report`;
+- Incident Detail → `Create incident report`;
+- Network Detail → `Create network report`;
+- Mesh / Investigate → `Create network report` (server `ReportDetailV3`, not client graph export);
+- Reports → `Create full report`.
 
-The Reports page becomes saved report/export history.
+The Reports page is saved report/export history. Target selection for device,
+incident, and network reports lives only in the shared contextual dialog opened
+from those pages.
 
 ### Devices page
 

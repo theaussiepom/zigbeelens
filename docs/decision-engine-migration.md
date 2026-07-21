@@ -735,7 +735,11 @@ background refresh failures retain last accepted history/raw detail with retry.
 
 ### Phase 6D — Reports UX consolidation
 
-Make report creation contextual and Reports page saved-history oriented.
+**Complete.** Report creation is contextual from Device Detail, Incident Detail,
+Network Detail, and Mesh / Investigate. The Reports page is Saved reports history
+with one Create full report action. All current creation uses Core
+`ReportDetailV3` / stored reports. The client-only Mesh evidence export menu is
+removed from production. Legacy v1/v2 stored bodies remain immutable.
 
 ## Master Phase 7 — Hardening, performance and release quality
 
@@ -765,7 +769,7 @@ Run live Beast smoke tests covering healthy router, problem sensor, sleepy batte
 | Snapshot history | Device Detail primary surface. | ViewModel-backed decision section. | 3B / 6C |
 | Mesh graph | Strong evidence graph, some local orchestration. | Investigation workspace consuming decisions. | 3A-3F |
 | Investigation cards | Backend topology/passive-specific cards. | Shared decision/action groups. | 3D |
-| Reports | Report service plus UI export. | Decision-backed contextual summaries. | 5D / 6D |
+| Reports | Saved history + contextual Create full report. | Decision-backed contextual summaries. | 5D / 6D (done) |
 | Incidents | Issue history and state. | Decision/event record tied to device story. | 5C |
 | Raw snapshots | Advanced `/topology` landing + exact detail. | Support evidence only. | 6C |
 | Whole-network compare | Debug endpoint after UI demotion. | Advanced/debug only. | 6C |
