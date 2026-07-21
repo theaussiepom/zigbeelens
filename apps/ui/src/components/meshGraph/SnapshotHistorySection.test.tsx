@@ -1,6 +1,8 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import type { DeviceSnapshotHistoryDetail, DeviceSnapshotHistoryRow } from "@/types/devices";
+import type { DeviceSnapshotCompareStatus } from "@/types/devices";
 
 const eventListeners = new Set<(eventName: string) => void>();
 const stateListeners = new Set<(state: string) => void>();
@@ -41,7 +43,7 @@ vi.mock("@/lib/api", () => ({
   ApiError: class ApiError extends Error {},
 }));
 
-import { SnapshotHistorySection } from "./SnapshotHistorySection";
+import { DeviceSnapshotHistory, SnapshotHistorySection } from "./SnapshotHistorySection";
 
 function makeRow(overrides: Partial<DeviceSnapshotHistoryRow>): DeviceSnapshotHistoryRow {
   return {
@@ -209,5 +211,116 @@ describe("SnapshotHistorySection", () => {
     const callsAfterUnmount = topologyDeviceSnapshotHistory.mock.calls.length;
     act(() => vi.advanceTimersByTime(30_000));
     expect(topologyDeviceSnapshotHistory).toHaveBeenCalledTimes(callsAfterUnmount);
+  });
+
+  it("shows comparison status, reasons, and collapsed evidence details", async () => {
+    topologyDeviceSnapshotHistory.mockResolvedValue({
+      network_id: "home",
+      device_ieee: "0xabc",
+      friendly_name: "Lamp",
+      has_current_issue: true,
+      availability_tracking: {
+        enabled: true,
+        earliest_observation_at: "2026-07-01T00:00:00+00:00",
+      },
+      latest_snapshot: makeRow({
+        snapshot_id: "snap-live",
+        is_latest: true,
+        links_for_device_count: 0,
+        route_hints_for_device_count: 0,
+        availability_state_near_snapshot: "offline",
+        comparison_to_latest: null,
+      }),
+      snapshots: [
+        makeRow({
+          snapshot_id: "snap-prev",
+          comparison_to_latest: {
+            status: "worth_reviewing" as DeviceSnapshotCompareStatus,
+            reasons: [
+              "Latest snapshot shows no links for this device.",
+              "The selected snapshot showed 6 links.",
+            ],
+            suggested_checks: [
+              "Confirm the device is powered.",
+              "Check whether it is reporting in Zigbee2MQTT.",
+            ],
+            link_counts: {
+              latest_count: 0,
+              selected_count: 6,
+              latest_only_count: 0,
+              selected_only_count: 6,
+              changed_count: 0,
+            },
+            route_hint_counts: {
+              latest_count: 0,
+              selected_count: 2,
+              latest_only_count: 0,
+              selected_only_count: 2,
+              changed_count: 0,
+            },
+          },
+        }),
+      ],
+      topology_facts: {
+        stale_threshold_hours: null,
+        device_facts: [],
+        comparison_facts_by_snapshot_id: {},
+      },
+    });
+
+    render(<SnapshotHistorySection networkId="home" deviceIeee="0xabc" />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const section = screen.getByTestId("snapshot-history-section");
+    const card = within(section).getByTestId("snapshot-comparison-card");
+    expect(within(card).getByText("Worth reviewing")).toBeInTheDocument();
+    expect(
+      within(card).getByText("Latest snapshot shows no links for this device."),
+    ).toBeInTheDocument();
+    expect(within(card).getByText("Confirm the device is powered.")).toBeInTheDocument();
+    expect(
+      within(section).queryByTestId("snapshot-evidence-details"),
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      within(section).getByRole("button", { name: "Evidence details" }).click();
+    });
+    const details = within(section).getByTestId("snapshot-evidence-details");
+    expect(details).toHaveTextContent("0 links shown in latest snapshot");
+    expect(details).toHaveTextContent(
+      "Route hints are route-table hints captured during topology collection",
+    );
+  });
+
+  it("renders page chrome with Raw snapshot support link", async () => {
+    render(
+      <MemoryRouter>
+        <DeviceSnapshotHistory
+          networkId="Home Office"
+          deviceIeee="0xabc"
+          showHeading
+          showRawSnapshotLink
+        />
+      </MemoryRouter>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("device-snapshot-history")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /snapshot history/i })).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /raw snapshot/i });
+    expect(link).toHaveAttribute("href", "/topology/Home%20Office");
+  });
+
+  it("keeps snapshot-history errors section-local", async () => {
+    topologyDeviceSnapshotHistory.mockRejectedValueOnce(new Error("boom"));
+    render(<SnapshotHistorySection networkId="home" deviceIeee="0xabc" />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText(/snapshot history is unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByText(/loading snapshot history/i)).not.toBeInTheDocument();
   });
 });

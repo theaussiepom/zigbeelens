@@ -2744,27 +2744,12 @@ const trackingOffHistory: DeviceSnapshotHistoryDetail = {
   ],
 };
 
-describe("device-led snapshot history", () => {
-  let mockHistory: DeviceSnapshotHistoryDetail;
-
+describe("NodeDrawer device details without snapshot history", () => {
   beforeEach(() => {
-    mockHistory = worthReviewingHistory;
     vi.spyOn(api, "topologyDeviceSnapshotHistory").mockImplementation(() =>
-      Promise.resolve(mockHistory),
+      Promise.resolve(emptyDeviceHistory),
     );
   });
-
-  /** Open the Device details panel for a graph node and wait for its
-   * Snapshot history section to load. */
-  async function openDeviceHistory(nodeId = "0xr1") {
-    fireEvent.click(screen.getByTestId(`mesh-node-${nodeId}`));
-    await screen.findByRole("dialog", { name: /device details/i });
-    const section = await screen.findByTestId("snapshot-history-section");
-    await waitFor(() => {
-      expect(within(section).queryByText(/loading snapshot history/i)).not.toBeInTheDocument();
-    });
-    return section;
-  }
 
   it("shows Device story in the Device details panel", async () => {
     vi.spyOn(api, "deviceStory").mockResolvedValue({
@@ -2789,9 +2774,6 @@ describe("device-led snapshot history", () => {
     });
     expect(within(section).getByText("Watch")).toBeInTheDocument();
     expect(within(section).getByText("Topology evidence gap")).toBeInTheDocument();
-    expect(
-      within(section).getByText(/latest snapshot shows no links for this device/i),
-    ).toBeInTheDocument();
     expect(api.deviceStory).toHaveBeenCalledWith("home", "0xr1", undefined);
   });
 
@@ -2803,169 +2785,30 @@ describe("device-led snapshot history", () => {
     expect(
       screen.queryByRole("region", { name: /snapshot compare/i }),
     ).not.toBeInTheDocument();
-    // No whole-network compare copy leads the page.
     expect(screen.queryByText(/topology-evidence churn/i)).not.toBeInTheDocument();
     expect(
       screen.queryByText(/compared with the previous usable snapshot/i),
     ).not.toBeInTheDocument();
   });
 
-  it("shows Snapshot history in the Device details panel with the latest snapshot summary", async () => {
+  it("opening NodeDrawer performs zero snapshot-history API requests", async () => {
+    const historySpy = vi.spyOn(api, "topologyDeviceSnapshotHistory");
+    historySpy.mockClear();
     await renderLiveAndWaitForLayout();
-    const section = await openDeviceHistory();
-    expect(within(section).getByText("Latest snapshot")).toBeInTheDocument();
-    // Plain language: links shown / route hints, plus the recorded state.
-    expect(within(section).getByText(/0 links shown · no route hints · Offline/)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
+    await screen.findByRole("dialog", { name: /device details/i });
+    await screen.findByTestId("device-story-section");
+    expect(historySpy).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("snapshot-history-section")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("device-snapshot-history")).not.toBeInTheDocument();
   });
 
-  it("lists multiple previous usable snapshots with plain-language rows and status labels", async () => {
+  it("links to the full Device Detail route with encoded ieee", async () => {
     await renderLiveAndWaitForLayout();
-    const section = await openDeviceHistory();
-    const list = within(section).getByTestId("snapshot-history-list");
-    const rows = within(list).getAllByRole("button");
-    expect(rows).toHaveLength(3);
-    expect(rows[0]).toHaveTextContent("6 links shown · 2 route hints · Worth reviewing");
-    expect(rows[1]).toHaveTextContent("8 links shown · 3 route hints · Changed");
-    expect(rows[2]).toHaveTextContent("7 links shown · no route hints · Similar");
-    // Exact captured time is available on the row for tooltips/accessibility.
-    expect(rows[0]).toHaveAttribute("title");
-  });
-
-  it("selects the previous usable snapshot by default and leads with the status and why", async () => {
-    await renderLiveAndWaitForLayout();
-    const section = await openDeviceHistory();
-    const rows = within(within(section).getByTestId("snapshot-history-list")).getAllByRole(
-      "button",
-    );
-    expect(rows[0]).toHaveAttribute("aria-pressed", "true");
-    expect(rows[1]).toHaveAttribute("aria-pressed", "false");
-
-    const card = within(section).getByTestId("snapshot-comparison-card");
-    expect(within(card).getByText("Worth reviewing")).toBeInTheDocument();
-    expect(
-      within(card).getByText(
-        "This comparison has device-level changes that may be worth checking.",
-      ),
-    ).toBeInTheDocument();
-    // Why explains actionable reasons before any raw counts.
-    expect(
-      within(card).getByText("Latest snapshot shows no links for this device."),
-    ).toBeInTheDocument();
-    expect(within(card).getByText("The selected snapshot showed 6 links.")).toBeInTheDocument();
-    const cardText = card.textContent ?? "";
-    expect(cardText.indexOf("Why")).toBeLessThan(cardText.indexOf("What this means"));
-    expect(cardText.indexOf("What this means")).toBeLessThan(
-      cardText.indexOf("Evidence details"),
-    );
-  });
-
-  it("shows practical, non-causal suggested checks for worth-reviewing comparisons", async () => {
-    await renderLiveAndWaitForLayout();
-    const section = await openDeviceHistory();
-    const card = within(section).getByTestId("snapshot-comparison-card");
-    expect(within(card).getByText("Suggested checks")).toBeInTheDocument();
-    expect(within(card).getByText("Confirm the device is powered.")).toBeInTheDocument();
-    expect(
-      within(card).getByText("Check whether it is reporting in Zigbee2MQTT."),
-    ).toBeInTheDocument();
-  });
-
-  it("keeps Evidence details collapsed by default and uses links shown / selected snapshot wording", async () => {
-    await renderLiveAndWaitForLayout();
-    const section = await openDeviceHistory();
-    expect(
-      within(section).queryByTestId("snapshot-evidence-details"),
-    ).not.toBeInTheDocument();
-
-    fireEvent.click(within(section).getByRole("button", { name: "Evidence details" }));
-    const details = within(section).getByTestId("snapshot-evidence-details");
-    expect(details).toHaveTextContent("0 links shown in latest snapshot");
-    expect(details).toHaveTextContent("6 links shown in selected snapshot");
-    expect(details).toHaveTextContent("6 links only in selected snapshot");
-    expect(details).toHaveTextContent("2 route hints in selected snapshot");
-    // Route-hint differences never imply live routing changed.
-    expect(details).toHaveTextContent(
-      "Route hints are route-table hints captured during topology collection. They are not proof of current live routing.",
-    );
-  });
-
-  it("selecting an older snapshot updates the comparison without moving nodes or touching controls", async () => {
-    const { container } = await renderLiveAndWaitForLayout();
-    const section = await openDeviceHistory();
-    const beforePos = nodePosition(container, "0xc0");
-
-    const rows = within(within(section).getByTestId("snapshot-history-list")).getAllByRole(
-      "button",
-    );
-    fireEvent.click(rows[1]);
-    expect(rows[1]).toHaveAttribute("aria-pressed", "true");
-    const card = within(section).getByTestId("snapshot-comparison-card");
-    expect(within(card).getByText("Changed")).toBeInTheDocument();
-    expect(
-      within(card).getByText(
-        "Snapshot details changed, but nothing here stands out as needing review.",
-      ),
-    ).toBeInTheDocument();
-
-    // Layout, manual positions and connection choices are untouched.
-    expect(nodePosition(container, "0xc0")).toBe(beforePos);
-    expect(localStorage.getItem(connectionControlsStorageKey("home"))).toBeNull();
-    expect(
-      connectionCheckbox(/best neighbour links/i),
-    ).toBeChecked();
-  });
-
-  it("shows the Availability tracking off pill with the enable-reporting helper", async () => {
-    mockHistory = trackingOffHistory;
-    await renderLiveAndWaitForLayout();
-    const section = await openDeviceHistory();
-    expect(within(section).getAllByText("Availability tracking off").length).toBeGreaterThan(0);
-    expect(
-      within(section).getByText(
-        "Enable Zigbee2MQTT availability and last-seen reporting for offline history, passive hints and reports.",
-      ),
-    ).toBeInTheDocument();
-    // No fake online/offline state is shown for untracked periods.
-    expect(within(section).queryByText(/· Online/)).not.toBeInTheDocument();
-    expect(within(section).queryByText(/· Offline/)).not.toBeInTheDocument();
-  });
-
-  it("shows the Availability history building pill on rows tracking does not cover", async () => {
-    await renderLiveAndWaitForLayout();
-    const section = await openDeviceHistory();
-    const rows = within(within(section).getByTestId("snapshot-history-list")).getAllByRole(
-      "button",
-    );
-    expect(within(rows[2]).getByText("Availability history building")).toBeInTheDocument();
-    // Selecting that snapshot surfaces the building helper for the window.
-    fireEvent.click(rows[2]);
-    expect(
-      within(section).getByText(
-        "Availability tracking is enabled, but ZigbeeLens only has history from when it was turned on.",
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it("shows a calm empty state when no earlier usable snapshots exist", async () => {
-    mockHistory = emptyDeviceHistory;
-    await renderLiveAndWaitForLayout();
-    const section = await openDeviceHistory();
-    expect(
-      within(section).getByText(
-        "No earlier usable topology snapshots are available for this device yet.",
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it("snapshot history uses plain language and no forbidden wording", async () => {
-    await renderLiveAndWaitForLayout();
-    const section = await openDeviceHistory();
-    fireEvent.click(within(section).getByRole("button", { name: "Evidence details" }));
-    const text = section.textContent ?? "";
-    expect(findForbiddenUserFacingPhrases(text)).toEqual([]);
-    expect(text).not.toMatch(
-      /neighbour evidence|topology.evidence churn|\blost\b|\bmissing\b|\bdisappeared\b|\bbroken\b|\bfailed\b|parent router|current route|currently routed|actual path|caused by|\bcause\b/i,
-    );
+    fireEvent.click(screen.getByTestId("mesh-node-0xr1"));
+    const dialog = await screen.findByRole("dialog", { name: /device details/i });
+    const link = within(dialog).getByRole("link", { name: /open full device details/i });
+    expect(link).toHaveAttribute("href", "/devices/home/0xr1");
   });
 });
 

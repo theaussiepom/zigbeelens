@@ -45,6 +45,7 @@ export const DEVICE_SECTION_PASSIVE_HINTS = "Suggested investigation links";
 export const DEVICE_SECTION_OPEN_ISSUE = "Open issue";
 export const DEVICE_SECTION_CHECKS = "What to check next";
 export const DEVICE_SECTION_STORY = "Device story";
+export const DEVICE_DETAILS_OPEN_FULL_LABEL = "Open full device details";
 
 export const DEVICE_STORY_WHY_TITLE = "Why";
 export const DEVICE_STORY_LIMITATIONS_TITLE = "What this does not prove";

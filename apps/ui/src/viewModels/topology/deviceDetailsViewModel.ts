@@ -33,7 +33,6 @@ export type DeviceDetailsSectionId =
   | "diagnosticStats"
   | "topologyEvidence"
   | "recentMissing"
-  | "snapshotHistory"
   | "dataCoverage"
   | "passiveHints"
   | "openIssue";
@@ -82,12 +81,6 @@ export interface DeviceDetailsOpenIssueSectionViewModel {
   issueSummary: string;
 }
 
-export interface DeviceDetailsSnapshotHistorySectionViewModel {
-  id: "snapshotHistory";
-  networkId: string;
-  deviceIeee: string;
-}
-
 export interface DeviceDetailsDeviceStorySectionViewModel {
   id: "deviceStory";
   networkId: string;
@@ -113,7 +106,6 @@ export type DeviceDetailsSectionViewModel =
   | DeviceDetailsTextSectionViewModel
   | DeviceDetailsOpenIssueSectionViewModel
   | DeviceDetailsDeviceStorySectionViewModel
-  | DeviceDetailsSnapshotHistorySectionViewModel
   | DeviceDetailsDataCoverageSectionViewModel;
 
 export interface DeviceDetailsViewModel {
@@ -232,16 +224,6 @@ function buildDeviceStorySection(
   };
 }
 
-function buildSnapshotHistorySection(
-  device: MeshEvidenceDevice,
-): DeviceDetailsSnapshotHistorySectionViewModel {
-  return {
-    id: "snapshotHistory",
-    networkId: device.network_id,
-    deviceIeee: device.ieee_address,
-  };
-}
-
 function buildDataCoverageSection(
   deviceCoverage: DataCoverageDto[],
   loadState: DeviceCoverageLoadState,
@@ -286,8 +268,6 @@ export function buildDeviceDetailsViewModel(
 
   const recentMissing = buildRecentMissingSection(device);
   if (recentMissing) sections.push(recentMissing);
-
-  sections.push(buildSnapshotHistorySection(device));
 
   const dataCoverage = buildDataCoverageSection(deviceCoverage, deviceCoverageLoadState);
   if (dataCoverage) sections.push(dataCoverage);

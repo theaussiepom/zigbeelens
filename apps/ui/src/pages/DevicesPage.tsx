@@ -15,6 +15,7 @@ import {
 } from "@/components/ui";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
 import { DeviceStorySection } from "@/components/meshGraph/DeviceStorySection";
+import { DeviceSnapshotHistory } from "@/components/meshGraph/DeviceSnapshotHistory";
 import { IncidentCard } from "@/components/cards";
 import {
   availabilityLabel,
@@ -352,6 +353,17 @@ export function DeviceDetailPage() {
       {networkId && ieee && (
         <Card>
           <DeviceStorySection networkId={networkId} deviceIeee={ieee} scenario={s} />
+        </Card>
+      )}
+
+      {networkId && ieee && (
+        <Card>
+          <DeviceSnapshotHistory
+            networkId={networkId}
+            deviceIeee={ieee}
+            showHeading
+            showRawSnapshotLink
+          />
         </Card>
       )}
 

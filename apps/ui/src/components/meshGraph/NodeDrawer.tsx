@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { DrawerFact, DrawerSection, DrawerShell } from "@/components/meshGraph/DrawerShell";
 import { DeviceStorySection } from "@/components/meshGraph/DeviceStorySection";
 import { EvidenceCoverageStrip } from "@/components/meshGraph/EvidenceCoverageStrip";
-import { SnapshotHistorySection } from "@/components/meshGraph/SnapshotHistorySection";
+import { devicePath } from "@/lib/format";
+import { DEVICE_DETAILS_OPEN_FULL_LABEL } from "@/lib/meshGraphCopy";
 import type { DataCoverageDto } from "@/types/decisions";
 import type { MeshEvidenceDevice } from "@/lib/meshEvidence";
 import {
@@ -62,13 +64,6 @@ function DeviceDetailsSection({ section }: { section: DeviceDetailsSectionViewMo
     case "deviceStory":
       return (
         <DeviceStorySection
-          networkId={section.networkId}
-          deviceIeee={section.deviceIeee}
-        />
-      );
-    case "snapshotHistory":
-      return (
-        <SnapshotHistorySection
           networkId={section.networkId}
           deviceIeee={section.deviceIeee}
         />
@@ -133,6 +128,8 @@ export function NodeDrawer({
     [device, deviceCoverage, deviceCoverageLoadState],
   );
 
+  const fullDetailsHref = devicePath(device.network_id, device.ieee_address);
+
   return (
     <DrawerShell label={viewModel.panelLabel} onClose={onClose}>
       <div>
@@ -150,6 +147,12 @@ export function NodeDrawer({
             ))}
           </div>
         )}
+        <Link
+          to={fullDetailsHref}
+          className="mt-3 inline-flex min-h-11 items-center text-sm text-zl-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+        >
+          {DEVICE_DETAILS_OPEN_FULL_LABEL} →
+        </Link>
       </div>
       {viewModel.sections.map((section) => (
         <DeviceDetailsSection key={section.id} section={section} />
