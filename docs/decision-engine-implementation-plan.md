@@ -1816,8 +1816,9 @@ Completed on `refactor/snapshot-ux-consolidation`.
 - `/topology` is an Advanced/support landing without auto-redirect.
 - `/topology/:networkId` is exact raw point-in-time detail with collapsed raw contents.
 - Raw snapshot table/detail remains accessible for support; Overview does not promote it.
-- Retained raw snapshots remain readable when `topology.enabled` is false; capture actions stay hidden.
-- Landing cards present truthful latest-snapshot status (complete / limited / pending / error / unknown).
+- Retained raw snapshots remain readable when `topology.enabled` is false; capture actions require enabled and manual capture.
+- Landing cards and raw detail present truthful snapshot status (complete / limited / pending / error / unknown).
+- Background refresh failures keep last accepted Device Detail history and raw detail visible with retry.
 - Whole-network compare remains debug-only.
 - No primary network-diff UX returns.
 - Manual capture remains on support surfaces.

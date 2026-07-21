@@ -27,7 +27,12 @@ Advanced & support:
 
 `topology.enabled` controls capture/collection posture, not authorization to read
 retained snapshots. When capture is disabled, configured networks and stored
-raw detail remain readable; manual capture actions stay hidden.
+raw detail remain readable; manual capture actions stay hidden (UI requires both
+`topology.enabled` and `manual_capture_enabled`).
+
+Background `topology_updated` refresh failures keep the last accepted Device
+Detail snapshot history and `/topology/:networkId` raw detail visible, with a
+non-blocking retry notice.
 
 Whole-network `GET /api/topology/{network_id}/snapshots/compare` remains an
 API/debug capability, not a current product workflow.

@@ -323,4 +323,62 @@ describe("SnapshotHistorySection", () => {
     expect(screen.getByText(/snapshot history is unavailable/i)).toBeInTheDocument();
     expect(screen.queryByText(/loading snapshot history/i)).not.toBeInTheDocument();
   });
+
+  it("keeps loaded history and selection when a background refresh fails", async () => {
+    render(<SnapshotHistorySection networkId="home" deviceIeee="0xabc" />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const earlier = screen
+      .getAllByRole("button")
+      .find((button) => button.getAttribute("aria-pressed") === "false");
+    expect(earlier).toBeTruthy();
+    await act(async () => {
+      earlier!.click();
+    });
+    expect(screen.getByRole("button", { pressed: true })).toBe(earlier);
+
+    let rejectRefresh: (reason?: unknown) => void = () => {};
+    topologyDeviceSnapshotHistory.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectRefresh = reject;
+        }),
+    );
+
+    act(() => emit("topology_updated"));
+    act(() => vi.advanceTimersByTime(350));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId("snapshot-history-list")).toBeInTheDocument();
+    expect(screen.getByRole("button", { pressed: true })).toBe(earlier);
+    expect(screen.queryByTestId("snapshot-history-refresh-warning")).not.toBeInTheDocument();
+
+    await act(async () => {
+      rejectRefresh(new Error("refresh failed"));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId("snapshot-history-refresh-warning")).toBeInTheDocument();
+    expect(
+      screen.getByText(/could not be refreshed\. showing the last loaded data/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { pressed: true })).toBe(earlier);
+    expect(screen.getByTestId("snapshot-comparison-card")).toBeInTheDocument();
+
+    topologyDeviceSnapshotHistory.mockResolvedValue(
+      historyPayload(["snap-live", "snap-prev", "snap-older"]),
+    );
+    await act(async () => {
+      screen.getByRole("button", { name: /^retry$/i }).click();
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByTestId("snapshot-history-refresh-warning")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { pressed: true })).toBeInTheDocument();
+    expect(screen.getByTestId("snapshot-history-list")).toBeInTheDocument();
+  });
 });

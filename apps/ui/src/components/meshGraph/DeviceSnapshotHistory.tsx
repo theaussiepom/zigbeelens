@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useLiveResource } from "@/hooks/useLiveResource";
+import {
+  SNAPSHOT_HISTORY_REFRESH_FAILED_COPY,
+} from "@/lib/meshGraphCopy";
 import { topologySnapshotPath } from "@/lib/routes";
 import {
   buildSnapshotHistoryViewModel,
@@ -161,6 +164,24 @@ function SnapshotHistoryRowButton({
   );
 }
 
+function RefreshWarning({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div
+      data-testid="snapshot-history-refresh-warning"
+      className="rounded-lg border border-zl-watch/40 bg-zl-watch/10 px-3 py-2 text-xs text-zl-watch"
+    >
+      <p>{SNAPSHOT_HISTORY_REFRESH_FAILED_COPY}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-2 min-h-11 text-sm font-medium text-zl-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
 /**
  * Renders snapshot-history loading/error/ready content only.
  * Does not own fetching, selection, or page/drawer chrome.
@@ -168,9 +189,13 @@ function SnapshotHistoryRowButton({
 export function SnapshotHistoryContent({
   viewModel,
   onSelectSnapshot,
+  refreshFailed = false,
+  onRetryRefresh,
 }: {
   viewModel: SnapshotHistoryViewModel;
   onSelectSnapshot: (snapshotId: string) => void;
+  refreshFailed?: boolean;
+  onRetryRefresh?: () => void;
 }) {
   return (
     <div data-testid="snapshot-history-section" className="space-y-3">
@@ -180,6 +205,7 @@ export function SnapshotHistoryContent({
         <p className="text-xs text-zl-muted">{viewModel.unavailableCopy}</p>
       ) : (
         <>
+          {refreshFailed && onRetryRefresh && <RefreshWarning onRetry={onRetryRefresh} />}
           {viewModel.trackingOffBanner && (
             <CoverageBanner pill={viewModel.trackingOffBanner} />
           )}
@@ -271,11 +297,15 @@ export function DeviceSnapshotHistory({
     });
   }, [history.data]);
 
+  // Retain last accepted data when a background refresh fails. Only the initial
+  // no-data failure uses the section-local unavailable ViewModel.
   const viewModel = useMemo(() => {
     if (history.loading && !history.data) return loadingSnapshotHistoryViewModel();
-    if (history.error || !history.data) return errorSnapshotHistoryViewModel();
+    if (!history.data) return errorSnapshotHistoryViewModel();
     return buildSnapshotHistoryViewModel(history.data, selectedSnapshotId);
-  }, [history.loading, history.error, history.data, selectedSnapshotId]);
+  }, [history.loading, history.data, selectedSnapshotId]);
+
+  const refreshFailed = Boolean(history.data && history.error);
 
   return (
     <section
@@ -292,6 +322,8 @@ export function DeviceSnapshotHistory({
       <SnapshotHistoryContent
         viewModel={viewModel}
         onSelectSnapshot={setSelectedSnapshotId}
+        refreshFailed={refreshFailed}
+        onRetryRefresh={history.refetch}
       />
       {showRawSnapshotLink && (
         <Link

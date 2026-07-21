@@ -5,11 +5,14 @@ import { useLiveResource } from "@/hooks/useLiveResource";
 import { api, type TopologyNetworkDetail, type TopologyOverview } from "@/lib/api";
 import { Badge, Card, EmptyState, ErrorState, LoadingState, MetricPill } from "@/components/ui";
 import { relativeTime } from "@/lib/format";
-import { topologyRequestedByLabel, topologyStatusLabel } from "@/lib/topologyLabels";
-import { resolveTopologyDisplayCounts } from "@/lib/topologyStats";
+import { RAW_SNAPSHOT_REFRESH_FAILED_COPY } from "@/lib/meshGraphCopy";
+import { topologyRequestedByLabel } from "@/lib/topologyLabels";
 import { TopologyViewTabs } from "@/components/meshGraph/TopologyViewTabs";
 import { topologySnapshotPath } from "@/lib/routes";
 import { buildTopologyLandingSnapshotViewModel } from "@/viewModels/topology/topologyLandingSnapshotViewModel";
+import {
+  buildTopologyRawDetailSnapshotViewModel,
+} from "@/viewModels/topology/topologyRawDetailSnapshotViewModel";
 
 const CAPTURE_WARNING =
   "Capturing a Zigbee network map asks Zigbee2MQTT to scan the mesh. On larger networks this may temporarily make Zigbee less responsive. ZigbeeLens will not change Zigbee state, but this diagnostic request can create temporary network load.";
@@ -96,43 +99,57 @@ function NetworkSnapshotNav({
   );
 }
 
+function DetailRefreshWarning({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div
+      data-testid="raw-snapshot-refresh-warning"
+      className="rounded-lg border border-zl-watch/40 bg-zl-watch/10 px-4 py-3 text-sm text-zl-watch"
+    >
+      <p>{RAW_SNAPSHOT_REFRESH_FAILED_COPY}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-2 min-h-11 font-medium text-zl-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
 function TopologyNetworkDetailView({ detail }: { detail: TopologyNetworkDetail }) {
   const snapshot = detail.latest_snapshot;
   const nodes = detail.nodes ?? [];
   const links = detail.links ?? [];
   const inventory = detail.inventory;
+  const presentation = buildTopologyRawDetailSnapshotViewModel(snapshot, nodes, links);
 
-  if (!snapshot) {
+  if (presentation.kind === "no_snapshot") {
     return (
       <Card title="Diagnostics limited">
         <div className="space-y-3 text-sm text-zl-muted">
-          <Badge severity="watch">diagnostics limited</Badge>
+          <Badge severity="watch">{presentation.label}</Badge>
           <p>{NO_SNAPSHOT_COPY}</p>
         </div>
       </Card>
     );
   }
 
-  const counts = resolveTopologyDisplayCounts(snapshot, nodes, links);
-  const hasLayout = counts.layoutAvailable;
-
   return (
     <div className="space-y-4">
       <Card
         title={`${detail.network_name} snapshot`}
-        subtitle={snapshot.captured_at ? `Captured ${relativeTime(snapshot.captured_at)}` : undefined}
-        actions={
-          snapshot.status === "complete" ? (
-            <Badge severity="healthy">{topologyStatusLabel(snapshot.status)}</Badge>
-          ) : (
-            <Badge severity="watch">{topologyStatusLabel(snapshot.status)}</Badge>
-          )
-        }
+        subtitle={snapshot?.captured_at ? `Captured ${relativeTime(snapshot.captured_at)}` : undefined}
+        actions={<Badge severity={presentation.severity}>{presentation.label}</Badge>}
       >
         <div className="flex flex-wrap gap-2">
-          <MetricPill label="Topology routers" value={counts.routers} />
-          <MetricPill label="Topology end devices" value={counts.endDevices} />
-          <MetricPill label="Topology links" value={counts.links} />
+          {presentation.showTopologyCounts && (
+            <>
+              <MetricPill label="Topology routers" value={presentation.counts.routers} />
+              <MetricPill label="Topology end devices" value={presentation.counts.endDevices} />
+              <MetricPill label="Topology links" value={presentation.counts.links} />
+            </>
+          )}
           {inventory && (
             <>
               <MetricPill label="Known devices" value={inventory.device_count} />
@@ -140,25 +157,34 @@ function TopologyNetworkDetailView({ detail }: { detail: TopologyNetworkDetail }
               <MetricPill label="Known end devices" value={inventory.end_device_count} />
             </>
           )}
-          {snapshot.requested_by && (
+          {snapshot?.requested_by && (
             <MetricPill
               label="Requested by"
               value={topologyRequestedByLabel(snapshot.requested_by)}
             />
           )}
         </div>
-        {snapshot.error && (
-          <p className="mt-3 text-sm text-zl-critical">{snapshot.error}</p>
+        {presentation.statusCopy && (
+          <p
+            className={`mt-3 text-sm ${
+              presentation.severity === "critical" ? "text-zl-critical" : "text-zl-muted"
+            }`}
+            data-testid="raw-detail-status-copy"
+          >
+            {presentation.statusCopy}
+          </p>
         )}
-        {!hasLayout && (
+        {presentation.showLimitedLayoutCopy && (
           <p className="mt-3 border-l-2 border-zl-watch/40 pl-3 text-sm text-zl-muted">
             {LIMITED_LAYOUT_COPY}
           </p>
         )}
-        <p className="mt-3 text-sm text-zl-muted">{POINT_IN_TIME_LIMITATION}</p>
+        {presentation.showPointInTimeLimitation && (
+          <p className="mt-3 text-sm text-zl-muted">{POINT_IN_TIME_LIMITATION}</p>
+        )}
       </Card>
 
-      {hasLayout ? (
+      {presentation.showRawContents ? (
         <details className="rounded-xl border border-zl-border bg-zl-surface p-5">
           <summary className="cursor-pointer text-sm font-semibold text-zl-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50">
             Raw snapshot contents
@@ -241,10 +267,12 @@ function TopologyNetworkDetailView({ detail }: { detail: TopologyNetworkDetail }
 function TopologyLanding({
   topology,
   enabled,
+  captureAllowed,
   onCapture,
 }: {
   topology: TopologyOverview;
   enabled: boolean;
+  captureAllowed: boolean;
   onCapture: (networkId: string) => void;
 }) {
   const networks = topology.networks;
@@ -301,7 +329,7 @@ function TopologyLanding({
                       <span className="text-sm text-zl-accent">View snapshot details →</span>
                     </div>
                   </Link>
-                  {topology.manual_capture_enabled && (
+                  {captureAllowed && (
                     <button
                       type="button"
                       onClick={() => onCapture(network.network_id)}
@@ -324,11 +352,13 @@ function TopologyNetworkDetailPage({
   networkId,
   topology,
   enabled,
+  captureAllowed,
   onCapture,
 }: {
   networkId: string;
   topology: TopologyOverview;
   enabled: boolean;
+  captureAllowed: boolean;
   onCapture: (networkId: string) => void;
 }) {
   const networks = topology.networks;
@@ -349,6 +379,8 @@ function TopologyNetworkDetailPage({
       </div>
     );
   }
+
+  const refreshFailed = Boolean(detail.data && detail.error);
 
   return (
     <div className="max-w-5xl space-y-6">
@@ -383,7 +415,7 @@ function TopologyNetworkDetailPage({
         </div>
       )}
 
-      {topology.manual_capture_enabled && (
+      {captureAllowed && (
         <button
           type="button"
           onClick={() => onCapture(networkId)}
@@ -393,9 +425,11 @@ function TopologyNetworkDetailPage({
         </button>
       )}
 
+      {refreshFailed && <DetailRefreshWarning onRetry={detail.refetch} />}
+
       {detail.loading && !detail.data ? (
         <LoadingState />
-      ) : detail.error ? (
+      ) : !detail.data && detail.error ? (
         <ErrorState message={detail.error} onRetry={detail.refetch} />
       ) : detail.data ? (
         <TopologyNetworkDetailView detail={detail.data} />
@@ -424,8 +458,18 @@ export function TopologyPage() {
   const topology = overview.data;
   if (!topology) return <LoadingState />;
   const enabled = topology.enabled ?? status.topology?.enabled ?? false;
+  const captureAllowed = enabled && topology.manual_capture_enabled;
+
+  function requestCapture(targetNetworkId: string) {
+    if (!captureAllowed) return;
+    setModalNetwork(targetNetworkId);
+  }
 
   async function confirmCapture(targetNetworkId: string) {
+    if (!captureAllowed) {
+      setModalNetwork(null);
+      return;
+    }
     setCapturing(true);
     setError(null);
     try {
@@ -446,17 +490,19 @@ export function TopologyPage() {
           networkId={networkId}
           topology={topology}
           enabled={enabled}
-          onCapture={setModalNetwork}
+          captureAllowed={captureAllowed}
+          onCapture={requestCapture}
         />
       ) : (
         <TopologyLanding
           topology={topology}
           enabled={enabled}
-          onCapture={setModalNetwork}
+          captureAllowed={captureAllowed}
+          onCapture={requestCapture}
         />
       )}
 
-      {modalNetwork && (
+      {modalNetwork && captureAllowed && (
         <CaptureModal
           networkId={modalNetwork}
           capturing={capturing}

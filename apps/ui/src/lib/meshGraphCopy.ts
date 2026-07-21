@@ -220,6 +220,10 @@ export const SNAPSHOT_HISTORY_EMPTY_COPY =
   "No earlier usable topology snapshots are available for this device yet.";
 export const SNAPSHOT_HISTORY_UNAVAILABLE_COPY =
   "Snapshot history is unavailable right now.";
+export const SNAPSHOT_HISTORY_REFRESH_FAILED_COPY =
+  "Snapshot history could not be refreshed. Showing the last loaded data.";
+export const RAW_SNAPSHOT_REFRESH_FAILED_COPY =
+  "Raw snapshot could not be refreshed. Showing the last loaded data.";
 
 export const SNAPSHOT_HISTORY_WHY_TITLE = "Why";
 export const SNAPSHOT_HISTORY_MEANING_TITLE = "What this means";

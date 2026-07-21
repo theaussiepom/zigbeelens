@@ -76,6 +76,8 @@ Phase 6C snapshot workflow (including route-identity / retained-read corrections
 - `/topology/:networkId` is exact raw point-in-time detail with collapsed contents
 - retained snapshots remain readable when capture is disabled
 - landing status is factual (not a healthy “snapshot” badge for every row)
+- raw detail status is complete / limited / pending / error / unknown aware
+- background refresh failures keep last accepted history/detail with retry
 - whole-network compare remains API/debug-only
 - manual capture remains on the support surfaces
 

@@ -730,7 +730,8 @@ links to full device details; `/topology` is an Advanced/support landing;
 `/topology/:networkId` is exact raw point-in-time detail with collapsed contents;
 whole-network compare remains API/debug-only; manual capture remains.
 Route params are consumed once; retained snapshots stay readable when capture is
-disabled; landing status is factual; Device Detail history load/error is section-local.
+disabled; landing status is factual; Device Detail history load/error is section-local;
+background refresh failures retain last accepted history/raw detail with retry.
 
 ### Phase 6D — Reports UX consolidation
 
