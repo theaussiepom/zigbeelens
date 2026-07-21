@@ -197,10 +197,23 @@ def build_incident_collection_query(
     )
 
 
+def _require_exact_cursor_version(version: object) -> int:
+    """Accept only exact integer cursor versions 1 or 2 (not bool/float/str)."""
+    if type(version) is not int or version not in {
+        INCIDENT_COLLECTION_CURSOR_VERSION,
+        INCIDENT_COLLECTION_RECENT_CURSOR_VERSION,
+    }:
+        raise IncidentCollectionCursorError(
+            "Unsupported incident collection cursor version"
+        )
+    return version
+
+
 def encode_incident_collection_cursor(cursor: IncidentCollectionCursor) -> str:
-    if cursor.version == INCIDENT_COLLECTION_RECENT_CURSOR_VERSION:
+    version = _require_exact_cursor_version(cursor.version)
+    if version == INCIDENT_COLLECTION_RECENT_CURSOR_VERSION:
         payload = {
-            "v": cursor.version,
+            "v": version,
             "u": cursor.updated_at,
             "id": cursor.incident_id,
             "fs": cursor.filter_signature,
@@ -209,7 +222,7 @@ def encode_incident_collection_cursor(cursor: IncidentCollectionCursor) -> str:
         if cursor.lifecycle_rank is None:
             raise IncidentCollectionCursorError("Invalid incident collection cursor")
         payload = {
-            "v": cursor.version,
+            "v": version,
             "lr": cursor.lifecycle_rank,
             "u": cursor.updated_at,
             "id": cursor.incident_id,
@@ -256,7 +269,7 @@ def decode_incident_collection_cursor(
     if not isinstance(payload, dict):
         raise IncidentCollectionCursorError("Invalid incident collection cursor")
 
-    version = payload.get("v")
+    version = _require_exact_cursor_version(payload.get("v"))
     if version == INCIDENT_COLLECTION_RECENT_CURSOR_VERSION:
         if expected_order != "recent":
             raise IncidentCollectionCursorError(
@@ -284,8 +297,6 @@ def decode_incident_collection_cursor(
             lifecycle_rank=None,
         )
 
-    if version != INCIDENT_COLLECTION_CURSOR_VERSION:
-        raise IncidentCollectionCursorError("Unsupported incident collection cursor version")
     if expected_order != "lifecycle":
         raise IncidentCollectionCursorError(
             "Incident collection cursor does not match order"

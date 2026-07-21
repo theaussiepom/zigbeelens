@@ -718,6 +718,72 @@ def test_order_validation_rejects_unknown_values():
         build_incident_collection_query(order="priority")
 
 
+@pytest.mark.parametrize(
+    "version",
+    [True, False, 1.0, 2.0, "1", "2", None, 0, 3, -1],
+)
+def test_cursor_rejects_non_exact_integer_versions(version):
+    import base64
+    import json
+
+    from zigbeelens.storage.incident_collection import (
+        INCIDENT_COLLECTION_CURSOR_VERSION,
+        IncidentCollectionCursor,
+        encode_incident_collection_cursor,
+    )
+
+    fs = build_incident_collection_query(limit=1).filter_signature
+    # Encoder must reject unsupported versions.
+    with pytest.raises(IncidentCollectionCursorError):
+        encode_incident_collection_cursor(
+            IncidentCollectionCursor(
+                version=version,  # type: ignore[arg-type]
+                updated_at="2026-07-16T12:00:00+00:00",
+                incident_id="x",
+                filter_signature=fs,
+                lifecycle_rank=0
+                if version != 2 and version != 2.0
+                else None,
+            )
+        )
+    # Decoder must reject the same set for both payload shapes.
+    for keys in (
+        {"v": version, "lr": 0, "u": "2026-07-16T12:00:00+00:00", "id": "x", "fs": fs},
+        {"v": version, "u": "2026-07-16T12:00:00+00:00", "id": "x", "fs": fs},
+    ):
+        raw = json.dumps(keys, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        token = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+        with pytest.raises(IncidentCollectionCursorError):
+            decode_incident_collection_cursor(
+                token,
+                expected_filter_signature=fs,
+                expected_order="lifecycle"
+                if "lr" in keys
+                else "recent",
+            )
+    assert INCIDENT_COLLECTION_CURSOR_VERSION == 1
+
+
+def test_lifecycle_v1_cursor_byte_round_trip():
+    import base64
+    import json
+
+    fs = build_incident_collection_query(limit=1).filter_signature
+    payload = {
+        "fs": fs,
+        "id": "open-b",
+        "lr": 0,
+        "u": "2026-07-16T12:00:00+00:00",
+        "v": 1,
+    }
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    token = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    decoded = decode_incident_collection_cursor(
+        token, expected_filter_signature=fs, expected_order="lifecycle"
+    )
+    assert encode_incident_collection_cursor(decoded) == token
+
+
 def test_pr83_recent_order_returns_true_recency_not_lifecycle_page(tmp_path: Path):
     """PR #83: Overview recent changes must not be lifecycle-ranked first page."""
     repo = _repo(tmp_path)
