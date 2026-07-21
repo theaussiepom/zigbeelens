@@ -3,6 +3,8 @@ import type { RedactionProfile, ReportFormat } from "@zigbeelens/shared";
 import {
   CONTEXTUAL_REPORT_PROFILE_DEFAULTS,
   buildContextualReportRequest,
+  contextualRequestKey,
+  contextualTargetIdentity,
   type ContextualReportOptions,
   type ContextualReportTarget,
 } from "./contextualReportTarget";
@@ -105,5 +107,32 @@ describe("buildContextualReportRequest", () => {
     );
     expect(request.network_id).toBe("50%mesh");
     expect(request.network_id).not.toBe("50%25mesh");
+  });
+
+  it("canonical target identity ignores object-literal identity", () => {
+    const a: ContextualReportTarget = {
+      scope: "device",
+      networkId: "home",
+      deviceIeee: "0x1",
+      subjectLabel: "Plug",
+    };
+    const b: ContextualReportTarget = { ...a };
+    expect(contextualTargetIdentity(a)).toBe(contextualTargetIdentity(b));
+    expect(contextualTargetIdentity({ scope: "full", subjectLabel: "A" })).toBe(
+      contextualTargetIdentity({ scope: "full", subjectLabel: "B" }),
+    );
+  });
+
+  it("canonical request key is stable for the same semantic inputs", () => {
+    const target: ContextualReportTarget = {
+      scope: "network",
+      networkId: "home",
+      subjectLabel: "Home",
+    };
+    const keyA = contextualRequestKey({ ...target }, "s1", options("json", "standard"));
+    const keyB = contextualRequestKey(target, "s1", options("json", "standard"));
+    expect(keyA).toBe(keyB);
+    expect(contextualRequestKey(target, "s2", options("json", "standard"))).not.toBe(keyA);
+    expect(contextualRequestKey(target, "s1", options("yaml", "standard"))).not.toBe(keyA);
   });
 });

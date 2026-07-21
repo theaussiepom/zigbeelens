@@ -11,7 +11,11 @@ import { Badge, Card, ErrorState, LoadingState } from "@/components/ui";
 import {
   CONTEXTUAL_REPORT_PROFILE_DEFAULTS,
   buildContextualReportRequest,
+  contextualDialogContextKey,
+  contextualRequestKey,
+  contextualTargetIdentity,
   scopeLabel,
+  targetFromIdentity,
   type ContextualReportOptions,
   type ContextualReportTarget,
 } from "@/reports/contextualReportTarget";
@@ -31,9 +35,25 @@ const PROFILES: { value: RedactionProfile; label: string; hint: string }[] = [
 type DialogPhase =
   | { kind: "idle" }
   | { kind: "creating" }
-  | { kind: "created"; summary: ReportSummary }
-  | { kind: "created_download_failed"; summary: ReportSummary; message: string }
+  | { kind: "created"; summary: ReportSummary; requestKey: string }
+  | { kind: "created_download_failed"; summary: ReportSummary; requestKey: string; message: string }
   | { kind: "create_failed"; message: string };
+
+type PreviewState = {
+  requestKey: string | null;
+  loading: boolean;
+  error: string | null;
+  data: Awaited<ReturnType<typeof api.previewReport>> | null;
+};
+
+function getFocusable(container: HTMLElement): HTMLElement[] {
+  const nodes = container.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
+  );
+  return Array.from(nodes).filter(
+    (el) => !el.hasAttribute("disabled") && el.getAttribute("aria-hidden") !== "true",
+  );
+}
 
 export function ContextualReportDialog({
   target,
@@ -52,9 +72,20 @@ export function ContextualReportDialog({
 }) {
   const titleId = useId();
   const descId = useId();
+  const formatGroupId = useId();
+  const profileGroupId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
-  const operationIdRef = useRef(0);
-  const creatingRef = useRef(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const previewSequenceRef = useRef(0);
+  const mutationSequenceRef = useRef(0);
+  const mutationInFlightRef = useRef(false);
+  const downloadInFlightRef = useRef(false);
+  const mountedRef = useRef(true);
+  const requestRef = useRef<ReturnType<typeof buildContextualReportRequest> | null>(null);
+  const requestKeyRef = useRef("");
+  const dialogContextKeyRef = useRef("");
+  const onCreatedRef = useRef(onCreated);
+  onCreatedRef.current = onCreated;
 
   const [format, setFormat] = useState<ReportFormat>("json");
   const [profile, setProfile] = useState<RedactionProfile>("standard");
@@ -63,87 +94,161 @@ export function ContextualReportDialog({
   );
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [phase, setPhase] = useState<DialogPhase>({ kind: "idle" });
-  const [preview, setPreview] = useState<{
-    loading: boolean;
-    error: string | null;
-    data: Awaited<ReturnType<typeof api.previewReport>> | null;
-  }>({ loading: false, error: null, data: null });
+  const [mutationInFlight, setMutationInFlight] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PreviewState>({
+    requestKey: null,
+    loading: false,
+    error: null,
+    data: null,
+  });
 
+  const targetIdentity = contextualTargetIdentity(target);
+  const stableTarget = useMemo(
+    () => targetFromIdentity(targetIdentity, target),
+    // Intentionally keyed by identity so parent object-literal churn is ignored.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [targetIdentity],
+  );
+  // Prefer live subjectLabel for full scope (identity omits it).
+  const displayTarget: ContextualReportTarget =
+    stableTarget.scope === "full"
+      ? { scope: "full", subjectLabel: target.subjectLabel }
+      : stableTarget;
+
+  const dialogContextKey = contextualDialogContextKey(stableTarget, scenario);
   const reportOptions: ContextualReportOptions = useMemo(
     () => ({ format, profile, ...options }),
     [format, profile, options],
   );
+  const requestKey = contextualRequestKey(stableTarget, scenario, reportOptions);
   const request = useMemo(
-    () => buildContextualReportRequest(target, reportOptions),
-    [target, reportOptions],
+    () => buildContextualReportRequest(stableTarget, reportOptions),
+    [stableTarget, reportOptions],
   );
-  const requestKey = useMemo(
-    () => JSON.stringify({ target, scenario, request }),
-    [target, scenario, request],
-  );
+  requestRef.current = request;
+  requestKeyRef.current = requestKey;
+  dialogContextKeyRef.current = dialogContextKey;
 
-  const targetKey = useMemo(() => JSON.stringify(target), [target]);
-  const [openEpoch, setOpenEpoch] = useState(0);
   const [trackedOpen, setTrackedOpen] = useState(false);
-  const [trackedTargetKey, setTrackedTargetKey] = useState(targetKey);
-  const [trackedScenario, setTrackedScenario] = useState(scenario);
+  const [trackedContextKey, setTrackedContextKey] = useState(dialogContextKey);
+  const [trackedRequestKey, setTrackedRequestKey] = useState(requestKey);
 
-  if (open !== trackedOpen || targetKey !== trackedTargetKey || scenario !== trackedScenario) {
+  if (open !== trackedOpen || dialogContextKey !== trackedContextKey) {
     setTrackedOpen(open);
-    setTrackedTargetKey(targetKey);
-    setTrackedScenario(scenario);
+    setTrackedContextKey(dialogContextKey);
     if (open) {
-      setOpenEpoch((n) => n + 1);
       setFormat("json");
       setProfile("standard");
       setOptions(CONTEXTUAL_REPORT_PROFILE_DEFAULTS.standard);
       setAdvancedOpen(false);
       setPhase({ kind: "idle" });
+      setStatusMessage(null);
+      setPreview({ requestKey: null, loading: false, error: null, data: null });
+      setTrackedRequestKey(
+        contextualRequestKey(stableTarget, scenario, {
+          format: "json",
+          profile: "standard",
+          ...CONTEXTUAL_REPORT_PROFILE_DEFAULTS.standard,
+        }),
+      );
+    }
+  } else if (open && requestKey !== trackedRequestKey) {
+    setTrackedRequestKey(requestKey);
+    // Options/format changed: clear prior created state for this dialog.
+    if (
+      phase.kind === "created" ||
+      phase.kind === "created_download_failed" ||
+      phase.kind === "create_failed"
+    ) {
+      setPhase({ kind: "idle" });
     }
   }
 
-  // One preview request while open; invalidated by target/scenario/options changes.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Preview ownership — never touches mutation sequence/lock.
   useEffect(() => {
     if (!open) return;
-    operationIdRef.current += 1;
-    creatingRef.current = false;
-    const op = operationIdRef.current;
-    setPreview({ loading: true, error: null, data: null });
+    const sequence = ++previewSequenceRef.current;
+    const keyForRequest = requestKey;
+    const requestForPreview = requestRef.current;
+    if (!requestForPreview) return;
+    setPreview({ requestKey: keyForRequest, loading: true, error: null, data: null });
     void api
-      .previewReport(request, scenario)
+      .previewReport(requestForPreview, scenario)
       .then((data) => {
-        if (op !== operationIdRef.current) return;
-        setPreview({ loading: false, error: null, data });
+        if (!mountedRef.current) return;
+        if (sequence !== previewSequenceRef.current) return;
+        if (keyForRequest !== requestKeyRef.current) return;
+        setPreview({ requestKey: keyForRequest, loading: false, error: null, data });
       })
       .catch((err: unknown) => {
-        if (op !== operationIdRef.current) return;
+        if (!mountedRef.current) return;
+        if (sequence !== previewSequenceRef.current) return;
+        if (keyForRequest !== requestKeyRef.current) return;
         setPreview({
+          requestKey: keyForRequest,
           loading: false,
           error: err instanceof Error ? err.message : "Preview unavailable",
           data: null,
         });
       });
-  }, [open, openEpoch, requestKey, request, scenario]);
+    // Only the canonical request key drives preview restart.
+  }, [open, requestKey, scenario]);
 
   useEffect(() => {
     if (!open) return;
     closeRef.current?.focus();
-  }, [open]);
+  }, [open, dialogContextKey]);
 
   useEffect(() => {
     if (!open) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (creatingRef.current) return;
-      event.preventDefault();
-      closeDialog();
+      if (event.key === "Escape") {
+        if (mutationInFlightRef.current) return;
+        event.preventDefault();
+        closeDialog();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = getFocusable(panel);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      const active = document.activeElement as HTMLElement | null;
+      if (!active || !panel.contains(active)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+        return;
+      }
+      if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
   });
 
   function closeDialog() {
-    if (creatingRef.current) return;
+    if (mutationInFlightRef.current) return;
     onClose();
     queueMicrotask(() => returnFocusRef?.current?.focus());
   }
@@ -154,15 +259,23 @@ export function ContextualReportDialog({
   }
 
   async function retryPreview() {
-    const op = operationIdRef.current;
-    setPreview({ loading: true, error: null, data: null });
+    const sequence = ++previewSequenceRef.current;
+    const keyForRequest = requestKey;
+    const requestForPreview = requestRef.current;
+    if (!requestForPreview) return;
+    setPreview({ requestKey: keyForRequest, loading: true, error: null, data: null });
     try {
-      const data = await api.previewReport(request, scenario);
-      if (op !== operationIdRef.current) return;
-      setPreview({ loading: false, error: null, data });
+      const data = await api.previewReport(requestForPreview, scenario);
+      if (!mountedRef.current) return;
+      if (sequence !== previewSequenceRef.current) return;
+      if (keyForRequest !== requestKeyRef.current) return;
+      setPreview({ requestKey: keyForRequest, loading: false, error: null, data });
     } catch (err) {
-      if (op !== operationIdRef.current) return;
+      if (!mountedRef.current) return;
+      if (sequence !== previewSequenceRef.current) return;
+      if (keyForRequest !== requestKeyRef.current) return;
       setPreview({
+        requestKey: keyForRequest,
         loading: false,
         error: err instanceof Error ? err.message : "Preview unavailable",
         data: null,
@@ -170,75 +283,152 @@ export function ContextualReportDialog({
     }
   }
 
+  const previewMatchesCurrent =
+    preview.requestKey === requestKey && preview.data != null && !preview.loading && !preview.error;
+  const createdForCurrent =
+    (phase.kind === "created" || phase.kind === "created_download_failed") &&
+    phase.requestKey === requestKey;
+  const canCreate =
+    open &&
+    previewMatchesCurrent &&
+    !mutationInFlight &&
+    !createdForCurrent;
+
   async function saveReport(andDownload: boolean) {
-    if (creatingRef.current) return;
-    creatingRef.current = true;
-    const op = operationIdRef.current;
+    if (mutationInFlightRef.current) return;
+    if (!canCreate) return;
+    const requestForCreate = requestRef.current;
+    if (!requestForCreate) return;
+
+    mutationInFlightRef.current = true;
+    setMutationInFlight(true);
+    const mutationId = ++mutationSequenceRef.current;
+    const capturedRequestKey = requestKey;
+    const capturedContextKey = dialogContextKey;
+    const capturedScenario = scenario;
     setPhase({ kind: "creating" });
+    setStatusMessage(null);
+
+    let summary: ReportSummary | null = null;
     try {
-      const summary = await api.createReport(request, scenario);
-      if (op !== operationIdRef.current) return;
-      onCreated?.(summary);
-      if (!andDownload) {
-        setPhase({ kind: "created", summary });
+      summary = await api.createReport(requestForCreate, capturedScenario);
+      if (!mountedRef.current) return;
+
+      const contextStillCurrent = capturedContextKey === dialogContextKeyRef.current;
+      if (!contextStillCurrent) {
+        setStatusMessage(
+          "A report may have been saved for the previous selection. Check Saved reports.",
+        );
         return;
       }
+
+      onCreatedRef.current?.(summary);
+
+      if (capturedRequestKey !== requestKeyRef.current) {
+        // Options changed after create started — list refresh only; no current-key created UI.
+        setPhase({ kind: "idle" });
+        return;
+      }
+
+      if (!andDownload) {
+        setPhase({ kind: "created", summary, requestKey: capturedRequestKey });
+        return;
+      }
+
       try {
-        const file = await downloadStoredReport(summary.id, scenario);
-        if (op !== operationIdRef.current) return;
+        const file = await downloadStoredReport(summary.id, capturedScenario);
+        if (!mountedRef.current) return;
+        if (capturedContextKey !== dialogContextKeyRef.current) return;
+        if (capturedRequestKey !== requestKeyRef.current) {
+          setPhase({ kind: "created", summary, requestKey: capturedRequestKey });
+          return;
+        }
         await triggerBrowserDownload(file);
-        if (op !== operationIdRef.current) return;
-        setPhase({ kind: "created", summary });
+        if (!mountedRef.current) return;
+        if (capturedContextKey !== dialogContextKeyRef.current) return;
+        setPhase({ kind: "created", summary, requestKey: capturedRequestKey });
       } catch {
-        if (op !== operationIdRef.current) return;
+        if (!mountedRef.current) return;
+        if (capturedContextKey !== dialogContextKeyRef.current) {
+          setStatusMessage(
+            "A report may have been saved for the previous selection. Check Saved reports.",
+          );
+          return;
+        }
         setPhase({
           kind: "created_download_failed",
           summary,
+          requestKey: capturedRequestKey,
           message: "Report saved, but download could not be started.",
         });
       }
     } catch {
-      if (op !== operationIdRef.current) return;
+      if (!mountedRef.current) return;
+      if (capturedContextKey !== dialogContextKeyRef.current) {
+        setStatusMessage("Could not save the previous selection’s report.");
+        return;
+      }
+      if (mutationId !== mutationSequenceRef.current) return;
       setPhase({ kind: "create_failed", message: "Could not save report." });
     } finally {
-      if (op === operationIdRef.current) {
-        creatingRef.current = false;
+      mutationInFlightRef.current = false;
+      if (mountedRef.current) {
+        setMutationInFlight(false);
       }
     }
   }
 
-  async function retryDownload(summary: ReportSummary) {
-    const op = operationIdRef.current;
+  async function downloadSaved(summary: ReportSummary, forRequestKey: string) {
+    if (downloadInFlightRef.current) return;
+    downloadInFlightRef.current = true;
     try {
       const file = await downloadStoredReport(summary.id, scenario);
-      if (op !== operationIdRef.current) return;
+      if (!mountedRef.current) return;
+      if (forRequestKey !== requestKeyRef.current) return;
       await triggerBrowserDownload(file);
-      if (op !== operationIdRef.current) return;
-      setPhase({ kind: "created", summary });
+      if (!mountedRef.current) return;
+      if (forRequestKey !== requestKeyRef.current) return;
+      setPhase({ kind: "created", summary, requestKey: forRequestKey });
+      setStatusMessage(null);
     } catch {
-      if (op !== operationIdRef.current) return;
+      if (!mountedRef.current) return;
+      if (forRequestKey !== requestKeyRef.current) return;
       setPhase({
         kind: "created_download_failed",
         summary,
+        requestKey: forRequestKey,
         message: "Report saved, but download could not be started.",
       });
+    } finally {
+      downloadInFlightRef.current = false;
     }
   }
 
   async function copyPreviewMarkdown() {
-    if (!preview.data) return;
-    const accessGeneration = authRuntime.getAccessGeneration();
-    await writeProtectedClipboardText(preview.data.markdown_summary, accessGeneration);
+    if (!previewMatchesCurrent || !preview.data) return;
+    try {
+      const accessGeneration = authRuntime.getAccessGeneration();
+      await writeProtectedClipboardText(preview.data.markdown_summary, accessGeneration);
+      if (!mountedRef.current) return;
+      setStatusMessage("Preview Markdown copied.");
+    } catch {
+      if (!mountedRef.current) return;
+      setStatusMessage("Could not copy preview Markdown.");
+    }
   }
 
   if (!open) return null;
 
-  const creating = phase.kind === "creating";
-  const decisionSummary = preview.data?.decision_summary;
+  const creating = mutationInFlight;
+  const showCreatedActions = createdForCurrent;
+  const decisionSummary =
+    previewMatchesCurrent && preview.data ? preview.data.decision_summary : null;
+  const previewReady = previewMatchesCurrent && preview.data;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -248,11 +438,12 @@ export function ContextualReportDialog({
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 id={titleId} className="text-lg font-semibold text-zl-text">
-              Create {scopeLabel(target.scope).toLowerCase()} report
+              Create {scopeLabel(displayTarget.scope).toLowerCase()} report
             </h2>
             <p id={descId} className="mt-1 text-sm text-zl-muted">
-              Export stored evidence for <span className="text-zl-text">{target.subjectLabel}</span>.
-              Scope and target are fixed by this page.
+              Export stored evidence for{" "}
+              <span className="text-zl-text">{displayTarget.subjectLabel}</span>. Scope and
+              target are fixed by this page.
             </p>
           </div>
           <button
@@ -267,17 +458,26 @@ export function ContextualReportDialog({
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <Badge severity="watch">{scopeLabel(target.scope)}</Badge>
-          <Badge severity="healthy">{target.subjectLabel}</Badge>
+          <Badge severity="watch">{scopeLabel(displayTarget.scope)}</Badge>
+          <Badge severity="healthy">{displayTarget.subjectLabel}</Badge>
         </div>
 
         <div className="mt-5 space-y-4">
-          <Field label="Format">
-            <Segmented options={FORMATS} value={format} onChange={setFormat} disabled={creating} />
+          <Field labelId={formatGroupId} label="Format">
+            <Segmented
+              groupLabelId={formatGroupId}
+              groupLabel="Format"
+              options={FORMATS}
+              value={format}
+              onChange={setFormat}
+              disabled={creating}
+            />
           </Field>
-          <Field label="Redaction profile">
+          <Field labelId={profileGroupId} label="Redaction profile">
             <div className="space-y-2">
               <Segmented
+                groupLabelId={profileGroupId}
+                groupLabel="Redaction profile"
                 options={PROFILES.map((p) => ({ value: p.value, label: p.label }))}
                 value={profile}
                 onChange={(v) => changeProfile(v as RedactionProfile)}
@@ -343,38 +543,42 @@ export function ContextualReportDialog({
           </details>
 
           <Card title="Export preview">
-            {preview.loading && !preview.data ? (
+            {preview.requestKey !== requestKey || (preview.loading && !preview.data) ? (
               <LoadingState label="Loading preview…" />
             ) : preview.error && !preview.data ? (
               <ErrorState message={preview.error} onRetry={() => void retryPreview()} />
-            ) : preview.data ? (
+            ) : previewReady ? (
               <div className="space-y-3 text-sm">
                 <dl className="grid gap-2 sm:grid-cols-2">
-                  <PreviewRow label="Scope" value={scopeLabel(target.scope)} />
-                  <PreviewRow label="Subject" value={target.subjectLabel} />
-                  <PreviewRow label="Format" value={preview.data.format.toUpperCase()} />
-                  <PreviewRow label="Report version" value={String(preview.data.report_version)} />
+                  <PreviewRow label="Scope" value={scopeLabel(displayTarget.scope)} />
+                  <PreviewRow label="Subject" value={displayTarget.subjectLabel} />
+                  <PreviewRow label="Format" value={preview.data!.format.toUpperCase()} />
+                  <PreviewRow
+                    label="Report version"
+                    value={String(preview.data!.report_version)}
+                  />
                   <PreviewRow
                     label="Networks"
                     value={String(
-                      preview.data.raw_counts.networks_included ??
-                        preview.data.domain_details.networks.length,
+                      preview.data!.raw_counts.networks_included ??
+                        preview.data!.domain_details.networks.length,
                     )}
                   />
                   <PreviewRow
                     label="Devices"
                     value={String(
-                      preview.data.raw_counts.devices_included ??
-                        preview.data.domain_details.devices.length,
+                      preview.data!.raw_counts.devices_included ??
+                        preview.data!.domain_details.devices.length,
                     )}
                   />
                   <PreviewRow
                     label="Incidents"
                     value={String(
-                      preview.data.raw_counts.incidents_included ?? preview.data.incidents.length,
+                      preview.data!.raw_counts.incidents_included ??
+                        preview.data!.incidents.length,
                     )}
                   />
-                  <PreviewRow label="Redaction" value={preview.data.redaction.profile} />
+                  <PreviewRow label="Redaction" value={preview.data!.redaction.profile} />
                 </dl>
                 {decisionSummary && (
                   <p className="text-xs text-zl-muted">
@@ -386,9 +590,9 @@ export function ContextualReportDialog({
                   </p>
                 )}
                 <p className="text-xs text-zl-muted">
-                  {preview.data.limitations.length > 0
-                    ? `${preview.data.limitations.length} limitation${
-                        preview.data.limitations.length === 1 ? "" : "s"
+                  {preview.data!.limitations.length > 0
+                    ? `${preview.data!.limitations.length} limitation${
+                        preview.data!.limitations.length === 1 ? "" : "s"
                       } will be included in the saved report.`
                     : "No limitations listed for this export preview."}
                 </p>
@@ -401,17 +605,26 @@ export function ContextualReportDialog({
           </Card>
 
           {phase.kind === "create_failed" && (
-            <p className="text-sm text-zl-critical">{phase.message}</p>
+            <p className="text-sm text-zl-critical" role="status">
+              {phase.message}
+            </p>
           )}
-          {phase.kind === "created" && (
-            <p className="text-sm text-zl-accent">Report saved.</p>
+          {statusMessage && (
+            <p className="text-sm text-zl-watch" role="status">
+              {statusMessage}
+            </p>
           )}
-          {phase.kind === "created_download_failed" && (
+          {showCreatedActions && phase.kind === "created" && (
+            <p className="text-sm text-zl-accent" role="status">
+              Report saved.
+            </p>
+          )}
+          {showCreatedActions && phase.kind === "created_download_failed" && (
             <div className="space-y-2 text-sm text-zl-watch">
-              <p>{phase.message}</p>
+              <p role="status">{phase.message}</p>
               <button
                 type="button"
-                onClick={() => void retryDownload(phase.summary)}
+                onClick={() => void downloadSaved(phase.summary, phase.requestKey)}
                 className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2"
               >
                 Retry download
@@ -420,31 +633,61 @@ export function ContextualReportDialog({
           )}
 
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={creating}
-              onClick={() => void saveReport(false)}
-              className="min-h-11 rounded-lg bg-zl-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              {creating ? "Saving…" : "Save report"}
-            </button>
-            <button
-              type="button"
-              disabled={creating}
-              onClick={() => void saveReport(true)}
-              className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 disabled:opacity-50"
-            >
-              Save and download
-            </button>
-            {preview.data && (
-              <button
-                type="button"
-                disabled={creating}
-                onClick={() => void copyPreviewMarkdown()}
-                className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 disabled:opacity-50"
-              >
-                Copy preview Markdown summary
-              </button>
+            {showCreatedActions ? (
+              <>
+                <p className="sr-only" role="status">
+                  Report saved
+                </p>
+                <button
+                  type="button"
+                  disabled={creating}
+                  onClick={() => {
+                    if (phase.kind === "created" || phase.kind === "created_download_failed") {
+                      void downloadSaved(phase.summary, phase.requestKey);
+                    }
+                  }}
+                  className="min-h-11 rounded-lg bg-zl-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  Download saved report
+                </button>
+                <button
+                  type="button"
+                  disabled={creating}
+                  onClick={closeDialog}
+                  className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 disabled:opacity-50"
+                >
+                  Close
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  disabled={!canCreate}
+                  onClick={() => void saveReport(false)}
+                  className="min-h-11 rounded-lg bg-zl-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {creating ? "Saving…" : "Save report"}
+                </button>
+                <button
+                  type="button"
+                  disabled={!canCreate}
+                  onClick={() => void saveReport(true)}
+                  className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 disabled:opacity-50"
+                >
+                  Save and download
+                </button>
+                {previewReady && (
+                  <button
+                    type="button"
+                    disabled={creating}
+                    onClick={() => void copyPreviewMarkdown()}
+                    className="min-h-11 rounded-lg border border-zl-border px-4 py-2 text-sm hover:bg-zl-surface-2 disabled:opacity-50"
+                  >
+                    Copy preview Markdown summary
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -453,10 +696,23 @@ export function ContextualReportDialog({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  labelId,
+  children,
+}: {
+  label: string;
+  labelId?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="space-y-1.5">
-      <span className="text-xs font-medium uppercase tracking-wide text-zl-muted">{label}</span>
+      <span
+        id={labelId}
+        className="text-xs font-medium uppercase tracking-wide text-zl-muted"
+      >
+        {label}
+      </span>
       {children}
     </div>
   );
@@ -467,29 +723,43 @@ function Segmented<T extends string>({
   value,
   onChange,
   disabled,
+  groupLabelId,
+  groupLabel,
 }: {
   options: { value: T; label: string }[];
   value: T;
   onChange: (v: T) => void;
   disabled?: boolean;
+  groupLabelId: string;
+  groupLabel: string;
 }) {
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          disabled={disabled}
-          onClick={() => onChange(o.value)}
-          className={`min-h-11 rounded-lg px-4 py-2 text-sm disabled:opacity-50 ${
-            value === o.value
-              ? "bg-zl-accent text-zl-bg"
-              : "border border-zl-border text-zl-muted hover:bg-zl-surface-2"
-          }`}
-        >
-          {o.label}
-        </button>
-      ))}
+    <div
+      role="radiogroup"
+      aria-labelledby={groupLabelId}
+      aria-label={groupLabel}
+      className="flex flex-wrap gap-1.5"
+    >
+      {options.map((o) => {
+        const selected = value === o.value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            disabled={disabled}
+            onClick={() => onChange(o.value)}
+            className={`min-h-11 rounded-lg px-4 py-2 text-sm disabled:opacity-50 ${
+              selected
+                ? "bg-zl-accent text-zl-bg"
+                : "border border-zl-border text-zl-muted hover:bg-zl-surface-2"
+            }`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -86,6 +86,112 @@ export function scopeLabel(scope: ContextualReportTarget["scope"]): string {
   }
 }
 
+/** Canonical identity from logical target facts only (not object identity). */
+export function contextualTargetIdentity(target: ContextualReportTarget): string {
+  switch (target.scope) {
+    case "full":
+      return JSON.stringify({ scope: "full" });
+    case "network":
+      return JSON.stringify({
+        scope: "network",
+        networkId: target.networkId,
+        subjectLabel: target.subjectLabel,
+      });
+    case "device":
+      return JSON.stringify({
+        scope: "device",
+        networkId: target.networkId,
+        deviceIeee: target.deviceIeee,
+        subjectLabel: target.subjectLabel,
+      });
+    case "incident":
+      return JSON.stringify({
+        scope: "incident",
+        incidentId: target.incidentId,
+        subjectLabel: target.subjectLabel,
+      });
+  }
+}
+
+/** Target + scenario ownership key for dialog context transitions. */
+export function contextualDialogContextKey(
+  target: ContextualReportTarget,
+  scenario?: string,
+): string {
+  return JSON.stringify({
+    target: contextualTargetIdentity(target),
+    scenario: scenario ?? "",
+  });
+}
+
+/**
+ * Canonical request key for preview/create ownership.
+ * Independent of parent object-literal identity.
+ */
+export function contextualRequestKey(
+  target: ContextualReportTarget,
+  scenario: string | undefined,
+  options: ContextualReportOptions,
+): string {
+  return JSON.stringify({
+    target: contextualTargetIdentity(target),
+    scenario: scenario ?? "",
+    format: options.format,
+    profile: options.profile,
+    preserveFriendly: options.preserveFriendly,
+    hashIeee: options.hashIeee,
+    redactHostnames: options.redactHostnames,
+    redactIp: options.redactIp,
+    redactNetworkNames: options.redactNetworkNames,
+    includeTimeline: options.includeTimeline,
+    includeRaw: options.includeRaw,
+  });
+}
+
+/** Rebuild a stable target value from its canonical identity string. */
+export function targetFromIdentity(
+  identity: string,
+  fallback: ContextualReportTarget,
+): ContextualReportTarget {
+  try {
+    const parsed = JSON.parse(identity) as {
+      scope: ContextualReportTarget["scope"];
+      networkId?: string;
+      deviceIeee?: string;
+      incidentId?: string;
+      subjectLabel?: string;
+    };
+    switch (parsed.scope) {
+      case "full":
+        return {
+          scope: "full",
+          subjectLabel: fallback.scope === "full" ? fallback.subjectLabel : "Full ZigbeeLens evidence",
+        };
+      case "network":
+        return {
+          scope: "network",
+          networkId: parsed.networkId ?? "",
+          subjectLabel: parsed.subjectLabel ?? "",
+        };
+      case "device":
+        return {
+          scope: "device",
+          networkId: parsed.networkId ?? "",
+          deviceIeee: parsed.deviceIeee ?? "",
+          subjectLabel: parsed.subjectLabel ?? "",
+        };
+      case "incident":
+        return {
+          scope: "incident",
+          incidentId: parsed.incidentId ?? "",
+          subjectLabel: parsed.subjectLabel ?? "",
+        };
+    }
+  } catch {
+    return fallback;
+  }
+}
+
 /** Pure request builder — logical IDs only; no URL encoding. */
 export function buildContextualReportRequest(
   target: ContextualReportTarget,
