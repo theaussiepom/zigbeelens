@@ -725,7 +725,10 @@ claims; no layout/preset/control mutation on focus.
 
 ### Phase 6C — Snapshot UX consolidation
 
-Make device-led snapshot history primary and raw snapshots advanced.
+Completed: device-led snapshot history is primary on Device Detail; NodeDrawer
+links to full device details; `/topology` is an Advanced/support landing;
+`/topology/:networkId` is exact raw point-in-time detail with collapsed contents;
+whole-network compare remains API/debug-only; manual capture remains.
 
 ### Phase 6D — Reports UX consolidation
 
@@ -756,12 +759,12 @@ Run live Beast smoke tests covering healthy router, problem sensor, sleepy batte
 | Overview | Dashboard summary. | Decision priorities, recent changes, data coverage. | 5A |
 | Devices | Inventory/status list. | Inventory/search with decision badges. | 5B |
 | Device details | Mixed facts and local sections. | Device story / decision surface. | 3C / 4A |
-| Snapshot history | Device-led but component-heavy. | ViewModel-backed decision section. | 3B |
+| Snapshot history | Device Detail primary surface. | ViewModel-backed decision section. | 3B / 6C |
 | Mesh graph | Strong evidence graph, some local orchestration. | Investigation workspace consuming decisions. | 3A-3F |
 | Investigation cards | Backend topology/passive-specific cards. | Shared decision/action groups. | 3D |
 | Reports | Report service plus UI export. | Decision-backed contextual summaries. | 5D / 6D |
 | Incidents | Issue history and state. | Decision/event record tied to device story. | 5C |
-| Raw snapshots | Topology support/detail. | Advanced snapshot history. | 6C |
+| Raw snapshots | Advanced `/topology` landing + exact detail. | Support evidence only. | 6C |
 | Whole-network compare | Debug endpoint after UI demotion. | Advanced/debug only. | 6C |
 | Router/risk UX | Separate/implicit router risk. | Router-area review decisions. | 4F / 6B |
 | HACS companion | Companion read-only surfaces. | Shared decision display. | 5E |

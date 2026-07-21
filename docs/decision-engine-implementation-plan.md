@@ -1805,11 +1805,21 @@ Composer 2.5 is sufficient.
 
 Make device snapshot history primary and raw snapshots advanced.
 
+### Status
+
+Completed on `refactor/snapshot-ux-consolidation`.
+
 ### Acceptance criteria
 
-- Raw snapshot table/detail remains accessible for support.
+- Device Detail hosts first-class Snapshot history after Device Story.
+- NodeDrawer no longer fetches or renders complete snapshot history; it links to full Device Detail.
+- `/topology` is an Advanced/support landing without auto-redirect.
+- `/topology/:networkId` is exact raw point-in-time detail with collapsed raw contents.
+- Raw snapshot table/detail remains accessible for support; Overview does not promote it.
 - Whole-network compare remains debug-only.
 - No primary network-diff UX returns.
+- Manual capture remains on support surfaces.
+- Phase 6D still owns contextual reports.
 
 ### Composer model
 

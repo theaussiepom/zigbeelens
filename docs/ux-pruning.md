@@ -34,7 +34,7 @@ The Mesh / topology workspace becomes the main investigation surface. Device det
 
 ## Navigation target
 
-### Phase 6A / 6B navigation status
+### Phase 6A / 6B / 6C navigation status
 
 ```text
 Overview
@@ -68,9 +68,17 @@ Observed router areas are investigated in Mesh via backend
 `router_neighbourhood_review` cards. They do not imply parentage, current
 routing, or cause.
 
+Phase 6C snapshot workflow:
+
+- Device Detail owns primary snapshot-history comparison (after Device Story)
+- NodeDrawer links to full Device Detail instead of duplicating comparison
+- `/topology` is an Advanced/support landing (no auto-redirect)
+- `/topology/:networkId` is exact raw point-in-time detail with collapsed contents
+- whole-network compare remains API/debug-only
+- manual capture remains on the support surfaces
+
 Later ownership:
 
-- Phase 6C — snapshot UX consolidation
 - Phase 6D — contextual report workflow
 
 ## Pruning principles
@@ -164,19 +172,22 @@ Avoid:
 
 ### Raw topology snapshots
 
-Raw snapshots should be advanced/supporting. The primary workflow is device-led snapshot history.
+Raw snapshots are Advanced/support. The primary workflow is device-led snapshot
+history on Device Detail.
 
 Keep:
 
-- raw snapshot list;
-- snapshot detail;
+- `/topology` support landing;
+- `/topology/:networkId` exact raw detail;
 - complete/failed status;
 - capture time;
-- troubleshooting access.
+- collapsed raw node/link contents;
+- manual capture confirmation.
 
 Demote:
 
 - raw snapshot tables as a primary navigation target;
+- Overview promotion of raw snapshots;
 - raw counts as leading diagnostic copy.
 
 ### Whole-network snapshot compare
