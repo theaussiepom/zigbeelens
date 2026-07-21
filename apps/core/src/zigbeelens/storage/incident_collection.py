@@ -1,4 +1,4 @@
-"""Typed incident collection query, cursor codec, and page result (Track 3E)."""
+"""Typed incident collection query, cursor codec, and page result (Track 3E / Phase 7A)."""
 
 from __future__ import annotations
 
@@ -9,12 +9,15 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 INCIDENT_COLLECTION_CURSOR_VERSION = 1
+INCIDENT_COLLECTION_RECENT_CURSOR_VERSION = 2
 DEFAULT_INCIDENT_COLLECTION_LIMIT = 50
 MAX_INCIDENT_COLLECTION_LIMIT = 100
 ALL_INCIDENT_STATUSES: tuple[str, ...] = ("open", "watching", "resolved")
+INCIDENT_COLLECTION_ORDERS: tuple[str, ...] = ("lifecycle", "recent")
+IncidentCollectionOrder = Literal["lifecycle", "recent"]
 _LIFECYCLE_RANK: dict[str, int] = {"open": 0, "watching": 1, "resolved": 2}
 _RANK_TO_LIFECYCLE: dict[int, str] = {0: "open", 1: "watching", 2: "resolved"}
 
@@ -44,29 +47,30 @@ class IncidentCollectionQuery:
     device_ieee: str | None
     limit: int
     cursor: str | None = None
+    order: IncidentCollectionOrder = "lifecycle"
 
     @property
     def filter_signature(self) -> str:
-        canonical = json.dumps(
-            {
-                "device_ieee": self.device_ieee,
-                "network_id": self.network_id,
-                "status": list(self.status_filter),
-                "updated_after": self.updated_after,
-            },
-            separators=(",", ":"),
-            sort_keys=True,
-        )
+        # Lifecycle signatures omit order so established v1 cursors remain valid.
+        payload: dict[str, Any] = {
+            "device_ieee": self.device_ieee,
+            "network_id": self.network_id,
+            "status": list(self.status_filter),
+            "updated_after": self.updated_after,
+        }
+        if self.order != "lifecycle":
+            payload["order"] = self.order
+        canonical = json.dumps(payload, separators=(",", ":"), sort_keys=True)
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
 class IncidentCollectionCursor:
     version: int
-    lifecycle_rank: int
     updated_at: str
     incident_id: str
     filter_signature: str
+    lifecycle_rank: int | None = None
 
 
 @dataclass(frozen=True)
@@ -134,6 +138,7 @@ def build_incident_collection_query(
     device_ieee: str | None = None,
     limit: int | None = None,
     cursor: str | None = None,
+    order: str | None = None,
 ) -> IncidentCollectionQuery:
     if status is None or len(status) == 0:
         statuses = ALL_INCIDENT_STATUSES
@@ -168,6 +173,16 @@ def build_incident_collection_query(
             )
         resolved_limit = limit
 
+    if order is None or (isinstance(order, str) and not order.strip()):
+        resolved_order: IncidentCollectionOrder = "lifecycle"
+    else:
+        order_text = str(order).strip()
+        if order_text not in INCIDENT_COLLECTION_ORDERS:
+            raise IncidentCollectionQueryError(
+                f"order must be one of {list(INCIDENT_COLLECTION_ORDERS)}"
+            )
+        resolved_order = order_text  # type: ignore[assignment]
+
     ua = normalize_updated_after(updated_after) if updated_after is not None else None
     cursor_text = cursor.strip() if cursor is not None and cursor.strip() else None
 
@@ -178,17 +193,28 @@ def build_incident_collection_query(
         device_ieee=device,
         limit=resolved_limit,
         cursor=cursor_text,
+        order=resolved_order,
     )
 
 
 def encode_incident_collection_cursor(cursor: IncidentCollectionCursor) -> str:
-    payload = {
-        "v": cursor.version,
-        "lr": cursor.lifecycle_rank,
-        "u": cursor.updated_at,
-        "id": cursor.incident_id,
-        "fs": cursor.filter_signature,
-    }
+    if cursor.version == INCIDENT_COLLECTION_RECENT_CURSOR_VERSION:
+        payload = {
+            "v": cursor.version,
+            "u": cursor.updated_at,
+            "id": cursor.incident_id,
+            "fs": cursor.filter_signature,
+        }
+    else:
+        if cursor.lifecycle_rank is None:
+            raise IncidentCollectionCursorError("Invalid incident collection cursor")
+        payload = {
+            "v": cursor.version,
+            "lr": cursor.lifecycle_rank,
+            "u": cursor.updated_at,
+            "id": cursor.incident_id,
+            "fs": cursor.filter_signature,
+        }
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
@@ -219,6 +245,7 @@ def decode_incident_collection_cursor(
     token: str,
     *,
     expected_filter_signature: str,
+    expected_order: IncidentCollectionOrder = "lifecycle",
 ) -> IncidentCollectionCursor:
     try:
         raw = _decode_urlsafe_b64_strict(token)
@@ -229,18 +256,50 @@ def decode_incident_collection_cursor(
     if not isinstance(payload, dict):
         raise IncidentCollectionCursorError("Invalid incident collection cursor")
 
+    version = payload.get("v")
+    if version == INCIDENT_COLLECTION_RECENT_CURSOR_VERSION:
+        if expected_order != "recent":
+            raise IncidentCollectionCursorError(
+                "Incident collection cursor does not match order"
+            )
+        allowed = {"v", "u", "id", "fs"}
+        if set(payload) != allowed:
+            raise IncidentCollectionCursorError("Invalid incident collection cursor")
+        updated_at = validate_cursor_timestamp(payload["u"])
+        incident_id = payload["id"]
+        filter_signature = payload["fs"]
+        if not isinstance(incident_id, str) or not incident_id:
+            raise IncidentCollectionCursorError("Invalid incident collection cursor id")
+        if not isinstance(filter_signature, str) or not filter_signature:
+            raise IncidentCollectionCursorError("Invalid incident collection cursor")
+        if filter_signature != expected_filter_signature:
+            raise IncidentCollectionCursorError(
+                "Incident collection cursor does not match filters"
+            )
+        return IncidentCollectionCursor(
+            version=version,
+            updated_at=updated_at,
+            incident_id=incident_id,
+            filter_signature=filter_signature,
+            lifecycle_rank=None,
+        )
+
+    if version != INCIDENT_COLLECTION_CURSOR_VERSION:
+        raise IncidentCollectionCursorError("Unsupported incident collection cursor version")
+    if expected_order != "lifecycle":
+        raise IncidentCollectionCursorError(
+            "Incident collection cursor does not match order"
+        )
+
     allowed = {"v", "lr", "u", "id", "fs"}
     if set(payload) != allowed:
         raise IncidentCollectionCursorError("Invalid incident collection cursor")
 
-    version = payload["v"]
     lifecycle_rank_value = payload["lr"]
     updated_at = payload["u"]
     incident_id = payload["id"]
     filter_signature = payload["fs"]
 
-    if version != INCIDENT_COLLECTION_CURSOR_VERSION:
-        raise IncidentCollectionCursorError("Unsupported incident collection cursor version")
     if not isinstance(lifecycle_rank_value, int) or isinstance(lifecycle_rank_value, bool):
         raise IncidentCollectionCursorError("Invalid incident collection cursor")
     if lifecycle_rank_value not in _RANK_TO_LIFECYCLE:
@@ -266,9 +325,18 @@ def cursor_from_incident_row(
     row: Mapping[str, Any],
     *,
     filter_signature: str,
+    order: IncidentCollectionOrder = "lifecycle",
 ) -> IncidentCollectionCursor:
     # Keep the exact DB timestamp text so keyset equality remains lexical.
     updated_at = validate_cursor_timestamp(str(row["updated_at"]))
+    if order == "recent":
+        return IncidentCollectionCursor(
+            version=INCIDENT_COLLECTION_RECENT_CURSOR_VERSION,
+            updated_at=updated_at,
+            incident_id=str(row["id"]),
+            filter_signature=filter_signature,
+            lifecycle_rank=None,
+        )
     return IncidentCollectionCursor(
         version=INCIDENT_COLLECTION_CURSOR_VERSION,
         lifecycle_rank=lifecycle_rank(str(row["lifecycle_state"])),

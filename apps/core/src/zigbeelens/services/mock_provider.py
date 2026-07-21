@@ -119,7 +119,13 @@ class MockProvider:
             filtered.append(inc)
         return filtered
 
-    def _ordered_incidents(self, incidents):
+    def _ordered_incidents(self, incidents, *, order: str = "lifecycle"):
+        if order == "recent":
+            return sorted(
+                incidents,
+                key=lambda inc: (inc.updated_at, inc.id),
+                reverse=True,
+            )
         by_rank: dict[int, list] = {}
         for inc in incidents:
             by_rank.setdefault(lifecycle_rank(self._incident_status(inc)), []).append(inc)
@@ -137,26 +143,39 @@ class MockProvider:
     def incidents_page(self, query):
         """Paginated scenario incidents matching the live collection contract."""
         filtered = self._filtered_incidents(query)
-        ordered = self._ordered_incidents(filtered)
+        ordered = self._ordered_incidents(filtered, order=query.order)
         total = len(ordered)
 
         if query.cursor is not None:
             cursor = decode_incident_collection_cursor(
                 query.cursor,
                 expected_filter_signature=query.filter_signature,
+                expected_order=query.order,
             )
             continued = []
             for inc in ordered:
-                rank = lifecycle_rank(self._incident_status(inc))
-                after = (
-                    rank > cursor.lifecycle_rank
-                    or (rank == cursor.lifecycle_rank and inc.updated_at < cursor.updated_at)
-                    or (
-                        rank == cursor.lifecycle_rank
-                        and inc.updated_at == cursor.updated_at
-                        and inc.id < cursor.incident_id
+                if query.order == "recent":
+                    after = (
+                        inc.updated_at < cursor.updated_at
+                        or (
+                            inc.updated_at == cursor.updated_at
+                            and inc.id < cursor.incident_id
+                        )
                     )
-                )
+                else:
+                    rank = lifecycle_rank(self._incident_status(inc))
+                    after = (
+                        rank > cursor.lifecycle_rank
+                        or (
+                            rank == cursor.lifecycle_rank
+                            and inc.updated_at < cursor.updated_at
+                        )
+                        or (
+                            rank == cursor.lifecycle_rank
+                            and inc.updated_at == cursor.updated_at
+                            and inc.id < cursor.incident_id
+                        )
+                    )
                 if after:
                     continued.append(inc)
             ordered = continued
@@ -177,6 +196,7 @@ class MockProvider:
                         "updated_at": last.updated_at,
                     },
                     filter_signature=query.filter_signature,
+                    order=query.order,
                 )
             )
         return {

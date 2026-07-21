@@ -80,6 +80,7 @@ export function OverviewPage() {
         .incidents({
           scenario: scenario || undefined,
           updated_after: previousLastViewedAt,
+          order: "recent",
           limit: 50,
         })
         .then((r) => r.items);

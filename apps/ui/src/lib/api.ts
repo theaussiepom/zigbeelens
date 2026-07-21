@@ -636,6 +636,7 @@ export const api = {
       device_ieee: query.device_ieee,
       limit: query.limit,
       cursor: query.cursor,
+      order: query.order,
     }).then((page) => ({
       ...page,
       items: validateIncidents(page.items),
