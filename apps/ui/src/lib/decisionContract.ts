@@ -47,14 +47,29 @@ const DECISION_STATUS_ORDER: readonly DecisionStatus[] = [
   "data_unavailable",
 ];
 
-const DECISION_PRIORITIES: readonly DecisionPriority[] = ["none", "low", "medium", "high"];
+/** Wire DecisionPriority values — not a user-facing label catalogue. */
+export const DECISION_PRIORITIES: readonly DecisionPriority[] = [
+  "none",
+  "low",
+  "medium",
+  "high",
+];
 
-const DECISION_PRIORITY_ORDER: readonly DecisionPriority[] = [
+/**
+ * Stable highest-priority resolution order (high → none).
+ * DecisionPriority is ordering/contract metadata, not primary UI copy.
+ */
+export const DECISION_PRIORITY_ORDER: readonly DecisionPriority[] = [
   "high",
   "medium",
   "low",
   "none",
 ];
+
+/** Rank for stable sorting/comparison; lower = higher urgency. */
+export function decisionPriorityRank(priority: DecisionPriority): number {
+  return DECISION_PRIORITY_ORDER.indexOf(priority);
+}
 
 const REPORT_SCOPES: readonly ReportScope[] = ["full", "incident", "network", "device"];
 const REPORT_FORMATS: readonly ReportFormat[] = ["json", "yaml", "markdown"];

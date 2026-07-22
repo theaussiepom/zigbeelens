@@ -111,13 +111,10 @@ describe("Core → UI → ReportDetailV3 Device Story parity", () => {
     },
   );
 
-  it("maps every vocabulary status/priority through presentation helpers", () => {
+  it("maps every vocabulary status and primary copy code through presentation helpers", () => {
+    expect(oracleFixture.vocabulary.decision_statuses.length).toBeGreaterThan(0);
     for (const status of oracleFixture.vocabulary.decision_statuses) {
       expect(decisionStatusLabel(status).trim().length).toBeGreaterThan(0);
-    }
-    for (const priority of oracleFixture.vocabulary.decision_priorities) {
-      expect(typeof priority).toBe("string");
-      expect(priority.trim().length).toBeGreaterThan(0);
     }
     for (const code of oracleFixture.vocabulary.headline_codes) {
       expect(headlineText(code).trim().length).toBeGreaterThan(0);
