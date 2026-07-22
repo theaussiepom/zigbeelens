@@ -355,17 +355,18 @@ class TopologyService:
             ctx.discovery.schedule_update()
 
     def _network_summaries(self) -> list[dict]:
-        summaries = []
-        for network in self._repo.list_networks():
-            latest = self._repo.get_latest_topology_snapshot(network.id)
-            summaries.append(
-                {
-                    "network_id": network.id,
-                    "network_name": network.name,
-                    "latest_snapshot": latest,
-                }
-            )
-        return summaries
+        networks = list(self._repo.list_networks())
+        latest_by_network = self._repo.get_latest_topology_snapshots_for_networks(
+            [network.id for network in networks]
+        )
+        return [
+            {
+                "network_id": network.id,
+                "network_name": network.name,
+                "latest_snapshot": latest_by_network.get(network.id),
+            }
+            for network in networks
+        ]
 
 
 _topology: TopologyService | None = None
@@ -392,6 +393,10 @@ def stop_topology() -> None:
 def topology_status_dict(ctx: AppContext) -> dict:
     service = get_topology_service()
     if service is None:
+        networks = list(ctx.repo.list_networks())
+        latest_by_network = ctx.repo.get_latest_topology_snapshots_for_networks(
+            [n.id for n in networks]
+        )
         return TopologyStatus(
             enabled=ctx.config.topology.enabled,
             manual_capture_enabled=manual_capture_allowed(ctx.config),
@@ -400,9 +405,9 @@ def topology_status_dict(ctx: AppContext) -> dict:
                 {
                     "network_id": n.id,
                     "network_name": n.name,
-                    "latest_snapshot": ctx.repo.get_latest_topology_snapshot(n.id),
+                    "latest_snapshot": latest_by_network.get(n.id),
                 }
-                for n in ctx.repo.list_networks()
+                for n in networks
             ],
         ).as_dict()
     return service.status.as_dict()

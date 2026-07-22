@@ -1,6 +1,6 @@
 # Track 5 decision-only public contracts performance baseline
 
-Base commit for Track 3A history: `09f10a8` (final merged Track 2 base). Track 3A instrumentation landed via `perf/query-baseline-instrumentation`. Track 3B atomic MQTT ingestion landed via `perf/atomic-mqtt-ingestion`. Track 3C incremental device evaluation landed via `perf/incremental-device-evaluation` (merge `98ab5c8`). Track 3D bulk Dashboard/Devices composition landed via `perf/bulk-composition-reads` (merge `e8a6611`). Track 3E paginated incident collections and Track 3F scope-first report composition preceded this track (Track 3F tip `89c07a9`, merge `8bde6c1`). This document records **Track 5 current totals** after decision-only public DTOs and bulk Device Story snapshot/availability prefetch, and preserves **Track 3A–3G history** for comparison.
+Base commit for Track 3A history: `09f10a8` (final merged Track 2 base). Track 3A instrumentation landed via `perf/query-baseline-instrumentation`. Track 3B atomic MQTT ingestion landed via `perf/atomic-mqtt-ingestion`. Track 3C incremental device evaluation landed via `perf/incremental-device-evaluation` (merge `98ab5c8`). Track 3D bulk Dashboard/Devices composition landed via `perf/bulk-composition-reads` (merge `e8a6611`). Track 3E paginated incident collections and Track 3F scope-first report composition preceded this track (Track 3F tip `89c07a9`, merge `8bde6c1`). This document records **Phase 7A current totals** after release query bounds / index work, preserves **Track 5** as the pre-7A historical tip, and retains **Track 3A–3G history** for comparison.
 
 These are planning snapshots, not accepted performance budgets.
 
@@ -124,7 +124,13 @@ Preserved Track 3E tip totals before scope-first report composition. Report comp
 | Incident report preview | compact | warm | 317 | complete-history debt seam |
 | Device report preview | compact | warm | 237 | inventory fallback possible |
 
-## Track 5 total baseline table
+## Track 5 total baseline table (historical)
+
+Frozen pre-Phase-7A tip. Execute/commit cardinalities match Phase 7A; top-repeated statement text for a few operations differs and is recorded under Phase 7A details below.
+
+## Phase 7A total baseline table
+
+Current tip after final Phase 7A bounded production paths: indexed latest-topology seeks, row-bounded device snapshot-history, additive `order=recent`, History-scale full/network report measurements, and migration `013_query_performance_indexes.sql`. Distinguish from Track 5 (historical tip) and the initial Phase 7A attempt that still used history-wide `ROW_NUMBER` latest-snapshot windows. No wall-clock budget.
 
 | Operation | Fixture | State | Executes | Executemany | Commits | Rollbacks | Other | Top repeated category |
 |---|---|---|---:|---:|---:|---:|---:|---|
@@ -147,10 +153,13 @@ Preserved Track 3E tip totals before scope-first report composition. Report comp
 | Device report preview | history | warm | 29 | 0 | 0 | 0 | 0 | read.devices (4) |
 | Full report preview | compact | warm | 29 | 0 | 0 | 0 | 0 | read.schema (4) |
 | Full report preview | beast | warm | 32 | 0 | 0 | 0 | 0 | read.schema (5) |
+| Full report preview | history | warm | 40 | 0 | 0 | 0 | 0 | read.events (5) |
 | Incident report preview | compact | warm | 40 | 0 | 0 | 0 | 0 | read.availability_changes (6) |
 | Incident report preview | history | warm | 40 | 0 | 0 | 0 | 0 | read.availability_changes (6) |
 | Network report preview | compact | warm | 29 | 0 | 0 | 0 | 0 | read.schema (4) |
 | Network report preview | beast | warm | 29 | 0 | 0 | 0 | 0 | read.schema (4) |
+| Network report preview | history | warm | 39 | 0 | 0 | 0 | 0 | read.events (5) |
+
 
 ## Track 3G total baseline table (historical)
 
@@ -307,6 +316,27 @@ Measured `EXPLAIN QUERY PLAN` against the production page SELECT (300-row synthe
 
 No page class above may contain `USE TEMP B-TREE FOR ORDER BY`.
 
+## Phase 7A query-bound notes
+
+| Area | Result |
+|---|---|
+| PR #83 recent changes | Overview uses `order=recent`; true `updated_at DESC, id DESC` page |
+| Recent index | `idx_incidents_recent_order` selected; no TEMP B-TREE on recent first/cursor/`updated_after` |
+| Latest topology | per-network indexed seek (`idx_topology_snapshots_latest_complete`); no history-wide `ROW_NUMBER`; 1-vs-1000 snapshots and 2-vs-40 networks same statement count within a chunk |
+| Device snapshot history | exact endpoint SQL-limits `MAX_SNAPSHOT_HISTORY` complete rows + target-device `UNION ALL` links; no complete device inventory; 1-vs-1000 unrelated devices same response; deep parity vs former broad evidence path |
+| Topology link indexes | source candidate rejected (PK); `idx_topology_links_snapshot_target` required for multi-snapshot device-history target branch |
+| Metrics | `ORDER BY sampled_at DESC, id DESC` + `idx_metric_samples_device_time` |
+| Availability grouping | offline-only SQL path for `_instability_events`; `idx_availability_changes_offline_since` |
+| Reports | Compact/Beast unchanged vs Track 5; History full/network ops added (`report_full_history`=40, `report_network_history`=39); no per-incident/device N+1 |
+| Cursors | encode/decode accept only exact `int` versions `{1,2}`; v1 lifecycle tokens byte-stable |
+| Ingestion | MQTT ingestion execute/commit baselines unchanged; post-commit latest-topology SQL shape updated to indexed seek |
+| Migration | `013` index-only; v12→v13; runtime-smoked on SQLite **3.34.1** |
+
+## Track 5 → Phase 7A execute comparison
+
+Shared Track 5 operations keep the same execute/commit cardinalities. Phase 7A adds History-scale full/network report measurements and replaces history-wide latest-snapshot window SQL with indexed seeks (same execute counts on beast ingestion post-commit paths). Initial Phase 7A tip that still used `ROW_NUMBER` over retained snapshot history is superseded by this final bounded tip.
+
+
 ## Top repeated normalized statement shapes
 
 ### availability_ingestion
@@ -321,7 +351,9 @@ No page class above may contain `USE TEMP B-TREE FOR ORDER BY`.
 - 9× `WITH selected AS ( SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ? ) SELECT s.id, s.incident_type, s.lifecycle_state, s.severity, s.scope, s.confidence, s.title, s.summary, s.explanation, s.evidence_json, s.counter_evidence_json, s.limitations_json, s.opened_at, s.updated_at, s.resolved_at, s.dedup_key, n.network_id FROM selected s LEFT JOIN incident_networks n ON n.incident_id = s.id ORDER BY n.network_id`
 - 9× `INSERT INTO incident_devices (incident_id, network_id, ieee_address, role) VALUES (?)`
 - 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
+- 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC, snapshot_id DESC LIMIT ?`
+
+
 
 ### dashboard
 - 3× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
@@ -411,8 +443,10 @@ No page class above may contain `USE TEMP B-TREE FOR ORDER BY`.
 - 9× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id = ? ORDER BY network_id, ieee_address, role`
 - 9× `WITH selected AS ( SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE dedup_key = ? AND lifecycle_state IN (?) ORDER BY updated_at DESC LIMIT ? ) SELECT s.id, s.incident_type, s.lifecycle_state, s.severity, s.scope, s.confidence, s.title, s.summary, s.explanation, s.evidence_json, s.counter_evidence_json, s.limitations_json, s.opened_at, s.updated_at, s.resolved_at, s.dedup_key, n.network_id FROM selected s LEFT JOIN incident_networks n ON n.incident_id = s.id ORDER BY n.network_id`
 - 5× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
-- 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC LIMIT ?`
+- 3× `SELECT snapshot_id, network_id, captured_at, requested_by, status, router_count, end_device_count, link_count, warning_acknowledged, error FROM topology_snapshots WHERE network_id = ? AND status = ? ORDER BY captured_at DESC, snapshot_id DESC LIMIT ?`
 - 3× `SELECT friendly_name FROM topology_nodes WHERE snapshot_id = ? AND ieee_address = ?`
+
+
 
 ### report_device
 - 4× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
@@ -442,19 +476,30 @@ No page class above may contain `USE TEMP B-TREE FOR ORDER BY`.
 - 2× `SELECT coordinator_ieee, channel, pan_id, extended_pan_id, payload_json, captured_at FROM bridge_snapshots WHERE network_id = ? ORDER BY captured_at DESC LIMIT ?`
 - 2× `SELECT COUNT(*) FROM topology_snapshots WHERE network_id IN (?)`
 
+### report_full_history
+- 4× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id IN (?) ORDER BY incident_id, network_id, ieee_address, role`
+- 4× `SELECT incident_id, network_id FROM incident_networks WHERE incident_id IN (?) ORDER BY incident_id, network_id`
+- 4× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 4× `SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at FROM ( SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at, ROW_NUMBER() OVER ( PARTITION BY incident_id ORDER BY occurred_at DESC, id DESC ) AS rn FROM events WHERE incident_id IN (?) ) WHERE rn <= ? ORDER BY incident_id, occurred_at DESC, id DESC`
+- 3× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
+
 ### report_incident
 - 4× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 3× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
-- 3× `SELECT metric_name, metric_value, sampled_at FROM metric_samples WHERE network_id = ? AND ieee_address = ? ORDER BY sampled_at DESC LIMIT ?`
+- 3× `SELECT metric_name, metric_value, sampled_at FROM metric_samples WHERE network_id = ? AND ieee_address = ? ORDER BY sampled_at DESC, id DESC LIMIT ?`
 - 3× `SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at FROM events WHERE network_id = ? AND ieee_address = ? ORDER BY occurred_at DESC, id DESC LIMIT ?`
 - 2× `SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE id = ?`
+
+
 
 ### report_incident_history
 - 4× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
 - 3× `SELECT from_state, to_state, changed_at FROM availability_changes WHERE network_id = ? AND ieee_address = ? ORDER BY changed_at DESC LIMIT ?`
-- 3× `SELECT metric_name, metric_value, sampled_at FROM metric_samples WHERE network_id = ? AND ieee_address = ? ORDER BY sampled_at DESC LIMIT ?`
+- 3× `SELECT metric_name, metric_value, sampled_at FROM metric_samples WHERE network_id = ? AND ieee_address = ? ORDER BY sampled_at DESC, id DESC LIMIT ?`
 - 3× `SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at FROM events WHERE network_id = ? AND ieee_address = ? ORDER BY occurred_at DESC, id DESC LIMIT ?`
 - 2× `SELECT id, incident_type, lifecycle_state, severity, scope, confidence, title, summary, explanation, evidence_json, counter_evidence_json, limitations_json, opened_at, updated_at, resolved_at, dedup_key FROM incidents WHERE id = ?`
+
+
 
 ### report_network
 - 4× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
@@ -469,6 +514,13 @@ No page class above may contain `USE TEMP B-TREE FOR ORDER BY`.
 - 1× `SELECT id, name, base_topic, bridge_state FROM networks ORDER BY name`
 - 1× `SELECT COUNT(*) FROM devices`
 - 1× `SELECT id, name, base_topic, bridge_state FROM networks WHERE id = ?`
+
+### report_network_history
+- 4× `SELECT incident_id, network_id, ieee_address, role FROM incident_devices WHERE incident_id IN (?) ORDER BY incident_id, network_id, ieee_address, role`
+- 4× `SELECT incident_id, network_id FROM incident_networks WHERE incident_id IN (?) ORDER BY incident_id, network_id`
+- 4× `SELECT ? FROM sqlite_master WHERE type=? AND name=?`
+- 4× `SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at FROM ( SELECT id, network_id, ieee_address, event_type, severity, title, summary, incident_id, occurred_at, ROW_NUMBER() OVER ( PARTITION BY incident_id ORDER BY occurred_at DESC, id DESC ) AS rn FROM events WHERE incident_id IN (?) ) WHERE rn <= ? ORDER BY incident_id, occurred_at DESC, id DESC`
+- 2× `SELECT COUNT(*) FROM topology_snapshots WHERE network_id IN (?)`
 
 ## Track 3F corrective hot-path incident_networks
 

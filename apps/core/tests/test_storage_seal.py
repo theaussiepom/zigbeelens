@@ -472,7 +472,7 @@ def test_apply_refusal_does_not_mutate_old_schema(tmp_path: Path, capsys):
     db_path = tmp_path / "old.sqlite"
     db = Database(db_path)
     db.migrate()
-    db.conn.execute("DELETE FROM schema_migrations WHERE version = 12")
+    db.conn.execute("DELETE FROM schema_migrations WHERE version >= 12")
     db.conn.commit()
     db.close()
     wal = Path(str(db_path) + "-wal")

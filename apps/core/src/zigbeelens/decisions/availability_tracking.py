@@ -29,7 +29,6 @@ def availability_tracking_enabled_now(
         )
     if earliest_availability_at is not None:
         return True
-    device_rows = (
-        list(devices) if devices is not None else repo.list_devices(network_id)
-    )
-    return any(row.availability in ("online", "offline") for row in device_rows)
+    if devices is not None:
+        return any(row.availability in ("online", "offline") for row in devices)
+    return repo.availability.network_has_explicit_availability_state(network_id)

@@ -32,6 +32,8 @@ from zigbeelens.topology.parser import ParsedTopology, ParsedTopologyLink, Parse
 from .expected_baselines import (
     EXPECTED_BASELINES,
     EXPECTED_PHASE_BASELINES,
+    PHASE_7A_BASELINE_OVERRIDES,
+    PHASE_7A_READ_EXECUTE_TOTALS,
     TRACK_3A_COMMIT_TOTALS,
     TRACK_3B_OPERATION_TOTALS,
     TRACK_3B_PHASE_BASELINES,
@@ -39,6 +41,7 @@ from .expected_baselines import (
     TRACK_3E_REPORT_EXECUTE_TOTALS,
     TRACK_3F_READ_EXECUTE_TOTALS,
     TRACK_3G_READ_EXECUTE_TOTALS,
+    TRACK_5_EXPECTED_BASELINES,
     TRACK_5_READ_EXECUTE_TOTALS,
 )
 from .query_instrumentation import OperationMeasurement, PhaseAccumulator, install_counter, measure_operation
@@ -461,6 +464,17 @@ def _seed_incident_history_estate(repo: Repository) -> None:
         elif index % 19 == 0:
             refs = [AffectedDevice("home", "0xMISSING", role="primary")]
         elif index % 23 == 0:
+            # Office devices appear in the History estate; keep networks coherent
+            # so full-estate report composition can map evidence for every device.
+            if repo.get_network("office") is None:
+                repo.sync_networks(
+                    [
+                        NetworkConfig(id="home", name="Home", base_topic="z2m/home"),
+                        NetworkConfig(
+                            id="office", name="Office", base_topic="z2m/office"
+                        ),
+                    ]
+                )
             repo.upsert_device(
                 network_id="office",
                 ieee_address="0xOFFICE01",
@@ -491,6 +505,9 @@ def history_fixture(tmp_path: Path):
     with deterministic_fixture(tmp_path, "compact") as fx:
         with _fixed_repo_time():
             _seed_incident_history_estate(fx.repo)
+            # Office network/devices are part of the History estate; warm health so
+            # read-path measurements do not trip evaluate_all via incomplete cache.
+            fx.coordinator.evaluate_all(now=fx.clock.now())
         fx.counter.reset()
         yield fx
 
@@ -760,6 +777,18 @@ def _operations() -> dict[str, tuple[str, Operation, bool]]:
             ),
             True,
         ),
+        "report_full_history": (
+            "history",
+            lambda fx: _data(fx).report_preview(request=ReportRequest(scope=ReportScope.full)),
+            True,
+        ),
+        "report_network_history": (
+            "history",
+            lambda fx: _data(fx).report_preview(
+                request=ReportRequest(scope=ReportScope.network, network_id="home")
+            ),
+            True,
+        ),
         "dashboard_beast": ("beast", lambda fx: _builder(fx).dashboard(), True),
         "devices_beast": ("beast", lambda fx: _builder(fx).devices(), True),
         "inventory_ingestion_beast": ("beast", _beast_inventory_refresh, False),
@@ -1014,18 +1043,40 @@ def test_markdown_baseline_table_matches_structured_snapshot():
         "report_device_history": "Device report preview",
         "report_full": "Full report preview",
         "report_full_beast": "Full report preview",
+        "report_full_history": "Full report preview",
         "report_incident": "Incident report preview",
         "report_incident_history": "Incident report preview",
         "report_network": "Network report preview",
         "report_network_beast": "Network report preview",
+        "report_network_history": "Network report preview",
     }
-    assert "## Track 5 total baseline table" in doc
+    assert "## Track 5 total baseline table (historical)" in doc
+    assert "## Phase 7A total baseline table" in doc
+    assert "## Track 5 → Phase 7A execute comparison" in doc
     assert "## Track 3G total baseline table (historical)" in doc
     assert "## Track 3F total baseline table (historical)" in doc
     assert "## Track 3E total baseline table (historical)" in doc
     assert "## Track 3E → Track 3F report execute comparison" in doc
     assert "## Track 3F → Track 3G execute comparison" in doc
     assert "## Track 3G → Track 5 execute comparison" in doc
+    # Historical Track 5 exact snapshots remain frozen and documented.
+    assert TRACK_5_EXPECTED_BASELINES["availability_ingestion_beast"][
+        "top_repeated_statements"
+    ] != EXPECTED_BASELINES["availability_ingestion_beast"]["top_repeated_statements"]
+    assert PHASE_7A_READ_EXECUTE_TOTALS == {
+        **TRACK_5_READ_EXECUTE_TOTALS,
+        "report_full_history": 40,
+        "report_network_history": 39,
+    }
+    assert set(PHASE_7A_BASELINE_OVERRIDES) == {
+        "availability_ingestion_beast",
+        "payload_ingestion_beast",
+        "report_full_history",
+        "report_incident",
+        "report_incident_history",
+        "report_network_history",
+    }
+    phase_7a_only = {"report_full_history", "report_network_history"}
     for key, baseline in EXPECTED_BASELINES.items():
         other = baseline["category_counts"].get("other", 0)
         row_fragment = (
@@ -1034,6 +1085,16 @@ def test_markdown_baseline_table_matches_structured_snapshot():
             f"{baseline['commit_count']} | {baseline['rollback_count']} | {other} |"
         )
         assert row_fragment in doc, key
+        if key not in phase_7a_only:
+            # Frozen Track 5 execute row remains present (same cardinalities).
+            track5 = TRACK_5_EXPECTED_BASELINES[key]
+            track5_row = (
+                f"| {labels[key]} | {track5['fixture']} | {track5['state']} | "
+                f"{track5['execute_count']} | {track5['executemany_count']} | "
+                f"{track5['commit_count']} | {track5['rollback_count']} | "
+                f"{track5['category_counts'].get('other', 0)} |"
+            )
+            assert track5_row in doc, key
         section = doc.split(f"### {key}", 1)[1].split("\n### ", 1)[0]
         for item in baseline["top_repeated_statements"]:
             assert f"- {item['count']}× `{item['statement']}`" in section
@@ -1052,6 +1113,11 @@ def test_markdown_baseline_table_matches_structured_snapshot():
     assert (
         EXPECTED_BASELINES["report_device_history"]["execute_count"]
         == EXPECTED_BASELINES["report_device"]["execute_count"]
+    )
+    assert EXPECTED_BASELINES["report_full_history"]["execute_count"] == 40
+    assert EXPECTED_BASELINES["report_network_history"]["execute_count"] == 39
+    assert "ROW_NUMBER() OVER ( PARTITION BY network_id" not in str(
+        EXPECTED_BASELINES["availability_ingestion_beast"]["top_repeated_statements"]
     )
 
     comparison_labels = {
@@ -1206,6 +1272,36 @@ def test_markdown_baseline_table_matches_structured_snapshot():
         # Historical Track 3E → Track 3G compact report deltas (tip is Track 5).
         new = TRACK_3G_READ_EXECUTE_TOTALS[key]
         assert f"| {old} | {new} | {new - old} |" in doc
+
+
+def test_history_full_and_network_report_scale_no_n1(tmp_path: Path):
+    """History full/network reports stay chunk-bound and keep estate membership."""
+    full = _measure_isolated(tmp_path / "full", "report_full_history")
+    network = _measure_isolated(tmp_path / "net", "report_network_history")
+    assert full.execute_count == 40
+    assert network.execute_count == 39
+    assert full.commit_count == 0 and network.commit_count == 0
+    for measured in (full, network):
+        for item in measured.top_repeated_statements:
+            assert item.count <= 12, item
+            assert "WHERE incident_id = ?" not in item.statement or item.count <= 2
+
+    with history_fixture(tmp_path / "parity") as fx:
+        with _frozen_time():
+            full_detail = _data(fx).report_preview(
+                request=ReportRequest(scope=ReportScope.full)
+            )
+            network_detail = _data(fx).report_preview(
+                request=ReportRequest(scope=ReportScope.network, network_id="home")
+            )
+        device_count = fx.repo.count_devices()
+        incident_count = len(fx.repo.incidents.list_incidents())
+        assert full_detail.report_version == 3
+        assert network_detail.report_version == 3
+        assert len(full_detail.domain_details.devices) == device_count
+        assert len(full_detail.incidents) == incident_count
+        assert all(d.network_id == "home" for d in network_detail.domain_details.devices)
+        assert "office" in {d.network_id for d in full_detail.domain_details.devices}
 
 
 @pytest.mark.parametrize("operation_name", sorted(EXPECTED_PHASE_BASELINES))

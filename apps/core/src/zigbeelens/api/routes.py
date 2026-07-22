@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
@@ -433,6 +434,10 @@ def incidents(
     device_ieee: str | None = Query(default=None),
     limit: int | None = Query(default=None),
     cursor: str | None = Query(default=None),
+    order: Literal["lifecycle", "recent"] | None = Query(
+        default=None,
+        description="Collection order: lifecycle (default) or recent",
+    ),
     ctx: AppContext = Depends(ctx_dep),
 ) -> PaginatedResponse:
     from zigbeelens.storage.incident_collection import (
@@ -449,6 +454,7 @@ def incidents(
             device_ieee=device_ieee,
             limit=limit,
             cursor=cursor,
+            order=order,
         )
         page = ctx.data.incidents(scenario, query=query)
     except IncidentCollectionQueryError as exc:

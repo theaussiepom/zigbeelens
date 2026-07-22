@@ -655,6 +655,364 @@ def test_api_incidents_collection_contract(live_client):
     assert mock_body["total"] == len(mock_body["items"]) or mock_body["next_cursor"] is not None
 
 
+def _seed_pr83_recent_change_omission(repo: Repository) -> str:
+    """Reproduce PR #83: >50 older open updates hide newer watching/resolved.
+
+    Returns the exclusive updated_after cutoff used by Overview.
+    """
+    _seed_device(repo, "home", "0xA1")
+    cutoff = NOW - timedelta(hours=10)
+    # 60 older open incidents, all after cutoff.
+    for index in range(60):
+        _seed_incident(
+            repo,
+            f"open-old-{index:03d}",
+            lifecycle="open",
+            updated_at=cutoff + timedelta(minutes=index + 1),
+            refs=[("home", "0xA1")],
+        )
+    # Newer watching / resolved (and one open) that must appear under recent order.
+    _seed_incident(
+        repo,
+        "watch-new",
+        lifecycle="watching",
+        updated_at=NOW - timedelta(minutes=2),
+        refs=[("home", "0xA1")],
+    )
+    _seed_incident(
+        repo,
+        "res-new",
+        lifecycle="resolved",
+        updated_at=NOW - timedelta(minutes=1),
+        refs=[("home", "0xA1")],
+    )
+    _seed_incident(
+        repo,
+        "open-new",
+        lifecycle="open",
+        updated_at=NOW,
+        refs=[("home", "0xA1")],
+    )
+    # Equal updated_at tie for recent order (id DESC).
+    tie = NOW - timedelta(minutes=3)
+    _seed_incident(repo, "tie-b", lifecycle="watching", updated_at=tie, refs=[])
+    _seed_incident(repo, "tie-a", lifecycle="resolved", updated_at=tie, refs=[])
+    return cutoff.isoformat()
+
+
+def test_default_order_remains_lifecycle_when_order_omitted(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _seed_standard_set(repo)
+    omitted = repo.list_incidents_page(build_incident_collection_query(limit=20))
+    explicit = repo.list_incidents_page(
+        build_incident_collection_query(limit=20, order="lifecycle")
+    )
+    assert [row["id"] for row in omitted.rows] == [row["id"] for row in explicit.rows]
+    assert build_incident_collection_query(limit=20).filter_signature == (
+        build_incident_collection_query(limit=20, order="lifecycle").filter_signature
+    )
+
+
+def test_order_validation_rejects_unknown_values():
+    with pytest.raises(IncidentCollectionQueryError, match="order must be one of"):
+        build_incident_collection_query(order="priority")
+
+
+@pytest.mark.parametrize(
+    "version",
+    [True, False, 1.0, 2.0, "1", "2", None, 0, 3, -1],
+)
+def test_cursor_rejects_non_exact_integer_versions(version):
+    import base64
+    import json
+
+    from zigbeelens.storage.incident_collection import (
+        INCIDENT_COLLECTION_CURSOR_VERSION,
+        IncidentCollectionCursor,
+        encode_incident_collection_cursor,
+    )
+
+    fs = build_incident_collection_query(limit=1).filter_signature
+    # Encoder must reject unsupported versions.
+    with pytest.raises(IncidentCollectionCursorError):
+        encode_incident_collection_cursor(
+            IncidentCollectionCursor(
+                version=version,  # type: ignore[arg-type]
+                updated_at="2026-07-16T12:00:00+00:00",
+                incident_id="x",
+                filter_signature=fs,
+                lifecycle_rank=0
+                if version != 2 and version != 2.0
+                else None,
+            )
+        )
+    # Decoder must reject the same set for both payload shapes.
+    for keys in (
+        {"v": version, "lr": 0, "u": "2026-07-16T12:00:00+00:00", "id": "x", "fs": fs},
+        {"v": version, "u": "2026-07-16T12:00:00+00:00", "id": "x", "fs": fs},
+    ):
+        raw = json.dumps(keys, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        token = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+        with pytest.raises(IncidentCollectionCursorError):
+            decode_incident_collection_cursor(
+                token,
+                expected_filter_signature=fs,
+                expected_order="lifecycle"
+                if "lr" in keys
+                else "recent",
+            )
+    assert INCIDENT_COLLECTION_CURSOR_VERSION == 1
+
+
+def test_lifecycle_v1_cursor_byte_round_trip():
+    import base64
+    import json
+
+    fs = build_incident_collection_query(limit=1).filter_signature
+    payload = {
+        "fs": fs,
+        "id": "open-b",
+        "lr": 0,
+        "u": "2026-07-16T12:00:00+00:00",
+        "v": 1,
+    }
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    token = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    decoded = decode_incident_collection_cursor(
+        token, expected_filter_signature=fs, expected_order="lifecycle"
+    )
+    assert encode_incident_collection_cursor(decoded) == token
+
+
+def test_pr83_recent_order_returns_true_recency_not_lifecycle_page(tmp_path: Path):
+    """PR #83: Overview recent changes must not be lifecycle-ranked first page."""
+    repo = _repo(tmp_path)
+    cutoff = _seed_pr83_recent_change_omission(repo)
+
+    lifecycle = repo.list_incidents_page(
+        build_incident_collection_query(updated_after=cutoff, limit=50)
+    )
+    # Lifecycle page is dominated by the 60 older open incidents.
+    lifecycle_ids = [row["id"] for row in lifecycle.rows]
+    assert "watch-new" not in lifecycle_ids
+    assert "res-new" not in lifecycle_ids
+    assert all(row["lifecycle_state"] == "open" for row in lifecycle.rows)
+
+    recent = repo.list_incidents_page(
+        build_incident_collection_query(
+            updated_after=cutoff, limit=50, order="recent"
+        )
+    )
+    recent_ids = [row["id"] for row in recent.rows]
+    assert recent_ids[:5] == ["open-new", "res-new", "watch-new", "tie-b", "tie-a"]
+    assert recent.total == lifecycle.total == 65
+
+
+def test_recent_order_keyset_pages_no_duplicates_or_omissions(tmp_path: Path):
+    repo = _repo(tmp_path)
+    cutoff = _seed_pr83_recent_change_omission(repo)
+    seen: list[str] = []
+    cursor = None
+    while True:
+        page = repo.list_incidents_page(
+            build_incident_collection_query(
+                updated_after=cutoff,
+                limit=20,
+                order="recent",
+                cursor=cursor,
+            )
+        )
+        assert page.total == 65
+        ids = [row["id"] for row in page.rows]
+        assert not set(ids) & set(seen)
+        seen.extend(ids)
+        if page.next_cursor is None:
+            break
+        cursor = page.next_cursor
+    assert len(seen) == 65
+    # Newest-first across the full walk.
+    assert seen[0] == "open-new"
+    assert seen[1] == "res-new"
+
+
+def test_recent_and_lifecycle_cursors_are_incompatible(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _seed_standard_set(repo)
+    life = repo.list_incidents_page(build_incident_collection_query(limit=1))
+    recent = repo.list_incidents_page(
+        build_incident_collection_query(limit=1, order="recent")
+    )
+    assert life.next_cursor and recent.next_cursor
+    with pytest.raises(IncidentCollectionCursorError):
+        repo.list_incidents_page(
+            build_incident_collection_query(
+                limit=1, order="recent", cursor=life.next_cursor
+            )
+        )
+    with pytest.raises(IncidentCollectionCursorError):
+        repo.list_incidents_page(
+            build_incident_collection_query(limit=1, cursor=recent.next_cursor)
+        )
+
+
+def test_lifecycle_cursor_byte_compatibility_fixture():
+    """Established lifecycle filter_signature must stay byte-stable without order."""
+    import hashlib
+    import json
+
+    canonical = json.dumps(
+        {
+            "device_ieee": None,
+            "network_id": "home",
+            "status": ["open", "watching"],
+            "updated_after": "2026-07-16T12:00:00+00:00",
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    expected_fs = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    query = build_incident_collection_query(
+        status=["open", "watching"],
+        updated_after="2026-07-16T12:00:00+00:00",
+        network_id="home",
+        limit=50,
+    )
+    assert query.filter_signature == expected_fs
+    assert query.filter_signature == build_incident_collection_query(
+        status=["open", "watching"],
+        updated_after="2026-07-16T12:00:00+00:00",
+        network_id="home",
+        limit=50,
+        order="lifecycle",
+    ).filter_signature
+    recent_fs = build_incident_collection_query(
+        status=["open", "watching"],
+        updated_after="2026-07-16T12:00:00+00:00",
+        network_id="home",
+        limit=50,
+        order="recent",
+    ).filter_signature
+    assert recent_fs != query.filter_signature
+
+
+def test_explain_recent_order_uses_recent_index(tmp_path: Path):
+    repo = _repo(tmp_path)
+    _seed_history_scale(repo, n=400)
+    first = repo.list_incidents_page(
+        build_incident_collection_query(limit=50, order="recent")
+    )
+    assert first.next_cursor is not None
+    plan = _explain_page_plan(
+        repo, build_incident_collection_query(limit=50, order="recent")
+    )
+    cursor_plan = _explain_page_plan(
+        repo,
+        build_incident_collection_query(
+            limit=50, order="recent", cursor=first.next_cursor
+        ),
+    )
+    updated_plan = _explain_page_plan(
+        repo,
+        build_incident_collection_query(
+            updated_after=(NOW - timedelta(hours=2)).isoformat(),
+            limit=50,
+            order="recent",
+        ),
+    )
+    for name, plan_text in (
+        ("first", plan),
+        ("cursor", cursor_plan),
+        ("updated_after", updated_plan),
+    ):
+        assert "idx_incidents_recent_order" in plan_text, (name, plan_text)
+        assert "USE TEMP B-TREE FOR ORDER BY" not in plan_text, (name, plan_text)
+        assert "SCAN incidents" not in plan_text or "USING INDEX" in plan_text, (
+            name,
+            plan_text,
+        )
+
+
+def test_api_recent_order_contract(live_client):
+    from fastapi.testclient import TestClient
+
+    client: TestClient = live_client
+    repo = client.app.state.ctx.repo
+    repo.sync_networks(
+        [
+            NetworkConfig(id="home", name="Home", base_topic="zigbee2mqtt"),
+        ]
+    )
+    cutoff = _seed_pr83_recent_change_omission(repo)
+
+    res = client.get(
+        "/api/incidents",
+        params={"updated_after": cutoff, "limit": 50, "order": "recent"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert [item["id"] for item in body["items"][:3]] == [
+        "open-new",
+        "res-new",
+        "watch-new",
+    ]
+
+    res_v1 = client.get(
+        "/api/v1/incidents",
+        params={"updated_after": cutoff, "limit": 50, "order": "recent"},
+    )
+    assert res_v1.status_code == 200
+    assert [item["id"] for item in res_v1.json()["items"][:3]] == [
+        "open-new",
+        "res-new",
+        "watch-new",
+    ]
+
+    bad_order = client.get("/api/incidents", params={"order": "priority"})
+    assert bad_order.status_code == 422
+
+
+def test_openapi_exposes_closed_incident_order_values(monkeypatch, tmp_path: Path):
+    from fastapi.testclient import TestClient
+
+    from zigbeelens.app.context import reset_context
+    from zigbeelens.main import create_app
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        f"""
+server:
+  host: 127.0.0.1
+  port: 8377
+mode:
+  mock: true
+networks:
+  - id: home
+    name: Home
+    base_topic: zigbee2mqtt
+storage:
+  path: {tmp_path / "openapi.sqlite"}
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ZIGBEELENS_CONFIG", str(config_path))
+    monkeypatch.setenv("ZIGBEELENS_OPENAPI_ENABLED", "true")
+    reset_context()
+    with TestClient(create_app(str(config_path))) as client:
+        schema = client.get("/openapi.json").json()
+        incidents_params = schema["paths"]["/api/incidents"]["get"]["parameters"]
+        order_param = next(p for p in incidents_params if p["name"] == "order")
+        schema_body = order_param.get("schema", {})
+        enum_values = schema_body.get("enum") or schema_body.get("anyOf", [{}])[0].get(
+            "enum"
+        )
+        if enum_values is None and "$ref" in schema_body:
+            ref = schema_body["$ref"].rsplit("/", 1)[-1]
+            enum_values = schema["components"]["schemas"][ref].get("enum")
+        assert enum_values is not None
+        assert set(enum_values) == {"lifecycle", "recent"}
+    reset_context()
+
+
 def test_reports_still_use_complete_history(tmp_path: Path):
     from zigbeelens.schemas import ReportRequest, ReportScope
     from zigbeelens.services.data_service import DataService

@@ -1863,14 +1863,19 @@ Phase 7 makes the decision-engine product release-quality.
 
 Make Beast-sized networks fast and predictable.
 
-### Likely work
+### Status
 
-- device-specific topology history queries;
-- indexes for topology links by snapshot/source/target/network;
-- bounded availability event grouping;
-- metric sample windows;
-- report generation bounds;
-- API timing checks/logging if useful.
+Implemented on `perf/release-query-bounds` (awaiting review; no PR until requested).
+
+### Delivered
+
+- additive incident `order=lifecycle|recent` with Overview `order=recent` (PR #83);
+- bulk latest topology snapshots for overview/status;
+- SQL-limited device snapshot-history window + bulk links;
+- EXPLAIN-proven indexes in migration `013_query_performance_indexes.sql`;
+- metric `sampled_at DESC, id DESC` + device-time index;
+- offline-only availability read for shared-availability instability events;
+- Track 5 baselines frozen; Phase 7A tip published (execute/commit cardinalities unchanged).
 
 ### Acceptance criteria
 

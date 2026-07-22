@@ -553,6 +553,15 @@ describe("OverviewPage server incident order", () => {
     mockState.recentIncidents = [];
   });
 
+  it("requests recent changes with order=recent and updated_after", () => {
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "OverviewPage.tsx"), "utf8");
+    expect(source).toMatch(/order:\s*["']recent["']/);
+    expect(source).toMatch(/updated_after:\s*previousLastViewedAt/);
+    expect(source).toMatch(/limit:\s*50/);
+    // Active incidents remain lifecycle-ranked (no order override).
+    expect(source).toMatch(/status:\s*\[["']open["'],\s*["']watching["']\]/);
+  });
+
   it("keeps server order when an older open incident has higher severity", () => {
     // Server order: newer open first. Client must not promote older higher severity.
     mockState.activeIncidents = [

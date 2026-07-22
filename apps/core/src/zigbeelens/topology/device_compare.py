@@ -354,41 +354,58 @@ def load_device_snapshot_history_network_context(
     links_by_snapshot_id: dict[str, list[dict[str, Any]]] | None = None,
     earliest_availability_at: str | None | object = None,
     earliest_availability_supplied: bool = False,
+    tracking_enabled_now: bool | None = None,
+    tracking_enabled_supplied: bool = False,
     devices: list | None = None,
 ) -> DeviceSnapshotHistoryNetworkContext:
     """Load network-scoped snapshot-history evidence once for a network."""
-    snapshot_rows = (
-        snapshots if snapshots is not None else repo.list_topology_snapshots(network_id)
-    )
-    usable = [
-        snapshot
-        for snapshot in snapshot_rows
-        if snapshot.get("status") == "complete"
-    ][:max_snapshots]
+    if tracking_enabled_supplied and not isinstance(tracking_enabled_now, bool):
+        raise TypeError(
+            "tracking_enabled_now must be a bool when tracking_enabled_supplied is True"
+        )
+    if snapshots is not None:
+        usable = [
+            snapshot
+            for snapshot in snapshots
+            if snapshot.get("status") == "complete"
+        ][:max_snapshots]
+    else:
+        usable = list(
+            repo.list_complete_topology_snapshots(network_id, limit=max_snapshots)
+        )
     resolved_links: dict[str, list[dict[str, Any]]] = {}
+    missing_link_ids: list[str] = []
     for snapshot in usable:
         snapshot_id = str(snapshot["snapshot_id"])
         if links_by_snapshot_id is not None and snapshot_id in links_by_snapshot_id:
             resolved_links[snapshot_id] = links_by_snapshot_id[snapshot_id]
         else:
-            resolved_links[snapshot_id] = list(repo.list_topology_links(snapshot_id))
+            missing_link_ids.append(snapshot_id)
+    if missing_link_ids:
+        bulk_links = repo.list_topology_links_for_snapshots(missing_link_ids)
+        for snapshot_id in missing_link_ids:
+            resolved_links[snapshot_id] = list(bulk_links.get(snapshot_id, []))
     if earliest_availability_supplied:
         resolved_earliest = earliest_availability_at  # may be None
     else:
         resolved_earliest = repo.availability.get_earliest_availability_change_at(
             network_id
         )
+    if tracking_enabled_supplied:
+        resolved_tracking = bool(tracking_enabled_now)
+    else:
+        resolved_tracking = availability_tracking_enabled_now(
+            repo,
+            network_id,
+            earliest_availability_at=resolved_earliest,
+            devices=devices,
+        )
     return DeviceSnapshotHistoryNetworkContext(
         network_id=network_id,
         usable_snapshots=usable,
         links_by_snapshot_id=resolved_links,
         earliest_availability_at=resolved_earliest,  # type: ignore[arg-type]
-        tracking_enabled_now=availability_tracking_enabled_now(
-            repo,
-            network_id,
-            earliest_availability_at=resolved_earliest,
-            devices=devices,
-        ),
+        tracking_enabled_now=resolved_tracking,
     )
 
 

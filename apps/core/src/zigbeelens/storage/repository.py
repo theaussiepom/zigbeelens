@@ -976,6 +976,7 @@ class Repository:
         status_mode: str = "rank",
     ) -> tuple[str, list[Any]]:
         from zigbeelens.storage.incident_collection import (
+            ALL_INCIDENT_STATUSES,
             LIFECYCLE_RANK_SQL,
             decode_incident_collection_cursor,
             lifecycle_rank,
@@ -984,18 +985,25 @@ class Repository:
         clauses: list[str] = []
         params: list[Any] = []
 
-        if status_mode == "lifecycle":
-            # COUNT path: plain lifecycle column can use idx_incidents_lifecycle.
-            status_placeholders = ",".join("?" for _ in query.status_filter)
-            clauses.append(f"lifecycle_state IN ({status_placeholders})")
-            params.extend(query.status_filter)
-        else:
-            # PAGE path: filter on the same CASE expression as ORDER BY /
-            # migration 010 so SQLite uses idx_incidents_collection_order
-            # without a temporary ORDER BY B-tree on principal paths.
-            rank_placeholders = ",".join("?" for _ in query.status_filter)
-            clauses.append(f"{LIFECYCLE_RANK_SQL} IN ({rank_placeholders})")
-            params.extend(lifecycle_rank(state) for state in query.status_filter)
+        # Recent + all lifecycles: omit the status predicate so SQLite can
+        # consume idx_incidents_recent_order for ORDER BY updated_at/id.
+        skip_status = (
+            query.order == "recent"
+            and tuple(query.status_filter) == ALL_INCIDENT_STATUSES
+        )
+        if not skip_status:
+            if status_mode == "lifecycle":
+                # COUNT path: plain lifecycle column can use idx_incidents_lifecycle.
+                status_placeholders = ",".join("?" for _ in query.status_filter)
+                clauses.append(f"lifecycle_state IN ({status_placeholders})")
+                params.extend(query.status_filter)
+            else:
+                # PAGE path: filter on the same CASE expression as ORDER BY /
+                # migration 010 so SQLite uses idx_incidents_collection_order
+                # without a temporary ORDER BY B-tree on principal paths.
+                rank_placeholders = ",".join("?" for _ in query.status_filter)
+                clauses.append(f"{LIFECYCLE_RANK_SQL} IN ({rank_placeholders})")
+                params.extend(lifecycle_rank(state) for state in query.status_filter)
 
         if query.updated_after is not None:
             clauses.append("updated_at > ?")
@@ -1029,34 +1037,57 @@ class Repository:
             cursor = decode_incident_collection_cursor(
                 query.cursor,
                 expected_filter_signature=query.filter_signature,
+                expected_order=query.order,
             )
-            clauses.append(
-                f"""
-                (
-                    {LIFECYCLE_RANK_SQL} > ?
-                    OR (
-                        {LIFECYCLE_RANK_SQL} = ?
-                        AND updated_at < ?
+            if query.order == "recent":
+                clauses.append(
+                    """
+                    (
+                        updated_at < ?
+                        OR (
+                            updated_at = ?
+                            AND id < ?
+                        )
                     )
-                    OR (
-                        {LIFECYCLE_RANK_SQL} = ?
-                        AND updated_at = ?
-                        AND id < ?
-                    )
+                    """
                 )
-                """
-            )
-            params.extend(
-                [
-                    cursor.lifecycle_rank,
-                    cursor.lifecycle_rank,
-                    cursor.updated_at,
-                    cursor.lifecycle_rank,
-                    cursor.updated_at,
-                    cursor.incident_id,
-                ]
-            )
+                params.extend(
+                    [
+                        cursor.updated_at,
+                        cursor.updated_at,
+                        cursor.incident_id,
+                    ]
+                )
+            else:
+                clauses.append(
+                    f"""
+                    (
+                        {LIFECYCLE_RANK_SQL} > ?
+                        OR (
+                            {LIFECYCLE_RANK_SQL} = ?
+                            AND updated_at < ?
+                        )
+                        OR (
+                            {LIFECYCLE_RANK_SQL} = ?
+                            AND updated_at = ?
+                            AND id < ?
+                        )
+                    )
+                    """
+                )
+                params.extend(
+                    [
+                        cursor.lifecycle_rank,
+                        cursor.lifecycle_rank,
+                        cursor.updated_at,
+                        cursor.lifecycle_rank,
+                        cursor.updated_at,
+                        cursor.incident_id,
+                    ]
+                )
 
+        if not clauses:
+            return "1", params
         return " AND ".join(clauses), params
 
     def count_incidents(self, query: "IncidentCollectionQuery") -> int:
@@ -1075,12 +1106,15 @@ class Repository:
     def _incident_collection_order_by(self, query: "IncidentCollectionQuery") -> str:
         """Production ORDER BY for paginated incident collections.
 
-        Single-lifecycle pages omit the constant lifecycle-rank term so SQLite
-        can consume idx_incidents_collection_order without a temporary sort.
-        Multi-lifecycle pages keep explicit rank ordering.
+        Recent order is pure recency (updated_at, id). Lifecycle order ranks
+        open → watching → resolved first. Single-lifecycle pages omit the
+        constant lifecycle-rank term so SQLite can consume
+        idx_incidents_collection_order without a temporary sort.
         """
         from zigbeelens.storage.incident_collection import LIFECYCLE_RANK_SQL
 
+        if query.order == "recent":
+            return "updated_at DESC, id DESC"
         if len(query.status_filter) == 1:
             return "updated_at DESC, id DESC"
         return f"{LIFECYCLE_RANK_SQL} ASC, updated_at DESC, id DESC"
@@ -1092,9 +1126,13 @@ class Repository:
         include_cursor: bool,
     ) -> tuple[str, list[Any]]:
         """Shared production page SELECT used by list + EXPLAIN plan tests."""
+        # Recent order must not filter on the lifecycle-rank expression, or
+        # SQLite prefers idx_incidents_collection_order and TEMP-sorts by time.
+        status_mode = "lifecycle" if query.order == "recent" else "rank"
         where_sql, params = self._incident_collection_filters(
             query,
             include_cursor=include_cursor,
+            status_mode=status_mode,
         )
         order_by = self._incident_collection_order_by(query)
         sql = f"""
@@ -1130,6 +1168,7 @@ class Repository:
                 cursor_from_incident_row(
                     rows[-1],
                     filter_signature=query.filter_signature,
+                    order=query.order,
                 )
             )
         return IncidentCollectionPage(
@@ -1550,6 +1589,56 @@ class Repository:
                     result[snapshot_id].append(item)
         return result
 
+    def _topology_links_for_device_in_snapshots_sql(
+        self, chunk: list[str], ieee_address: str
+    ) -> tuple[str, list[Any]]:
+        """Production multi-snapshot source-or-target link SELECT for one device.
+
+        UNION ALL keeps source seeks on the PK and target seeks on
+        ``idx_topology_links_snapshot_target``. The OR form cannot use a useful
+        target index without a temporary ORDER BY B-tree. The target branch
+        excludes ``source_ieee = ieee`` so a self-link cannot appear twice.
+        """
+        placeholders = ",".join("?" for _ in chunk)
+        sql = f"""
+            SELECT snapshot_id, source_ieee, target_ieee, source_type, target_type,
+                   linkquality, depth, relationship, route_count
+            FROM topology_links
+            WHERE snapshot_id IN ({placeholders})
+              AND source_ieee = ?
+            UNION ALL
+            SELECT snapshot_id, source_ieee, target_ieee, source_type, target_type,
+                   linkquality, depth, relationship, route_count
+            FROM topology_links
+            WHERE snapshot_id IN ({placeholders})
+              AND target_ieee = ?
+              AND source_ieee != ?
+            ORDER BY snapshot_id ASC
+        """
+        return sql, [*chunk, ieee_address, *chunk, ieee_address, ieee_address]
+
+    def list_topology_links_for_device_in_snapshots(
+        self,
+        snapshot_ids: Collection[str],
+        ieee_address: str,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Bulk links involving one device across selected snapshots."""
+        ordered_ids = list(dict.fromkeys(sid for sid in snapshot_ids if sid))
+        result: dict[str, list[dict[str, Any]]] = {sid: [] for sid in ordered_ids}
+        ieee = str(ieee_address).strip()
+        if not ordered_ids or not ieee:
+            return result
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            sql, params = self._topology_links_for_device_in_snapshots_sql(chunk, ieee)
+            cur = self.db.conn.execute(sql, params)
+            for row in cur.fetchall():
+                snapshot_id = str(row["snapshot_id"])
+                if snapshot_id in result:
+                    item = dict(row)
+                    item.pop("snapshot_id", None)
+                    result[snapshot_id].append(item)
+        return result
+
     def list_devices_for_networks(
         self, network_ids: Collection[str]
     ) -> dict[str, list[DeviceRow]]:
@@ -1595,7 +1684,7 @@ class Repository:
                 SELECT network_id, ieee_address, from_state, to_state, changed_at
                 FROM availability_changes
                 WHERE network_id IN ({placeholders}) AND changed_at >= ?
-                ORDER BY network_id ASC, changed_at ASC
+                ORDER BY network_id ASC, changed_at ASC, ieee_address ASC, id ASC
                 """,
                 (*chunk, since_iso),
             )
@@ -1923,6 +2012,24 @@ class Repository:
         row = cur.fetchone()
         return row[0] if row and row[0] else None
 
+    def network_has_explicit_availability_state(self, network_id: str) -> bool:
+        """True when any device reports explicit online/offline current state.
+
+        Network-level signal: an unrelated device can establish tracking.
+        Unknown/missing rows do not count.
+        """
+        cur = self.db.conn.execute(
+            """
+            SELECT 1
+            FROM device_current_state
+            WHERE network_id = ?
+              AND availability IN ('online', 'offline')
+            LIMIT 1
+            """,
+            (network_id,),
+        )
+        return cur.fetchone() is not None
+
     def list_availability_changes_since(
         self, network_id: str, since_iso: str
     ) -> list[dict[str, Any]]:
@@ -1934,11 +2041,59 @@ class Repository:
             SELECT ieee_address, from_state, to_state, changed_at
             FROM availability_changes
             WHERE network_id = ? AND changed_at >= ?
-            ORDER BY changed_at ASC
+            ORDER BY changed_at ASC, ieee_address ASC, id ASC
             """,
             (network_id, since_iso),
         )
         return [dict(row) for row in cur.fetchall()]
+
+    def list_availability_offline_transitions_since(
+        self, network_id: str, since_iso: str
+    ) -> list[dict[str, Any]]:
+        """Offline transition rows for shared-availability grouping, oldest first.
+
+        Distinct from ``list_offline_transitions_since``, which returns the
+        latest offline timestamp per device for incident correlation.
+        """
+        cur = self.db.conn.execute(
+            """
+            SELECT ieee_address, from_state, to_state, changed_at
+            FROM availability_changes
+            WHERE network_id = ? AND changed_at >= ? AND to_state = 'offline'
+            ORDER BY changed_at ASC, ieee_address ASC, id ASC
+            """,
+            (network_id, since_iso),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+    def list_availability_offline_transitions_for_networks_since(
+        self, network_ids: Collection[str], since_iso: str
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Bulk offline transition rows since cutoff, oldest-first per network."""
+        ordered_ids = list(dict.fromkeys(nid for nid in network_ids if nid))
+        result: dict[str, list[dict[str, Any]]] = {nid: [] for nid in ordered_ids}
+        if not ordered_ids:
+            return result
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            placeholders = ",".join("?" for _ in chunk)
+            cur = self.db.conn.execute(
+                f"""
+                SELECT network_id, ieee_address, from_state, to_state, changed_at
+                FROM availability_changes
+                WHERE network_id IN ({placeholders})
+                  AND changed_at >= ?
+                  AND to_state = 'offline'
+                ORDER BY network_id ASC, changed_at ASC, ieee_address ASC, id ASC
+                """,
+                (*chunk, since_iso),
+            )
+            for row in cur.fetchall():
+                network_id = str(row["network_id"])
+                if network_id in result:
+                    item = dict(row)
+                    item.pop("network_id", None)
+                    result[network_id].append(item)
+        return result
 
     def list_active_incident_device_addresses(self, network_id: str) -> list[str]:
         """IEEE addresses linked to open/watching incidents in a network."""
@@ -1961,7 +2116,8 @@ class Repository:
             SELECT metric_name, metric_value, sampled_at
             FROM metric_samples
             WHERE network_id = ? AND ieee_address = ?
-            ORDER BY sampled_at DESC LIMIT ?
+            ORDER BY sampled_at DESC, id DESC
+            LIMIT ?
             """,
             (network_id, ieee_address, limit),
         )
@@ -2191,6 +2347,7 @@ class Repository:
         return cur.fetchone() is not None
 
     def get_latest_topology_snapshot(self, network_id: str) -> dict[str, Any] | None:
+        """Latest complete snapshot for one network (indexed seek, LIMIT 1)."""
         if not self._has_table("topology_snapshots"):
             return None
         cur = self.db.conn.execute(
@@ -2199,12 +2356,80 @@ class Repository:
                    router_count, end_device_count, link_count, warning_acknowledged, error
             FROM topology_snapshots
             WHERE network_id = ? AND status = 'complete'
-            ORDER BY captured_at DESC LIMIT 1
+            ORDER BY captured_at DESC, snapshot_id DESC
+            LIMIT 1
             """,
             (network_id,),
         )
         row = cur.fetchone()
         return dict(row) if row else None
+
+    def _latest_topology_snapshots_for_networks_sql(
+        self, chunk: list[str]
+    ) -> tuple[str, list[Any]]:
+        """Production bulk latest-complete SELECT (one indexed seek per network)."""
+        placeholders = ",".join("(?)" for _ in chunk)
+        sql = f"""
+            WITH requested(network_id) AS (
+                VALUES {placeholders}
+            ),
+            selected AS (
+                SELECT
+                    r.network_id AS network_id,
+                    (
+                        SELECT s.snapshot_id
+                        FROM topology_snapshots s
+                        WHERE s.network_id = r.network_id
+                          AND s.status = 'complete'
+                        ORDER BY s.captured_at DESC, s.snapshot_id DESC
+                        LIMIT 1
+                    ) AS snapshot_id
+                FROM requested r
+            )
+            SELECT
+                s.snapshot_id,
+                selected.network_id,
+                s.captured_at,
+                s.requested_by,
+                s.status,
+                s.router_count,
+                s.end_device_count,
+                s.link_count,
+                s.warning_acknowledged,
+                s.error
+            FROM selected
+            LEFT JOIN topology_snapshots s
+              ON s.snapshot_id = selected.snapshot_id
+        """
+        return sql, list(chunk)
+
+    def get_latest_topology_snapshots_for_networks(
+        self, network_ids: Collection[str]
+    ) -> dict[str, dict[str, Any] | None]:
+        """Latest complete snapshot per network (captured_at DESC, snapshot_id DESC).
+
+        One statement per ``_SAFE_ID_CHUNK``; each network uses an indexed
+        LIMIT-1 seek rather than ranking retained history. Missing networks
+        map to ``None``.
+        """
+        ordered_ids = list(dict.fromkeys(nid for nid in network_ids if nid))
+        result: dict[str, dict[str, Any] | None] = {nid: None for nid in ordered_ids}
+        if not ordered_ids:
+            return result
+        if not self._has_table("topology_snapshots"):
+            return result
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            sql, params = self._latest_topology_snapshots_for_networks_sql(chunk)
+            cur = self.db.conn.execute(sql, params)
+            for row in cur.fetchall():
+                network_id = str(row["network_id"])
+                if network_id not in result:
+                    continue
+                if row["snapshot_id"] is None:
+                    result[network_id] = None
+                    continue
+                result[network_id] = dict(row)
+        return result
 
     def list_topology_snapshots(self, network_id: str) -> list[dict[str, Any]]:
         cur = self.db.conn.execute(
@@ -2213,10 +2438,30 @@ class Repository:
                    router_count, end_device_count, link_count, warning_acknowledged, error
             FROM topology_snapshots
             WHERE network_id = ?
-            ORDER BY captured_at DESC
+            ORDER BY captured_at DESC, snapshot_id DESC
             """,
             (network_id,),
         )
+        return [dict(row) for row in cur.fetchall()]
+
+    def list_complete_topology_snapshots(
+        self, network_id: str, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Complete snapshots for a network, newest first, optionally SQL-limited."""
+        if not self._has_table("topology_snapshots"):
+            return []
+        sql = """
+            SELECT snapshot_id, network_id, captured_at, requested_by, status,
+                   router_count, end_device_count, link_count, warning_acknowledged, error
+            FROM topology_snapshots
+            WHERE network_id = ? AND status = 'complete'
+            ORDER BY captured_at DESC, snapshot_id DESC
+        """
+        params: list[Any] = [network_id]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        cur = self.db.conn.execute(sql, params)
         return [dict(row) for row in cur.fetchall()]
 
     def get_topology_snapshot(self, network_id: str, snapshot_id: str) -> dict[str, Any] | None:
@@ -2262,6 +2507,21 @@ class Repository:
         )
         row = cur.fetchone()
         return row[0] if row else None
+
+    def get_topology_node(
+        self, snapshot_id: str, ieee_address: str
+    ) -> dict[str, Any] | None:
+        cur = self.db.conn.execute(
+            """
+            SELECT ieee_address, friendly_name, node_type, depth, lqi
+            FROM topology_nodes
+            WHERE snapshot_id = ? AND ieee_address = ?
+            LIMIT 1
+            """,
+            (snapshot_id, ieee_address),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
 
     def list_topology_children(self, snapshot_id: str, router_ieee: str) -> list[str]:
         cur = self.db.conn.execute(

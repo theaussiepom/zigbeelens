@@ -37,13 +37,30 @@ class AvailabilityRepository:
     def get_earliest_availability_change_at(self, network_id: str) -> str | None:
         return self._repo.get_earliest_availability_change_at(network_id)
 
+    def network_has_explicit_availability_state(self, network_id: str) -> bool:
+        return self._repo.network_has_explicit_availability_state(network_id)
+
     def list_availability_changes_since(
         self, network_id: str, since_iso: str
     ) -> list[dict[str, Any]]:
         return self._repo.list_availability_changes_since(network_id, since_iso)
 
+    def list_availability_offline_transitions_since(
+        self, network_id: str, since_iso: str
+    ) -> list[dict[str, Any]]:
+        return self._repo.list_availability_offline_transitions_since(
+            network_id, since_iso
+        )
+
     def list_availability_changes_for_networks_since(self, network_ids, since_iso: str):
         return self._repo.list_availability_changes_for_networks_since(network_ids, since_iso)
+
+    def list_availability_offline_transitions_for_networks_since(
+        self, network_ids, since_iso: str
+    ):
+        return self._repo.list_availability_offline_transitions_for_networks_since(
+            network_ids, since_iso
+        )
 
     def get_earliest_availability_change_at_for_networks(self, network_ids):
         return self._repo.get_earliest_availability_change_at_for_networks(network_ids)

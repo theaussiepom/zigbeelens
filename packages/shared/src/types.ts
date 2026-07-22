@@ -655,7 +655,10 @@ export interface PaginatedResponse<T> {
   next_cursor?: string | null;
 }
 
-/** Incident collection query (Track 3E) */
+/** Incident collection order (Phase 7A). Default lifecycle when omitted. */
+export type IncidentCollectionOrder = "lifecycle" | "recent";
+
+/** Incident collection query (Track 3E / Phase 7A) */
 export interface IncidentCollectionQuery {
   scenario?: string;
   status?: IncidentStatus | IncidentStatus[];
@@ -664,6 +667,8 @@ export interface IncidentCollectionQuery {
   device_ieee?: string;
   limit?: number;
   cursor?: string;
+  /** lifecycle (default) or recent updated_at/id ordering */
+  order?: IncidentCollectionOrder;
 }
 
 export type MockScenarioId =
