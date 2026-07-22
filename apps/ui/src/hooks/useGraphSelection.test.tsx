@@ -93,6 +93,9 @@ describe("useGraphSelection", () => {
     act(() => result.current.selectNode(selected));
     rerender({ evidence: { devices: [], edges: [] } });
 
+    // Visual selection follows the resolved current object, not the identity
+    // waiting for the cleanup effect.
+    expect(result.current.selectedNodeId).toBeNull();
     await waitFor(() => expect(result.current.selectedNodeId).toBeNull());
     expect(result.current.selectedDevice).toBeNull();
   });

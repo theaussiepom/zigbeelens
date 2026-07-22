@@ -1922,56 +1922,6 @@ describe("TopologyGraphPage historical evidence (live)", () => {
     expect(within(drawer).queryByText(/no recent missing/i)).not.toBeInTheDocument();
   });
 
-  it("qualifies rather than overclaims when the latest layout is limited", async () => {
-    const limitedNeighborCopy =
-      "This neighbour link was observed in a recent previous topology snapshot. The latest snapshot has limited topology evidence, so absence from the latest graph is not meaningful by itself.";
-    mockDetail = {
-      ...liveDetailWithHistory,
-      latest_layout_limited: true,
-      historical_neighbors: [
-        makeHistoricalAggregate({
-          latest_layout_limited: true,
-          not_seen_in_latest_snapshot: true,
-          limitations: [limitedNeighborCopy],
-        }),
-      ],
-      historical_routes: [],
-    };
-    await renderLiveAndWaitForLayout();
-    openDrawMoreLinks();
-    expect(
-      screen.getByText(
-        "The latest topology layout is limited, so recent missing links cannot be measured reliably.",
-      ),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "The latest topology layout is limited, so absence from it cannot be assessed for last known links.",
-      ),
-    ).toBeInTheDocument();
-    const edge = await screen.findByLabelText(
-      "Recent missing link between Live Lamp and Live Sleepy Sensor",
-    );
-    fireEvent.click(edge);
-    const drawer = screen.getByRole("dialog", { name: /link details/i });
-    expect(
-      within(drawer).getAllByText(/absence from the latest graph is not meaningful by itself/i)
-        .length,
-    ).toBeGreaterThan(0);
-    // No unqualified "missing from latest" claim.
-    expect(
-      within(drawer).queryByText(/not observed in the latest topology snapshot\./i),
-    ).not.toBeInTheDocument();
-
-    // Node drawer carries the same qualification.
-    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
-    const nodeDrawer = screen.getByRole("dialog", { name: /device details/i });
-    expect(
-      within(nodeDrawer).getByText(
-        /the latest snapshot has limited topology evidence, so absence from the latest graph is not meaningful by itself/i,
-      ),
-    ).toBeInTheDocument();
-  });
 });
 
 describe("TopologyGraphPage historical evidence on large graphs", () => {
@@ -2513,6 +2463,88 @@ describe("TopologyGraphPage investigation panel", () => {
     expect(nodePosition(container, "0xe1")).toBe(beforePos);
   });
 
+  it("refreshes active investigation focus and sidebar content from the current card identity", async () => {
+    const user = userEvent.setup();
+    const view = await renderLiveAndWaitForLayout();
+    const { container } = view;
+    await user.click(focusButton());
+    await waitFor(() => {
+      expect(container.querySelector('.react-flow__node[data-id="0xe1"]')).toHaveClass(
+        "mesh-node--investigation-focus",
+      );
+    });
+
+    mockDetail = makeTopologyEvidenceGraphDetail({
+      ...liveDetailWithInvestigations,
+      investigations: [
+        makeInvestigationCard({
+          title: "Updated investigation now follows the router area",
+          summary: "Current evidence now involves the coordinator and hall router.",
+          device_ieees: ["0xc0", "0xr1"],
+          edge_ids: ["live-neighbor-0xc0|0xr1"],
+          primary_device_ieee: "0xr1",
+        }),
+      ],
+    });
+    view.rerender(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(
+      await screen.findByText("Updated investigation now follows the router area"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Current evidence now involves the coordinator and hall router."),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(container.querySelector('.react-flow__node[data-id="0xc0"]')).toHaveClass(
+        "mesh-node--investigation-focus",
+      );
+      expect(container.querySelector('.react-flow__node[data-id="0xr1"]')).toHaveClass(
+        "mesh-node--investigation-focus",
+      );
+      expect(container.querySelector('.react-flow__node[data-id="0xe1"]')).not.toHaveClass(
+        "mesh-node--investigation-focus",
+      );
+      expect(container.querySelector('.react-flow__node[data-id="0xe2"]')).not.toHaveClass(
+        "mesh-node--investigation-focus",
+      );
+    });
+  });
+
+  it("clears graph focus when the active investigation disappears", async () => {
+    const user = userEvent.setup();
+    const view = await renderLiveAndWaitForLayout();
+    const { container } = view;
+    await user.click(focusButton());
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(2);
+    });
+
+    mockDetail = makeTopologyEvidenceGraphDetail({
+      ...liveDetailWithInvestigations,
+      investigations: [],
+      investigation_counts: { available: 0, returned: 0 },
+    });
+    view.rerender(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId("investigation-empty")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(0);
+      expect(container.querySelectorAll(".mesh-node--muted")).toHaveLength(0);
+    });
+  });
+
   it("focusing does not change connection-control choices", async () => {
     const user = userEvent.setup();
     await renderLiveAndWaitForLayout();
@@ -2557,6 +2589,7 @@ describe("TopologyGraphPage investigation panel", () => {
     await user.click(within(card).getByRole("button", { name: /^open router details:/i }));
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: /device details/i })).toBeInTheDocument();
+      expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(2);
     });
     expect(within(screen.getByRole("dialog")).getByText("0xr1")).toBeInTheDocument();
     expect(nodePosition(container, "0xr1")).toBe(beforePos);

@@ -64,8 +64,7 @@ export function useGraphSelection(
   return {
     selectedEdge,
     selectedDevice,
-    selectedNodeId:
-      selectionIsForNetwork && selection?.kind === "device" ? selection.id : null,
+    selectedNodeId: selectedDevice?.ieee_address ?? null,
     selectEdge,
     selectNode,
     clearSelection,
