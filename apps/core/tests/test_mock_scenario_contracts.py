@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sys
 
 import pytest
 
@@ -230,25 +229,15 @@ def test_bridge_offline_pydantic_dump_no_protocol_errors() -> None:
 
 
 def test_oracle_fixture_generation_matches_checked_in(tmp_path) -> None:
-    """Checked-in UI oracle JSON must match fail-closed Core generation."""
-    import subprocess
-    from pathlib import Path
+    """Thin pointer: freshness lives in tests/contracts (Phase 7B)."""
+    from support.contracts import (  # type: ignore[import-not-found]
+        ORACLE_FIXTURE,
+        generate_oracle_fixture_text,
+    )
 
-    repo_root = Path(__file__).resolve().parents[3]
-    generator = repo_root / "apps" / "core" / "scripts" / "generate_oracle_mock_fixtures.py"
-    checked_in = (
-        repo_root / "apps" / "ui" / "src" / "test" / "fixtures" / "oracleMockScenarios.json"
-    )
     generated = tmp_path / "oracleMockScenarios.json"
-    result = subprocess.run(
-        [sys.executable, str(generator), "--output", str(generated)],
-        cwd=str(repo_root),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    result = generate_oracle_fixture_text(output=generated)
     assert result.returncode == 0, result.stderr
-    assert generated.read_text(encoding="utf-8") == checked_in.read_text(encoding="utf-8")
-    payload = json.loads(generated.read_text(encoding="utf-8"))
-    for scenario_id, body in payload.items():
-        assert body.get("report") is not None, scenario_id
+    assert generated.read_text(encoding="utf-8") == ORACLE_FIXTURE.read_text(
+        encoding="utf-8"
+    )
