@@ -80,8 +80,10 @@ After migration 014:
 
 - only newly generated exact ReportDetailV3 reports exist;
 - every stored report read (list, detail, download) validates exact ReportDetailV3;
+- public Saved-report summary fields are owned by the validated body (not stale
+  row metadata); row/body `id` mismatch fails closed;
 - malformed / non-v3 bodies fail closed and are omitted from Saved reports;
-- one report parser, one ViewModel path, one current report contract suite.
+- one report parser, one ViewModel path, one current report contract suite;
 - `DecisionPriority` is wire/order contract metadata (exact enum + ranking), not
   a user-facing label catalogue; statuses and primary copy codes own presentation.
 

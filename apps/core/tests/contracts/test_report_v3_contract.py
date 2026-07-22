@@ -202,3 +202,86 @@ def test_list_detail_download_omit_non_v3_rows(mock_client: TestClient):
     good_row = next(row for row in listed.json() if row["id"] == good_id)
     assert good_row["summary"]
     assert isinstance(good_row["device_count"], int)
+
+
+def test_list_uses_validated_body_over_stale_row_metadata(mock_client: TestClient):
+    created = mock_client.post(
+        "/api/reports",
+        json={
+            "scope": "network",
+            "network_id": "home",
+            "format": "markdown",
+            "redaction": {"profile": "public_safe", "hash_ieee_addresses": False},
+        },
+    )
+    assert created.status_code == 200
+    report_id = created.json()["id"]
+    detail = mock_client.get(f"/api/reports/{report_id}").json()
+    assert detail["format"] == "markdown"
+    assert detail["scope"] == "network"
+    assert detail["redaction"]["profile"] == "public_safe"
+
+    ctx = mock_client.app.state.ctx
+    ctx.repo.db.conn.execute(
+        """
+        UPDATE reports
+        SET format = ?,
+            scope = ?,
+            redaction_profile = ?,
+            generated_at = ?,
+            metadata_json = ?
+        WHERE id = ?
+        """,
+        (
+            "json",
+            "full",
+            "standard",
+            "1999-01-01T00:00:00+00:00",
+            '{"incident_count": 9, "device_count": 9, "network_count": 9}',
+            report_id,
+        ),
+    )
+    ctx.repo.db.conn.commit()
+
+    for prefix in ("/api", "/api/v1"):
+        listed = mock_client.get(f"{prefix}/reports")
+        assert listed.status_code == 200
+        row = next(item for item in listed.json() if item["id"] == report_id)
+        assert row["format"] == "markdown"
+        assert row["scope"] == "network"
+        assert row["redaction_profile"] == "public_safe"
+        assert row["generated_at"] == detail["generated_at"]
+        assert row["incident_count"] == len(detail["incidents"])
+        assert row["device_count"] != 9
+        assert row["network_count"] != 9
+
+        fetched = mock_client.get(f"{prefix}/reports/{report_id}")
+        assert fetched.status_code == 200
+        assert fetched.json()["format"] == "markdown"
+        assert fetched.json()["scope"] == "network"
+        assert fetched.json()["generated_at"] == detail["generated_at"]
+
+
+def test_row_body_id_mismatch_fails_closed(mock_client: TestClient):
+    created = mock_client.post("/api/reports", json={"scope": "full", "format": "json"})
+    assert created.status_code == 200
+    report_id = created.json()["id"]
+    detail = mock_client.get(f"/api/reports/{report_id}").json()
+
+    mismatched = dict(detail)
+    mismatched["id"] = "body-id-does-not-match-row"
+    ctx = mock_client.app.state.ctx
+    ctx.repo.db.conn.execute(
+        "UPDATE reports SET body_json = ? WHERE id = ?",
+        (__import__("json").dumps(mismatched), report_id),
+    )
+    ctx.repo.db.conn.commit()
+    assert ctx.repo.reports.get_report(report_id) is not None
+
+    for prefix in ("/api", "/api/v1"):
+        listed_ids = {row["id"] for row in mock_client.get(f"{prefix}/reports").json()}
+        assert report_id not in listed_ids
+        assert mock_client.get(f"{prefix}/reports/{report_id}").status_code == 404
+        assert (
+            mock_client.get(f"{prefix}/reports/{report_id}/download").status_code == 404
+        )

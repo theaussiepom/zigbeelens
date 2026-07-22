@@ -626,17 +626,30 @@ def store_report(repo: Repository, detail: ReportDetailV3, request: ReportReques
 
 
 def summary_from_detail(row: ReportRow, detail: ReportDetailV3) -> ReportSummary:
+    """Build a public summary from the validated ReportDetailV3 body.
+
+    The storage row is the lookup/index container; public summary fields that
+    exist on the body are owned by the validated body (not stale row metadata).
+    Callers must only pass bodies already accepted by load_stored_report_envelope
+    (including detail.id == row.id).
+    """
+    if detail.id != row.id:
+        raise ValueError(
+            f"stored report id mismatch: row={row.id!r} body={detail.id!r}"
+        )
+    profile = detail.redaction.profile
+    profile_value = profile.value if hasattr(profile, "value") else str(profile)
     return ReportSummary(
-        id=row.id,
-        generated_at=row.generated_at,
+        id=detail.id,
+        generated_at=detail.generated_at,
         redaction_applied=True,
         incident_count=len(detail.incidents),
         device_count=_report_device_count(detail),
         network_count=_report_network_count(detail),
         summary=_finding_text(detail),
-        format=row.format,
-        scope=row.scope,
-        redaction_profile=row.redaction_profile,
+        format=str(detail.format),
+        scope=str(detail.scope),
+        redaction_profile=profile_value,
     )
 
 

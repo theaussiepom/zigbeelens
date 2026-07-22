@@ -58,16 +58,19 @@ def load_stored_report_envelope(row: ReportRow) -> StoredReportEnvelope | None:
         detail = ReportDetailV3.model_validate(body)
     except Exception:
         return None
+    # List/detail route IDs must match the validated body identity.
+    if detail.id != row.id:
+        return None
     markdown = str(row.body_markdown or detail.markdown_summary or "")
     return StoredReportEnvelope(
         row_id=row.id,
-        format=row.format,
+        format=str(detail.format),
         report_version=3,
         raw_body_json=row.body_json,
         body=detail,
         markdown=markdown if markdown else detail.markdown_summary,
-        scope=row.scope,
-        generated_at=row.generated_at,
+        scope=str(detail.scope),
+        generated_at=detail.generated_at,
     )
 
 
