@@ -25,7 +25,7 @@ export function SettingsPage() {
     isScenarioMode,
     mqttConnected: status.mqtt_connected,
     collectorEnabled: collector?.enabled,
-    lastMessageAt: healthPresent ? (collector?.last_message_at ?? null) : null,
+    lastMessageAt: healthPresent ? collector?.last_message_at : undefined,
     networkCount: status.configured_networks.length,
   });
 
@@ -471,7 +471,7 @@ function buildWarnings(args: {
   isScenarioMode: boolean;
   mqttConnected: boolean;
   collectorEnabled?: boolean;
-  lastMessageAt: string | null;
+  lastMessageAt: string | null | undefined;
   networkCount: number;
 }): Array<{ text: string; severity: "incident" | "watch" }> {
   const out: Array<{ text: string; severity: "incident" | "watch" }> = [];
@@ -484,7 +484,12 @@ function buildWarnings(args: {
   if (args.networkCount === 0) {
     out.push({ text: "No networks are configured.", severity: "watch" });
   }
-  if (args.dataMode === "live" && args.mqttConnected && !args.lastMessageAt) {
+  if (
+    args.dataMode === "live" &&
+    args.collectorEnabled === true &&
+    args.mqttConnected &&
+    args.lastMessageAt === null
+  ) {
     out.push({ text: "Connected, but no MQTT data has been received yet.", severity: "watch" });
   }
   return out;

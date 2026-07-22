@@ -42,42 +42,6 @@ const DECLARED: DeclaredEntry[] = [
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
   },
   {
-    "file": "apps/ui/src/components/meshGraph/TopologyMetricStrip.tsx",
-    "kind": "nullishCoalescing",
-    "expression": "graphDetail?.nodes?.length ?? 0",
-    "line": 26,
-    "character": 16,
-    "classification": "factual measured default",
-    "note": "Array length fallback is a measured empty collection when the source list is absent or empty."
-  },
-  {
-    "file": "apps/ui/src/components/reports/ContextualReportDialog.tsx",
-    "kind": "nullishCoalescing",
-    "expression": "n ?? 0",
-    "line": 579,
-    "character": 43,
-    "classification": "factual measured default",
-    "note": "Optional numeric formatter input treats a missing measured count as zero for display arithmetic."
-  },
-  {
-    "file": "apps/ui/src/hooks/useTopologyGraphData.ts",
-    "kind": "nullishCoalescing",
-    "expression": "detail.data?.nodes?.length ?? 0",
-    "line": 51,
-    "character": 9,
-    "classification": "factual measured default",
-    "note": "Array length fallback is a measured empty collection when the source list is absent or empty."
-  },
-  {
-    "file": "apps/ui/src/hooks/useTopologyGraphData.ts",
-    "kind": "nullishCoalescing",
-    "expression": "detail.data?.links?.length ?? 0",
-    "line": 51,
-    "character": 50,
-    "classification": "factual measured default",
-    "note": "Array length fallback is a measured empty collection when the source list is absent or empty."
-  },
-  {
     "file": "apps/ui/src/lib/decisionContract.ts",
     "kind": "nullishCoalescing",
     "expression": "status_counts[status] ?? 0",
@@ -279,7 +243,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/pages/NetworksPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "statusCounts.review_first ?? 0",
-    "line": 228,
+    "line": 230,
     "character": 20,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
@@ -288,7 +252,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/pages/NetworksPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "statusCounts.review_first ?? 0",
-    "line": 229,
+    "line": 231,
     "character": 24,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
@@ -297,7 +261,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/pages/NetworksPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "statusCounts.worth_reviewing ?? 0",
-    "line": 233,
+    "line": 235,
     "character": 20,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
@@ -306,19 +270,10 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/pages/NetworksPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "statusCounts.worth_reviewing ?? 0",
-    "line": 234,
+    "line": 236,
     "character": 24,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
-  },
-  {
-    "file": "apps/ui/src/pages/NetworksPage.tsx",
-    "kind": "nullishCoalescing",
-    "expression": "timeline.data?.length ?? 0",
-    "line": 308,
-    "character": 11,
-    "classification": "factual measured default",
-    "note": "Array length fallback is a measured empty collection when the source list is absent or empty."
   },
   {
     "file": "apps/ui/src/pages/OverviewPage.tsx",
@@ -337,15 +292,6 @@ const DECLARED: DeclaredEntry[] = [
     "character": 26,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
-  },
-  {
-    "file": "apps/ui/src/pages/TopologyGraphPage.tsx",
-    "kind": "nullishCoalescing",
-    "expression": "liveEvidence?.edges.filter((edge) => edge.in_latest_snapshot).length ?? 0",
-    "line": 44,
-    "character": 5,
-    "classification": "factual measured default",
-    "note": "Array length fallback is a measured empty collection when the source list is absent or empty."
   },
   {
     "file": "apps/ui/src/reports/savedReportActionLabels.ts",
@@ -425,7 +371,7 @@ function noteIsMeaningful(note: string): boolean {
   );
 }
 
-const EXPECTED_TOTAL = 41;
+const EXPECTED_TOTAL = 35;
 
 const ROOTS = [
   "apps/ui/src/viewModels",

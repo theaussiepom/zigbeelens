@@ -45,13 +45,29 @@ const PRESENTER_PARAM_SETS: Record<string, unknown>[] = [
 
 const CATALOGUE_FILE = "apps/ui/src/lib/meshGraphCopy.ts";
 
+const REPORT_COPY_SCAN_ROOTS = [
+  "apps/ui/src/pages/ReportsPage.tsx",
+  "apps/ui/src/components/reports",
+  "apps/ui/src/reports",
+] as const;
+
+const STALE_REPORT_PROMISES = [
+  /legacy\s+(?:v1\/v2\s+)?(?:stored\s+)?reports?\s+remain[^.]{0,80}\bdownloadable\b/i,
+  /legacy\s+(?:v1\/v2\s+)?(?:stored\s+)?reports?\s+remain\s+readable\b/i,
+  /old\s+reports?\s+(?:are\s+)?preserved\b/i,
+  /downloadable\s+as\s+originally\s+saved\b/i,
+] as const;
+
 /**
  * Explicit additional primary-copy scan roots beyond components/pages/ViewModels
  * and the catalogue file. These modules expose human-facing labels or report
  * action copy; transport errors and internal diagnostics are intentionally out
- * of scope.
+ * of scope. meshEvidenceLive is a mixed production module: its user-facing
+ * Mesh/device-details text is primary-copy owned even though its individual
+ * Map.get(... ) ?? 0 expressions are graph-algorithm accumulators.
  */
 const ADDITIONAL_COPY_SCAN_ROOTS = [
+  "apps/ui/src/lib/meshEvidenceLive.ts",
   "apps/ui/src/lib/topologyLabels.ts",
   "apps/ui/src/reports",
   "apps/ui/src/lib/format.ts",
@@ -182,7 +198,7 @@ describe("primary-copy guardrails", () => {
     expect(() => assertPrimarySafe(unsafe, "deliberate")).toThrow();
   });
 
-  it("maps oracle decision and coverage presenters primary-safe across param branches", () => {
+  it("maps oracle decision and coverage presenters primary-safe across representative params", () => {
     const vocab = oracleFixture.vocabulary;
     expect(vocab.decision_statuses.length).toBeGreaterThan(0);
     expect(vocab.headline_codes.length).toBeGreaterThan(0);
@@ -224,6 +240,61 @@ describe("primary-copy guardrails", () => {
     expect(outputs).toBeGreaterThan(0);
   });
 
+  it("covers meaningful dynamic presenter branches explicitly", () => {
+    const cases = [
+      {
+        context: "battery populated",
+        actual: suggestedCheckText("check_battery_level", { battery_percent: 18 }),
+        expected: "Check the reported battery level (18%).",
+        fallback: suggestedCheckText("check_battery_level", {}),
+      },
+      {
+        context: "equal reporting interval",
+        actual: reasonText("observed_reporting_rhythm", {
+          interval_minutes_p25: 5,
+          interval_minutes_p75: 5,
+        }),
+        expected: "Usually reports about every 5 minutes based on stored payload history.",
+        fallback: reasonText("observed_reporting_rhythm", {}),
+      },
+      {
+        context: "LQI sample window without medians",
+        actual: reasonText("observed_lqi_trend", { sample_count: 6, window_size: 10 }),
+        expected:
+          "Stored reported link-quality observations from 6 samples were compared across 10-observation windows.",
+        fallback: reasonText("observed_lqi_trend", {}),
+      },
+      {
+        context: "model pattern excluding current device",
+        actual: reasonText("model_pattern_observed", {
+          affected_count: 2,
+          group_size: 5,
+          lookback_days: 7,
+          current_device_affected: false,
+        }),
+        expected:
+          "Other devices with the same model show a recent availability pattern: 2 of 5 went offline in the last 7 days.",
+        fallback: reasonText("model_pattern_observed", {}),
+      },
+      {
+        context: "combined HA area",
+        actual: deviceCoverageHelperText("ha_area_linked", {
+          area_name: "Kitchen",
+          area_id: "area.kitchen",
+        }),
+        expected: "Home Assistant area enrichment is linked (Kitchen, id area.kitchen).",
+        fallback: deviceCoverageHelperText("ha_area_linked", {}),
+      },
+    ];
+
+    for (const branch of cases) {
+      expect(branch.actual, branch.context).toBe(branch.expected);
+      expect(branch.actual.trim(), branch.context).not.toBe("");
+      expect(branch.actual, branch.context).not.toBe(branch.fallback);
+      assertPrimarySafe(branch.actual, branch.context);
+    }
+  });
+
   it("limitationText matches reviewed exact strings without mixed-positive exemptions", () => {
     expect(LIMITATION_CODES.length).toBe(Object.keys(EXPECTED_LIMITATIONS).length);
     for (const code of LIMITATION_CODES) {
@@ -249,15 +320,19 @@ describe("primary-copy guardrails", () => {
       path.join(repoRoot, "apps/ui/src/viewModels"),
       path.join(repoRoot, CATALOGUE_FILE),
       ...ADDITIONAL_COPY_SCAN_ROOTS.map((root) => path.join(repoRoot, root)),
+      ...REPORT_COPY_SCAN_ROOTS.map((root) => path.join(repoRoot, root)),
     ];
-    const files: string[] = [];
+    const files = new Set<string>();
     for (const root of roots) {
-      if (statSync(root).isDirectory()) files.push(...listTsFiles(root));
-      else files.push(root);
+      if (statSync(root).isDirectory()) {
+        for (const file of listTsFiles(root)) files.add(file);
+      } else {
+        files.add(root);
+      }
     }
 
     let catalogueHits = 0;
-    for (const file of files) {
+    for (const file of [...files].sort()) {
       const rel = path.relative(repoRoot, file);
       const texts = collectUserFacingStaticTexts(readFileSync(file, "utf8"), file);
       for (const literal of texts) {
@@ -297,6 +372,53 @@ describe("primary-copy guardrails", () => {
     expect(concatTexts.some((text) => containsPhrase(text, "broken link"))).toBe(true);
 
     expect(() => assertPrimarySafe("The parent router is the root cause.", "jsx-control")).toThrow();
+  });
+
+  it("detects unsafe static copy in a meshEvidenceLive-like mixed module", () => {
+    const texts = collectUserFacingStaticTexts(
+      `
+        const counts = new Map<string, number>();
+        export const buildDeviceSummary = (id: string) => ({
+          count: counts.get(id) ?? 0,
+          detail: "The parent router is the root cause.",
+        });
+      `,
+      "apps/ui/src/lib/meshEvidenceLive.ts",
+    );
+    expect(texts.some((text) => containsPhrase(text, "parent router"))).toBe(true);
+    expect(() => texts.forEach((text) => assertPrimarySafe(text, "mesh-like"))).toThrow();
+  });
+
+  it("rejects stale stored-report compatibility promises in production report copy", () => {
+    const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
+    const files = new Set<string>();
+    for (const root of REPORT_COPY_SCAN_ROOTS) {
+      const absolute = path.join(repoRoot, root);
+      if (statSync(absolute).isDirectory()) {
+        for (const file of listTsFiles(absolute)) files.add(file);
+      } else {
+        files.add(absolute);
+      }
+    }
+
+    for (const file of [...files].sort()) {
+      const rel = path.relative(repoRoot, file);
+      const texts = collectUserFacingStaticTexts(readFileSync(file, "utf8"), file);
+      for (const literal of texts) {
+        for (const pattern of STALE_REPORT_PROMISES) {
+          expect(pattern.test(literal), `${rel}: stale report promise: ${literal}`).toBe(false);
+        }
+      }
+    }
+
+    for (const unsafe of [
+      "Legacy v1/v2 reports remain downloadable.",
+      "Legacy reports remain readable.",
+      "Old reports are preserved.",
+      "Reports are downloadable as originally saved.",
+    ]) {
+      expect(STALE_REPORT_PROMISES.some((pattern) => pattern.test(unsafe)), unsafe).toBe(true);
+    }
   });
 
   it("rejects disappeared in normal strings, JSX text, and template fragments", () => {

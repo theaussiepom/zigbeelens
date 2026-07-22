@@ -285,4 +285,83 @@ describe("SettingsPage health counts", () => {
     expect(rowValue("Published entities")).toBe("12");
     expect(rowValue("Matched devices")).toBe("3");
   });
+
+  it("does not claim no MQTT data during initial health loading", () => {
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+    expect(
+      screen.queryByText("Connected, but no MQTT data has been received yet."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not claim no MQTT data after an initial health failure", () => {
+    healthResource = {
+      data: null,
+      error: "health unavailable",
+      loading: false,
+      refetch: vi.fn(),
+    };
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+    expect(
+      screen.queryByText("Connected, but no MQTT data has been received yet."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("warns only when accepted collector health explicitly reports no last message", () => {
+    healthResource = {
+      data: zeroHealth,
+      error: null,
+      loading: false,
+      refetch: vi.fn(),
+    };
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+    expect(
+      screen.getByText("Connected, but no MQTT data has been received yet."),
+    ).toBeInTheDocument();
+  });
+
+  it("does not warn when accepted collector health has a last-message timestamp", () => {
+    healthResource = {
+      data: positiveHealth,
+      error: null,
+      loading: false,
+      refetch: vi.fn(),
+    };
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+    expect(
+      screen.queryByText("Connected, but no MQTT data has been received yet."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not warn when a refresh error retains an accepted last-message timestamp", () => {
+    healthResource = {
+      data: positiveHealth,
+      error: "refresh failed",
+      loading: false,
+      refetch: vi.fn(),
+    };
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+    expect(
+      screen.queryByText("Connected, but no MQTT data has been received yet."),
+    ).not.toBeInTheDocument();
+  });
 });

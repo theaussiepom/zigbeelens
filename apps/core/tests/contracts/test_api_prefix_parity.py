@@ -171,9 +171,7 @@ def _normalized_download_payload(fmt: str, content: bytes) -> Any:
 
 
 @pytest.mark.parametrize("fmt", ["json", "yaml", "markdown"])
-def test_api_and_v1_same_request_report_mutation_parity(
-    parity_client: TestClient, fmt: str
-):
+def test_api_and_v1_same_request_report_mutation_parity(parity_client: TestClient, fmt: str):
     request = {
         "scope": "full",
         "format": fmt,
@@ -194,40 +192,75 @@ def test_api_and_v1_same_request_report_mutation_parity(
     created_downloads: dict[str, Any] = {}
 
     for label, report_id in (("api", legacy_id), ("api_v1", v1_id)):
-        details: list[dict[str, Any]] = []
+        raw_details: list[dict[str, Any]] = []
         downloads = []
-        raw_body: dict[str, Any] | None = None
         for prefix in ("/api", "/api/v1"):
             detail = parity_client.get(f"{prefix}/reports/{report_id}")
-            assert detail.status_code == 200
+            context = f"format={fmt} report_id={report_id} prefix={prefix} detail"
+            assert detail.status_code == 200, f"{context}: status mismatch"
             body = detail.json()
-            assert type(body["report_version"]) is int
-            assert body["report_version"] == 3
-            assert body["format"] == fmt
+            assert type(body["report_version"]) is int, (
+                f"{context}: report_version is not an exact integer"
+            )
+            assert body["report_version"] == 3, f"{context}: report_version mismatch"
+            assert body["format"] == fmt, f"{context}: format mismatch"
             ReportDetailV3.model_validate(body)
-            if raw_body is None:
-                raw_body = body
-            details.append(_normalize_root_report_fields(body))
+            raw_details.append(body)
 
             download = parity_client.get(f"{prefix}/reports/{report_id}/download")
-            assert download.status_code == 200
+            assert download.status_code == 200, (
+                f"format={fmt} report_id={report_id} prefix={prefix} download: status mismatch"
+            )
             media = download.headers["content-type"].split(";")[0].strip()
-            assert media == MEDIA_TYPES[fmt]
+            assert media == MEDIA_TYPES[fmt], (
+                f"format={fmt} report_id={report_id} prefix={prefix} download: "
+                "unexpected media type"
+            )
             downloads.append(download)
 
         # Same stored row must read identically through both prefixes.
-        assert details[0] == details[1]
-        assert _normalized_download_payload(fmt, downloads[0].content) == (
-            _normalized_download_payload(fmt, downloads[1].content)
+        same_row_context = f"format={fmt} report_id={report_id} prefix_pair=/api,/api/v1"
+        legacy_detail, v1_detail = raw_details
+        assert legacy_detail == v1_detail, f"{same_row_context}: raw detail body mismatch"
+        for field in ("id", "generated_at", "report_version", "format"):
+            assert legacy_detail[field] == v1_detail[field], (
+                f"{same_row_context}: detail identity field {field!r} mismatch"
+            )
+        semantic_fields = sorted(
+            (set(legacy_detail) | set(v1_detail))
+            - {"id", "generated_at", "report_version", "format"}
         )
-        assert raw_body is not None
-        created_raw_bodies[label] = raw_body
-        created_bodies[label] = details[0]
+        for field in semantic_fields:
+            assert legacy_detail.get(field) == v1_detail.get(field), (
+                f"{same_row_context}: nested semantic detail field {field!r} mismatch"
+            )
+
+        legacy_download, v1_download = downloads
+        assert legacy_download.content == v1_download.content, (
+            f"{same_row_context}: download byte mismatch"
+        )
+        assert legacy_download.headers["content-type"] == v1_download.headers["content-type"], (
+            f"{same_row_context}: download media-type header mismatch"
+        )
+        assert legacy_download.headers.get("content-disposition") == v1_download.headers.get(
+            "content-disposition"
+        ), f"{same_row_context}: download Content-Disposition/filename mismatch"
+        assert legacy_download.headers.get("content-disposition"), (
+            f"{same_row_context}: download Content-Disposition missing"
+        )
+
+        # Use the /api same-row body only after exact identity/semantic checks pass.
+        created_raw_bodies[label] = legacy_detail
+        created_bodies[label] = _normalize_root_report_fields(legacy_detail)
         created_downloads[label] = _normalized_download_payload(fmt, downloads[0].content)
 
     # Independently created /api and /api/v1 outputs must match after root-only normalization.
-    assert created_bodies["api"] == created_bodies["api_v1"]
-    assert created_downloads["api"] == created_downloads["api_v1"]
+    assert created_bodies["api"] == created_bodies["api_v1"], (
+        f"format={fmt} independently-created detail mismatch after root-only normalization"
+    )
+    assert created_downloads["api"] == created_downloads["api_v1"], (
+        f"format={fmt} independently-created download mismatch after root-only normalization"
+    )
 
     list_legacy = parity_client.get("/api/reports")
     list_v1 = parity_client.get("/api/v1/reports")
@@ -261,7 +294,9 @@ def test_api_and_v1_same_request_report_mutation_parity(
         assert list_row["device_count"] == create_body["device_count"]
         assert list_row["network_count"] == create_body["network_count"]
         assert list_row["summary"] == create_body["summary"]
-        assert list_row["generated_at"] == create_body["generated_at"] == detail_body["generated_at"]
+        assert (
+            list_row["generated_at"] == create_body["generated_at"] == detail_body["generated_at"]
+        )
 
     assert parity_client.delete(f"/api/reports/{legacy_id}").status_code == 200
     assert parity_client.get(f"/api/v1/reports/{legacy_id}").status_code == 404

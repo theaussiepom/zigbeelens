@@ -576,7 +576,7 @@ export function ContextualReportDialog({
                   <p className="text-xs text-zl-muted">
                     Decision summary: {decisionSummary.subject_count} subjects ·{" "}
                     {Object.entries(decisionSummary.status_counts)
-                      .filter(([, n]) => (n ?? 0) > 0)
+                      .filter(([, n]) => n > 0)
                       .map(([status, n]) => `${status} ${n}`)
                       .join(" · ") || "no status counts"}
                   </p>

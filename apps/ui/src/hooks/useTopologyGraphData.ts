@@ -46,10 +46,12 @@ export function useTopologyGraphData(networkId: string | undefined) {
   }, [detail.data, inventory.data]);
 
   const snapshot = detail.data?.latest_snapshot;
-  const layoutAvailable = Boolean(
-    detail.data?.layout_available ??
-      ((detail.data?.nodes?.length ?? 0) > 0 || (detail.data?.links?.length ?? 0) > 0),
-  );
+  const layoutAvailable = detail.data
+    ? Boolean(
+        detail.data.layout_available ??
+          (detail.data.nodes.length > 0 || detail.data.links.length > 0),
+      )
+    : false;
   const topologyEnabled = status?.topology?.enabled ?? true;
 
   // Stable data identity for layout caching: network + snapshot only.

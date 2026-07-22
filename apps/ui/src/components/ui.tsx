@@ -294,7 +294,15 @@ export function LoadingState({ label = "Loading ZigbeeLens…" }: { label?: stri
   );
 }
 
-export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+export function ErrorState({
+  message,
+  onRetry,
+  retryLabel = "Try again",
+}: {
+  message: string;
+  onRetry?: () => void;
+  retryLabel?: string;
+}) {
   const friendly =
     message.includes("(500)") || message.includes("(503)")
       ? "ZigbeeLens Core is still starting or temporarily busy. This usually clears after a moment."
@@ -311,7 +319,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
           onClick={onRetry}
           className="mt-3 min-h-11 rounded-lg border border-zl-critical/40 px-4 py-2 text-sm hover:bg-zl-critical/10 active:bg-zl-critical/15"
         >
-          Try again
+          {retryLabel}
         </button>
       )}
     </div>

@@ -149,9 +149,12 @@ Production modules must not import test support or fixtures.
 
 - `factual measured default` — measured empty/zero counts in presentation;
 - `safe rendering fallback` — justified rendering defaults only;
-- `graph algorithm accumulator` — Map/degree/weight accumulation in explicitly
-  listed algorithm modules (`meshEvidenceLive`, `meshGraphDense`,
-  `meshGraphSmartLayout`), never in components/pages/ViewModels.
+- `graph algorithm accumulator` — only exact `Map.get(... ) ?? 0`
+  degree/weight/count accumulator expressions in the declared graph modules;
+  never a whole-module exemption and never in components/pages/ViewModels.
 
-Primary Mesh presentation must not be labeled advanced/debug. Absent health or
-absent `device_stats` entries remain unknown (`—` / omitted), not fabricated zero.
+`meshEvidenceLive.ts` is intentionally mixed: its user-facing Mesh/device copy is
+primary-copy owned and statically scanned, while its individually inventoried
+`Map.get(... ) ?? 0` expressions remain algorithm-owned accumulators. Primary Mesh
+presentation must not be labeled advanced/debug. Absent health or absent
+`device_stats` entries remain unknown (`—` / omitted), not fabricated zero.

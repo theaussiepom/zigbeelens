@@ -739,7 +739,8 @@ background refresh failures retain last accepted history/raw detail with retry.
 Network Detail, and Mesh / Investigate. The Reports page is Saved reports history
 with one Create full report action. All current creation uses Core
 `ReportDetailV3` / stored reports. The client-only Mesh evidence export menu is
-removed from production. Legacy v1/v2 stored bodies remain immutable.
+removed from production. Migration 014 clears development-era v1/v2 bodies;
+saved report list/detail/download accepts exact `ReportDetailV3` only.
 
 ## Master Phase 7 — Hardening, performance and release quality
 

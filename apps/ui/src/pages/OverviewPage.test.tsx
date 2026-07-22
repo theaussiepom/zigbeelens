@@ -77,6 +77,18 @@ const mockState = vi.hoisted(() => {
     } as DashboardPayload,
     activeIncidents: [] as Incident[],
     recentIncidents: [] as Incident[],
+    activeResource: {
+      dataOverride: undefined as Incident[] | null | undefined,
+      loading: false,
+      error: null as string | null,
+      refetch: vi.fn(),
+    },
+    recentResource: {
+      dataOverride: undefined as Incident[] | null | undefined,
+      loading: false,
+      error: null as string | null,
+      refetch: vi.fn(),
+    },
   };
 });
 
@@ -97,17 +109,21 @@ vi.mock("@/hooks/useLiveResource", () => ({
     if (source.includes("incidents")) {
       if (source.includes("updated_after") || source.includes("previousLastViewedAt")) {
         return {
-          data: mockState.recentIncidents,
-          loading: false,
-          error: null,
-          refetch: vi.fn(),
+          data: mockState.recentResource.dataOverride === undefined
+            ? mockState.recentIncidents
+            : mockState.recentResource.dataOverride,
+          loading: mockState.recentResource.loading,
+          error: mockState.recentResource.error,
+          refetch: mockState.recentResource.refetch,
         };
       }
       return {
-        data: mockState.activeIncidents,
-        loading: false,
-        error: null,
-        refetch: vi.fn(),
+        data: mockState.activeResource.dataOverride === undefined
+          ? mockState.activeIncidents
+          : mockState.activeResource.dataOverride,
+        loading: mockState.activeResource.loading,
+        error: mockState.activeResource.error,
+        refetch: mockState.activeResource.refetch,
       };
     }
     return {
@@ -168,6 +184,17 @@ function headingIndex(text: string): number {
   expect(index).toBeGreaterThanOrEqual(0);
   return index;
 }
+
+beforeEach(() => {
+  mockState.activeResource.dataOverride = undefined;
+  mockState.activeResource.loading = false;
+  mockState.activeResource.error = null;
+  mockState.activeResource.refetch = vi.fn();
+  mockState.recentResource.dataOverride = undefined;
+  mockState.recentResource.loading = false;
+  mockState.recentResource.error = null;
+  mockState.recentResource.refetch = vi.fn();
+});
 
 describe("OverviewPage shared availability events", () => {
   beforeEach(() => {
@@ -593,5 +620,134 @@ describe("OverviewPage server incident order", () => {
     expect(titles.indexOf("Newer open incident")).toBeLessThan(
       titles.indexOf("Older severe open incident"),
     );
+  });
+});
+
+describe("OverviewPage secondary incident resource states", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockState.dashboard = makeDashboard();
+    mockState.activeIncidents = [];
+    mockState.recentIncidents = [];
+  });
+
+  it("keeps dashboard content visible while active incidents load", () => {
+    mockState.activeResource.dataOverride = null;
+    mockState.activeResource.loading = true;
+    renderOverview();
+    expect(screen.getByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    expect(screen.getByText("Loading active incidents…")).toBeInTheDocument();
+    expect(screen.queryByText("No active incidents")).not.toBeInTheDocument();
+  });
+
+  it("shows an active-incident unavailable state with Retry", () => {
+    mockState.activeResource.dataOverride = null;
+    mockState.activeResource.error = "request failed";
+    renderOverview();
+    expect(screen.getByText("Active incidents are unavailable.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.queryByText("No active incidents")).not.toBeInTheDocument();
+  });
+
+  it("shows factual active-incident empty copy for an accepted empty result", () => {
+    renderOverview();
+    expect(screen.getByText("No active incidents")).toBeInTheDocument();
+  });
+
+  it("renders accepted active incidents", () => {
+    mockState.activeIncidents = [makeOverviewIncident({ title: "Accepted active incident" })];
+    renderOverview();
+    expect(screen.getByText("Accepted active incident")).toBeInTheDocument();
+    expect(screen.queryByText("No active incidents")).not.toBeInTheDocument();
+  });
+
+  it("retains accepted active incidents after a refresh error", () => {
+    mockState.activeIncidents = [makeOverviewIncident({ title: "Retained active incident" })];
+    mockState.activeResource.error = "refresh failed";
+    renderOverview();
+    expect(screen.getByText("Retained active incident")).toBeInTheDocument();
+    expect(
+      screen.getByText("Active incidents could not be refreshed. Showing the last loaded results."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
+  it("does not claim no changes while recent incidents are loading", () => {
+    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, "2026-07-05T00:00:00.000Z");
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.loading = true;
+    renderOverview();
+    expect(screen.getByText("Loading incident changes…")).toBeInTheDocument();
+    expect(
+      screen.queryByText("No recorded changes since your previous Overview visit."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("retains dashboard-derived changes with a partial-data warning while incidents load", () => {
+    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, "2026-07-05T00:00:00.000Z");
+    mockState.dashboard = makeDashboard({
+      shared_availability_events: [
+        {
+          event_id: "shared-partial",
+          network_id: "home",
+          started_at: "2026-07-06T08:00:00+00:00",
+          ended_at: "2026-07-06T08:04:00+00:00",
+          device_count: 4,
+          duration_minutes: 4,
+          device_ieees: [],
+        },
+      ],
+    });
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.loading = true;
+    renderOverview();
+    expect(screen.getByText("Shared availability event recorded")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Incident changes are still loading. Showing changes from the loaded dashboard evidence.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("No recorded changes since your previous Overview visit."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not claim no changes when the initial recent-incident request fails", () => {
+    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, "2026-07-05T00:00:00.000Z");
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.error = "request failed";
+    renderOverview();
+    expect(screen.getByText("Incident changes are unavailable.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(
+      screen.queryByText("No recorded changes since your previous Overview visit."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows factual no-change copy when recent incidents are accepted empty", () => {
+    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, "2026-07-05T00:00:00.000Z");
+    renderOverview();
+    expect(
+      screen.getByText("No recorded changes since your previous Overview visit."),
+    ).toBeInTheDocument();
+  });
+
+  it("retains accepted recent incidents after a refresh error", () => {
+    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, "2026-07-05T00:00:00.000Z");
+    mockState.recentIncidents = [
+      makeOverviewIncident({
+        title: "Retained recent incident",
+        updated_at: "2026-07-16T12:00:00Z",
+      }),
+    ];
+    mockState.recentResource.error = "refresh failed";
+    renderOverview();
+    expect(screen.getByText("Retained recent incident")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Incident changes could not be refreshed. Showing the last loaded incident evidence.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 });

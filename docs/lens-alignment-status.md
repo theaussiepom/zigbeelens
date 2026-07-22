@@ -13,7 +13,7 @@ is described in historical CHANGELOG notes.
 |------|------------------|
 | Public diagnostic vocabulary | Shared `DecisionStatus` / `DecisionPriority` |
 | Decision contract | `decision_contract_version = 2` |
-| Reports | `report_version = 3` (stored v1/v2 immutable) |
+| Reports | Exact `report_version = 3` storage after migration 014 |
 | MQTT Discovery | Decision summary entities; Lens configs tombstoned |
 | HACS | Exact contract v2; no Health/Lens diagnostic fallback |
 | Internal health engine | Retained for evaluation / incidents; not public authority |

@@ -88,7 +88,7 @@ Run all automated checks:
 
 - [ ] Capabilities advertise `decision_contract_version: 2` and `legacy_health_lens_payloads: false`
 - [ ] Current Dashboard/Devices/Networks/Incidents payloads have no Lens/health presentation fields
-- [ ] New reports are `report_version: 3`; stored v1/v2 download unchanged
+- [ ] Saved reports are exact `report_version: 3`; non-v3 rows are not listed or downloaded
 - [ ] HACS requires exact contract v2; incompatible Core shows repair (not reauth) and no health fallback
 - [ ] MQTT Discovery publishes decision summary entities; superseded Lens configs tombstoned
 - [ ] Operational `/healthz` and `/api/health` unchanged (no decision payload)

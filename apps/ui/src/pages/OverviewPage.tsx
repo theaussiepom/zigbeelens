@@ -114,7 +114,7 @@ export function OverviewPage() {
     buildModelPatternViewModel(pattern, networkNames[pattern.network_id]),
   );
   // Server owns collection order (lifecycle rank, updated_at DESC, id DESC).
-  const active = activeIncidentsResource.data ?? [];
+  const active = activeIncidentsResource.data;
   const recentChanges = buildRecentChangesSectionViewModel({
     previousLastViewedAt,
     dashboard: data,
@@ -206,7 +206,19 @@ export function OverviewPage() {
         )}
       </section>
 
-      <RecentChangesSection section={recentChanges} />
+      <RecentChangesSection
+        section={recentChanges}
+        incidentEvidence={
+          previousLastViewedAt
+            ? {
+                hasAcceptedData: recentIncidentsResource.data !== null,
+                loading: recentIncidentsResource.loading,
+                error: recentIncidentsResource.error,
+                onRetry: recentIncidentsResource.refetch,
+              }
+            : undefined
+        }
+      />
 
       {dataCoverageWarnings.length > 0 && (
         <section className="space-y-3" aria-label={DATA_COVERAGE_SECTION_TITLE}>
@@ -261,19 +273,40 @@ export function OverviewPage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
             Active incidents
           </h2>
-          {active.length > 0 && (
+          {active && active.length > 0 && (
             <Link to="/incidents" className="text-sm text-zl-accent hover:underline">
               All incidents →
             </Link>
           )}
         </div>
-        {active.length === 0 ? (
-          <EmptyState title="No active incidents" detail="No correlated incident patterns right now." />
+        {active === null && activeIncidentsResource.loading ? (
+          <LoadingState label="Loading active incidents…" />
+        ) : active === null ? (
+          <ErrorState
+            message="Active incidents are unavailable."
+            onRetry={activeIncidentsResource.refetch}
+            retryLabel="Retry"
+          />
         ) : (
-          <div className="grid gap-3">
-            {active.slice(0, 4).map((inc) => (
-              <IncidentCard key={inc.id} incident={inc} />
-            ))}
+          <div className="space-y-3">
+            {activeIncidentsResource.error && (
+              <SectionRefreshWarning
+                message="Active incidents could not be refreshed. Showing the last loaded results."
+                onRetry={activeIncidentsResource.refetch}
+              />
+            )}
+            {active.length === 0 ? (
+              <EmptyState
+                title="No active incidents"
+                detail="No correlated incident patterns right now."
+              />
+            ) : (
+              <div className="grid gap-3">
+                {active.slice(0, 4).map((inc) => (
+                  <IncidentCard key={inc.id} incident={inc} />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </section>
@@ -297,6 +330,30 @@ export function OverviewPage() {
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+function SectionRefreshWarning({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      role="status"
+      className="rounded-lg border border-zl-watch/40 bg-zl-watch/10 px-3 py-2 text-sm text-zl-watch"
+    >
+      <p>{message}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-2 min-h-11 rounded-lg border border-zl-border px-3 py-1.5 text-sm text-zl-text hover:bg-zl-surface-2"
+      >
+        Retry
+      </button>
     </div>
   );
 }

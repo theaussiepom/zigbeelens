@@ -208,6 +208,20 @@ describe("ReportsPage saved history", () => {
     expect(screen.queryByText("Choose a target")).not.toBeInTheDocument();
   });
 
+  it("explains current evidence snapshots without promising legacy report compatibility", async () => {
+    renderPage();
+    await screen.findByRole("heading", { name: "Reports" });
+    const explanation = screen.getByText(/Reports are generated from ZigbeeLens/).parentElement;
+    expect(explanation).toHaveTextContent("evidence-backed snapshots, not root-cause proof");
+    expect(explanation).toHaveTextContent("redacted before any report is stored or downloaded");
+    expect(explanation).toHaveTextContent(
+      "Historical snapshot evidence is included when available",
+    );
+    expect(explanation).toHaveTextContent("Saved reports use the current report format");
+    expect(explanation).not.toHaveTextContent(/legacy v1\/v2/i);
+    expect(explanation).not.toHaveTextContent(/downloadable as originally saved/i);
+  });
+
   it("shows empty guidance without target pickers", async () => {
     renderPage();
     expect(await screen.findByText("No saved reports yet.")).toBeInTheDocument();

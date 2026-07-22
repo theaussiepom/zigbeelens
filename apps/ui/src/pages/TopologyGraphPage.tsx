@@ -40,8 +40,6 @@ export function TopologyGraphPage() {
     clearNode,
   } = useGraphSelection();
 
-  const liveSnapshotEdgeCount =
-    liveEvidence?.edges.filter((edge) => edge.in_latest_snapshot).length ?? 0;
   const networkCoverageStrip = buildEvidenceCoverageStripViewModel(
     graphDetail?.topology_facts?.coverage ?? [],
   );
@@ -163,13 +161,12 @@ export function TopologyGraphPage() {
             </p>
           </div>
         </Card>
-      ) : liveEvidence && snapshot ? (
+      ) : graphDetail && liveEvidence && snapshot ? (
         <>
           <TopologyMetricStrip
-            networkId={networkId}
             graphDetail={graphDetail}
             snapshot={snapshot}
-            liveEdgeCount={liveSnapshotEdgeCount}
+            liveEdgeCount={liveEvidence.edges.filter((edge) => edge.in_latest_snapshot).length}
           />
           <EvidenceCoverageStrip
             title={EVIDENCE_COVERAGE_STRIP_TITLE}

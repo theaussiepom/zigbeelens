@@ -142,12 +142,14 @@ export function NetworkDetailPage() {
   if (net.loading || !net.data) return <LoadingState />;
   const n = net.data;
 
+  // Devices and resolved incidents are optional supporting sections: absent
+  // secondary data only omits them and never produces a factual empty claim.
   const reviewDevices = [...(devices.data ?? [])]
     .filter((d) => REVIEW_STATUSES.has(d.decision.status))
     .sort(compareDevices)
     .slice(0, 6);
-  const activeIncidents = activeIncidentsResource.data ?? [];
-  const resolvedIncidents = resolvedIncidentsResource.data ?? [];
+  const activeIncidents = activeIncidentsResource.data;
+  const resolvedIncidents = resolvedIncidentsResource.data;
   const statusCounts = n.decision_summary.status_counts;
 
   return (
@@ -256,17 +258,35 @@ export function NetworkDetailPage() {
         </Card>
       )}
 
-      <section className="space-y-3">
+      <section className="space-y-3" aria-label="Active incidents">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
           Active incidents
         </h2>
-        {activeIncidents.length === 0 ? (
-          <EmptyState title="No active incidents on this network" />
+        {activeIncidents === null && activeIncidentsResource.loading ? (
+          <LoadingState label="Loading active incidents…" />
+        ) : activeIncidents === null ? (
+          <ErrorState
+            message="Active incidents are unavailable."
+            onRetry={activeIncidentsResource.refetch}
+            retryLabel="Retry"
+          />
         ) : (
-          <div className="grid gap-3">
-            {activeIncidents.map((inc) => (
-              <IncidentCard key={inc.id} incident={inc} />
-            ))}
+          <div className="space-y-3">
+            {activeIncidentsResource.error && (
+              <SectionRefreshWarning
+                message="Active incidents could not be refreshed. Showing the last loaded results."
+                onRetry={activeIncidentsResource.refetch}
+              />
+            )}
+            {activeIncidents.length === 0 ? (
+              <EmptyState title="No active incidents on this network" />
+            ) : (
+              <div className="grid gap-3">
+                {activeIncidents.map((inc) => (
+                  <IncidentCard key={inc.id} incident={inc} />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </section>
@@ -284,7 +304,7 @@ export function NetworkDetailPage() {
         </section>
       )}
 
-      {resolvedIncidents.length > 0 && (
+      {resolvedIncidents && resolvedIncidents.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
             Recently resolved
@@ -305,13 +325,31 @@ export function NetworkDetailPage() {
           </Link>
         }
       >
-        {(timeline.data?.length ?? 0) === 0 ? (
-          <p className="text-sm text-zl-muted">No recent events.</p>
+        {timeline.data === null && timeline.loading ? (
+          <LoadingState label="Loading recent events…" />
+        ) : timeline.data === null ? (
+          <ErrorState
+            message="Recent events are unavailable."
+            onRetry={timeline.refetch}
+            retryLabel="Retry"
+          />
         ) : (
-          <div className="space-y-1">
-            {timeline.data!.slice(0, 12).map((e) => (
-              <TimelineEventRow key={e.id} event={e} />
-            ))}
+          <div className="space-y-3">
+            {timeline.error && (
+              <SectionRefreshWarning
+                message="Recent events could not be refreshed. Showing the last loaded timeline."
+                onRetry={timeline.refetch}
+              />
+            )}
+            {timeline.data.length === 0 ? (
+              <p className="text-sm text-zl-muted">No recent events.</p>
+            ) : (
+              <div className="space-y-1">
+                {timeline.data.slice(0, 12).map((e) => (
+                  <TimelineEventRow key={e.id} event={e} />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </Card>
@@ -319,6 +357,30 @@ export function NetworkDetailPage() {
       <Link to={`/devices?network=${n.id}`} className="inline-flex text-sm text-zl-accent hover:underline">
         View all devices on {n.name} →
       </Link>
+    </div>
+  );
+}
+
+function SectionRefreshWarning({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      role="status"
+      className="rounded-lg border border-zl-watch/40 bg-zl-watch/10 px-3 py-2 text-sm text-zl-watch"
+    >
+      <p>{message}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-2 min-h-11 rounded-lg border border-zl-border px-3 py-1.5 text-sm text-zl-text hover:bg-zl-surface-2"
+      >
+        Retry
+      </button>
     </div>
   );
 }
