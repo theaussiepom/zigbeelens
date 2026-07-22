@@ -155,8 +155,11 @@ interface DiagnosticStatInputs {
  * Repeatable diagnostic stats for the node drawer. Each row is a recorded
  * value — nothing inferred, nothing shown for values that were never
  * recorded (unknown never renders as zero).
+ *
+ * Core omits devices with no recorded links/availability from `device_stats`
+ * entirely; that absence is unknown, not a fabricated zero record.
  */
-function diagnosticStatsFor(inputs: DiagnosticStatInputs): MeshDiagnosticStat[] {
+export function diagnosticStatsFor(inputs: DiagnosticStatInputs): MeshDiagnosticStat[] {
   const {
     summary,
     neighborCount,
@@ -206,10 +209,12 @@ function diagnosticStatsFor(inputs: DiagnosticStatInputs): MeshDiagnosticStat[] 
     });
   }
 
-  if (backendWindow && backendWindow.snapshots_considered > 0) {
+  // Require an explicit per-device stats entry. Window metadata alone does not
+  // mean snapshots_with_links was measured as zero for this IEEE.
+  if (backendWindow && backendWindow.snapshots_considered > 0 && backendStats) {
     stats.push({
       label: `Snapshots with links (last ${backendWindow.days} days)`,
-      value: `${backendStats?.snapshots_with_links ?? 0} of ${backendWindow.snapshots_considered}`,
+      value: `${backendStats.snapshots_with_links} of ${backendWindow.snapshots_considered}`,
     });
   }
   if (backendStats?.last_router_link_at) {

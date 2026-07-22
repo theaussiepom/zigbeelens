@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 type Classification =
   | "factual measured default"
   | "safe rendering fallback"
-  | "advanced/debug only";
+  | "graph algorithm accumulator";
 
 type DeclaredEntry = {
   file: string;
@@ -98,37 +98,28 @@ const DECLARED: DeclaredEntry[] = [
   {
     "file": "apps/ui/src/lib/meshEvidenceLive.ts",
     "kind": "nullishCoalescing",
-    "expression": "backendStats?.snapshots_with_links ?? 0",
-    "line": 212,
-    "character": 17,
-    "classification": "advanced/debug only",
-    "note": "Advanced evidence-live debug counter: absent backend stats mean zero snapshots with links in that debug panel."
-  },
-  {
-    "file": "apps/ui/src/lib/meshEvidenceLive.ts",
-    "kind": "nullishCoalescing",
     "expression": "neighborCounts.get(ieee) ?? 0",
-    "line": 524,
+    "line": 529,
     "character": 31,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshEvidenceLive.ts",
     "kind": "nullishCoalescing",
     "expression": "neighborCounts.get(ieee) ?? 0",
-    "line": 699,
+    "line": 704,
     "character": 22,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshEvidenceLive.ts",
     "kind": "nullishCoalescing",
     "expression": "neighborCounts.get(ieee) ?? 0",
-    "line": 714,
+    "line": 719,
     "character": 7,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
@@ -137,7 +128,7 @@ const DECLARED: DeclaredEntry[] = [
     "expression": "perNode.get(edge.source) ?? 0",
     "line": 337,
     "character": 25,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
@@ -146,7 +137,7 @@ const DECLARED: DeclaredEntry[] = [
     "expression": "perNode.get(edge.target) ?? 0",
     "line": 338,
     "character": 25,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
@@ -155,7 +146,7 @@ const DECLARED: DeclaredEntry[] = [
     "expression": "perNode.get(edge.source) ?? 0",
     "line": 402,
     "character": 25,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
@@ -164,7 +155,7 @@ const DECLARED: DeclaredEntry[] = [
     "expression": "perNode.get(edge.target) ?? 0",
     "line": 403,
     "character": 25,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
@@ -173,7 +164,7 @@ const DECLARED: DeclaredEntry[] = [
     "expression": "degree.get(edge.source) ?? 0",
     "line": 165,
     "character": 30,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
@@ -182,7 +173,7 @@ const DECLARED: DeclaredEntry[] = [
     "expression": "degree.get(edge.target) ?? 0",
     "line": 166,
     "character": 30,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
@@ -191,7 +182,7 @@ const DECLARED: DeclaredEntry[] = [
     "expression": "weights.get(key) ?? 0",
     "line": 212,
     "character": 23,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
@@ -200,7 +191,7 @@ const DECLARED: DeclaredEntry[] = [
     "expression": "totals.get(a) ?? 0",
     "line": 242,
     "character": 20,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
@@ -209,7 +200,7 @@ const DECLARED: DeclaredEntry[] = [
     "expression": "totals.get(b) ?? 0",
     "line": 243,
     "character": 20,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
@@ -218,7 +209,7 @@ const DECLARED: DeclaredEntry[] = [
     "expression": "totals.get(b.ieee_address) ?? 0",
     "line": 247,
     "character": 16,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
@@ -227,7 +218,7 @@ const DECLARED: DeclaredEntry[] = [
     "expression": "totals.get(a.ieee_address) ?? 0",
     "line": 247,
     "character": 52,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
@@ -236,7 +227,7 @@ const DECLARED: DeclaredEntry[] = [
     "expression": "weights.get(pairKey(id, anchor)) ?? 0",
     "line": 265,
     "character": 19,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
@@ -245,7 +236,7 @@ const DECLARED: DeclaredEntry[] = [
     "expression": "degree.get(b.ieee_address) ?? 0",
     "line": 309,
     "character": 17,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
@@ -254,7 +245,7 @@ const DECLARED: DeclaredEntry[] = [
     "expression": "degree.get(a.ieee_address) ?? 0",
     "line": 309,
     "character": 53,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
@@ -263,7 +254,7 @@ const DECLARED: DeclaredEntry[] = [
     "expression": "weights.get(pairKey(coordinatorId, cluster.router.ieee_address)) ?? 0",
     "line": 425,
     "character": 17,
-    "classification": "advanced/debug only",
+    "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
@@ -348,33 +339,6 @@ const DECLARED: DeclaredEntry[] = [
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
   },
   {
-    "file": "apps/ui/src/pages/SettingsPage.tsx",
-    "kind": "nullishCoalescing",
-    "expression": "collector.subscribed_topics_count ?? 0",
-    "line": 89,
-    "character": 50,
-    "classification": "factual measured default",
-    "note": "Collector settings counter: missing subscribed_topics_count is a measured zero topics subscribed."
-  },
-  {
-    "file": "apps/ui/src/pages/SettingsPage.tsx",
-    "kind": "nullishCoalescing",
-    "expression": "health.data?.mqtt_discovery?.published_entities_count ?? 0",
-    "line": 126,
-    "character": 21,
-    "classification": "factual measured default",
-    "note": "MQTT discovery settings counter: missing published_entities_count is a measured zero published entities."
-  },
-  {
-    "file": "apps/ui/src/pages/SettingsPage.tsx",
-    "kind": "nullishCoalescing",
-    "expression": "health.data?.home_assistant_enrichment?.matched_devices ?? 0",
-    "line": 177,
-    "character": 27,
-    "classification": "factual measured default",
-    "note": "Home Assistant enrichment counter: missing matched_devices is a measured zero matched devices."
-  },
-  {
     "file": "apps/ui/src/pages/TopologyGraphPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "liveEvidence?.edges.filter((edge) => edge.in_latest_snapshot).length ?? 0",
@@ -431,11 +395,14 @@ const DECLARED: DeclaredEntry[] = [
 ];
 
 
-const ADVANCED_DEBUG_ALLOWLIST = new Set([
+const GRAPH_ALGORITHM_MODULES = new Set([
   "apps/ui/src/lib/meshEvidenceLive.ts",
   "apps/ui/src/lib/meshGraphDense.ts",
   "apps/ui/src/lib/meshGraphSmartLayout.ts",
 ]);
+
+const GRAPH_ACCUMULATOR_EXPRESSION_RE =
+  /\.(?:get)\s*\(/;
 
 const PRIMARY_PRESENTATION_PREFIXES = [
   "apps/ui/src/components/",
@@ -458,7 +425,7 @@ function noteIsMeaningful(note: string): boolean {
   );
 }
 
-const EXPECTED_TOTAL = 45;
+const EXPECTED_TOTAL = 41;
 
 const ROOTS = [
   "apps/ui/src/viewModels",
@@ -606,14 +573,21 @@ describe("unknown-zero source classifications", () => {
 
   it("classification policy matches module role", () => {
     for (const entry of DECLARED) {
-      if (entry.classification === "advanced/debug only") {
+      if (entry.classification === "graph algorithm accumulator") {
         expect(
-          ADVANCED_DEBUG_ALLOWLIST.has(entry.file),
-          `advanced/debug outside allowlist: ${entry.file}`,
+          GRAPH_ALGORITHM_MODULES.has(entry.file),
+          `graph accumulator outside algorithm modules: ${entry.file}`,
         ).toBe(true);
+        expect(
+          GRAPH_ACCUMULATOR_EXPRESSION_RE.test(entry.expression),
+          `graph accumulator without Map.get semantics: ${entry.expression}`,
+        ).toBe(true);
+        const isPrimary = PRIMARY_PRESENTATION_PREFIXES.some((prefix) =>
+          entry.file.startsWith(prefix),
+        );
+        expect(isPrimary, `graph accumulator in primary presentation: ${entry.file}`).toBe(false);
         continue;
       }
-      expect(ADVANCED_DEBUG_ALLOWLIST.has(entry.file)).toBe(false);
       const isPrimary = PRIMARY_PRESENTATION_PREFIXES.some((prefix) =>
         entry.file.startsWith(prefix),
       );
@@ -621,7 +595,7 @@ describe("unknown-zero source classifications", () => {
         expect(
           entry.classification === "factual measured default" ||
             entry.classification === "safe rendering fallback",
-          `primary presentation must not be advanced/debug: ${entryKey(entry)}`,
+          `primary presentation must be measured/rendering: ${entryKey(entry)}`,
         ).toBe(true);
       }
     }

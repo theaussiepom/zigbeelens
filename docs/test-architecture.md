@@ -141,3 +141,17 @@ Python resolution in `validate-contracts.sh`:
 - UI: `apps/ui/src/test/contracts/`
 
 Production modules must not import test support or fixtures.
+
+## Zero-fallback classifications
+
+`unknownZeroSource.contract.test.ts` owns an exact AST inventory of `?? 0` /
+`|| 0` under declared presentation roots. Allowed classifications:
+
+- `factual measured default` — measured empty/zero counts in presentation;
+- `safe rendering fallback` — justified rendering defaults only;
+- `graph algorithm accumulator` — Map/degree/weight accumulation in explicitly
+  listed algorithm modules (`meshEvidenceLive`, `meshGraphDense`,
+  `meshGraphSmartLayout`), never in components/pages/ViewModels.
+
+Primary Mesh presentation must not be labeled advanced/debug. Absent health or
+absent `device_stats` entries remain unknown (`—` / omitted), not fabricated zero.
