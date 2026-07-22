@@ -435,8 +435,8 @@ export interface ReportDetailV3 {
 /** Current writers and OpenAPI advertise ReportDetail as the exact v3 model. */
 export type ReportDetail = ReportDetailV3;
 
-/** Opaque stored report body for historical v1/v2 rows. */
-export type LegacyStoredReportBody = Record<string, unknown>;
+/** Stored reports are exact ReportDetailV3 only (pre-release v3-only reset). */
+export type StoredReport = ReportDetailV3;
 
 export interface ReportRedactionStatus {
   applied: boolean;

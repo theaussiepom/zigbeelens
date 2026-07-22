@@ -6,7 +6,6 @@ import type {
   DecisionPriority,
   DecisionStatus,
   Incident,
-  LegacyStoredReportBody,
   ReportDetailV3,
 } from "@zigbeelens/shared";
 import { parseIncident } from "@/lib/decisionContract";
@@ -41,7 +40,7 @@ describe("shared decision contract", () => {
     expect(summary.status_counts.worth_reviewing).toBe(2);
   });
 
-  it("separates exact v3 reports from opaque legacy bodies", () => {
+  it("types stored reports as exact ReportDetailV3 only", () => {
     const current: ReportDetailV3 = {
       id: "report-1",
       product: "ZigbeeLens",
@@ -88,14 +87,8 @@ describe("shared decision contract", () => {
       markdown_summary: "",
     };
 
-    const legacy: LegacyStoredReportBody = {
-      report_version: 1,
-      summary: { current_finding: "Legacy finding" },
-    };
-
     expect(current.report_version).toBe(3);
-    expect(legacy.summary).toEqual({ current_finding: "Legacy finding" });
-    expect("domain_details" in legacy).toBe(false);
+    expect(current.domain_details.networks).toEqual([]);
   });
 
   it("types Incident nullability exactly as Core and parseIncident accept", () => {

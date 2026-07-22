@@ -156,16 +156,12 @@ def test_version3_markdown_hierarchy_and_no_legacy(mock_client: TestClient):
         assert story["status"] not in md.split(headline_text(story["headline_code"]))[0]
 
 
-def test_version1_stored_report_compatibility(tmp_path, mock_client: TestClient):
+def test_version1_stored_report_fails_closed(tmp_path, mock_client: TestClient):
     db = Database(tmp_path / "v1.sqlite")
     db.migrate()
     repo = Repository(db)
     body = _v1_body()
-    # Legacy bodies are opaque dicts — never revalidated as ReportDetailV3.
     assert body["report_version"] == 1
-    assert "decision_summary" not in body or body.get("decision_summary") is None
-    assert body.get("device_stories", []) == []
-    assert "executive_summary" in body or "summary" in body
 
     row = repo.reports.save_report(
         report_id="stored-v1",
@@ -181,18 +177,7 @@ def test_version1_stored_report_compatibility(tmp_path, mock_client: TestClient)
     config = AppConfig()
     config.mode.mock = True
     data = DataService(config, repo)
-    loaded = data.get_stored_report(row.id)
-    assert loaded is not None
-    # Legacy v1 bodies remain opaque dicts — never revalidated as ReportDetail v3.
-    assert isinstance(loaded, dict)
-    assert loaded["report_version"] == 1
-    assert loaded["markdown_summary"] == V1_MARKDOWN
-    assert loaded["summary"]["current_finding"] == "Legacy executive finding."
-    assert loaded["markdown_summary"].startswith("# ZigbeeLens diagnostic report")
-    assert "## Health summary" in loaded["markdown_summary"]
-    assert "# ZigbeeLens evidence report" not in loaded["markdown_summary"]
-    assert "# ZigbeeLens Evidence Report" not in loaded["markdown_summary"]
-
+    assert data.get_stored_report(row.id) is None
     listed = summary_from_row(row)
     assert listed.summary == "Legacy executive finding."
 

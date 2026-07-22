@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type {
   DataCoverageWarningSummary,
   InvestigationPrioritySummary,
-  LegacyStoredReportBody,
   ReportDetailV3,
   ReportDeviceStory,
 } from "@zigbeelens/shared";
@@ -11,7 +10,6 @@ import { buildInvestigationPriorityViewModel } from "@/viewModels/overview/inves
 import { buildDataCoverageWarningViewModel } from "@/viewModels/overview/dataCoverageViewModel";
 import { decisionStatusLabel } from "@/viewModels/decisionCopy";
 import {
-  REPORT_LEGACY_NOTICE,
   buildReportDecisionViewModel,
 } from "./reportDecisionViewModel";
 
@@ -242,49 +240,6 @@ describe("reportDecisionViewModel", () => {
       "informational",
       "future_status_code",
     ]);
-  });
-
-  it("marks version 1 reports as legacy without reinterpreting decision sections", () => {
-    const report: LegacyStoredReportBody = {
-      report_version: 1,
-      summary: {
-        overall_state: "incident",
-        current_finding: "Legacy finding text",
-        networks_monitored: 2,
-        total_devices: 10,
-        active_incidents: 1,
-        watching_incidents: 0,
-        unavailable_devices: 4,
-        router_risks: 1,
-        stale_devices: 0,
-        weak_links: 0,
-        low_battery_devices: 0,
-      },
-      markdown_summary: "# ZigbeeLens\n\nGenerated: 2026-06-14",
-      scope: "full",
-    };
-    const vm = buildReportDecisionViewModel(report);
-
-    expect(vm.isLegacyFormat).toBe(true);
-    expect(vm.legacyNotice).toBe(REPORT_LEGACY_NOTICE);
-    expect(vm.decisionSummaryItems).toEqual([]);
-    expect(vm.deviceStories).toEqual([]);
-    expect(vm.investigationPriorities).toEqual([]);
-    expect(vm.networkCoverage).toEqual([]);
-    expect(vm.markdown).toContain("ZigbeeLens");
-  });
-
-  it("marks stored v2 reports as legacy even when decision sections exist", () => {
-    const report: LegacyStoredReportBody = {
-      report_version: 2,
-      markdown_summary: "# ZigbeeLens Evidence Report",
-      scope: "full",
-      device_stories: [makeStory()],
-    };
-    const vm = buildReportDecisionViewModel(report);
-    expect(vm.isLegacyFormat).toBe(true);
-    expect(vm.legacyNotice).toBe(REPORT_LEGACY_NOTICE);
-    expect(vm.decisionSummaryItems).toEqual([]);
   });
 
   it("sorts device stories by decision rank then friendly name", () => {

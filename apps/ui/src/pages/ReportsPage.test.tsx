@@ -289,18 +289,20 @@ describe("ReportsPage saved history", () => {
     expect(writeProtectedClipboardText).toHaveBeenCalled();
   });
 
-  it("does not copy when legacy Markdown is unavailable", async () => {
+  it("does not copy when report detail fails protocol (non-v3)", async () => {
     listReports.mockResolvedValue([makeStored()]);
-    reportDetail.mockResolvedValueOnce({ report_version: 1, body: {} });
+    reportDetail.mockRejectedValueOnce(
+      Object.assign(new Error("Core returned a malformed decision contract."), {
+        kind: "protocol",
+      }),
+    );
     renderPage();
     fireEvent.click(
       await screen.findByRole("button", {
         name: /Copy Markdown from network JSON report generated/i,
       }),
     );
-    expect(
-      await screen.findByText("Markdown summary is not available for this stored report."),
-    ).toBeInTheDocument();
+    await waitFor(() => expect(reportDetail).toHaveBeenCalled());
     expect(writeProtectedClipboardText).not.toHaveBeenCalled();
   });
 

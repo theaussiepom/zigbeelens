@@ -159,7 +159,9 @@ storage:
 
 
 @pytest.mark.parametrize("version", [1, 2])
-def test_legacy_stored_report_bodies_are_immutable(tmp_path: Path, version: int):
+def test_non_v3_stored_report_bodies_fail_closed_without_rewrite(
+    tmp_path: Path, version: int
+):
     db = Database(tmp_path / f"legacy-v{version}.sqlite")
     db.migrate()
     repo = Repository(db)
@@ -190,20 +192,7 @@ def test_legacy_stored_report_bodies_are_immutable(tmp_path: Path, version: int)
         redaction={"applied": True, "profile": "standard"},
         metadata={"incident_count": 0, "device_count": 0, "network_count": 1},
     )
-    envelope = load_stored_report_envelope(row)
-    assert envelope is not None
-    assert envelope.report_version == version
-    assert isinstance(envelope.body, dict)
-    assert envelope.body["executive_summary"] == sentinel
-    # Opaque body must not gain a rewritten id or v3 fields.
-    assert envelope.body.get("id") == f"stored-v{version}"
-    assert "decision_summary" not in envelope.body
-    assert "domain_details" not in envelope.body
-
-    # Mutating the returned dict must not write back.
-    mutated = envelope.body
-    mutated["executive_summary"] = "MUTATED"
-    mutated["id"] = "injected"
+    assert load_stored_report_envelope(row) is None
     row_again = repo.reports.get_report(row.id)
     assert row_again is not None
     assert hashlib.sha256(row_again.body_json.encode()).hexdigest() == digest_before or (

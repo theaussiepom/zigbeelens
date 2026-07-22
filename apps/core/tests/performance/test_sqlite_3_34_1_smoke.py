@@ -1,4 +1,4 @@
-"""Runtime SQLite 3.34.1 smoke for migration 013 and Phase 7A production queries.
+"""Runtime SQLite 3.34.1 smoke for migrations 013–014 and Phase 7A production queries.
 
 Host developers typically run newer SQLite; this module skips unless the linked
 library is exactly 3.34.1. Use ``scripts/smoke-sqlite-3.34.1.sh`` for the Docker
@@ -52,8 +52,9 @@ def test_sqlite_3_34_1_migration_013_and_production_queries(tmp_path: Path):
     db = Database(tmp_path / "smoke3341.sqlite")
     _apply_migrations_through(db, 12)
     assert db.migration_version == 12
-    assert db.migrate() == 13
-    assert db.migrate() == 13
+    assert db.migrate() == 14
+    assert db.migrate() == 14
+    assert db.conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == 0
     assert db.conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
     assert db.conn.execute("PRAGMA foreign_key_check").fetchall() == []
 

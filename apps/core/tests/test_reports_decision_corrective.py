@@ -36,6 +36,7 @@ from zigbeelens.services.device_decision_badge import (
     device_decision_badge_from_story,
 )
 from zigbeelens.services.report_redaction import Redactor, resolve_redaction
+from zigbeelens.services.report_storage import load_stored_report_envelope
 from zigbeelens.services.reports import (
     _decision_list_summary,
     _recorded_incident_interpretation,
@@ -565,13 +566,11 @@ def test_decision_list_summary_selection_order():
     assert _decision_list_summary(with_priority) == "First priority title"
 
 
-def test_version1_download_uses_stored_markdown(tmp_path, mock_client):
+def test_version1_stored_report_fails_closed_on_load(tmp_path, mock_client):
     from legacy_report_shapes import ReportSummaryBlock
 
     db = Database(tmp_path / "v1dl.sqlite")
     db.migrate()
-    # Use the live client's repo by saving through API is hard; use DataService on fixture repo
-    # then overwrite via the mock client's storage isn't accessible. Direct repo + DataService path:
     repo = Repository(db)
     md = f"# ZigbeeLens diagnostic report\n\n{V1_SENTINEL}\n## Health summary\n"
     body = {
@@ -633,18 +632,8 @@ def test_version1_download_uses_stored_markdown(tmp_path, mock_client):
     config = AppConfig()
     config.mode.mock = False
     data = DataService(config, repo)
-    loaded = data.get_stored_report(row.id)
-    assert loaded is not None
-    assert isinstance(loaded, dict)
-    assert loaded["report_version"] == 1
-    assert loaded.get("decision_summary") is None
-    assert loaded.get("device_stories") in (None, [])
-    assert loaded.get("investigation_priorities") in (None, [])
-    assert loaded.get("data_coverage_warnings") in (None, [])
-    assert loaded["markdown_summary"] == md
-    assert V1_SENTINEL in loaded["markdown_summary"]
-    assert loaded["markdown_summary"].startswith("# ZigbeeLens diagnostic report")
-    assert "# ZigbeeLens evidence report" not in loaded["markdown_summary"]
+    assert data.get_stored_report(row.id) is None
+    assert load_stored_report_envelope(row) is None
     assert summary_from_row(row).summary == "Legacy executive finding."
 
 
