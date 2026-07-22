@@ -8,12 +8,40 @@ import { describe, expect, it } from "vitest";
 import { FORBIDDEN_USER_FACING_PHRASES } from "@/lib/meshGraphCopy";
 import {
   LIMITATION_CODES,
+  coverageHelperText,
+  coverageLabel,
+  decisionStatusLabel,
+  deviceCoverageHelperText,
+  deviceCoverageLabel,
   headlineText,
   limitationText,
   reasonText,
   suggestedCheckText,
 } from "@/viewModels/decisionCopy";
 import oracleFixture from "@/test/fixtures/oracleMockScenarios.json";
+
+/** Parameter matrix for count/area/history-sensitive presenter branches. */
+const PRESENTER_PARAM_SETS: Record<string, unknown>[] = [
+  {},
+  { sample_count: 1 },
+  { sample_count: 3 },
+  { selected_snapshot_link_count: 2 },
+  { latest_link_count: 1, selected_link_count: 4 },
+  { interval_minutes_p25: 5, interval_minutes_p75: 15 },
+  { silence_minutes: 45 },
+  { earlier_median: 120, recent_median: 80, sample_count: 6, window_size: 10 },
+  {
+    affected_count: 2,
+    group_size: 5,
+    lookback_days: 7,
+    current_device_affected: true,
+  },
+  { observed_snapshot_count: 0, snapshot_window_count: 0 },
+  { observed_snapshot_count: 0, snapshot_window_count: 4 },
+  { observed_snapshot_count: 2, snapshot_window_count: 5 },
+  { area_name: "Kitchen" },
+  { area_id: "area.kitchen" },
+];
 
 const CATALOGUE_FILE = "apps/ui/src/lib/meshGraphCopy.ts";
 
@@ -154,21 +182,46 @@ describe("primary-copy guardrails", () => {
     expect(() => assertPrimarySafe(unsafe, "deliberate")).toThrow();
   });
 
-  it("maps the complete vocabulary manifest primary-safe via presenters", () => {
+  it("maps oracle decision and coverage presenters primary-safe across param branches", () => {
     const vocab = oracleFixture.vocabulary;
+    expect(vocab.decision_statuses.length).toBeGreaterThan(0);
     expect(vocab.headline_codes.length).toBeGreaterThan(0);
     expect(vocab.reason_codes.length).toBeGreaterThan(0);
-    expect(vocab.limitation_codes.length).toBeGreaterThan(0);
     expect(vocab.suggested_check_codes.length).toBeGreaterThan(0);
+    expect(vocab.coverage_label_codes.length).toBeGreaterThan(0);
+    expect(PRESENTER_PARAM_SETS.length).toBeGreaterThan(1);
+
+    let outputs = 0;
+    for (const status of vocab.decision_statuses) {
+      assertPrimarySafe(decisionStatusLabel(status), `status:${status}`);
+      outputs += 1;
+    }
     for (const code of vocab.headline_codes) {
-      assertPrimarySafe(headlineText(code), code);
+      assertPrimarySafe(headlineText(code), `headline:${code}`);
+      outputs += 1;
     }
     for (const code of vocab.reason_codes) {
-      assertPrimarySafe(reasonText(code, {}), code);
+      for (const params of PRESENTER_PARAM_SETS) {
+        assertPrimarySafe(reasonText(code, params), `reason:${code}`);
+        outputs += 1;
+      }
     }
     for (const code of vocab.suggested_check_codes) {
-      assertPrimarySafe(suggestedCheckText(code, {}), code);
+      for (const params of PRESENTER_PARAM_SETS) {
+        assertPrimarySafe(suggestedCheckText(code, params), `check:${code}`);
+        outputs += 1;
+      }
     }
+    for (const code of vocab.coverage_label_codes) {
+      for (const params of PRESENTER_PARAM_SETS) {
+        assertPrimarySafe(coverageLabel(code, params), `coverageLabel:${code}`);
+        assertPrimarySafe(deviceCoverageLabel(code, params), `deviceCoverageLabel:${code}`);
+        assertPrimarySafe(coverageHelperText(code, params), `coverageHelper:${code}`);
+        assertPrimarySafe(deviceCoverageHelperText(code, params), `deviceCoverageHelper:${code}`);
+        outputs += 4;
+      }
+    }
+    expect(outputs).toBeGreaterThan(0);
   });
 
   it("limitationText matches reviewed exact strings without mixed-positive exemptions", () => {
