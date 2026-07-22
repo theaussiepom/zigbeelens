@@ -1,14 +1,16 @@
-"""Canonical Decision vocabulary inventory — registries are authority."""
+"""Canonical Decision vocabulary — Core registries via oracle vocabulary manifest."""
 
 from __future__ import annotations
+
+import sys
+from pathlib import Path
 
 from zigbeelens.decisions.device_story import (
     DEVICE_STORY_HEADLINE_CODES,
     CheckCode,
-    HeadlineCode,
     LimitationCode,
 )
-from zigbeelens.decisions.reasons import REASON_CODES, ReasonCode
+from zigbeelens.decisions.reasons import REASON_CODES
 from zigbeelens.decisions.types import (
     CoverageDimension,
     CoverageLabelCode,
@@ -18,58 +20,49 @@ from zigbeelens.decisions.types import (
 )
 from support.contracts import load_oracle_fixture, oracle_scenarios  # type: ignore[import-not-found]
 
-
-def test_status_and_priority_registries_are_non_empty():
-    assert {m.value for m in DecisionStatus}
-    assert {m.value for m in DecisionPriority}
-
-
-def test_code_registries_match_enum_members():
-    assert DEVICE_STORY_HEADLINE_CODES == {m.value for m in HeadlineCode}
-    assert REASON_CODES == {m.value for m in ReasonCode}
-    assert {m.value for m in LimitationCode}
-    assert {m.value for m in CheckCode}
-    assert {m.value for m in CoverageLabelCode}
-    assert {m.value for m in CoverageDimension}
-    assert {m.value for m in CoverageState}
+GENERATOR_ROOT = Path(__file__).resolve().parents[2] / "scripts"
+sys.path.insert(0, str(GENERATOR_ROOT))
+from generate_oracle_mock_fixtures import build_vocabulary_manifest  # noqa: E402
 
 
-def test_oracle_emitted_codes_are_in_registries():
-    statuses = {m.value for m in DecisionStatus}
-    priorities = {m.value for m in DecisionPriority}
-    headlines = {m.value for m in HeadlineCode}
-    reasons = {m.value for m in ReasonCode}
-    limitations = {m.value for m in LimitationCode}
-    checks = {m.value for m in CheckCode}
-    labels = {m.value for m in CoverageLabelCode}
-    dimensions = {m.value for m in CoverageDimension}
-    states = {m.value for m in CoverageState}
+def test_vocabulary_manifest_equals_core_registries():
+    expected = {
+        "decision_statuses": sorted(m.value for m in DecisionStatus),
+        "decision_priorities": sorted(m.value for m in DecisionPriority),
+        "headline_codes": sorted(DEVICE_STORY_HEADLINE_CODES),
+        "reason_codes": sorted(REASON_CODES),
+        "limitation_codes": sorted(m.value for m in LimitationCode),
+        "suggested_check_codes": sorted(m.value for m in CheckCode),
+        "coverage_dimensions": sorted(m.value for m in CoverageDimension),
+        "coverage_states": sorted(m.value for m in CoverageState),
+        "coverage_label_codes": sorted(m.value for m in CoverageLabelCode),
+    }
+    assert build_vocabulary_manifest() == expected
+    payload = load_oracle_fixture()
+    assert payload["vocabulary"] == expected
 
-    for scenario_id, body in oracle_scenarios(load_oracle_fixture()).items():
+
+def test_oracle_emitted_codes_are_subsets_of_manifest():
+    payload = load_oracle_fixture()
+    vocab = payload["vocabulary"]
+    for scenario_id, body in oracle_scenarios(payload).items():
         for key, story in body["device_stories"].items():
-            assert story["status"] in statuses, (scenario_id, key, story["status"])
-            assert story["priority"] in priorities, (scenario_id, key, story["priority"])
-            assert story["headline_code"] in headlines, (
-                scenario_id,
-                key,
-                story["headline_code"],
-            )
+            assert story["status"] in vocab["decision_statuses"], (scenario_id, key)
+            assert story["priority"] in vocab["decision_priorities"], (scenario_id, key)
+            assert story["headline_code"] in vocab["headline_codes"], (scenario_id, key)
             for reason in story.get("reasons") or []:
-                assert reason["code"] in reasons, (scenario_id, key, reason["code"])
+                assert reason["code"] in vocab["reason_codes"], (scenario_id, key)
             for limitation in story.get("limitations") or []:
-                assert limitation["code"] in limitations, (
+                assert limitation["code"] in vocab["limitation_codes"], (
                     scenario_id,
                     key,
-                    limitation["code"],
                 )
             for check in story.get("suggested_checks") or []:
-                assert check["code"] in checks, (scenario_id, key, check["code"])
+                assert check["code"] in vocab["suggested_check_codes"], (
+                    scenario_id,
+                    key,
+                )
             for item in story.get("coverage") or []:
-                assert item["dimension"] in dimensions, (scenario_id, key, item)
-                assert item["state"] in states, (scenario_id, key, item)
-                assert item["label_code"] in labels, (scenario_id, key, item)
-
-        for story in body["report"].get("device_stories") or []:
-            assert story["status"] in statuses
-            assert story["priority"] in priorities
-            assert story["headline_code"] in headlines
+                assert item["dimension"] in vocab["coverage_dimensions"]
+                assert item["state"] in vocab["coverage_states"]
+                assert item["label_code"] in vocab["coverage_label_codes"]

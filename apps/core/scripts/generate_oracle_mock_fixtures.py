@@ -4,7 +4,7 @@
 Fail closed: every scenario must produce a ReportDetailV3. Generation failure
 exits nonzero and never overwrites the checked-in fixture with incomplete
 output. Output is deterministic (fixed clock via mock NOW, fixed redaction salt,
-sorted scenario/device keys).
+sorted scenario/device keys, Core-owned vocabulary manifest).
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[3]
 CORE_SRC = ROOT / "apps" / "core" / "src"
@@ -22,6 +23,19 @@ if str(CORE_SRC) not in sys.path:
 
 from zigbeelens.config.models import AppConfig  # noqa: E402
 from zigbeelens.db.connection import Database  # noqa: E402
+from zigbeelens.decisions.device_story import (  # noqa: E402
+    DEVICE_STORY_HEADLINE_CODES,
+    CheckCode,
+    LimitationCode,
+)
+from zigbeelens.decisions.reasons import REASON_CODES  # noqa: E402
+from zigbeelens.decisions.types import (  # noqa: E402
+    CoverageDimension,
+    CoverageLabelCode,
+    CoverageState,
+    DecisionPriority,
+    DecisionStatus,
+)
 from zigbeelens.mock.fixtures import BUILDERS, NOW  # noqa: E402
 from zigbeelens.schemas import RedactionOptions, ReportRequest  # noqa: E402
 from zigbeelens.services import report_redaction as report_redaction_mod  # noqa: E402
@@ -33,11 +47,31 @@ from zigbeelens.services.reports import generate_report  # noqa: E402
 from zigbeelens.storage.incident_collection import build_incident_collection_query  # noqa: E402
 from zigbeelens.storage.repository import Repository  # noqa: E402
 
-ORACLE_CONTRACT_VERSION = 1
+ORACLE_CONTRACT_VERSION = 2
 DEFAULT_OUTPUT = (
     ROOT / "apps" / "ui" / "src" / "test" / "fixtures" / "oracleMockScenarios.json"
 )
 _ORACLE_REDACTION_SALT = "zigbeelens-oracle-fixture-v1"
+
+
+def _sorted_unique(values: set[str] | frozenset[str] | list[str]) -> list[str]:
+    cleaned = sorted({str(v) for v in values if str(v).strip()})
+    return cleaned
+
+
+def build_vocabulary_manifest() -> dict[str, list[str]]:
+    """Derive vocabulary directly from Core enums/registries (not scenario emission)."""
+    return {
+        "decision_statuses": _sorted_unique(m.value for m in DecisionStatus),
+        "decision_priorities": _sorted_unique(m.value for m in DecisionPriority),
+        "headline_codes": _sorted_unique(DEVICE_STORY_HEADLINE_CODES),
+        "reason_codes": _sorted_unique(REASON_CODES),
+        "limitation_codes": _sorted_unique(m.value for m in LimitationCode),
+        "suggested_check_codes": _sorted_unique(m.value for m in CheckCode),
+        "coverage_dimensions": _sorted_unique(m.value for m in CoverageDimension),
+        "coverage_states": _sorted_unique(m.value for m in CoverageState),
+        "coverage_label_codes": _sorted_unique(m.value for m in CoverageLabelCode),
+    }
 
 
 def _story_key(network_id: str, ieee_address: str) -> str:
@@ -64,10 +98,9 @@ def _representative_subjects(
     provider: MockProvider,
     report_story_keys: dict[str, str],
 ) -> list[dict[str, str]]:
-    """Pick deterministic representative device subjects for parity matrices."""
+    """Pick deterministic representative device subjects for focused component tests."""
     subjects: list[dict[str, str]] = []
     seen: set[str] = set()
-    # Prefer non-baseline stories first, then fall back to first device.
     ranked = sorted(
         provider.data.device_stories.items(),
         key=lambda item: (
@@ -111,7 +144,7 @@ def _representative_subjects(
     return subjects
 
 
-def build_fixtures() -> dict:
+def build_fixtures() -> dict[str, Any]:
     original_redactor = report_redaction_mod.Redactor
     original_reports_redactor = reports_mod.Redactor
 
@@ -174,6 +207,7 @@ def build_fixtures() -> dict:
                 }
             return {
                 "oracle_contract_version": ORACLE_CONTRACT_VERSION,
+                "vocabulary": build_vocabulary_manifest(),
                 "scenarios": scenarios,
             }
     finally:
@@ -181,8 +215,85 @@ def build_fixtures() -> dict:
         reports_mod.Redactor = original_reports_redactor  # type: ignore[misc]
 
 
-def render_fixtures(fixtures: dict) -> str:
+def render_fixtures(fixtures: dict[str, Any]) -> str:
     return json.dumps(fixtures, indent=2, sort_keys=True) + "\n"
+
+
+def validate_fixture_payload(fixtures: dict[str, Any]) -> None:
+    """Raise ValueError when the payload must not be published."""
+    if fixtures.get("oracle_contract_version") != ORACLE_CONTRACT_VERSION:
+        raise ValueError(
+            f"oracle_contract_version must be {ORACLE_CONTRACT_VERSION}"
+        )
+    vocabulary = fixtures.get("vocabulary")
+    if not isinstance(vocabulary, dict) or not vocabulary:
+        raise ValueError("vocabulary manifest missing")
+    expected_vocab = build_vocabulary_manifest()
+    if vocabulary != expected_vocab:
+        raise ValueError("vocabulary manifest does not match Core registries")
+    for key, values in vocabulary.items():
+        if not isinstance(values, list) or not values:
+            raise ValueError(f"vocabulary.{key} must be a non-empty list")
+        if values != sorted(set(values)):
+            raise ValueError(f"vocabulary.{key} must be sorted unique values")
+        if any(not str(v).strip() for v in values):
+            raise ValueError(f"vocabulary.{key} contains blank values")
+
+    scenarios = fixtures.get("scenarios")
+    if not isinstance(scenarios, dict) or not scenarios:
+        raise ValueError("empty scenarios")
+    if set(scenarios) != set(BUILDERS):
+        raise ValueError(
+            f"scenario ownership mismatch: {sorted(scenarios)} != {sorted(BUILDERS)}"
+        )
+
+    status_set = set(vocabulary["decision_statuses"])
+    priority_set = set(vocabulary["decision_priorities"])
+    headline_set = set(vocabulary["headline_codes"])
+    reason_set = set(vocabulary["reason_codes"])
+    limitation_set = set(vocabulary["limitation_codes"])
+    check_set = set(vocabulary["suggested_check_codes"])
+    dimension_set = set(vocabulary["coverage_dimensions"])
+    state_set = set(vocabulary["coverage_states"])
+    label_set = set(vocabulary["coverage_label_codes"])
+
+    for scenario_id, payload in scenarios.items():
+        report = payload.get("report")
+        if report is None:
+            raise ValueError(f"null report for {scenario_id}")
+        if type(report.get("report_version")) is not int or report.get("report_version") != 3:
+            raise ValueError(f"report_version!=3 for {scenario_id}")
+        for key, story in (payload.get("device_stories") or {}).items():
+            if story.get("status") not in status_set:
+                raise ValueError(f"unknown status in {scenario_id}:{key}")
+            if story.get("priority") not in priority_set:
+                raise ValueError(f"unknown priority in {scenario_id}:{key}")
+            if story.get("headline_code") not in headline_set:
+                raise ValueError(f"unknown headline in {scenario_id}:{key}")
+            for reason in story.get("reasons") or []:
+                if reason.get("code") not in reason_set:
+                    raise ValueError(f"unknown reason in {scenario_id}:{key}")
+            for limitation in story.get("limitations") or []:
+                if limitation.get("code") not in limitation_set:
+                    raise ValueError(f"unknown limitation in {scenario_id}:{key}")
+            for check in story.get("suggested_checks") or []:
+                if check.get("code") not in check_set:
+                    raise ValueError(f"unknown check in {scenario_id}:{key}")
+            for item in story.get("coverage") or []:
+                if item.get("dimension") not in dimension_set:
+                    raise ValueError(f"unknown coverage dimension in {scenario_id}:{key}")
+                if item.get("state") not in state_set:
+                    raise ValueError(f"unknown coverage state in {scenario_id}:{key}")
+                if item.get("label_code") not in label_set:
+                    raise ValueError(f"unknown coverage label in {scenario_id}:{key}")
+
+
+def publish_fixture_text(text: str, output: Path) -> None:
+    """Atomically publish validated fixture bytes."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    tmp_out = output.with_suffix(output.suffix + ".tmp")
+    tmp_out.write_text(text, encoding="utf-8")
+    tmp_out.replace(output)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -201,28 +312,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         fixtures = build_fixtures()
+        validate_fixture_payload(fixtures)
     except Exception as exc:  # noqa: BLE001 — fail closed with nonzero exit
         print(f"oracle fixture generation failed: {exc}", file=sys.stderr)
         return 1
-
-    scenarios = fixtures.get("scenarios")
-    if not isinstance(scenarios, dict) or not scenarios:
-        print("oracle fixture generation failed: empty scenarios", file=sys.stderr)
-        return 1
-    for scenario_id, payload in scenarios.items():
-        report = payload.get("report")
-        if report is None:
-            print(
-                f"oracle fixture generation failed: null report for {scenario_id}",
-                file=sys.stderr,
-            )
-            return 1
-        if report.get("report_version") != 3:
-            print(
-                f"oracle fixture generation failed: report_version!=3 for {scenario_id}",
-                file=sys.stderr,
-            )
-            return 1
 
     text = render_fixtures(fixtures)
     if args.check:
@@ -236,16 +329,11 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
-        print(f"Oracle fixture fresh ({len(scenarios)} scenarios)")
+        print(f"Oracle fixture fresh ({len(fixtures['scenarios'])} scenarios)")
         return 0
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    # Write via temp+replace only after full validation so incomplete runs never
-    # overwrite the checked-in fixture.
-    tmp_out = args.output.with_suffix(args.output.suffix + ".tmp")
-    tmp_out.write_text(text, encoding="utf-8")
-    tmp_out.replace(args.output)
-    print(f"Wrote {args.output} ({len(scenarios)} scenarios)")
+    publish_fixture_text(text, args.output)
+    print(f"Wrote {args.output} ({len(fixtures['scenarios'])} scenarios)")
     return 0
 
 

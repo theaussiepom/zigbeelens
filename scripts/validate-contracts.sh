@@ -1,26 +1,46 @@
 #!/usr/bin/env bash
-# Fast contract lane: oracle freshness → Core contracts → UI contracts.
-# Does not replace full Core/UI/HACS validation.
+# Fast contract lane: Core contracts (owns oracle freshness) → UI contracts.
+# Self-contained: does not require uv. CI may use pip-installed Core.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-HASH_SEED_A="${PYTHONHASHSEED_A:-1}"
-HASH_SEED_B="${PYTHONHASHSEED_B:-42}"
+resolve_core_python() {
+  if [[ -n "${CORE_PYTHON:-}" ]]; then
+    printf '%s\n' "${CORE_PYTHON}"
+    return 0
+  fi
+  local venv_python="${ROOT}/apps/core/.venv/bin/python"
+  if [[ -x "${venv_python}" ]]; then
+    printf '%s\n' "${venv_python}"
+    return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    command -v python
+    return 0
+  fi
+  echo "validate-contracts.sh: no Python interpreter found (set CORE_PYTHON, create apps/core/.venv, or install python3)" >&2
+  return 1
+}
 
-echo "==> Oracle fixture freshness (hash seed ${HASH_SEED_A})"
-PYTHONHASHSEED="${HASH_SEED_A}" uv run --directory apps/core python \
-  scripts/generate_oracle_mock_fixtures.py --check
+CORE_PYTHON="$(resolve_core_python)"
+export PYTHONPATH="${ROOT}/apps/core/src${PYTHONPATH:+:${PYTHONPATH}}"
 
-echo "==> Oracle fixture freshness (hash seed ${HASH_SEED_B})"
-PYTHONHASHSEED="${HASH_SEED_B}" uv run --directory apps/core python \
-  scripts/generate_oracle_mock_fixtures.py --check
-
-echo "==> Core contract suite"
-uv run --directory apps/core pytest -q tests/contracts
+echo "==> Core contract suite (oracle freshness owner; Python=${CORE_PYTHON})"
+(
+  cd "${ROOT}/apps/core"
+  "${CORE_PYTHON}" -m pytest -q tests/contracts
+)
 
 echo "==> UI contract suite"
-pnpm --filter @zigbeelens/ui test:contracts
+(
+  cd "${ROOT}"
+  pnpm --filter @zigbeelens/ui test:contracts
+)
 
 echo "Contract validation OK"

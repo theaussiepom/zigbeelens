@@ -228,16 +228,9 @@ def test_bridge_offline_pydantic_dump_no_protocol_errors() -> None:
     ReportDetailV3.model_validate(preview)
 
 
-def test_oracle_fixture_generation_matches_checked_in(tmp_path) -> None:
-    """Thin pointer: freshness lives in tests/contracts (Phase 7B)."""
-    from support.contracts import (  # type: ignore[import-not-found]
-        ORACLE_FIXTURE,
-        generate_oracle_fixture_text,
-    )
+def test_oracle_fixture_freshness_owned_by_contracts_lane() -> None:
+    """Cheap pointer only — does not spawn generation (see tests/contracts)."""
+    from support.contracts import ORACLE_FIXTURE  # type: ignore[import-not-found]
 
-    generated = tmp_path / "oracleMockScenarios.json"
-    result = generate_oracle_fixture_text(output=generated)
-    assert result.returncode == 0, result.stderr
-    assert generated.read_text(encoding="utf-8") == ORACLE_FIXTURE.read_text(
-        encoding="utf-8"
-    )
+    assert ORACLE_FIXTURE.is_file()
+    assert "oracle_contract_version" in ORACLE_FIXTURE.read_text(encoding="utf-8")

@@ -1,5 +1,5 @@
 {
-  "oracle_contract_version": 1,
+  "oracle_contract_version": 2,
   "scenarios": {
     "all_ok_multi_network": {
       "dashboard": {
@@ -15866,5 +15866,123 @@
         }
       ]
     }
+  },
+  "vocabulary": {
+    "coverage_dimensions": [
+      "availability",
+      "battery",
+      "ha_enrichment",
+      "historical_snapshots",
+      "incidents",
+      "last_payload",
+      "last_seen",
+      "linkquality",
+      "passive_history",
+      "reports",
+      "route_hints",
+      "topology_snapshot"
+    ],
+    "coverage_label_codes": [
+      "availability_available",
+      "availability_history_building",
+      "availability_status_unknown",
+      "availability_tracking_off",
+      "battery_history_available",
+      "battery_history_sparse",
+      "ha_area_linked",
+      "ha_areas_not_linked",
+      "last_payload_available",
+      "last_payload_unknown",
+      "last_seen_available",
+      "last_seen_unknown",
+      "lqi_history_available",
+      "lqi_history_sparse",
+      "route_hints_unavailable",
+      "snapshot_stale",
+      "topology_history_available",
+      "topology_history_not_observed",
+      "topology_history_sparse"
+    ],
+    "coverage_states": [
+      "available",
+      "building",
+      "not_configured",
+      "not_observed",
+      "off",
+      "sparse",
+      "stale",
+      "unknown"
+    ],
+    "decision_priorities": [
+      "high",
+      "low",
+      "medium",
+      "none"
+    ],
+    "decision_statuses": [
+      "changed",
+      "data_unavailable",
+      "improve_data_coverage",
+      "informational",
+      "no_notable_change",
+      "review_first",
+      "watch",
+      "worth_reviewing"
+    ],
+    "headline_codes": [
+      "availability_tracking_needed",
+      "current_issue_present",
+      "data_coverage_gaps",
+      "extended_reporting_silence",
+      "low_battery",
+      "no_notable_signals",
+      "reported_link_quality_changed",
+      "stale_last_seen",
+      "topology_evidence_gap"
+    ],
+    "limitation_codes": [
+      "absence_from_latest_not_failure",
+      "availability_limits_interpretation",
+      "extended_silence_not_failure",
+      "model_pattern_not_causal",
+      "reported_lqi_not_path_failure",
+      "route_hints_not_live_routing"
+    ],
+    "reason_codes": [
+      "availability_history_building",
+      "availability_status_unknown",
+      "availability_tracking_off",
+      "battery_low",
+      "current_issue_present",
+      "ha_areas_not_linked",
+      "insufficient_history",
+      "last_known_links_present",
+      "last_seen_stale",
+      "latest_snapshot_no_links",
+      "model_pattern_observed",
+      "observed_lqi_trend",
+      "observed_reporting_rhythm",
+      "passive_instability_hint_present",
+      "recent_missing_links_present",
+      "reported_lqi_declining",
+      "reported_lqi_low",
+      "reporting_silence_beyond_expected",
+      "route_hints_changed",
+      "route_hints_unavailable",
+      "selected_snapshot_had_links",
+      "shared_availability_event",
+      "snapshot_link_count_changed",
+      "snapshot_stale"
+    ],
+    "suggested_check_codes": [
+      "check_battery_level",
+      "compare_earlier_snapshot",
+      "compare_same_model_device_context",
+      "confirm_powered",
+      "confirm_reporting_in_z2m",
+      "enable_availability_reporting",
+      "review_same_model_availability_history",
+      "route_hints_context_only"
+    ]
   }
 }

@@ -21,8 +21,8 @@ import {
 } from "@/test/contracts/oracleFixture";
 
 describe("oracle mock scenario contracts (UI consumption)", () => {
-  it("reads oracle_contract_version 1", () => {
-    expect(ORACLE_CONTRACT_VERSION).toBe(1);
+  it("reads oracle_contract_version 2", () => {
+    expect(ORACLE_CONTRACT_VERSION).toBe(2);
     expect(oracleScenarioIds().length).toBeGreaterThan(0);
   });
 

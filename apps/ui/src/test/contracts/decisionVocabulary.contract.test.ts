@@ -2,72 +2,56 @@ import { describe, expect, it } from "vitest";
 import {
   COVERAGE_LABEL_CODES,
   HEADLINE_CODES,
+  LIMITATION_CODES,
   REASON_CODES,
+  SUGGESTED_CHECK_CODES,
   coverageLabel,
   decisionStatusLabel,
+  decisionStatusTone,
   headlineText,
   limitationText,
   reasonText,
   suggestedCheckText,
 } from "@/viewModels/decisionCopy";
-import { allOracleScenarios } from "@/test/contracts/oracleFixture";
+import { DEVICE_DECISION_SORT_ORDER } from "@/viewModels/devices/deviceRowViewModel";
+import oracleFixture from "@/test/fixtures/oracleMockScenarios.json";
 
-describe("decision vocabulary contract (UI mappings)", () => {
-  it("maps every oracle-emitted code to non-empty presentation", () => {
-    const headlines = new Set<string>();
-    const reasons = new Set<string>();
-    const limitations = new Set<string>();
-    const checks = new Set<string>();
-    const labels = new Set<string>();
+describe("decision vocabulary contract (UI ↔ Core manifest)", () => {
+  const vocab = oracleFixture.vocabulary;
 
-    for (const [, scenario] of allOracleScenarios()) {
-      for (const story of Object.values(scenario.device_stories)) {
-        headlines.add(story.headline_code);
-        for (const reason of story.reasons) reasons.add(reason.code);
-        for (const limitation of story.limitations) limitations.add(limitation.code);
-        for (const check of story.suggested_checks) checks.add(check.code);
-        for (const item of story.coverage) labels.add(item.label_code);
+  it("matches Core vocabulary manifest exactly", () => {
+    expect([...HEADLINE_CODES].sort()).toEqual(vocab.headline_codes);
+    expect([...REASON_CODES].sort()).toEqual(vocab.reason_codes);
+    expect([...LIMITATION_CODES].sort()).toEqual(vocab.limitation_codes);
+    expect([...SUGGESTED_CHECK_CODES].sort()).toEqual(vocab.suggested_check_codes);
+    expect([...COVERAGE_LABEL_CODES].sort()).toEqual(vocab.coverage_label_codes);
+    expect([...vocab.decision_statuses].sort()).toEqual(vocab.decision_statuses);
+    expect(DEVICE_DECISION_SORT_ORDER.slice().sort()).toEqual(
+      vocab.decision_statuses.slice().sort(),
+    );
+  });
 
-        const status = decisionStatusLabel(story.status);
-        expect(status.trim().length).toBeGreaterThan(0);
-        expect(status.toLowerCase()).not.toBe("healthy");
-
-        const headline = headlineText(story.headline_code);
-        expect(headline.trim().length).toBeGreaterThan(0);
-
-        for (const reason of story.reasons) {
-          expect(reasonText(reason.code, reason.params ?? {}).trim().length).toBeGreaterThan(
-            0,
-          );
-        }
-        for (const limitation of story.limitations) {
-          expect(
-            limitationText(limitation.code, limitation.params ?? {}).trim().length,
-          ).toBeGreaterThan(0);
-        }
-        for (const check of story.suggested_checks) {
-          expect(
-            suggestedCheckText(check.code, check.params ?? {}).trim().length,
-          ).toBeGreaterThan(0);
-        }
-        for (const item of story.coverage) {
-          expect(coverageLabel(item.label_code, item.params ?? {}).trim().length).toBeGreaterThan(
-            0,
-          );
-        }
-      }
+  it("maps every manifest code to non-empty safe presentation", () => {
+    for (const status of vocab.decision_statuses) {
+      const label = decisionStatusLabel(status);
+      expect(label.trim().length).toBeGreaterThan(0);
+      expect(label.toLowerCase()).not.toBe("healthy");
+      expect(decisionStatusTone(status)).toBeTruthy();
     }
-
-    for (const code of headlines) {
-      expect((HEADLINE_CODES as readonly string[]).includes(code), code).toBe(true);
+    for (const code of vocab.headline_codes) {
+      expect(headlineText(code).trim().length).toBeGreaterThan(0);
     }
-    for (const code of reasons) {
-      expect((REASON_CODES as readonly string[]).includes(code), code).toBe(true);
+    for (const code of vocab.reason_codes) {
+      expect(reasonText(code, {}).trim().length).toBeGreaterThan(0);
     }
-    for (const code of labels) {
-      expect((COVERAGE_LABEL_CODES as readonly string[]).includes(code), code).toBe(true);
+    for (const code of vocab.limitation_codes) {
+      expect(limitationText(code, {}).trim().length).toBeGreaterThan(0);
     }
-    expect(limitations.size).toBeGreaterThan(0);
-    expect(checks.size).toBeGreaterThanOrEqual(0);
+    for (const code of vocab.suggested_check_codes) {
+      expect(suggestedCheckText(code, {}).trim().length).toBeGreaterThan(0);
+    }
+    for (const code of vocab.coverage_label_codes) {
+      expect(coverageLabel(code, {}).trim().length).toBeGreaterThan(0);
+    }
   });
 });

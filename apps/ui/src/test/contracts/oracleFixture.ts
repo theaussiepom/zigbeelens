@@ -6,6 +6,10 @@ export type OracleScenario = OracleFixture["scenarios"][OracleScenarioId];
 
 export const ORACLE_CONTRACT_VERSION = oracleFixture.oracle_contract_version;
 
+if (ORACLE_CONTRACT_VERSION !== 2) {
+  throw new Error(`expected oracle_contract_version 2, got ${ORACLE_CONTRACT_VERSION}`);
+}
+
 export function oracleScenarioIds(): OracleScenarioId[] {
   return Object.keys(oracleFixture.scenarios).sort() as OracleScenarioId[];
 }
