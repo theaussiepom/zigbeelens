@@ -146,9 +146,19 @@ Production modules must not import test support or fixtures.
 The topology fixture builder owns the complete `TopologyEvidenceGraphDetail`
 shape for component and page tests. Tests may override deliberate evidence,
 but must not substitute the smaller `TopologyNetworkDetail` payload or cast an
-incomplete object. Resource-state tests separately represent no accepted data,
-accepted empty data, accepted nonempty data, and retained accepted data with a
-refresh error.
+incomplete object. Its structural counts, layout flags, and snapshot link count
+are derived from the supplied evidence; malformed-payload tests must use the
+builder's named inconsistent-override opt-in. Resource-state tests separately
+represent no accepted data, accepted empty data, accepted nonempty data, and
+retained accepted data with a refresh error.
+
+Mesh history-control evaluation copy is owned by
+`connectionHistoryPresentationViewModel.test.ts`; page tests own the control and
+drawer integration. `useGraphSelection.test.tsx` owns identity resolution across
+accepted evidence replacements, while page tests prove open drawers update and
+close with production evidence. Overview visit-watermark tests own the rule that
+the first accepted Core `dashboard.generated_at` is stable for the mount and
+future browser-clock boundaries are reset conservatively.
 
 ## Zero-fallback classifications
 

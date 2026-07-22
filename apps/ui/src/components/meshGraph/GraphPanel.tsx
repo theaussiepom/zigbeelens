@@ -11,6 +11,9 @@ import {
   clearSavedPositions,
   type MeshLayoutMode,
 } from "@/lib/meshGraphSmartLayout";
+import type {
+  ConnectionHistoryPresentationViewModel,
+} from "@/viewModels/topology/connectionHistoryPresentationViewModel";
 
 export function GraphPanel({
   devices,
@@ -25,6 +28,7 @@ export function GraphPanel({
   onClearSelection,
   selectedNodeId,
   selectedEdge,
+  historyPresentation,
 }: {
   devices: MeshEvidenceDevice[];
   edges: MeshEvidenceEdge[];
@@ -38,6 +42,7 @@ export function GraphPanel({
   onClearSelection: () => void;
   selectedNodeId: string | null;
   selectedEdge: MeshEvidenceEdge | null;
+  historyPresentation: ConnectionHistoryPresentationViewModel;
 }) {
   const {
     controls,
@@ -161,6 +166,7 @@ export function GraphPanel({
           hasRouteHints={hasRouteHints}
           hasOldUncertainLinks={hasOldUncertainLinks}
           hasRecentMissingLinks={hasRecentMissingLinks}
+          historyPresentation={historyPresentation}
           controls={controls}
           activePreset={activePreset}
           setControl={setControl}

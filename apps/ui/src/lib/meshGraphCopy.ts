@@ -99,12 +99,9 @@ export const CONNECTION_CONTROL_COPY = {
   },
   recentMissingLinks: {
     label: "Recent missing links",
-    empty: "No recent missing links in the selected history window.",
   },
   lastKnownLinks: {
     label: "Last known links",
-    empty:
-      "Every device has link evidence in the latest snapshot, so no last known links are needed.",
   },
   suggestedInvestigationLinks: {
     label: "Suggested investigation links",

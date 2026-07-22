@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeviceSummary } from "@zigbeelens/shared";
 import { TopologyGraphPage } from "@/pages/TopologyGraphPage";
@@ -226,7 +226,7 @@ function makeHistoricalAggregate(
 }
 
 /** The home network plus backend-aggregated recent-missing evidence. */
-const liveDetailWithHistory: TopologyEvidenceGraphDetail = {
+const liveDetailWithHistory: TopologyEvidenceGraphDetail = makeTopologyEvidenceGraphDetail({
   ...liveDetailHome,
   data_source: "latest_snapshot_plus_history",
   latest_layout_limited: false,
@@ -269,22 +269,9 @@ const liveDetailWithHistory: TopologyEvidenceGraphDetail = {
   device_stats: {},
   device_stats_window: { days: 7, max_snapshots: 10, snapshots_considered: 0 },
   limitations: [],
-  counts: {
-    latest_snapshot_neighbor_edges: 2,
-    latest_snapshot_route_edges: 1,
-    historical_neighbor_edges: 1,
-    historical_route_edges: 1,
-    recent_missing_link_count_total: 2,
-    last_known_link_count: 0,
-    passive_hint_count_available: 0,
-    passive_hint_count_total: 0,
-    passive_hint_count_drawn: null,
-    hidden_for_readability: null,
-    known_inventory_devices: 4,
-    observed_topology_nodes: 3,
-  },
+  counts: undefined,
   topology_facts: emptyTopologyNetworkFacts,
-};
+});
 
 const LAST_KNOWN_LIMITATIONS = [
   "This is the most recent stored link evidence for a device that reported no links in the latest snapshot. It is last known evidence, not a currently reported link, and does not prove current connectivity or live routing.",
@@ -309,14 +296,11 @@ function makeLastKnownLink(overrides: Partial<LastKnownLinkAggregate>): LastKnow
 }
 
 /** The home network plus one last known link for a linkless sleepy device. */
-const liveDetailWithLastKnown: TopologyEvidenceGraphDetail = {
+const liveDetailWithLastKnown: TopologyEvidenceGraphDetail = makeTopologyEvidenceGraphDetail({
   ...liveDetailWithHistory,
   last_known_links: [makeLastKnownLink({})],
-  counts: {
-    ...liveDetailWithHistory.counts,
-    last_known_link_count: 1,
-  },
-};
+  counts: undefined,
+});
 
 const PASSIVE_HINT_LIMITATIONS = [
   "This suggestion comes from passive observations, not topology evidence. It is useful for deciding which devices to inspect together, but it should not be treated as a connection between them.",
@@ -348,15 +332,11 @@ function makePassiveHint(overrides: Partial<PassiveHintAggregate>): PassiveHintA
 }
 
 /** The home network plus one passive-derived investigation hint. */
-const liveDetailWithPassiveHints: TopologyEvidenceGraphDetail = {
+const liveDetailWithPassiveHints: TopologyEvidenceGraphDetail = makeTopologyEvidenceGraphDetail({
   ...liveDetailWithHistory,
   passive_hints: [makePassiveHint({})],
-  counts: {
-    ...liveDetailWithHistory.counts,
-    passive_hint_count_available: 1,
-    passive_hint_count_total: 1,
-  },
-};
+  counts: undefined,
+});
 
 const INVESTIGATION_GENERIC_LIMITATION =
   "This is a place to look first based on available ZigbeeLens evidence. It is not a root-cause claim and does not prove live routing or current connectivity.";
@@ -390,16 +370,18 @@ function makeInvestigationCard(overrides: Partial<InvestigationCard>): Investiga
 }
 
 /** The home network plus one ranked problem-first investigation card. */
-const liveDetailWithInvestigations: TopologyEvidenceGraphDetail = {
+const liveDetailWithInvestigations: TopologyEvidenceGraphDetail = makeTopologyEvidenceGraphDetail({
   ...liveDetailWithHistory,
   investigations: [makeInvestigationCard({})],
   investigation_counts: { available: 1, returned: 1 },
-};
+  counts: undefined,
+});
 
 // Same snapshot, but the link table references an endpoint that appears in
 // neither the node list nor the inventory (seen on real networks).
-const liveDetailWithGhostEndpoint: TopologyEvidenceGraphDetail = {
+const liveDetailWithGhostEndpoint: TopologyEvidenceGraphDetail = makeTopologyEvidenceGraphDetail({
   ...liveDetailHome,
+  latest_snapshot: { ...liveDetailHome.latest_snapshot, link_count: 4 },
   links: [
     ...liveDetailHome.links!,
     {
@@ -410,7 +392,8 @@ const liveDetailWithGhostEndpoint: TopologyEvidenceGraphDetail = {
       route_count: null,
     },
   ],
-};
+  counts: undefined,
+});
 
 /**
  * A dense network shaped like the real reference deployment: a coordinator
@@ -614,6 +597,15 @@ function renderGraphPage(networkId = "home") {
   );
 }
 
+function ChangeNetworkButton({ networkId }: { networkId: string }) {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate(`/investigate/${networkId}`)}>
+      Change test network
+    </button>
+  );
+}
+
 async function renderLiveAndWaitForLayout(networkId = "home") {
   const result = renderGraphPage(networkId);
   await screen.findByText("Live Hall Router");
@@ -699,18 +691,172 @@ describe("TopologyGraphPage live mode", () => {
     expect(await screen.findByText("Live Sleepy Sensor")).toBeInTheDocument();
   });
 
-  it("retains accepted inventory evidence after a refresh failure", async () => {
-    mockInventoryError = "refresh failed";
+  it("updates an open device drawer when inventory Retry succeeds", async () => {
+    mockInventoryAccepted = false;
+    mockInventoryError = "request failed";
+    const view = await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(drawer).toHaveTextContent("Device inventory unavailable — inventory status unknown");
+    fireEvent.click(screen.getByRole("button", { name: "Retry device inventory" }));
+    expect(mockInventoryRefetch).toHaveBeenCalledTimes(1);
 
-    await renderLiveAndWaitForLayout();
+    mockInventoryAccepted = true;
+    mockInventoryError = null;
+    mockDevices = liveDevices.map((device) =>
+      device.ieee_address === "0xe1"
+        ? {
+            ...device,
+            friendly_name: "Accepted Kitchen Router",
+            device_type: "Router",
+            decision: {
+              status: "review_first",
+              priority: "high",
+              headline_code: "device_review_first",
+              coverage_label_codes: [],
+            },
+          }
+        : device,
+    );
+    view.rerender(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await within(drawer).findByText("Accepted Kitchen Router")).toBeInTheDocument();
+    expect(drawer).toHaveTextContent("Router");
+    expect(drawer).toHaveTextContent("Needs attention");
+    expect(drawer).toHaveTextContent("In Zigbee2MQTT device inventory");
+  });
+
+  it("closes an open device drawer when the selected identity disappears", async () => {
+    const view = await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    expect(screen.getByRole("dialog", { name: /device details/i })).toBeInTheDocument();
+
+    const links = liveDetailHome.links.filter(
+      (link) => link.source_ieee !== "0xe1" && link.target_ieee !== "0xe1",
+    );
+    mockDevices = liveDevices.filter((device) => device.ieee_address !== "0xe1");
+    mockDetail = makeTopologyEvidenceGraphDetail({
+      ...liveDetailHome,
+      latest_snapshot: {
+        ...liveDetailHome.latest_snapshot,
+        end_device_count: 0,
+        link_count: links.length,
+      },
+      nodes: liveDetailHome.nodes.filter((node) => node.ieee_address !== "0xe1"),
+      links,
+      counts: undefined,
+    });
+    view.rerender(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: /device details/i })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("updates an open edge drawer and closes it if the edge disappears", async () => {
+    const view = await renderLiveAndWaitForLayout();
+    fireEvent.click(
+      await screen.findByLabelText("Route hint from Live Hall Router to Live Coordinator"),
+    );
+    const drawer = screen.getByRole("dialog", { name: /link details/i });
+    expect(within(drawer).getByText("Route hints observed").nextElementSibling).toHaveTextContent(
+      "2",
+    );
+
+    const refreshedLinks = liveDetailHome.links.map((link) =>
+      link.source_ieee === "0xr1" && link.target_ieee === "0xc0"
+        ? { ...link, route_count: 7 }
+        : link,
+    );
+    mockDetail = makeTopologyEvidenceGraphDetail({
+      ...liveDetailHome,
+      links: refreshedLinks,
+      counts: undefined,
+    });
+    view.rerender(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(within(drawer).getByText("Route hints observed").nextElementSibling).toHaveTextContent(
+      "7",
+    );
+
+    mockDetail = makeTopologyEvidenceGraphDetail({
+      ...liveDetailHome,
+      links: refreshedLinks.map((link) => ({ ...link, route_count: 0 })),
+      counts: undefined,
+    });
+    view.rerender(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: /link details/i })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("clears an open drawer when the network route changes", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <ChangeNetworkButton networkId="home2" />
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByText("Live Hall Router");
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    expect(screen.getByRole("dialog", { name: /device details/i })).toBeInTheDocument();
+
+    mockDetail = liveDetailLimited;
+    mockDevices = [];
+    await user.click(screen.getByRole("button", { name: "Change test network" }));
+
+    expect(
+      await screen.findByText(/did not provide usable node\/link layout data/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /device details/i })).not.toBeInTheDocument();
+  });
+
+  it("retains accepted inventory evidence after a refresh failure", async () => {
+    const view = await renderLiveAndWaitForLayout();
     expect(screen.getByText("Live Sleepy Sensor")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(drawer).toHaveTextContent("In Zigbee2MQTT device inventory");
+
+    mockInventoryError = "refresh failed";
+    view.rerender(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
     expect(
       screen.getByText(
         "Device inventory could not be refreshed. Showing the last loaded inventory confirmation.",
       ),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
-    const drawer = screen.getByRole("dialog", { name: /device details/i });
     expect(drawer).toHaveTextContent("In Zigbee2MQTT device inventory");
     expect(drawer).toHaveTextContent("End device");
     expect(drawer).toHaveTextContent("Healthy");
@@ -758,8 +904,17 @@ describe("TopologyGraphPage live mode", () => {
     expect(connectionCheckbox(/recent missing links/i)).toBeDisabled();
     expect(screen.queryByText(/previously seen/i)).not.toBeInTheDocument();
     expect(
-      screen.getByText("No recent missing links in the selected history window."),
+      screen.getByText(
+        "No previous complete snapshots are available, so recent missing links could not be evaluated.",
+      ),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "No previous complete snapshots are available, so last known links could not be evaluated.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Live Sleepy Sensor")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/every device has link evidence/i);
     // No passive hints in this response: suggested investigation links
     // disabled with honest empty copy.
     expect(
@@ -778,6 +933,7 @@ describe("TopologyGraphPage live mode", () => {
     mockDetail = makeTopologyEvidenceGraphDetail({
       ...liveDetailHome,
       links: liveDetailHome.links!.map((link) => ({ ...link, route_count: 0 })),
+      counts: undefined,
     });
     const { container } = await renderLiveAndWaitForLayout();
     expect(connectionCheckbox(/route hints/i)).toBeDisabled();
@@ -1216,7 +1372,9 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     expect(panel.getByRole("checkbox", { name: /recent missing links/i })).toBeDisabled();
     expect(panel.queryByText(/previously seen/i)).not.toBeInTheDocument();
     expect(
-      panel.getByText("No recent missing links in the selected history window."),
+      panel.getByText(
+        "No previous complete snapshots are available, so recent missing links could not be evaluated.",
+      ),
     ).toBeInTheDocument();
     expect(panel.queryByRole("checkbox", { name: /selected device links/i })).not.toBeInTheDocument();
 
@@ -1498,6 +1656,9 @@ describe("TopologyGraphPage historical evidence (live)", () => {
     const checkbox = connectionCheckbox(/recent missing links/i);
     expect(checkbox).toBeEnabled();
     expect(checkbox).toBeChecked();
+    expect(
+      screen.getByText("2 recent missing links are available from evaluated history."),
+    ).toBeInTheDocument();
     // The old label is gone everywhere.
     expect(screen.queryByText(/previously seen/i)).not.toBeInTheDocument();
     // Troubleshooting preset: historical edges render by default.
@@ -1777,6 +1938,17 @@ describe("TopologyGraphPage historical evidence (live)", () => {
       historical_routes: [],
     };
     await renderLiveAndWaitForLayout();
+    openDrawMoreLinks();
+    expect(
+      screen.getByText(
+        "The latest topology layout is limited, so recent missing links cannot be measured reliably.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The latest topology layout is limited, so absence from it cannot be assessed for last known links.",
+      ),
+    ).toBeInTheDocument();
     const edge = await screen.findByLabelText(
       "Recent missing link between Live Lamp and Live Sleepy Sensor",
     );
@@ -2156,6 +2328,9 @@ describe("TopologyGraphPage last known links", () => {
     const checkbox = panel.getByRole("checkbox", { name: /last known links/i });
     expect(checkbox).toBeEnabled();
     expect(checkbox).toBeChecked();
+    expect(
+      screen.getByText("1 last known link is available from stored evidence."),
+    ).toBeInTheDocument();
   });
 
   it("turning the control off removes the drawn edge", async () => {
@@ -2194,7 +2369,7 @@ describe("TopologyGraphPage last known links", () => {
     expect(text).not.toMatch(/currently routed/i);
   });
 
-  it("disables the control with honest copy when every device has latest link evidence", async () => {
+  it("disables the control with measured-empty copy after history was evaluated", async () => {
     mockDetail = liveDetailWithHistory;
     await renderLiveAndWaitForLayout();
     const panel = connectionControlsPanel();
@@ -2203,7 +2378,7 @@ describe("TopologyGraphPage last known links", () => {
     expect(checkbox).not.toBeChecked();
     expect(
       panel.getByText(
-        "Every device has link evidence in the latest snapshot, so no last known links are needed.",
+        "Previous snapshots were evaluated, but no last known link qualified for display.",
       ),
     ).toBeInTheDocument();
     // And the legend does not advertise the entry.

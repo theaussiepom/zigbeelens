@@ -13,6 +13,9 @@ import { topologyStatusLabel } from "@/lib/topologyLabels";
 import { topologySnapshotPath } from "@/lib/routes";
 import { GRAPH_SAFETY_COPY_LIVE, EVIDENCE_COVERAGE_STRIP_TITLE } from "@/lib/meshGraphCopy";
 import { buildEvidenceCoverageStripViewModel } from "@/viewModels/coverage/coverageStripViewModel";
+import {
+  buildConnectionHistoryPresentationViewModel,
+} from "@/viewModels/topology/connectionHistoryPresentationViewModel";
 
 const LIMITED_LAYOUT_COPY =
   "Topology snapshot was captured, but Zigbee2MQTT did not provide usable node/link layout data. Device health still comes from passive MQTT inventory and state updates.";
@@ -38,11 +41,14 @@ export function TopologyGraphPage() {
     clearSelection,
     clearEdge,
     clearNode,
-  } = useGraphSelection();
+  } = useGraphSelection(networkId, liveEvidence);
 
   const networkCoverageStrip = buildEvidenceCoverageStripViewModel(
     graphDetail?.topology_facts?.coverage ?? [],
   );
+  const historyPresentation = graphDetail
+    ? buildConnectionHistoryPresentationViewModel(graphDetail)
+    : null;
 
   return (
     <div className="max-w-7xl space-y-6">
@@ -179,7 +185,7 @@ export function TopologyGraphPage() {
             </p>
           </div>
         </Card>
-      ) : graphDetail && liveEvidence && snapshot ? (
+      ) : graphDetail && liveEvidence && snapshot && historyPresentation ? (
         <>
           <TopologyMetricStrip
             graphDetail={graphDetail}
@@ -206,6 +212,7 @@ export function TopologyGraphPage() {
             onClearSelection={clearSelection}
             selectedNodeId={selectedNodeId}
             selectedEdge={selectedEdge}
+            historyPresentation={historyPresentation}
           />
         </>
       ) : null}
