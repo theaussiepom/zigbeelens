@@ -2,57 +2,65 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
+from zigbeelens.schemas import ReportDetailV3
 from zigbeelens.services import report_redaction as report_redaction_mod
 from zigbeelens.services import reports as reports_mod
 
 _FIXED_SALT = "zigbeelens-api-prefix-parity-v1"
 NOW = datetime(2026, 7, 13, 12, 0, 0, tzinfo=timezone.utc)
 
+MEDIA_TYPES = {
+    "json": "application/json",
+    "yaml": "application/x-yaml",
+    "markdown": "text/markdown",
+}
 
-def _strip_generated_only(value: Any, *, allow_ids: set[str] | None = None) -> Any:
-    """Normalise only newly generated IDs/timestamps — never deterministic identity."""
-    allow_ids = allow_ids or set()
-    if isinstance(value, dict):
-        out: dict[str, Any] = {}
-        for key, item in value.items():
-            if key in {"generated_at", "created_at", "updated_at", "downloaded_at"}:
-                out[key] = "<generated-ts>"
-            elif key == "id" and isinstance(item, str) and (not allow_ids or item in allow_ids):
-                # Report ids are generated; known mock identities are never rewritten.
-                if allow_ids:
-                    out[key] = "<generated-id>"
-                else:
-                    out[key] = item
+
+def _normalize_root_report_fields(body: dict[str, Any]) -> dict[str, Any]:
+    """Normalize only independently generated root report fields."""
+    out = dict(body)
+    if "id" in out:
+        out["id"] = "<generated-id>"
+    if "generated_at" in out:
+        out["generated_at"] = "<generated-ts>"
+    md = out.get("markdown_summary")
+    if isinstance(md, str) and "Generated:" in md:
+        lines = []
+        for line in md.splitlines():
+            if line.startswith("Generated:"):
+                lines.append("Generated: <generated-ts>")
             else:
-                out[key] = _strip_generated_only(item, allow_ids=allow_ids)
-        return out
-    if isinstance(value, list):
-        return [_strip_generated_only(item, allow_ids=allow_ids) for item in value]
-    return value
+                lines.append(line)
+        out["markdown_summary"] = "\n".join(lines)
+    return out
 
 
-def _normalize_report(body: dict[str, Any]) -> dict[str, Any]:
-    report_id = body.get("id")
-    allow = {report_id} if isinstance(report_id, str) else set()
-    normalized = _strip_generated_only(body, allow_ids=allow)
-    # Markdown embeds generated_at; normalize that clock fragment only.
-    if isinstance(normalized.get("markdown_summary"), str):
-        md = normalized["markdown_summary"]
-        if "Generated:" in md:
-            lines = []
-            for line in md.splitlines():
-                if line.startswith("Generated:"):
-                    lines.append("Generated: <generated-ts>")
-                else:
-                    lines.append(line)
-            normalized["markdown_summary"] = "\n".join(lines)
-    return normalized
+def _normalize_creation_summary(body: dict[str, Any]) -> dict[str, Any]:
+    out = dict(body)
+    if "id" in out:
+        out["id"] = "<generated-id>"
+    if "generated_at" in out:
+        out["generated_at"] = "<generated-ts>"
+    return out
+
+
+def _normalize_markdown_bytes(raw: bytes) -> str:
+    text = raw.decode("utf-8")
+    lines = []
+    for line in text.splitlines():
+        if line.startswith("Generated:"):
+            lines.append("Generated: <generated-ts>")
+        else:
+            lines.append(line)
+    return "\n".join(lines)
 
 
 @pytest.fixture
@@ -66,7 +74,6 @@ def parity_client(mock_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> T
     monkeypatch.setattr(report_redaction_mod, "Redactor", _DeterministicRedactor)
     monkeypatch.setattr(reports_mod, "Redactor", _DeterministicRedactor)
 
-    # Seed a repository-backed device so coverage is an expected-success route.
     ctx = mock_client.app.state.ctx
     ctx.repo.upsert_device(
         network_id="home",
@@ -122,8 +129,8 @@ def test_api_and_v1_report_preview_full_body_parity(parity_client: TestClient):
         params={"scope": "full", "hash_ieee_addresses": "false"},
     )
     assert legacy.status_code == v1.status_code == 200
-    left = _normalize_report(legacy.json())
-    right = _normalize_report(v1.json())
+    left = _normalize_root_report_fields(legacy.json())
+    right = _normalize_root_report_fields(v1.json())
     assert left["report_version"] == right["report_version"] == 3
     assert left == right
 
@@ -155,28 +162,25 @@ def test_api_and_v1_detail_parity_requires_success(parity_client: TestClient):
         assert legacy.json() == v1.json(), suffix
 
 
-def test_api_and_v1_report_mutation_download_and_delete_parity(parity_client: TestClient):
-    create_legacy = parity_client.post(
-        "/api/reports",
-        json={
-            "scope": "full",
-            "format": "json",
-            "redaction": {"profile": "standard", "hash_ieee_addresses": False},
-        },
-    )
-    create_v1 = parity_client.post(
-        "/api/v1/reports",
-        json={
-            "scope": "full",
-            "format": "yaml",
-            "redaction": {"profile": "standard", "hash_ieee_addresses": False},
-        },
-    )
+@pytest.mark.parametrize("fmt", ["json", "yaml", "markdown"])
+def test_api_and_v1_same_request_report_mutation_parity(
+    parity_client: TestClient, fmt: str
+):
+    request = {
+        "scope": "full",
+        "format": fmt,
+        "redaction": {"profile": "standard", "hash_ieee_addresses": False},
+    }
+    create_legacy = parity_client.post("/api/reports", json=request)
+    create_v1 = parity_client.post("/api/v1/reports", json=request)
     assert create_legacy.status_code == create_v1.status_code == 200
+    assert _normalize_creation_summary(create_legacy.json()) == _normalize_creation_summary(
+        create_v1.json()
+    )
     legacy_id = create_legacy.json()["id"]
     v1_id = create_v1.json()["id"]
 
-    for report_id, fmt in ((legacy_id, "json"), (v1_id, "yaml")):
+    for report_id in (legacy_id, v1_id):
         details = []
         downloads = []
         for prefix in ("/api", "/api/v1"):
@@ -185,26 +189,29 @@ def test_api_and_v1_report_mutation_download_and_delete_parity(parity_client: Te
             body = detail.json()
             assert type(body["report_version"]) is int
             assert body["report_version"] == 3
-            details.append(_normalize_report(body))
+            assert body["format"] == fmt
+            ReportDetailV3.model_validate(body)
+            details.append(_normalize_root_report_fields(body))
+
             download = parity_client.get(f"{prefix}/reports/{report_id}/download")
             assert download.status_code == 200
+            media = download.headers["content-type"].split(";")[0].strip()
+            assert media == MEDIA_TYPES[fmt]
             downloads.append(download)
-        assert details[0] == details[1]
-        assert downloads[0].headers["content-type"].split(";")[0] == downloads[1].headers[
-            "content-type"
-        ].split(";")[0]
-        if fmt == "json":
-            assert downloads[0].content == downloads[1].content
-        else:
-            # YAML/Markdown bodies are byte-identical across prefixes for the same row.
-            assert downloads[0].content == downloads[1].content
 
-    listed_legacy = parity_client.get("/api/reports")
-    listed_v1 = parity_client.get("/api/v1/reports")
-    assert listed_legacy.status_code == listed_v1.status_code == 200
-    assert {row["id"] for row in listed_legacy.json()} == {
-        row["id"] for row in listed_v1.json()
-    }
+        assert details[0] == details[1]
+        if fmt == "json":
+            left = _normalize_root_report_fields(json.loads(downloads[0].content))
+            right = _normalize_root_report_fields(json.loads(downloads[1].content))
+            assert left == right
+        elif fmt == "yaml":
+            left = _normalize_root_report_fields(yaml.safe_load(downloads[0].content))
+            right = _normalize_root_report_fields(yaml.safe_load(downloads[1].content))
+            assert left == right
+        else:
+            assert _normalize_markdown_bytes(downloads[0].content) == _normalize_markdown_bytes(
+                downloads[1].content
+            )
 
     assert parity_client.delete(f"/api/reports/{legacy_id}").status_code == 200
     assert parity_client.get(f"/api/v1/reports/{legacy_id}").status_code == 404
