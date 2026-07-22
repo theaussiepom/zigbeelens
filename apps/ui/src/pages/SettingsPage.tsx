@@ -18,13 +18,14 @@ export function SettingsPage() {
 
   if (!status) return <LoadingState />;
 
-  const collector = health.data?.collector ?? {};
+  const healthPresent = health.data != null;
+  const collector = health.data?.collector;
   const warnings = buildWarnings({
     dataMode,
     isScenarioMode,
     mqttConnected: status.mqtt_connected,
-    collectorEnabled: collector.enabled,
-    lastMessageAt: collector.last_message_at ?? null,
+    collectorEnabled: collector?.enabled,
+    lastMessageAt: healthPresent ? (collector?.last_message_at ?? null) : null,
     networkCount: status.configured_networks.length,
   });
 
@@ -84,16 +85,28 @@ export function SettingsPage() {
 
       <Card title="Collector status">
         <dl className="space-y-3 text-sm">
-          <Row label="Enabled" value={collector.enabled ? "yes" : "no"} />
+          <Row label="Enabled" value={formatHealthBool(healthPresent, collector?.enabled)} />
           <Row label="Connected" value={status.mqtt_connected ? "yes" : "no"} />
-          <Row label="Subscribed topics" value={(collector.subscribed_topics_count ?? 0).toString()} />
+          <Row
+            label="Subscribed topics"
+            value={formatHealthCount(healthPresent, collector?.subscribed_topics_count)}
+          />
           <Row
             label="Last message"
-            value={collector.last_message_at ? relativeTime(collector.last_message_at) : "none yet"}
+            value={
+              !healthPresent
+                ? "—"
+                : collector?.last_message_at
+                  ? relativeTime(collector.last_message_at)
+                  : "none yet"
+            }
           />
-          <Row label="Last error" value={collector.last_error ?? "none"} />
+          <Row
+            label="Last error"
+            value={!healthPresent ? "—" : (collector?.last_error ?? "none")}
+          />
         </dl>
-        {collector.networks && collector.networks.length > 0 && (
+        {collector?.networks && collector.networks.length > 0 && (
           <ul className="mt-4 space-y-2 text-sm">
             {collector.networks.map((n) => (
               <li key={n.network_id} className="flex items-center justify-between gap-3">
@@ -112,6 +125,7 @@ export function SettingsPage() {
           <Row
             label="Enabled"
             value={
+              // Configuration feature flag is distinct from live publisher health.
               (health.data?.mqtt_discovery?.enabled ?? status.features.mqtt_discovery)
                 ? "yes"
                 : "no"
@@ -119,21 +133,31 @@ export function SettingsPage() {
           />
           <Row
             label="Publisher connected"
-            value={health.data?.mqtt_discovery?.connected ? "yes" : "no"}
+            value={formatHealthBool(healthPresent, health.data?.mqtt_discovery?.connected)}
           />
           <Row
             label="Published entities"
-            value={(health.data?.mqtt_discovery?.published_entities_count ?? 0).toString()}
+            value={formatHealthCount(
+              healthPresent,
+              health.data?.mqtt_discovery?.published_entities_count,
+            )}
           />
           <Row
             label="Last publish"
             value={
-              health.data?.mqtt_discovery?.last_publish_at
-                ? relativeTime(health.data.mqtt_discovery.last_publish_at)
-                : "never"
+              !healthPresent
+                ? "—"
+                : health.data?.mqtt_discovery?.last_publish_at
+                  ? relativeTime(health.data.mqtt_discovery.last_publish_at)
+                  : "never"
             }
           />
-          <Row label="Last error" value={health.data?.mqtt_discovery?.last_error ?? "none"} />
+          <Row
+            label="Last error"
+            value={
+              !healthPresent ? "—" : (health.data?.mqtt_discovery?.last_error ?? "none")
+            }
+          />
         </dl>
         {status.mqtt_discovery && (
           <dl className="mt-4 space-y-3 border-t border-zl-border/40 pt-4 text-sm">
@@ -152,17 +176,25 @@ export function SettingsPage() {
         <dl className="space-y-3 text-sm">
           <Row
             label="Enabled"
-            value={(health.data?.topology?.enabled ?? status.topology?.enabled) ? "yes" : "no"}
+            value={
+              // Configuration topology flag may answer when live health is absent.
+              (health.data?.topology?.enabled ?? status.topology?.enabled) ? "yes" : "no"
+            }
           />
           <Row
             label="Manual capture"
-            value={health.data?.topology?.manual_capture_enabled ? "yes" : "no"}
+            value={formatHealthBool(healthPresent, health.data?.topology?.manual_capture_enabled)}
           />
           <Row
             label="Capture in progress"
-            value={health.data?.topology?.capture_in_progress ? "yes" : "no"}
+            value={formatHealthBool(healthPresent, health.data?.topology?.capture_in_progress)}
           />
-          <Row label="Last capture error" value={health.data?.topology?.last_capture_error ?? "none"} />
+          <Row
+            label="Last capture error"
+            value={
+              !healthPresent ? "—" : (health.data?.topology?.last_capture_error ?? "none")
+            }
+          />
         </dl>
       </Card>
 
@@ -170,18 +202,26 @@ export function SettingsPage() {
         <dl className="space-y-3 text-sm">
           <Row
             label="Enabled"
-            value={health.data?.home_assistant_enrichment?.enabled ? "yes" : "no"}
+            value={formatHealthBool(
+              healthPresent,
+              health.data?.home_assistant_enrichment?.enabled,
+            )}
           />
           <Row
             label="Matched devices"
-            value={String(health.data?.home_assistant_enrichment?.matched_devices ?? 0)}
+            value={formatHealthCount(
+              healthPresent,
+              health.data?.home_assistant_enrichment?.matched_devices,
+            )}
           />
           <Row
             label="Last push"
             value={
-              health.data?.home_assistant_enrichment?.last_push_at
-                ? relativeTime(health.data.home_assistant_enrichment.last_push_at)
-                : "never"
+              !healthPresent
+                ? "—"
+                : health.data?.home_assistant_enrichment?.last_push_at
+                  ? relativeTime(health.data.home_assistant_enrichment.last_push_at)
+                  : "never"
             }
           />
         </dl>
@@ -457,6 +497,24 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
       <dd className={mono ? "break-all text-right font-mono" : "text-right"}>{value}</dd>
     </div>
   );
+}
+
+/** Health-request counts: absent health or missing field is unknown, not measured zero. */
+function formatHealthCount(
+  healthPresent: boolean,
+  value: number | null | undefined,
+): string {
+  if (!healthPresent || value == null) return "—";
+  return String(value);
+}
+
+/** Health-request booleans: absent health or missing field is unavailable, not factual "no". */
+function formatHealthBool(
+  healthPresent: boolean,
+  value: boolean | null | undefined,
+): string {
+  if (!healthPresent || value == null) return "—";
+  return value ? "yes" : "no";
 }
 
 function formatBytes(value: number | null | undefined): string {
