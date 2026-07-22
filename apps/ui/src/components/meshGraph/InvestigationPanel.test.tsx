@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -52,6 +53,52 @@ function renderPanel(
     />,
   );
   return { onFocus, onClearFocus, onOpenPrimaryDevice };
+}
+
+function StatefulInvestigationPanel({
+  investigations,
+  initialActiveInvestigationId = null,
+}: {
+  investigations: InvestigationCard[];
+  initialActiveInvestigationId?: string | null;
+}) {
+  const [activeInvestigationId, setActiveInvestigationId] = useState<string | null>(
+    initialActiveInvestigationId,
+  );
+  return (
+    <InvestigationPanel
+      investigations={investigations}
+      activeInvestigationId={activeInvestigationId}
+      onFocus={(card) => setActiveInvestigationId(card.id)}
+      onClearFocus={() => setActiveInvestigationId(null)}
+    />
+  );
+}
+
+function makeRankedCards(count: number): InvestigationCard[] {
+  return Array.from({ length: count }, (_, index) => {
+    const rank = index + 1;
+    return makeCard({
+      id: `ranked-${rank}`,
+      title: `Ranked investigation ${rank}`,
+      summary: `Current summary ${rank}`,
+      supporting_evidence: [`Current evidence ${rank}`],
+    });
+  });
+}
+
+function visibleCardIds(panel: HTMLElement): string[] {
+  return within(panel)
+    .getAllByTestId("investigation-card")
+    .map((card) => card.dataset.investigationId ?? "");
+}
+
+function cardWithId(panel: HTMLElement, id: string): HTMLElement {
+  const card = within(panel)
+    .getAllByTestId("investigation-card")
+    .find((candidate) => candidate.dataset.investigationId === id);
+  expect(card).toBeDefined();
+  return card!;
 }
 
 describe("InvestigationPanel accessible action names", () => {
@@ -312,6 +359,125 @@ describe("InvestigationPanel accessible action names", () => {
         name: /Focus graph: Duplicate investigation .* — item 2 of 2$/i,
       }),
     ).toBeInTheDocument();
+  });
+
+  it("keeps a focused fourth card visible after Show fewer and restores the initial slice on clear", async () => {
+    const user = userEvent.setup();
+    render(<StatefulInvestigationPanel investigations={makeRankedCards(5)} />);
+    const panel = screen.getByRole("region", { name: /where to look first/i });
+
+    expect(visibleCardIds(panel)).toEqual(["ranked-1", "ranked-2", "ranked-3"]);
+    expect(within(panel).getByRole("button", { name: "Show more (2)" })).toBeInTheDocument();
+
+    await user.click(within(panel).getByRole("button", { name: "Show more (2)" }));
+    const fourthCard = cardWithId(panel, "ranked-4");
+    await user.click(within(fourthCard).getByRole("button", { name: /^Focus graph:/i }));
+    await user.click(within(panel).getByRole("button", { name: "Show fewer" }));
+
+    expect(visibleCardIds(panel)).toEqual([
+      "ranked-1",
+      "ranked-2",
+      "ranked-3",
+      "ranked-4",
+    ]);
+    expect(
+      within(panel)
+        .getAllByTestId("investigation-card")
+        .filter((card) => card.dataset.investigationId === "ranked-4"),
+    ).toHaveLength(1);
+    const collapsedActiveCard = cardWithId(panel, "ranked-4");
+    expect(collapsedActiveCard).toHaveClass("border-zl-accent");
+    expect(
+      within(collapsedActiveCard).getByRole("button", { name: /^Clear focus:/i }),
+    ).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Show more (1)" })).toBeInTheDocument();
+
+    await user.click(
+      within(collapsedActiveCard).getByRole("button", { name: /^Clear focus:/i }),
+    );
+    expect(visibleCardIds(panel)).toEqual(["ranked-1", "ranked-2", "ranked-3"]);
+    expect(within(panel).queryByText("Ranked investigation 4")).not.toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Show more (2)" })).toBeInTheDocument();
+  });
+
+  it("does not offer a misleading toggle when the active fourth card leaves nothing hidden", () => {
+    render(
+      <StatefulInvestigationPanel
+        investigations={makeRankedCards(4)}
+        initialActiveInvestigationId="ranked-4"
+      />,
+    );
+    const panel = screen.getByRole("region", { name: /where to look first/i });
+
+    expect(visibleCardIds(panel)).toEqual([
+      "ranked-1",
+      "ranked-2",
+      "ranked-3",
+      "ranked-4",
+    ]);
+    expect(
+      within(panel)
+        .getAllByTestId("investigation-card")
+        .filter((card) => card.dataset.investigationId === "ranked-4"),
+    ).toHaveLength(1);
+    expect(
+      within(cardWithId(panel, "ranked-4")).getByRole("button", {
+        name: /^Clear focus:/i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).queryByRole("button", { name: /show (more|fewer)/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps refreshed active content visible when backend order moves it below the first three", async () => {
+    const user = userEvent.setup();
+    const initialCards = makeRankedCards(5);
+    const view = render(<StatefulInvestigationPanel investigations={initialCards} />);
+    const panel = screen.getByRole("region", { name: /where to look first/i });
+
+    await user.click(
+      within(cardWithId(panel, "ranked-1")).getByRole("button", { name: /^Focus graph:/i }),
+    );
+
+    const refreshedActive = makeCard({
+      id: "ranked-1",
+      title: "Refreshed active investigation",
+      summary: "Current refreshed summary",
+      supporting_evidence: ["Current refreshed evidence"],
+    });
+    view.rerender(
+      <StatefulInvestigationPanel
+        investigations={[
+          initialCards[1]!,
+          initialCards[2]!,
+          initialCards[3]!,
+          initialCards[4]!,
+          refreshedActive,
+        ]}
+      />,
+    );
+
+    expect(visibleCardIds(panel)).toEqual([
+      "ranked-2",
+      "ranked-3",
+      "ranked-4",
+      "ranked-1",
+    ]);
+    expect(within(panel).queryByText("Ranked investigation 1")).not.toBeInTheDocument();
+    expect(within(panel).getByText("Refreshed active investigation")).toBeInTheDocument();
+    expect(within(panel).getByText("Current refreshed summary")).toBeInTheDocument();
+    const activeCard = cardWithId(panel, "ranked-1");
+    expect(activeCard).toHaveClass("border-zl-accent");
+    expect(
+      within(activeCard).getByRole("button", { name: /^Clear focus:/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(panel)
+        .getAllByTestId("investigation-card")
+        .filter((card) => card.dataset.investigationId === "ranked-1"),
+    ).toHaveLength(1);
+    expect(within(panel).getByRole("button", { name: "Show more (1)" })).toBeInTheDocument();
   });
 
   it("exposes unique Clear focus names when a repeated-title card is active", () => {
