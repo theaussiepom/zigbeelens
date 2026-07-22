@@ -162,6 +162,14 @@ def test_api_and_v1_detail_parity_requires_success(parity_client: TestClient):
         assert legacy.json() == v1.json(), suffix
 
 
+def _normalized_download_payload(fmt: str, content: bytes) -> Any:
+    if fmt == "json":
+        return _normalize_root_report_fields(json.loads(content))
+    if fmt == "yaml":
+        return _normalize_root_report_fields(yaml.safe_load(content))
+    return _normalize_markdown_bytes(content)
+
+
 @pytest.mark.parametrize("fmt", ["json", "yaml", "markdown"])
 def test_api_and_v1_same_request_report_mutation_parity(
     parity_client: TestClient, fmt: str
@@ -180,8 +188,12 @@ def test_api_and_v1_same_request_report_mutation_parity(
     legacy_id = create_legacy.json()["id"]
     v1_id = create_v1.json()["id"]
 
-    for report_id in (legacy_id, v1_id):
-        details = []
+    # Canonical normalized bodies/downloads for the independently created reports.
+    created_bodies: dict[str, dict[str, Any]] = {}
+    created_downloads: dict[str, Any] = {}
+
+    for label, report_id in (("api", legacy_id), ("api_v1", v1_id)):
+        details: list[dict[str, Any]] = []
         downloads = []
         for prefix in ("/api", "/api/v1"):
             detail = parity_client.get(f"{prefix}/reports/{report_id}")
@@ -199,19 +211,17 @@ def test_api_and_v1_same_request_report_mutation_parity(
             assert media == MEDIA_TYPES[fmt]
             downloads.append(download)
 
+        # Same stored row must read identically through both prefixes.
         assert details[0] == details[1]
-        if fmt == "json":
-            left = _normalize_root_report_fields(json.loads(downloads[0].content))
-            right = _normalize_root_report_fields(json.loads(downloads[1].content))
-            assert left == right
-        elif fmt == "yaml":
-            left = _normalize_root_report_fields(yaml.safe_load(downloads[0].content))
-            right = _normalize_root_report_fields(yaml.safe_load(downloads[1].content))
-            assert left == right
-        else:
-            assert _normalize_markdown_bytes(downloads[0].content) == _normalize_markdown_bytes(
-                downloads[1].content
-            )
+        assert _normalized_download_payload(fmt, downloads[0].content) == (
+            _normalized_download_payload(fmt, downloads[1].content)
+        )
+        created_bodies[label] = details[0]
+        created_downloads[label] = _normalized_download_payload(fmt, downloads[0].content)
+
+    # Independently created /api and /api/v1 outputs must match after root-only normalization.
+    assert created_bodies["api"] == created_bodies["api_v1"]
+    assert created_downloads["api"] == created_downloads["api_v1"]
 
     assert parity_client.delete(f"/api/reports/{legacy_id}").status_code == 200
     assert parity_client.get(f"/api/v1/reports/{legacy_id}").status_code == 404
@@ -239,9 +249,18 @@ def test_api_and_v1_error_parity(parity_client: TestClient, suffix: str, expecte
     v1 = parity_client.get(f"/api/v1{suffix}")
     assert legacy.status_code == v1.status_code
     assert legacy.status_code in expected
+    legacy_json = "application/json" in legacy.headers.get("content-type", "")
+    v1_json = "application/json" in v1.headers.get("content-type", "")
+    if legacy_json and v1_json:
+        assert legacy.json() == v1.json()
 
 
 def test_api_and_v1_unknown_route_parity(parity_client: TestClient):
     legacy = parity_client.get("/api/this-route-does-not-exist")
     v1 = parity_client.get("/api/v1/this-route-does-not-exist")
     assert legacy.status_code == v1.status_code == 404
+    if (
+        "application/json" in legacy.headers.get("content-type", "")
+        and "application/json" in v1.headers.get("content-type", "")
+    ):
+        assert legacy.json() == v1.json()
