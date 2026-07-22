@@ -202,7 +202,7 @@ describe("OverviewPage shared availability events", () => {
       screen.getByText("Several devices went offline around the same time"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/does not prove they share a Zigbee route, path, parent, or root cause/i),
+      screen.getByText(/does not prove they share a Zigbee route, path, parent, or common cause/i),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /review mesh evidence/i })).toHaveAttribute(
       "href",

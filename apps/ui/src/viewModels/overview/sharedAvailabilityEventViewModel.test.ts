@@ -84,7 +84,7 @@ describe("sharedAvailabilityEventViewModel", () => {
     const vm = buildSharedAvailabilityEventViewModel(makeEvent(), "Home");
     expect(vm.limitation).toBe(SHARED_AVAILABILITY_EVENT_LIMITATION);
     expect(vm.limitation).toMatch(/does not prove/i);
-    expect(vm.limitation).toMatch(/route, path, parent, or root cause/i);
+    expect(vm.limitation).toMatch(/route, path, parent, or common cause/i);
   });
 
   it("frames suggested checks as checks rather than causes", () => {

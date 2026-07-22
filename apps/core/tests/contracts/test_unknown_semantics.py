@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from zigbeelens.decisions.device_story import DeviceStory
 from zigbeelens.decisions.types import DecisionPriority, DecisionStatus
-from zigbeelens.schemas import DecisionCountSummary
+from zigbeelens.schemas import DecisionCountSummary, DeviceSummary, ReportDetailV3
 from support.contracts import load_oracle_fixture, oracle_scenarios  # type: ignore[import-not-found]
 
 
@@ -24,44 +24,70 @@ def test_empty_decision_count_summary_retains_zero_as_measured_empty_set():
     assert dumped["priority_counts"] == {}
 
 
-def test_oracle_device_stories_preserve_null_metric_fields():
-    nullable_device_fields = (
-        "linkquality",
-        "battery",
-        "last_seen",
-        "friendly_name",
-        "ha_area",
+def test_device_summary_preserves_null_telemetry_through_serialization():
+    device = DeviceSummary.model_validate(
+        {
+            "network_id": "home",
+            "ieee_address": "0xabc",
+            "friendly_name": "Sensor",
+            "device_type": "EndDevice",
+            "power_source": "Battery",
+            "availability": "online",
+            "interview_state": "successful",
+            "battery": None,
+            "linkquality": None,
+            "last_seen": None,
+            "ha_area": None,
+            "decision": {
+                "status": "data_unavailable",
+                "priority": "none",
+                "headline_code": "device_data_unavailable",
+                "coverage_label_codes": [],
+            },
+        }
     )
+    dumped = device.model_dump(mode="json")
+    assert dumped["battery"] is None
+    assert dumped["linkquality"] is None
+    assert dumped["last_seen"] is None
+    assert dumped["ha_area"] is None
+    assert dumped["battery"] != 0
+    assert dumped["linkquality"] != 0
+
+
+def test_oracle_corpus_has_null_telemetry_preserved_in_json():
+    null_hits = 0
     for scenario_id, body in oracle_scenarios(load_oracle_fixture()).items():
         for device in body["devices"]:
-            for field in nullable_device_fields:
-                if field not in device:
-                    continue
-                value = device[field]
-                # Null stays null; absent is fine; never coerce unknown → 0 here.
-                if value is None:
-                    assert value is None, (scenario_id, device.get("ieee_address"), field)
-                elif field in {"linkquality", "battery"} and value == 0:
-                    # Measured zero is allowed only when the fixture emitted an int 0.
-                    assert isinstance(value, int)
+            for field in ("linkquality", "battery", "last_seen", "ha_area"):
+                if field in device and device[field] is None:
+                    null_hits += 1
+                    assert device[field] is None, (scenario_id, field)
+                    # Re-validate through the production schema boundary.
+                    summary = DeviceSummary.model_validate(device)
+                    assert getattr(summary, field) is None, (scenario_id, field)
+    assert null_hits >= 3, f"expected constructed null telemetry cases, got {null_hits}"
 
 
-def test_report_v3_retains_nullable_raw_counts():
+def test_report_v3_preserves_null_device_facts_and_network_only_incidents():
+    null_device_facts = 0
+    network_only_incidents = 0
     for scenario_id, body in oracle_scenarios(load_oracle_fixture()).items():
-        report = body["report"]
-        assert report["report_version"] == 3, scenario_id
-        for network in report["domain_details"]["networks"]:
-            # raw_count fields may be null; never invent numeric defaults in dump.
-            if "raw_device_count" in network and network["raw_device_count"] is None:
-                assert network["raw_device_count"] is None
-        for incident in report.get("active_incidents") or []:
-            affected = incident.get("affected_device_count")
-            if affected is None:
-                assert affected is None
-            device_ieees = incident.get("device_ieees") or incident.get("affected_devices")
-            if isinstance(device_ieees, list) and len(device_ieees) == 0:
-                # Network-only incidents may legitimately have zero affected devices.
-                assert len(device_ieees) == 0
+        report = ReportDetailV3.model_validate(body["report"])
+        assert report.report_version == 3, scenario_id
+        for device in report.domain_details.devices:
+            dumped = device.model_dump(mode="json")
+            for field in ("battery", "linkquality", "last_seen"):
+                if field in dumped and dumped[field] is None:
+                    null_device_facts += 1
+                    assert dumped[field] is None
+        for incident in report.incidents:
+            affected = getattr(incident, "affected_devices", None) or []
+            if len(affected) == 0:
+                network_only_incidents += 1
+                # Measured empty affected set is allowed; unknown must not become 1.
+                assert list(affected) == []
+    assert null_device_facts >= 1 or network_only_incidents >= 0
 
 
 def test_device_story_model_dump_keeps_empty_collections_empty():

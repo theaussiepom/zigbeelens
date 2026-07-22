@@ -9,7 +9,7 @@ export const SHARED_AVAILABILITY_EVENT_TITLE =
   "Several devices went offline around the same time";
 
 export const SHARED_AVAILABILITY_EVENT_LIMITATION =
-  "Devices changing availability around the same time does not prove they share a Zigbee route, path, parent, or root cause.";
+  "Devices changing availability around the same time does not prove they share a Zigbee route, path, parent, or common cause.";
 
 const SHARED_AVAILABILITY_EVENT_CHECKS = [
   "Check Zigbee2MQTT status or logs around the event time.",
