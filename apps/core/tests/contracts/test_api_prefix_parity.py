@@ -188,13 +188,15 @@ def test_api_and_v1_same_request_report_mutation_parity(
     legacy_id = create_legacy.json()["id"]
     v1_id = create_v1.json()["id"]
 
-    # Canonical normalized bodies/downloads for the independently created reports.
+    # Canonical bodies/downloads for the independently created reports.
+    created_raw_bodies: dict[str, dict[str, Any]] = {}
     created_bodies: dict[str, dict[str, Any]] = {}
     created_downloads: dict[str, Any] = {}
 
     for label, report_id in (("api", legacy_id), ("api_v1", v1_id)):
         details: list[dict[str, Any]] = []
         downloads = []
+        raw_body: dict[str, Any] | None = None
         for prefix in ("/api", "/api/v1"):
             detail = parity_client.get(f"{prefix}/reports/{report_id}")
             assert detail.status_code == 200
@@ -203,6 +205,8 @@ def test_api_and_v1_same_request_report_mutation_parity(
             assert body["report_version"] == 3
             assert body["format"] == fmt
             ReportDetailV3.model_validate(body)
+            if raw_body is None:
+                raw_body = body
             details.append(_normalize_root_report_fields(body))
 
             download = parity_client.get(f"{prefix}/reports/{report_id}/download")
@@ -216,6 +220,8 @@ def test_api_and_v1_same_request_report_mutation_parity(
         assert _normalized_download_payload(fmt, downloads[0].content) == (
             _normalized_download_payload(fmt, downloads[1].content)
         )
+        assert raw_body is not None
+        created_raw_bodies[label] = raw_body
         created_bodies[label] = details[0]
         created_downloads[label] = _normalized_download_payload(fmt, downloads[0].content)
 
@@ -223,10 +229,53 @@ def test_api_and_v1_same_request_report_mutation_parity(
     assert created_bodies["api"] == created_bodies["api_v1"]
     assert created_downloads["api"] == created_downloads["api_v1"]
 
+    list_legacy = parity_client.get("/api/reports")
+    list_v1 = parity_client.get("/api/v1/reports")
+    assert list_legacy.status_code == list_v1.status_code == 200
+    # Exact list-body equality between prefixes (ordering preserved).
+    assert list_legacy.json() == list_v1.json()
+    listed = list_legacy.json()
+    listed_ids = [row["id"] for row in listed]
+    assert legacy_id in listed_ids
+    assert v1_id in listed_ids
+
+    api_list_row = next(row for row in listed if row["id"] == legacy_id)
+    v1_list_row = next(row for row in listed if row["id"] == v1_id)
+    assert _normalize_creation_summary(api_list_row) == _normalize_creation_summary(v1_list_row)
+
+    for report_id, create_body, detail_body in (
+        (legacy_id, create_legacy.json(), created_raw_bodies["api"]),
+        (v1_id, create_v1.json(), created_raw_bodies["api_v1"]),
+    ):
+        list_row = next(row for row in listed if row["id"] == report_id)
+        assert list_row["id"] == create_body["id"] == report_id
+        assert list_row["format"] == create_body["format"] == fmt
+        assert list_row["format"] == detail_body["format"]
+        assert list_row["scope"] == create_body["scope"] == detail_body["scope"]
+        assert list_row["redaction_profile"] == create_body["redaction_profile"]
+        assert list_row["redaction_profile"] == detail_body["redaction"]["profile"]
+        assert list_row["redaction_applied"] == create_body["redaction_applied"]
+        assert list_row["redaction_applied"] == detail_body["redaction"]["applied"]
+        assert list_row["incident_count"] == create_body["incident_count"]
+        assert list_row["incident_count"] == len(detail_body["incidents"])
+        assert list_row["device_count"] == create_body["device_count"]
+        assert list_row["network_count"] == create_body["network_count"]
+        assert list_row["summary"] == create_body["summary"]
+        assert list_row["generated_at"] == create_body["generated_at"] == detail_body["generated_at"]
+
     assert parity_client.delete(f"/api/reports/{legacy_id}").status_code == 200
     assert parity_client.get(f"/api/v1/reports/{legacy_id}").status_code == 404
     assert parity_client.delete(f"/api/v1/reports/{v1_id}").status_code == 200
     assert parity_client.get(f"/api/reports/{v1_id}").status_code == 404
+
+
+def _assert_json_error_parity(legacy, v1) -> None:
+    assert legacy.status_code == v1.status_code
+    legacy_ct = legacy.headers.get("content-type", "")
+    v1_ct = v1.headers.get("content-type", "")
+    assert "application/json" in legacy_ct, legacy_ct
+    assert "application/json" in v1_ct, v1_ct
+    assert legacy.json() == v1.json()
 
 
 @pytest.mark.parametrize(
@@ -247,20 +296,12 @@ def test_api_and_v1_same_request_report_mutation_parity(
 def test_api_and_v1_error_parity(parity_client: TestClient, suffix: str, expected: set[int]):
     legacy = parity_client.get(f"/api{suffix}")
     v1 = parity_client.get(f"/api/v1{suffix}")
-    assert legacy.status_code == v1.status_code
     assert legacy.status_code in expected
-    legacy_json = "application/json" in legacy.headers.get("content-type", "")
-    v1_json = "application/json" in v1.headers.get("content-type", "")
-    if legacy_json and v1_json:
-        assert legacy.json() == v1.json()
+    _assert_json_error_parity(legacy, v1)
 
 
 def test_api_and_v1_unknown_route_parity(parity_client: TestClient):
     legacy = parity_client.get("/api/this-route-does-not-exist")
     v1 = parity_client.get("/api/v1/this-route-does-not-exist")
     assert legacy.status_code == v1.status_code == 404
-    if (
-        "application/json" in legacy.headers.get("content-type", "")
-        and "application/json" in v1.headers.get("content-type", "")
-    ):
-        assert legacy.json() == v1.json()
+    _assert_json_error_parity(legacy, v1)
