@@ -1,14 +1,19 @@
-/** Report API types — Core payloads come from the shared package. */
+/**
+ * Report types — exact ReportDetailV3 only after the pre-release v3-only reset.
+ */
 
-import type { LegacyStoredReportBody, ReportDetailV3 } from "@zigbeelens/shared";
+import type { ReportDetailV3 } from "@zigbeelens/shared";
 
 export type {
-  LegacyStoredReportBody,
   ReportDetail,
   ReportDetailV3,
+  ReportDomainDetailsV3,
+  ReportFormat,
+  ReportRedactionStatus,
   ReportRequest,
+  ReportScope,
   ReportSummary,
+  StoredReport,
 } from "@zigbeelens/shared";
 
-/** Stored report GET may return exact v3 or an opaque legacy body. */
-export type StoredReport = ReportDetailV3 | LegacyStoredReportBody;
+export type StoredReportBody = ReportDetailV3;

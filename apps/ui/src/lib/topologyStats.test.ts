@@ -46,7 +46,7 @@ describe("resolveTopologyDisplayCounts", () => {
 });
 
 describe("snapshotSummaryLooksLimited", () => {
-  it("detects complete snapshots with zero topology counts", () => {
+  it("detects complete snapshots with measured-zero topology counts", () => {
     expect(
       snapshotSummaryLooksLimited({
         status: "complete",
@@ -59,6 +59,14 @@ describe("snapshotSummaryLooksLimited", () => {
       snapshotSummaryLooksLimited({
         status: "complete",
         router_count: 1,
+        end_device_count: 0,
+        link_count: 0,
+      }),
+    ).toBe(false);
+    expect(
+      snapshotSummaryLooksLimited({
+        status: "complete",
+        router_count: null,
         end_device_count: 0,
         link_count: 0,
       }),

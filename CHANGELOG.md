@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Phase 7B test architecture:** canonical oracle contract fixtures (`oracle_contract_version: 2` with Core-owned vocabulary manifest), Core/UI contract lanes, self-contained `scripts/validate-contracts.sh` (no `uv` requirement), Core→UI→ReportDetailV3 exact parity, unknown-not-zero and primary-copy guardrails, `/api`↔`/api/v1` decision/report matrix, OpenAPI structural checks; see `docs/test-architecture.md`
+
 ### Changed
 
+- **Pre-release report reset:** migration `014` deletes all stored development reports once (schema 13 → 14); after schema 14 only exact `ReportDetailV3` is supported for list/detail/download — no v1/v2 compatibility branch remains
 - **Phase 7A query bounds (final):** additive incident `order=recent` closes Overview PR #83; latest topology uses per-network indexed seeks (not history-wide `ROW_NUMBER`); device snapshot-history endpoint is target-row/link-bounded (no complete device inventory; network tracking via existence probe; `UNION ALL` + `idx_topology_links_snapshot_target`) with deep topology_facts parity; metric windows use deterministic `id` tie-break; shared-availability instability reads offline transitions in SQL; cursor versions accept only exact `int` `{1,2}`; History full/network report ops measured; migration `013` index-only and runtime-smoked on SQLite 3.34.1; Track 5 baselines frozen
 - **Phase 6A navigation:** primary workflows are Overview, Mesh / Investigate, Devices, Incidents, Reports, Settings; supporting Networks / Timeline / Topology snapshots / How it works live under Advanced & support; canonical investigation routes are `/investigate` and `/investigate/:networkId` with legacy `/topology/:networkId/graph` redirect compatibility
 - **Phase 6B router UX:** observed router areas are investigated in Mesh / Investigate; standalone Router diagnostics page removed; `/routers` remains a compatibility redirect; Core/HACS/report router facts retained; router-area cards can focus graph evidence and open the existing device drawer without changing layout or presets
@@ -17,8 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Phase 6C snapshot UX:** Device Detail owns primary Snapshot history after Device Story; NodeDrawer links to full device details without fetching history; `/topology` is an Advanced/support landing; `/topology/:networkId` is exact raw detail with collapsed contents; Overview no longer promotes raw snapshots; whole-network compare remains API/debug-only
 - **Phase 6C corrections:** route params are consumed exactly once; Device Detail path/API segments encode once; retained topology remains readable when capture is disabled; landing cards present truthful latest-snapshot status; Device Detail history loading/failure stays section-local
 - **Phase 6C refresh resilience:** loaded snapshot history and raw detail remain visible when a background refresh fails, with section-local retry; raw detail presentation is status-aware; capture actions require both topology enabled and manual capture
-- **Phase 6D contextual reports:** Create device/incident/network reports from their detail pages and Mesh; Reports is Saved reports history with Create full report; shared dialog uses Core `ReportDetailV3`; client-only Mesh evidence export removed from production; legacy v1/v2 stored reports remain immutable
-- **Phase 6D corrections:** stable semantic request identity; separate preview/mutation ownership; one-report post-save download; modal focus trap and launcher return; radiogroup format/profile selection; collision-safe saved-row action names; honest legacy Markdown copy; retained Saved reports list on refresh failure
+- **Phase 6D contextual reports:** Create device/incident/network reports from their detail pages and Mesh; Reports is Saved reports history with Create full report; shared dialog uses Core `ReportDetailV3`; client-only Mesh evidence export removed from production *(superseded for storage: migration 014 / exact-v3-only reads)*
+- **Phase 6D corrections:** stable semantic request identity; separate preview/mutation ownership; one-report post-save download; modal focus trap and launcher return; radiogroup format/profile selection; collision-safe saved-row action names; retained Saved reports list on refresh failure
 - **Phase 6D seal:** per-report Saved row operation ownership; refresh warning for accepted empty lists; dialog focus trap excludes closed Advanced controls; format/profile use `aria-pressed` button groups
 
 ### Added
@@ -26,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Track 6 retention policy v2:** telemetry-only `retention_days`, separate resolved-incident retention (default 90 days), reports retained until manual delete by default, periodic maintenance, integrity gates, online SQLite backup CLI, `/api/storage/status`
 - **Track 6 corrective pass (docs/ops):** `check` / `--dry-run` truly non-mutating; `--apply` never migrates (Core startup owns migrations including `012`); active topology capture exclusion; null resolved retention = keep indefinitely; reports until manual delete by default; symlink-safe backup; no automatic `VACUUM`; invalid/future timestamps retained; SSE `storage_maintenance_completed` plus category invalidations (`incidents_updated` / `reports_updated` / `timeline_updated` / `topology_updated`); `/api/storage/status` null totals before first success
 - **Decision contract v2:** public diagnostic DTOs are decision-only (`DecisionBadge`, `DecisionCountSummary`); capabilities advertise `decision_only_diagnostic_payloads`, `report_contract_v3`, `decision_mqtt_summary`
-- **Reports v3:** new reports use a single canonical decision-led body (`domain_details`, `collector_status`, `events_or_timeline`); stored v1/v2 remain readable/downloadable exactly as stored
+- **Reports v3:** new reports use a single canonical decision-led body (`domain_details`, `collector_status`, `events_or_timeline`); *(stored-report v1/v2 readability superseded by migration 014 exact-v3-only reset)*
 - **HACS:** requires exact decision contract v2; repair `core_decision_contract_incompatible`; new decision entity unique IDs (`overall_decision`, `review_first_devices`, …)
 - **MQTT Discovery:** decision-contract summary entities (`decision_status`, `review_first`, `worth_reviewing`, `coverage_warnings`, `active_incidents`, `unavailable`)
 - **Security:** Home Assistant ingress identity — exact ASGI peer trust, Supervisor `X-Remote-User-Id`, request-local identity, proxy-only add-on boundary

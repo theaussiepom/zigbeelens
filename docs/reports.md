@@ -35,18 +35,23 @@ Markdown is generated from the canonical decision sections (identity → decisio
 summary → priorities → Device Stories → coverage → incidents → factual scope →
 timeline → limitations → redaction note).
 
-## Stored v1 / v2 reports
+## Pre-release v3-only stored reports
 
-Older stored reports remain **immutable historical artifacts**.
+ZigbeeLens is still in initial development. There is **no** stored-report v1/v2
+compatibility promise.
 
-- Detected by `report_version` (and/or legacy field shape)
-- List, detail, and download return the **original stored body**
-- Markdown downloads return the **original stored Markdown**
-- Bodies are not rewritten on read and not re-evaluated through current decision logic
-- The UI shows a legacy notice for `report_version < 3`
-- Malformed legacy bodies fail safely without becoming a new report
+Migration **014** (`DELETE FROM reports`) clears every existing saved report once
+when upgrading schema 13 → 14. That reset is intentional: development-era bodies
+are discarded so the product starts from a clean exact-`ReportDetailV3` state.
 
-No SQLite migration rewrites report rows.
+After migration 014:
+
+- every new report write uses exact integer `report_version: 3`;
+- every stored report read validates exact `ReportDetailV3`;
+- missing/non-integer/non-3/malformed bodies fail closed (not displayed or downloaded);
+- there is one parser, one ViewModel path, and one current report contract suite.
+
+No legacy notice, upgrade converter, or opaque historical body path remains.
 
 ## Formats
 
@@ -144,13 +149,13 @@ Large networks may produce large reports — use narrower scopes for sharing.
 curl -X POST http://localhost:8377/api/reports \
   -H 'Content-Type: application/json' \
   -d '{
-    "scope": "overview",
+    "scope": "full",
     "format": "markdown",
-    "redaction": "public_safe"
+    "redaction": { "profile": "public_safe" }
   }'
 ```
 
-Preview without storing: `GET /api/reports/preview?redaction=public_safe`
+Preview without storing: `GET /api/reports/preview?profile=public_safe`
 
 ## Related
 

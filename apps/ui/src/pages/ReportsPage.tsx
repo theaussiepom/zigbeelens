@@ -173,7 +173,7 @@ export function ReportsPage() {
         <p className="mt-1">
           Secrets &mdash; MQTT passwords, tokens, and network keys &mdash; are redacted before any
           report is stored or downloaded. Historical snapshot evidence is included when available.
-          Legacy v1/v2 stored reports remain unchanged and downloadable as originally saved.
+          Saved reports use the current report format.
         </p>
       </div>
 

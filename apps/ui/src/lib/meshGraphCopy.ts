@@ -99,12 +99,9 @@ export const CONNECTION_CONTROL_COPY = {
   },
   recentMissingLinks: {
     label: "Recent missing links",
-    empty: "No recent missing links in the selected history window.",
   },
   lastKnownLinks: {
     label: "Last known links",
-    empty:
-      "Every device has link evidence in the latest snapshot, so no last known links are needed.",
   },
   suggestedInvestigationLinks: {
     label: "Suggested investigation links",
@@ -185,29 +182,6 @@ export function deviceSearchNoResultsCopy(query: string): string {
 /** Mesh launches the shared contextual network report dialog (Phase 6D). */
 export const MESH_CREATE_NETWORK_REPORT_LABEL = "Create network report";
 export const MESH_EXPORT_NETWORK_EVIDENCE_HINT = "Export network evidence";
-
-/** @deprecated Removed from production Mesh; retained for test helpers only. */
-export const REPORT_MENU_LABEL = "Create report";
-/** @deprecated Removed from production Mesh; retained for test helpers only. */
-export const REPORT_COPY_LABEL = "Copy summary";
-/** @deprecated Removed from production Mesh; retained for test helpers only. */
-export const REPORT_DOWNLOAD_MARKDOWN_LABEL = "Download Markdown";
-/** @deprecated Removed from production Mesh; retained for test helpers only. */
-export const REPORT_DOWNLOAD_JSON_LABEL = "Download JSON evidence summary";
-/** @deprecated Removed from production Mesh; retained for test helpers only. */
-export const REPORT_COPIED_MESSAGE = "Copied evidence summary.";
-/** @deprecated Removed from production Mesh; retained for test helpers only. */
-export const REPORT_COPY_FAILED_MESSAGE =
-  "Copy did not complete. Download the Markdown report instead.";
-
-/** Used by non-product meshEvidenceReport helper / parity tests only. */
-export const REPORT_TITLE = "ZigbeeLens evidence summary";
-export const REPORT_SAFETY_NOTE =
-  "This is an evidence summary, not a live routing map.";
-export const REPORT_ROUTE_HINT_NOTE =
-  "Route hints come from topology snapshot evidence at capture time. They are useful for review, but should not be treated as current live routing.";
-export const REPORT_PASSIVE_HINT_NOTE =
-  "Suggested investigation links come from passive observations. They can help decide which devices to inspect together, but they are not topology links.";
 
 /* ------------------------------------------------------------------------ */
 /* Snapshot compare (report builder support only)                            */
@@ -619,18 +593,24 @@ export const FORBIDDEN_USER_FACING_PHRASES: readonly string[] = [
   "child device",
   "current route",
   "currently routed",
+  "live route",
   "actual route",
   "actual path",
   "connected through",
   "root cause",
   "caused by",
   "failed because",
+  "failed link",
   "broken link",
   "lost link",
+  "disappeared",
   "inferred route",
   "derived route",
+  "derived neighbour",
+  "derived neighbor",
   "AI suggested",
   "AI detected",
+  "AI insight",
   "confidence score",
   "semantic inference",
   "nothing to see",

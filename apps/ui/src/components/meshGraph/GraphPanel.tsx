@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { GraphCanvasPanel } from "@/components/meshGraph/GraphCanvasPanel";
 import { GraphSidebar } from "@/components/meshGraph/GraphSidebar";
 import { GraphToolbar } from "@/components/meshGraph/GraphToolbar";
@@ -11,6 +11,9 @@ import {
   clearSavedPositions,
   type MeshLayoutMode,
 } from "@/lib/meshGraphSmartLayout";
+import type {
+  ConnectionHistoryPresentationViewModel,
+} from "@/viewModels/topology/connectionHistoryPresentationViewModel";
 
 export function GraphPanel({
   devices,
@@ -25,6 +28,7 @@ export function GraphPanel({
   onClearSelection,
   selectedNodeId,
   selectedEdge,
+  historyPresentation,
 }: {
   devices: MeshEvidenceDevice[];
   edges: MeshEvidenceEdge[];
@@ -38,6 +42,7 @@ export function GraphPanel({
   onClearSelection: () => void;
   selectedNodeId: string | null;
   selectedEdge: MeshEvidenceEdge | null;
+  historyPresentation: ConnectionHistoryPresentationViewModel;
 }) {
   const {
     controls,
@@ -64,7 +69,20 @@ export function GraphPanel({
   // Investigation focus is visual only: it highlights involved devices,
   // ensures involved edges are drawn, and dims the rest. It never moves
   // nodes, never changes connection controls, never mutates saved layout.
-  const [activeInvestigation, setActiveInvestigation] = useState<InvestigationCard | null>(null);
+  const [activeInvestigationId, setActiveInvestigationId] = useState<string | null>(null);
+  const activeInvestigation = useMemo(
+    () =>
+      activeInvestigationId
+        ? investigations.find((card) => card.id === activeInvestigationId) ?? null
+        : null,
+    [activeInvestigationId, investigations],
+  );
+
+  useEffect(() => {
+    if (activeInvestigationId && !activeInvestigation) {
+      setActiveInvestigationId(null);
+    }
+  }, [activeInvestigation, activeInvestigationId]);
 
   // Visual focus comes from the active investigation card.
   const visualFocus: InvestigationFocus | null = useMemo(() => {
@@ -100,7 +118,7 @@ export function GraphPanel({
   // saved connection choices. Investigation focus is cleared so the focus
   // mechanisms cannot fight.
   const selectSearchedDevice = (device: MeshEvidenceDevice) => {
-    setActiveInvestigation(null);
+    setActiveInvestigationId(null);
     onSelectNode(device);
   };
 
@@ -115,7 +133,7 @@ export function GraphPanel({
     const device = devices.find((entry) => entry.ieee_address === ieee);
     if (!device) return;
     // Keep investigation focus while opening the existing device drawer.
-    setActiveInvestigation(card);
+    setActiveInvestigationId(card.id);
     onSelectNode(device);
   };
 
@@ -152,8 +170,8 @@ export function GraphPanel({
         <GraphSidebar
           investigations={investigations}
           activeInvestigationId={activeInvestigation?.id ?? null}
-          onFocusInvestigation={setActiveInvestigation}
-          onClearInvestigationFocus={() => setActiveInvestigation(null)}
+          onFocusInvestigation={(card) => setActiveInvestigationId(card.id)}
+          onClearInvestigationFocus={() => setActiveInvestigationId(null)}
           canOpenPrimaryDevice={canOpenPrimaryDevice}
           onOpenPrimaryDevice={openPrimaryDevice}
           hasPassiveHints={hasPassiveHints}
@@ -161,6 +179,7 @@ export function GraphPanel({
           hasRouteHints={hasRouteHints}
           hasOldUncertainLinks={hasOldUncertainLinks}
           hasRecentMissingLinks={hasRecentMissingLinks}
+          historyPresentation={historyPresentation}
           controls={controls}
           activePreset={activePreset}
           setControl={setControl}

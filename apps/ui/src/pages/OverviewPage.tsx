@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
@@ -35,7 +35,10 @@ import {
   buildDataCoverageWarningViewModel,
 } from "@/viewModels/overview/dataCoverageViewModel";
 import {
+  isValidOverviewVisitTimestamp,
+  overviewVisitScope,
   readOverviewLastViewedAt,
+  resolveOverviewPreviousLastViewedAt,
   writeOverviewLastViewedAt,
 } from "@/lib/overviewVisitStorage";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
@@ -54,12 +57,57 @@ const DASHBOARD_EVENTS = [
 
 export function OverviewPage() {
   const { scenario } = useScenario();
+  const visitScope = overviewVisitScope(scenario);
 
+  // Scenario selection changes in place without remounting the routed page.
+  // Key the data-owning body by source scope so no frozen timestamp, accepted
+  // resource, or write guard can cross from one source into another.
+  return (
+    <OverviewPageForScope
+      key={visitScope}
+      scenario={scenario}
+      visitScope={visitScope}
+    />
+  );
+}
+
+function OverviewPageForScope({
+  scenario,
+  visitScope,
+}: {
+  scenario: string;
+  visitScope: string;
+}) {
   const dashboard = useLiveResource(() => api.dashboard(scenario || undefined), [scenario], {
     refetchOn: DASHBOARD_EVENTS,
   });
-  const previousLastViewedAt = useMemo(() => readOverviewLastViewedAt(), []);
-  const visitTimestamp = useMemo(() => new Date().toISOString(), []);
+  const storedLastViewedAt = useMemo(
+    () => readOverviewLastViewedAt(visitScope),
+    [visitScope],
+  );
+  const [visitTimestamp, setVisitTimestamp] = useState<string | null>(null);
+  const visitTimestampWritten = useRef(false);
+
+  useEffect(() => {
+    if (
+      visitTimestamp === null &&
+      dashboard.data &&
+      !dashboard.loading &&
+      isValidOverviewVisitTimestamp(dashboard.data.generated_at)
+    ) {
+      // Freeze the first accepted Core clock for this mount. Dashboard
+      // refreshes must not move the boundary for the visit already underway.
+      setVisitTimestamp(dashboard.data.generated_at);
+    }
+  }, [dashboard.data, dashboard.loading, visitTimestamp]);
+
+  const previousLastViewedAt = useMemo(
+    () =>
+      visitTimestamp
+        ? resolveOverviewPreviousLastViewedAt(storedLastViewedAt, visitTimestamp)
+        : null,
+    [storedLastViewedAt, visitTimestamp],
+  );
 
   const activeIncidentsResource = useLiveResource(
     () =>
@@ -73,7 +121,7 @@ export function OverviewPage() {
   );
   const recentIncidentsResource = useLiveResource(
     () => {
-      if (!previousLastViewedAt) {
+      if (!visitTimestamp || !previousLastViewedAt) {
         return Promise.resolve([]);
       }
       return api
@@ -85,15 +133,31 @@ export function OverviewPage() {
         })
         .then((r) => r.items);
     },
-    [scenario, previousLastViewedAt],
-    { refetchOn: DASHBOARD_EVENTS },
+    [scenario, previousLastViewedAt, visitTimestamp],
+    { enabled: Boolean(visitTimestamp), refetchOn: DASHBOARD_EVENTS },
   );
 
   useEffect(() => {
-    if (dashboard.data && !dashboard.loading) {
-      writeOverviewLastViewedAt(visitTimestamp);
+    const recentIncidentEvidenceAccepted =
+      previousLastViewedAt === null || recentIncidentsResource.data !== null;
+    if (
+      !visitTimestampWritten.current &&
+      visitTimestamp !== null &&
+      dashboard.data &&
+      !dashboard.loading &&
+      recentIncidentEvidenceAccepted
+    ) {
+      writeOverviewLastViewedAt(visitScope, visitTimestamp);
+      visitTimestampWritten.current = true;
     }
-  }, [dashboard.data, dashboard.loading, visitTimestamp]);
+  }, [
+    dashboard.data,
+    dashboard.loading,
+    previousLastViewedAt,
+    recentIncidentsResource.data,
+    visitScope,
+    visitTimestamp,
+  ]);
 
   if (dashboard.error) return <ErrorState message={dashboard.error} onRetry={() => {
     dashboard.refetch();
@@ -114,7 +178,7 @@ export function OverviewPage() {
     buildModelPatternViewModel(pattern, networkNames[pattern.network_id]),
   );
   // Server owns collection order (lifecycle rank, updated_at DESC, id DESC).
-  const active = activeIncidentsResource.data ?? [];
+  const active = activeIncidentsResource.data;
   const recentChanges = buildRecentChangesSectionViewModel({
     previousLastViewedAt,
     dashboard: data,
@@ -206,7 +270,19 @@ export function OverviewPage() {
         )}
       </section>
 
-      <RecentChangesSection section={recentChanges} />
+      <RecentChangesSection
+        section={recentChanges}
+        incidentEvidence={
+          previousLastViewedAt
+            ? {
+                hasAcceptedData: recentIncidentsResource.data !== null,
+                loading: recentIncidentsResource.loading,
+                error: recentIncidentsResource.error,
+                onRetry: recentIncidentsResource.refetch,
+              }
+            : undefined
+        }
+      />
 
       {dataCoverageWarnings.length > 0 && (
         <section className="space-y-3" aria-label={DATA_COVERAGE_SECTION_TITLE}>
@@ -261,19 +337,41 @@ export function OverviewPage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zl-muted">
             Active incidents
           </h2>
-          {active.length > 0 && (
+          {active && active.length > 0 && (
             <Link to="/incidents" className="text-sm text-zl-accent hover:underline">
               All incidents →
             </Link>
           )}
         </div>
-        {active.length === 0 ? (
-          <EmptyState title="No active incidents" detail="No correlated incident patterns right now." />
+        {active === null && activeIncidentsResource.loading ? (
+          <LoadingState label="Loading active incidents…" />
+        ) : active === null ? (
+          <ErrorState
+            message="Active incidents are unavailable."
+            onRetry={activeIncidentsResource.refetch}
+            retryLabel="Retry active incidents"
+          />
         ) : (
-          <div className="grid gap-3">
-            {active.slice(0, 4).map((inc) => (
-              <IncidentCard key={inc.id} incident={inc} />
-            ))}
+          <div className="space-y-3">
+            {activeIncidentsResource.error && (
+              <SectionRefreshWarning
+                message="Active incidents could not be refreshed. Showing the last loaded results."
+                onRetry={activeIncidentsResource.refetch}
+                retryLabel="Retry active incidents"
+              />
+            )}
+            {active.length === 0 ? (
+              <EmptyState
+                title="No active incidents"
+                detail="No correlated incident patterns right now."
+              />
+            ) : (
+              <div className="grid gap-3">
+                {active.slice(0, 4).map((inc) => (
+                  <IncidentCard key={inc.id} incident={inc} />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </section>
@@ -297,6 +395,33 @@ export function OverviewPage() {
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+function SectionRefreshWarning({
+  message,
+  onRetry,
+  retryLabel,
+}: {
+  message: string;
+  onRetry: () => void;
+  retryLabel: string;
+}) {
+  return (
+    <div
+      role="status"
+      className="rounded-lg border border-zl-watch/40 bg-zl-watch/10 px-3 py-2 text-sm text-zl-watch"
+    >
+      <p>{message}</p>
+      <button
+        type="button"
+        aria-label={retryLabel}
+        onClick={onRetry}
+        className="mt-2 min-h-11 rounded-lg border border-zl-border px-3 py-1.5 text-sm text-zl-text hover:bg-zl-surface-2"
+      >
+        Retry
+      </button>
     </div>
   );
 }

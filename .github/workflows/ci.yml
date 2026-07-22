@@ -13,6 +13,7 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: [contracts]
     steps:
       - uses: actions/checkout@v4
 
@@ -34,7 +35,7 @@ jobs:
         env:
           PYTHONPATH: apps/core/src
 
-  ui:
+  contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -44,8 +45,31 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Core (oracle fixture generation in UI tests)
+      - name: Install Core
         run: pip install -e "apps/core[dev]"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install JS dependencies
+        run: pnpm install
+
+      - name: Build shared types
+        run: pnpm --filter @zigbeelens/shared build
+
+      - name: Contract lane
+        run: bash scripts/validate-contracts.sh
+
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [contracts]
+    steps:
+      - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
 
@@ -94,7 +118,7 @@ jobs:
   packaging:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [backend, ui, ha-integration]
+    needs: [contracts, backend, ui, ha-integration]
     steps:
       - uses: actions/checkout@v4
 

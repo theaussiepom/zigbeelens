@@ -19,6 +19,9 @@ import {
   GRAPH_VIEW_PRESET_IDS,
   type GraphViewPresetId,
 } from "@/lib/meshGraphPresets";
+import type {
+  ConnectionHistoryPresentationViewModel,
+} from "@/viewModels/topology/connectionHistoryPresentationViewModel";
 
 export function GraphSidebar({
   investigations,
@@ -32,6 +35,7 @@ export function GraphSidebar({
   hasRouteHints,
   hasOldUncertainLinks,
   hasRecentMissingLinks,
+  historyPresentation,
   controls,
   activePreset,
   setControl,
@@ -49,6 +53,7 @@ export function GraphSidebar({
   hasRouteHints: boolean;
   hasOldUncertainLinks: boolean;
   hasRecentMissingLinks: boolean;
+  historyPresentation: ConnectionHistoryPresentationViewModel;
   controls: ConnectionControls;
   activePreset: GraphViewPresetId;
   setControl: (key: keyof ConnectionControls) => (value: boolean) => void;
@@ -145,20 +150,14 @@ export function GraphSidebar({
               />
               <ConnectionCheckbox
                 label={CONNECTION_CONTROL_COPY.recentMissingLinks.label}
-                helper={
-                  hasRecentMissingLinks
-                    ? undefined
-                    : CONNECTION_CONTROL_COPY.recentMissingLinks.empty
-                }
+                helper={historyPresentation.recentMissingLinks.helper}
                 checked={hasRecentMissingLinks && controls.recentMissingLinks}
                 disabled={!hasRecentMissingLinks}
                 onChange={setControl("recentMissingLinks")}
               />
               <ConnectionCheckbox
                 label={CONNECTION_CONTROL_COPY.lastKnownLinks.label}
-                helper={
-                  hasLastKnownLinks ? undefined : CONNECTION_CONTROL_COPY.lastKnownLinks.empty
-                }
+                helper={historyPresentation.lastKnownLinks.helper}
                 checked={hasLastKnownLinks && controls.lastKnownLinks}
                 disabled={!hasLastKnownLinks}
                 onChange={setControl("lastKnownLinks")}

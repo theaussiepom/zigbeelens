@@ -21,7 +21,7 @@ const LIMITED_LAYOUT_COPY =
   "Topology snapshot was captured, but Zigbee2MQTT did not provide usable node/link layout data. Device health still comes from passive MQTT inventory and state updates.";
 
 const POINT_IN_TIME_LIMITATION =
-  "This is point-in-time snapshot evidence. It does not prove a live route, current parentage, or that a link failed.";
+  "This is point-in-time snapshot evidence. It does not prove live routing, current parentage, or that a link failed.";
 
 const CAPTURE_DISABLED_NOTICE =
   "Topology capture is disabled in configuration. Retained snapshots remain readable as support evidence.";

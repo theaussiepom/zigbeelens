@@ -1,11 +1,18 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { DashboardPayload, Incident } from "@zigbeelens/shared";
-import { OVERVIEW_LAST_VIEWED_STORAGE_KEY } from "@/lib/overviewVisitStorage";
+import {
+  OVERVIEW_LAST_VIEWED_STORAGE_KEY,
+  OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY,
+  overviewVisitScope,
+  readOverviewLastViewedAt,
+  writeOverviewLastViewedAt,
+} from "@/lib/overviewVisitStorage";
+import { api } from "@/lib/api";
 import { makeDashboardPayload, makeNetworkSummary } from "@/test/decisionFixtures";
 import { OverviewPage } from "./OverviewPage";
 
@@ -37,6 +44,7 @@ const mockState = vi.hoisted(() => {
     coverage_warning_count: 0,
   };
   return {
+    scenario: "",
     dashboard: {
       generated_at: "2026-07-06T12:00:00+00:00",
       active_incident_count: 0,
@@ -77,6 +85,18 @@ const mockState = vi.hoisted(() => {
     } as DashboardPayload,
     activeIncidents: [] as Incident[],
     recentIncidents: [] as Incident[],
+    activeResource: {
+      dataOverride: undefined as Incident[] | null | undefined,
+      loading: false,
+      error: null as string | null,
+      refetch: vi.fn(),
+    },
+    recentResource: {
+      dataOverride: undefined as Incident[] | null | undefined,
+      loading: false,
+      error: null as string | null,
+      refetch: vi.fn(),
+    },
   };
 });
 
@@ -88,26 +108,34 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/context/ScenarioContext", () => ({
-  useScenario: () => ({ scenario: "", status: { topology: { enabled: true } } }),
+  useScenario: () => ({
+    scenario: mockState.scenario,
+    status: { topology: { enabled: true } },
+  }),
 }));
 
 vi.mock("@/hooks/useLiveResource", () => ({
-  useLiveResource: (fetcher: () => unknown) => {
+  useLiveResource: (fetcher: () => unknown, _deps: unknown[], options?: { enabled?: boolean }) => {
     const source = fetcher.toString();
     if (source.includes("incidents")) {
+      if (options?.enabled !== false) void fetcher();
       if (source.includes("updated_after") || source.includes("previousLastViewedAt")) {
         return {
-          data: mockState.recentIncidents,
-          loading: false,
-          error: null,
-          refetch: vi.fn(),
+          data: mockState.recentResource.dataOverride === undefined
+            ? mockState.recentIncidents
+            : mockState.recentResource.dataOverride,
+          loading: mockState.recentResource.loading,
+          error: mockState.recentResource.error,
+          refetch: mockState.recentResource.refetch,
         };
       }
       return {
-        data: mockState.activeIncidents,
-        loading: false,
-        error: null,
-        refetch: vi.fn(),
+        data: mockState.activeResource.dataOverride === undefined
+          ? mockState.activeIncidents
+          : mockState.activeResource.dataOverride,
+        loading: mockState.activeResource.loading,
+        error: mockState.activeResource.error,
+        refetch: mockState.activeResource.refetch,
       };
     }
     return {
@@ -162,12 +190,41 @@ function renderOverview() {
   );
 }
 
+function setStoredOverviewBoundary(timestamp: string, scenario = mockState.scenario) {
+  writeOverviewLastViewedAt(overviewVisitScope(scenario), timestamp);
+}
+
+function storedOverviewBoundary(scenario = mockState.scenario) {
+  return readOverviewLastViewedAt(overviewVisitScope(scenario));
+}
+
+function recentIncidentQueries() {
+  return vi
+    .mocked(api.incidents)
+    .mock.calls.map(([query]) => query)
+    .filter((query) => Boolean(query?.updated_after));
+}
+
 function headingIndex(text: string): number {
   const headings = screen.getAllByRole("heading").map((node) => node.textContent ?? "");
   const index = headings.findIndex((value) => value.includes(text));
   expect(index).toBeGreaterThanOrEqual(0);
   return index;
 }
+
+beforeEach(() => {
+  mockState.scenario = "";
+  vi.mocked(api.incidents).mockReset();
+  vi.mocked(api.incidents).mockResolvedValue({ items: [], total: 0 });
+  mockState.activeResource.dataOverride = undefined;
+  mockState.activeResource.loading = false;
+  mockState.activeResource.error = null;
+  mockState.activeResource.refetch = vi.fn();
+  mockState.recentResource.dataOverride = undefined;
+  mockState.recentResource.loading = false;
+  mockState.recentResource.error = null;
+  mockState.recentResource.refetch = vi.fn();
+});
 
 describe("OverviewPage shared availability events", () => {
   beforeEach(() => {
@@ -202,7 +259,7 @@ describe("OverviewPage shared availability events", () => {
       screen.getByText("Several devices went offline around the same time"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/does not prove they share a Zigbee route, path, parent, or root cause/i),
+      screen.getByText(/does not prove they share a Zigbee route, path, parent, or common cause/i),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /review mesh evidence/i })).toHaveAttribute(
       "href",
@@ -426,12 +483,12 @@ describe("OverviewPage recent changes and data coverage", () => {
       screen.getByText("Recent changes will appear here after your next visit."),
     ).toBeInTheDocument();
     await waitFor(() => {
-      expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBeTruthy();
+      expect(storedOverviewBoundary()).toBeTruthy();
     });
   });
 
   it("renders recent shared events since the previous visit", () => {
-    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, "2026-07-05T00:00:00.000Z");
+    setStoredOverviewBoundary("2026-07-05T00:00:00.000Z");
     mockState.dashboard = makeDashboard({
       shared_availability_events: [
         {
@@ -451,7 +508,7 @@ describe("OverviewPage recent changes and data coverage", () => {
   });
 
   it("places recent changes and coverage between priorities and shared events", () => {
-    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, "2026-07-05T00:00:00.000Z");
+    setStoredOverviewBoundary("2026-07-05T00:00:00.000Z");
     mockState.dashboard = makeDashboard({
       investigation_priorities: [
         {
@@ -593,5 +650,448 @@ describe("OverviewPage server incident order", () => {
     expect(titles.indexOf("Newer open incident")).toBeLessThan(
       titles.indexOf("Older severe open incident"),
     );
+  });
+});
+
+describe("OverviewPage secondary incident resource states", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockState.dashboard = makeDashboard();
+    mockState.activeIncidents = [];
+    mockState.recentIncidents = [];
+  });
+
+  it("keeps dashboard content visible while active incidents load", () => {
+    mockState.activeResource.dataOverride = null;
+    mockState.activeResource.loading = true;
+    renderOverview();
+    expect(screen.getByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    expect(screen.getByText("Loading active incidents…")).toBeInTheDocument();
+    expect(screen.queryByText("No active incidents")).not.toBeInTheDocument();
+  });
+
+  it("shows an active-incident unavailable state with Retry", () => {
+    mockState.activeResource.dataOverride = null;
+    mockState.activeResource.error = "request failed";
+    renderOverview();
+    expect(screen.getByText("Active incidents are unavailable.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry active incidents" })).toBeInTheDocument();
+    expect(screen.queryByText("No active incidents")).not.toBeInTheDocument();
+  });
+
+  it("shows factual active-incident empty copy for an accepted empty result", () => {
+    renderOverview();
+    expect(screen.getByText("No active incidents")).toBeInTheDocument();
+  });
+
+  it("renders accepted active incidents", () => {
+    mockState.activeIncidents = [makeOverviewIncident({ title: "Accepted active incident" })];
+    renderOverview();
+    expect(screen.getByText("Accepted active incident")).toBeInTheDocument();
+    expect(screen.queryByText("No active incidents")).not.toBeInTheDocument();
+  });
+
+  it("retains accepted active incidents after a refresh error", () => {
+    mockState.activeIncidents = [makeOverviewIncident({ title: "Retained active incident" })];
+    mockState.activeResource.error = "refresh failed";
+    renderOverview();
+    expect(screen.getByText("Retained active incident")).toBeInTheDocument();
+    expect(
+      screen.getByText("Active incidents could not be refreshed. Showing the last loaded results."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry active incidents" })).toBeInTheDocument();
+  });
+
+  it("does not claim no changes while recent incidents are loading", () => {
+    setStoredOverviewBoundary("2026-07-05T00:00:00.000Z");
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.loading = true;
+    renderOverview();
+    expect(screen.getByText("Loading incident changes…")).toBeInTheDocument();
+    expect(
+      screen.queryByText("No recorded changes since your previous Overview visit."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("retains dashboard-derived changes with a partial-data warning while incidents load", () => {
+    setStoredOverviewBoundary("2026-07-05T00:00:00.000Z");
+    mockState.dashboard = makeDashboard({
+      shared_availability_events: [
+        {
+          event_id: "shared-partial",
+          network_id: "home",
+          started_at: "2026-07-06T08:00:00+00:00",
+          ended_at: "2026-07-06T08:04:00+00:00",
+          device_count: 4,
+          duration_minutes: 4,
+          device_ieees: [],
+        },
+      ],
+    });
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.loading = true;
+    renderOverview();
+    expect(screen.getByText("Shared availability event recorded")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Incident changes are still loading. Showing changes from the loaded dashboard evidence.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("No recorded changes since your previous Overview visit."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not claim no changes when the initial recent-incident request fails", () => {
+    setStoredOverviewBoundary("2026-07-05T00:00:00.000Z");
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.error = "request failed";
+    renderOverview();
+    expect(screen.getByText("Incident changes are unavailable.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry incident changes" })).toBeInTheDocument();
+    expect(
+      screen.queryByText("No recorded changes since your previous Overview visit."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows factual no-change copy when recent incidents are accepted empty", () => {
+    setStoredOverviewBoundary("2026-07-05T00:00:00.000Z");
+    renderOverview();
+    expect(
+      screen.getByText("No recorded changes since your previous Overview visit."),
+    ).toBeInTheDocument();
+  });
+
+  it("retains accepted recent incidents after a refresh error", () => {
+    setStoredOverviewBoundary("2026-07-05T00:00:00.000Z");
+    mockState.recentIncidents = [
+      makeOverviewIncident({
+        title: "Retained recent incident",
+        updated_at: "2026-07-16T12:00:00Z",
+      }),
+    ];
+    mockState.recentResource.error = "refresh failed";
+    renderOverview();
+    expect(screen.getByText("Retained recent incident")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Incident changes could not be refreshed. Showing the last loaded incident evidence.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry incident changes" })).toBeInTheDocument();
+  });
+
+  it("gives simultaneous active-incident and incident-change retries unique accessible names", () => {
+    setStoredOverviewBoundary("2026-07-05T00:00:00.000Z");
+    mockState.activeResource.dataOverride = null;
+    mockState.activeResource.error = "active request failed";
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.error = "recent request failed";
+
+    renderOverview();
+
+    const retryNames = screen.getAllByRole("button", { name: /^Retry / }).map(
+      (button) => button.getAttribute("aria-label") ?? button.textContent,
+    );
+    expect(retryNames).toEqual(["Retry incident changes", "Retry active incidents"]);
+    expect(new Set(retryNames).size).toBe(retryNames.length);
+  });
+});
+
+describe("OverviewPage visit watermark", () => {
+  const previousBoundary = "2026-07-05T00:00:00.000Z";
+  const browserTimestamp = "2026-07-22T03:04:05.000Z";
+  const coreTimestamp = "2026-07-06T12:00:00+00:00";
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(browserTimestamp));
+    localStorage.clear();
+    mockState.dashboard = makeDashboard();
+    mockState.activeIncidents = [];
+    mockState.recentIncidents = [];
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("writes the first watermark once dashboard data is accepted", () => {
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.loading = true;
+    renderOverview();
+    expect(storedOverviewBoundary()).toBe(coreTimestamp);
+  });
+
+  it("preserves a previous boundary while recent incidents are initially loading", () => {
+    setStoredOverviewBoundary(previousBoundary);
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.loading = true;
+    renderOverview();
+    expect(storedOverviewBoundary()).toBe(previousBoundary);
+  });
+
+  it("preserves a previous boundary after an initial recent-incident failure", () => {
+    setStoredOverviewBoundary(previousBoundary);
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.error = "request failed";
+    renderOverview();
+    expect(storedOverviewBoundary()).toBe(previousBoundary);
+  });
+
+  it("advances after an accepted empty recent-incident result", () => {
+    setStoredOverviewBoundary(previousBoundary);
+    renderOverview();
+    expect(storedOverviewBoundary()).toBe(coreTimestamp);
+  });
+
+  it("advances after an accepted nonempty recent-incident result", () => {
+    setStoredOverviewBoundary(previousBoundary);
+    mockState.recentIncidents = [makeOverviewIncident()];
+    renderOverview();
+    expect(storedOverviewBoundary()).toBe(coreTimestamp);
+  });
+
+  it("advances with retained accepted incident data after a refresh error", () => {
+    setStoredOverviewBoundary(previousBoundary);
+    mockState.recentIncidents = [makeOverviewIncident()];
+    mockState.recentResource.error = "refresh failed";
+    renderOverview();
+    expect(storedOverviewBoundary()).toBe(coreTimestamp);
+  });
+
+  it("advances when retry produces the first accepted incident result", () => {
+    setStoredOverviewBoundary(previousBoundary);
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.error = "request failed";
+    const view = renderOverview();
+    expect(storedOverviewBoundary()).toBe(previousBoundary);
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry incident changes" }));
+    expect(mockState.recentResource.refetch).toHaveBeenCalledTimes(1);
+    mockState.dashboard = makeDashboard({ generated_at: "2026-07-06T13:00:00+00:00" });
+    mockState.recentResource.dataOverride = [];
+    mockState.recentResource.error = null;
+    view.rerender(
+      <MemoryRouter>
+        <OverviewPage />
+      </MemoryRouter>,
+    );
+
+    expect(storedOverviewBoundary()).toBe(coreTimestamp);
+  });
+
+  it("uses Core time when the browser clock is behind", () => {
+    vi.setSystemTime(new Date("2020-01-01T00:00:00.000Z"));
+    renderOverview();
+
+    expect(storedOverviewBoundary()).toBe(coreTimestamp);
+  });
+
+  it("stores native, scenario A, and scenario B Core timestamps independently", () => {
+    const view = renderOverview();
+    expect(storedOverviewBoundary("")).toBe(coreTimestamp);
+
+    mockState.scenario = "scenario-a";
+    mockState.dashboard = makeDashboard({ generated_at: "2026-07-04T10:00:00+00:00" });
+    view.rerender(
+      <MemoryRouter>
+        <OverviewPage />
+      </MemoryRouter>,
+    );
+    expect(storedOverviewBoundary("scenario-a")).toBe("2026-07-04T10:00:00+00:00");
+    expect(recentIncidentQueries()).toHaveLength(0);
+
+    mockState.scenario = "scenario-b";
+    mockState.dashboard = makeDashboard({ generated_at: "2026-07-08T10:00:00+00:00" });
+    view.rerender(
+      <MemoryRouter>
+        <OverviewPage />
+      </MemoryRouter>,
+    );
+    expect(storedOverviewBoundary("scenario-b")).toBe("2026-07-08T10:00:00+00:00");
+    expect(storedOverviewBoundary("scenario-a")).toBe("2026-07-04T10:00:00+00:00");
+    expect(storedOverviewBoundary("")).toBe(coreTimestamp);
+  });
+
+  it("switching scenario A to native restores only the native query boundary", () => {
+    const nativeBoundary = "2026-07-05T00:00:00.000Z";
+    const scenarioBoundary = "2026-07-06T00:00:00.000Z";
+    setStoredOverviewBoundary(nativeBoundary, "");
+    setStoredOverviewBoundary(scenarioBoundary, "scenario-a");
+    mockState.scenario = "scenario-a";
+    mockState.dashboard = makeDashboard({ generated_at: "2026-07-07T00:00:00+00:00" });
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.loading = true;
+    const view = renderOverview();
+
+    expect(recentIncidentQueries()).toContainEqual(
+      expect.objectContaining({ scenario: "scenario-a", updated_after: scenarioBoundary }),
+    );
+    expect(storedOverviewBoundary("scenario-a")).toBe(scenarioBoundary);
+
+    vi.mocked(api.incidents).mockClear();
+    mockState.scenario = "";
+    mockState.dashboard = makeDashboard({ generated_at: "2026-07-08T00:00:00+00:00" });
+    view.rerender(
+      <MemoryRouter>
+        <OverviewPage />
+      </MemoryRouter>,
+    );
+
+    expect(recentIncidentQueries()).toContainEqual(
+      expect.objectContaining({ scenario: undefined, updated_after: nativeBoundary }),
+    );
+    expect(storedOverviewBoundary("")).toBe(nativeBoundary);
+    expect(storedOverviewBoundary("scenario-a")).toBe(scenarioBoundary);
+  });
+
+  it.each([
+    { state: "loading", loading: true, error: null },
+    { state: "error", loading: false, error: "request failed" },
+  ])("preserves a scenario boundary during initial incident $state", ({ loading, error }) => {
+    const scenarioBoundary = "2026-07-06T00:00:00.000Z";
+    setStoredOverviewBoundary(scenarioBoundary, "scenario-a");
+    mockState.scenario = "scenario-a";
+    mockState.dashboard = makeDashboard({ generated_at: "2026-07-09T00:00:00+00:00" });
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.loading = loading;
+    mockState.recentResource.error = error;
+
+    renderOverview();
+
+    expect(storedOverviewBoundary("scenario-a")).toBe(scenarioBoundary);
+    expect(recentIncidentQueries()).toContainEqual(
+      expect.objectContaining({ scenario: "scenario-a", updated_after: scenarioBoundary }),
+    );
+  });
+
+  it("writes a scenario retry using that scope's original accepted Core timestamp", () => {
+    const scenarioBoundary = "2026-07-06T00:00:00.000Z";
+    const acceptedCoreTimestamp = "2026-07-09T00:00:00+00:00";
+    setStoredOverviewBoundary(scenarioBoundary, "scenario-a");
+    mockState.scenario = "scenario-a";
+    mockState.dashboard = makeDashboard({ generated_at: acceptedCoreTimestamp });
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.error = "request failed";
+    const view = renderOverview();
+    expect(storedOverviewBoundary("scenario-a")).toBe(scenarioBoundary);
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry incident changes" }));
+    mockState.dashboard = makeDashboard({ generated_at: "2026-07-10T00:00:00+00:00" });
+    mockState.recentResource.dataOverride = [];
+    mockState.recentResource.error = null;
+    view.rerender(
+      <MemoryRouter>
+        <OverviewPage />
+      </MemoryRouter>,
+    );
+
+    expect(storedOverviewBoundary("scenario-a")).toBe(acceptedCoreTimestamp);
+    expect(storedOverviewBoundary("")).toBeNull();
+  });
+
+  it("does not let a pending old-scope visit write after switching scopes", () => {
+    const scenarioBoundary = "2026-07-05T00:00:00.000Z";
+    setStoredOverviewBoundary(scenarioBoundary, "scenario-a");
+    mockState.scenario = "scenario-a";
+    mockState.dashboard = makeDashboard({ generated_at: "2026-07-07T00:00:00+00:00" });
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.loading = true;
+    const view = renderOverview();
+
+    mockState.scenario = "scenario-b";
+    mockState.dashboard = makeDashboard({ generated_at: "2026-07-08T00:00:00+00:00" });
+    mockState.recentResource.dataOverride = [];
+    mockState.recentResource.loading = false;
+    view.rerender(
+      <MemoryRouter>
+        <OverviewPage />
+      </MemoryRouter>,
+    );
+
+    expect(storedOverviewBoundary("scenario-a")).toBe(scenarioBoundary);
+    expect(storedOverviewBoundary("scenario-b")).toBe("2026-07-08T00:00:00+00:00");
+  });
+
+  it("discards an ambiguous past v1 boundary before selecting an incident query", () => {
+    const legacyBoundary = "2026-07-05T00:00:00.000Z";
+    localStorage.setItem(
+      OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY,
+      legacyBoundary,
+    );
+    renderOverview();
+
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY)).toBeNull();
+    expect(recentIncidentQueries()).toEqual([]);
+    expect(
+      vi.mocked(api.incidents).mock.calls.map(([query]) => query?.updated_after),
+    ).not.toContain(legacyBoundary);
+    expect(
+      screen.getByText("Recent changes will appear here after your next visit."),
+    ).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY) ?? "{}")).toEqual({
+      [overviewVisitScope("")]: coreTimestamp,
+    });
+  });
+
+  it("repairs a pre-existing future v2 boundary conservatively", () => {
+    setStoredOverviewBoundary("2027-01-01T00:00:00.000Z");
+    renderOverview();
+
+    expect(storedOverviewBoundary()).toBe(coreTimestamp);
+    expect(recentIncidentQueries()).toEqual([]);
+    expect(
+      screen.getByText("Recent changes will appear here after your next visit."),
+    ).toBeInTheDocument();
+  });
+
+  it("writes each scope's Core boundary only once per accepted visit cycle", () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    const view = renderOverview();
+    mockState.dashboard = makeDashboard({ generated_at: "2026-07-06T14:00:00+00:00" });
+    view.rerender(
+      <MemoryRouter>
+        <OverviewPage />
+      </MemoryRouter>,
+    );
+
+    mockState.scenario = "scenario-a";
+    mockState.dashboard = makeDashboard({ generated_at: "2026-07-07T12:00:00+00:00" });
+    view.rerender(
+      <MemoryRouter>
+        <OverviewPage />
+      </MemoryRouter>,
+    );
+    mockState.dashboard = makeDashboard({ generated_at: "2026-07-07T14:00:00+00:00" });
+    view.rerender(
+      <MemoryRouter>
+        <OverviewPage />
+      </MemoryRouter>,
+    );
+
+    expect(
+      setItem.mock.calls.filter(([key]) => key === OVERVIEW_LAST_VIEWED_STORAGE_KEY),
+    ).toEqual([
+      [
+        OVERVIEW_LAST_VIEWED_STORAGE_KEY,
+        JSON.stringify({ [overviewVisitScope("")]: coreTimestamp }),
+      ],
+      [
+        OVERVIEW_LAST_VIEWED_STORAGE_KEY,
+        JSON.stringify({
+          [overviewVisitScope("")]: coreTimestamp,
+          [overviewVisitScope("scenario-a")]: "2026-07-07T12:00:00+00:00",
+        }),
+      ],
+    ]);
+    setItem.mockRestore();
+  });
+
+  it("does not persist an invalid Core dashboard timestamp", () => {
+    mockState.dashboard = makeDashboard({ generated_at: "not-a-timestamp" });
+    renderOverview();
+
+    expect(storedOverviewBoundary()).toBeNull();
   });
 });

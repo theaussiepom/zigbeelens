@@ -208,6 +208,20 @@ describe("ReportsPage saved history", () => {
     expect(screen.queryByText("Choose a target")).not.toBeInTheDocument();
   });
 
+  it("explains current evidence snapshots without promising legacy report compatibility", async () => {
+    renderPage();
+    await screen.findByRole("heading", { name: "Reports" });
+    const explanation = screen.getByText(/Reports are generated from ZigbeeLens/).parentElement;
+    expect(explanation).toHaveTextContent("evidence-backed snapshots, not root-cause proof");
+    expect(explanation).toHaveTextContent("redacted before any report is stored or downloaded");
+    expect(explanation).toHaveTextContent(
+      "Historical snapshot evidence is included when available",
+    );
+    expect(explanation).toHaveTextContent("Saved reports use the current report format");
+    expect(explanation).not.toHaveTextContent(/legacy v1\/v2/i);
+    expect(explanation).not.toHaveTextContent(/downloadable as originally saved/i);
+  });
+
   it("shows empty guidance without target pickers", async () => {
     renderPage();
     expect(await screen.findByText("No saved reports yet.")).toBeInTheDocument();
@@ -289,18 +303,20 @@ describe("ReportsPage saved history", () => {
     expect(writeProtectedClipboardText).toHaveBeenCalled();
   });
 
-  it("does not copy when legacy Markdown is unavailable", async () => {
+  it("does not copy when report detail fails protocol (non-v3)", async () => {
     listReports.mockResolvedValue([makeStored()]);
-    reportDetail.mockResolvedValueOnce({ report_version: 1, body: {} });
+    reportDetail.mockRejectedValueOnce(
+      Object.assign(new Error("Core returned a malformed decision contract."), {
+        kind: "protocol",
+      }),
+    );
     renderPage();
     fireEvent.click(
       await screen.findByRole("button", {
         name: /Copy Markdown from network JSON report generated/i,
       }),
     );
-    expect(
-      await screen.findByText("Markdown summary is not available for this stored report."),
-    ).toBeInTheDocument();
+    await waitFor(() => expect(reportDetail).toHaveBeenCalled());
     expect(writeProtectedClipboardText).not.toHaveBeenCalled();
   });
 

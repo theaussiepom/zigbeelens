@@ -66,9 +66,11 @@ export function snapshotSummaryLooksLimited(snapshot: {
   status?: string | null;
 }): boolean {
   if (snapshot.status !== "complete") return false;
+  // Measured-zero layout-limited only when every count is present and zero.
+  // Null means unknown and must not be treated as measured zero.
   return (
-    (snapshot.router_count ?? 0) === 0 &&
-    (snapshot.end_device_count ?? 0) === 0 &&
-    (snapshot.link_count ?? 0) === 0
+    snapshot.router_count === 0 &&
+    snapshot.end_device_count === 0 &&
+    snapshot.link_count === 0
   );
 }

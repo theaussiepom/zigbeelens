@@ -196,13 +196,25 @@ export function InvestigationPanel({
     () => buildInvestigationPanelViewModel(investigations),
     [investigations],
   );
-  const visibleCards = showAll
-    ? panel.cards
-    : panel.cards.slice(0, INVESTIGATION_CARDS_INITIALLY_VISIBLE);
+  const collapsedCards = useMemo(() => {
+    const activeCardIndex = activeInvestigationId
+      ? panel.cards.findIndex((card) => card.id === activeInvestigationId)
+      : -1;
+    return panel.cards.filter(
+      (_card, index) =>
+        index < INVESTIGATION_CARDS_INITIALLY_VISIBLE || index === activeCardIndex,
+    );
+  }, [activeInvestigationId, panel.cards]);
+  const visibleCards = showAll ? panel.cards : collapsedCards;
+  const hiddenCardCount = panel.cards.length - collapsedCards.length;
   const cardById = useMemo(
     () => new Map(investigations.map((card) => [card.id, card])),
     [investigations],
   );
+  const clearFocus = () => {
+    setShowAll(false);
+    onClearFocus();
+  };
 
   return (
     <div role="region" aria-label={panel.title} className="space-y-3">
@@ -230,14 +242,14 @@ export function InvestigationPanel({
                   viewModel={viewModel}
                   active={viewModel.id === activeInvestigationId}
                   onFocus={onFocus}
-                  onClearFocus={onClearFocus}
+                  onClearFocus={clearFocus}
                   canOpenPrimaryDevice={canOpenPrimaryDevice}
                   onOpenPrimaryDevice={onOpenPrimaryDevice}
                 />
               );
             })}
           </div>
-          {panel.cards.length > INVESTIGATION_CARDS_INITIALLY_VISIBLE && (
+          {hiddenCardCount > 0 && (
             <button
               type="button"
               onClick={() => setShowAll((v) => !v)}
@@ -245,7 +257,7 @@ export function InvestigationPanel({
             >
               {showAll
                 ? "Show fewer"
-                : `Show more (${panel.cards.length - INVESTIGATION_CARDS_INITIALLY_VISIBLE})`}
+                : `Show more (${hiddenCardCount})`}
             </button>
           )}
         </>

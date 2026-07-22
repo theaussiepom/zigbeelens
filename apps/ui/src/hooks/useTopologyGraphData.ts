@@ -3,7 +3,6 @@ import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
 import { api } from "@/lib/api";
 import { buildLiveMeshEvidence } from "@/lib/meshEvidenceLive";
-import type { TopologyEvidenceGraphDetail } from "@/types/topology";
 
 /** Factual device-inventory invalidations; excludes topology_updated. */
 const DEVICE_INVENTORY_EVENTS = [
@@ -42,14 +41,16 @@ export function useTopologyGraphData(networkId: string | undefined) {
 
   const liveEvidence = useMemo(() => {
     if (!detail.data) return null;
-    return buildLiveMeshEvidence(detail.data, inventory.data?.items ?? []);
+    return buildLiveMeshEvidence(detail.data, inventory.data?.items ?? null);
   }, [detail.data, inventory.data]);
 
   const snapshot = detail.data?.latest_snapshot;
-  const layoutAvailable = Boolean(
-    detail.data?.layout_available ??
-      ((detail.data?.nodes?.length ?? 0) > 0 || (detail.data?.links?.length ?? 0) > 0),
-  );
+  const layoutAvailable = detail.data
+    ? Boolean(
+        detail.data.layout_available ??
+          (detail.data.nodes.length > 0 || detail.data.links.length > 0),
+      )
+    : false;
   const topologyEnabled = status?.topology?.enabled ?? true;
 
   // Stable data identity for layout caching: network + snapshot only.
@@ -65,6 +66,6 @@ export function useTopologyGraphData(networkId: string | undefined) {
     layoutAvailable,
     topologyEnabled,
     liveSignatureSeed,
-    graphDetail: detail.data as TopologyEvidenceGraphDetail | null,
+    graphDetail: detail.data,
   };
 }

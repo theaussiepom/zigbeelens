@@ -710,7 +710,6 @@ export type {
 } from "@/types/devices";
 export type { Incident } from "@/types/incidents";
 export type {
-  LegacyStoredReportBody,
   ReportDetail,
   ReportDetailV3,
   ReportRequest,

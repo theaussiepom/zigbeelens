@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "@/lib/api";
 import {
-  classifyStoredReportVersion,
   isCoverageLabelCode,
   isDecisionPriority,
   isDecisionStatus,
@@ -329,16 +328,20 @@ describe("decisionContract", () => {
     ).toThrow(ApiError);
   });
 
-  it("classifies stored report versions exactly", () => {
-    expect(classifyStoredReportVersion({}).kind).toBe("legacy");
-    expect(classifyStoredReportVersion({ report_version: 1 }).kind).toBe("legacy");
-    expect(classifyStoredReportVersion({ report_version: "2" }).kind).toBe("legacy");
-    expect(classifyStoredReportVersion({ report_version: 3 }).kind).toBe("current");
-    expect(classifyStoredReportVersion({ report_version: "3" }).kind).toBe("protocol_error");
-    expect(classifyStoredReportVersion({ report_version: 3.5 }).kind).toBe("protocol_error");
-    expect(classifyStoredReportVersion({ report_version: true }).kind).toBe("protocol_error");
-    expect(classifyStoredReportVersion({ report_version: 4 }).kind).toBe("protocol_error");
-    expect(() => parseStoredReport({ report_version: "3" })).toThrow(ApiError);
+  it("rejects non-exact-v3 stored reports as protocol errors", () => {
+    for (const body of [
+      {},
+      { report_version: 1 },
+      { report_version: 2 },
+      { report_version: "1" },
+      { report_version: "2" },
+      { report_version: "3" },
+      { report_version: 3.5 },
+      { report_version: true },
+      { report_version: 4 },
+    ]) {
+      expect(() => parseStoredReport(body)).toThrow(ApiError);
+    }
   });
 
   it("requires the exact ReportDetailV3 top-level key set", () => {

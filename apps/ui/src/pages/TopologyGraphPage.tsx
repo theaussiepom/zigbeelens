@@ -13,6 +13,9 @@ import { topologyStatusLabel } from "@/lib/topologyLabels";
 import { topologySnapshotPath } from "@/lib/routes";
 import { GRAPH_SAFETY_COPY_LIVE, EVIDENCE_COVERAGE_STRIP_TITLE } from "@/lib/meshGraphCopy";
 import { buildEvidenceCoverageStripViewModel } from "@/viewModels/coverage/coverageStripViewModel";
+import {
+  buildConnectionHistoryPresentationViewModel,
+} from "@/viewModels/topology/connectionHistoryPresentationViewModel";
 
 const LIMITED_LAYOUT_COPY =
   "Topology snapshot was captured, but Zigbee2MQTT did not provide usable node/link layout data. Device health still comes from passive MQTT inventory and state updates.";
@@ -38,13 +41,14 @@ export function TopologyGraphPage() {
     clearSelection,
     clearEdge,
     clearNode,
-  } = useGraphSelection();
+  } = useGraphSelection(networkId, liveEvidence);
 
-  const liveSnapshotEdgeCount =
-    liveEvidence?.edges.filter((edge) => edge.in_latest_snapshot).length ?? 0;
   const networkCoverageStrip = buildEvidenceCoverageStripViewModel(
     graphDetail?.topology_facts?.coverage ?? [],
   );
+  const historyPresentation = graphDetail
+    ? buildConnectionHistoryPresentationViewModel(graphDetail)
+    : null;
 
   return (
     <div className="max-w-7xl space-y-6">
@@ -76,6 +80,24 @@ export function TopologyGraphPage() {
       >
         {GRAPH_SAFETY_COPY_LIVE}
       </div>
+
+      {detail.data && inventory.data === null && (
+        <MeshInventoryWarning
+          message={
+            inventory.loading
+              ? "Device inventory is still loading. Showing topology evidence without inventory confirmation."
+              : "Device inventory is unavailable. Showing topology evidence without inventory confirmation."
+          }
+          onRetry={inventory.error ? inventory.refetch : undefined}
+        />
+      )}
+
+      {detail.data && inventory.data !== null && inventory.error && (
+        <MeshInventoryWarning
+          message="Device inventory could not be refreshed. Showing the last loaded inventory confirmation."
+          onRetry={inventory.refetch}
+        />
+      )}
 
       {!networkId ? (
         <Card title="No network selected">
@@ -163,13 +185,12 @@ export function TopologyGraphPage() {
             </p>
           </div>
         </Card>
-      ) : liveEvidence && snapshot ? (
+      ) : graphDetail && liveEvidence && snapshot && historyPresentation ? (
         <>
           <TopologyMetricStrip
-            networkId={networkId}
             graphDetail={graphDetail}
             snapshot={snapshot}
-            liveEdgeCount={liveSnapshotEdgeCount}
+            liveEdgeCount={liveEvidence.edges.filter((edge) => edge.in_latest_snapshot).length}
           />
           <EvidenceCoverageStrip
             title={EVIDENCE_COVERAGE_STRIP_TITLE}
@@ -191,6 +212,7 @@ export function TopologyGraphPage() {
             onClearSelection={clearSelection}
             selectedNodeId={selectedNodeId}
             selectedEdge={selectedEdge}
+            historyPresentation={historyPresentation}
           />
         </>
       ) : null}
@@ -204,6 +226,33 @@ export function TopologyGraphPage() {
       )}
       {selectedDevice && (
         <NodeDrawer device={selectedDevice} onClose={clearNode} />
+      )}
+    </div>
+  );
+}
+
+function MeshInventoryWarning({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div
+      role="status"
+      className="rounded-lg border border-zl-watch/40 bg-zl-watch/10 px-3 py-2 text-sm text-zl-watch"
+    >
+      <p>{message}</p>
+      {onRetry && (
+        <button
+          type="button"
+          aria-label="Retry device inventory"
+          onClick={onRetry}
+          className="mt-2 min-h-11 rounded-lg border border-zl-border px-3 py-1.5 text-sm text-zl-text hover:bg-zl-surface-2"
+        >
+          Retry
+        </button>
       )}
     </div>
   );

@@ -77,7 +77,7 @@ def _insert_incident(
 
 def test_migration_creates_incident_networks(tmp_path: Path):
     db = Database(tmp_path / "mig.sqlite")
-    assert db.migrate() == 13
+    assert db.migrate() == 14
     tables = {
         row[0]
         for row in db.conn.execute(

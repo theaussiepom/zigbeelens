@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeviceSummary } from "@zigbeelens/shared";
 import { TopologyGraphPage } from "@/pages/TopologyGraphPage";
@@ -13,7 +13,6 @@ import type {
   LastKnownLinkAggregate,
   PassiveHintAggregate,
   TopologyEvidenceGraphDetail,
-  TopologyNetworkDetail,
 } from "@/lib/api";
 import { api } from "@/lib/api";
 import type { DataCoverageDto } from "@/types/decisions";
@@ -27,6 +26,7 @@ import { findForbiddenUserFacingPhrases, GRAPH_VIEW_DRAW_MORE_LINKS } from "@/li
 import { viewPresetStorageKey } from "@/lib/meshGraphPresets";
 import { positionStorageKey } from "@/lib/meshGraphSmartLayout";
 import { mockReactFlow } from "@/test/mockReactFlow";
+import { makeTopologyEvidenceGraphDetail } from "@/test/topologyEvidenceGraphFixture";
 
 beforeAll(() => {
   mockReactFlow();
@@ -108,7 +108,7 @@ const liveDevices: DeviceSummary[] = [
   }),
 ];
 
-const liveDetailHome: TopologyNetworkDetail = {
+const liveDetailHome = makeTopologyEvidenceGraphDetail({
   network_id: "home",
   network_name: "Home",
   latest_snapshot: {
@@ -153,9 +153,9 @@ const liveDetailHome: TopologyNetworkDetail = {
   ],
   inventory: { device_count: 4, router_count: 1, end_device_count: 2 },
   layout_available: true,
-};
+});
 
-const liveDetailLimited: TopologyNetworkDetail = {
+const liveDetailLimited = makeTopologyEvidenceGraphDetail({
   network_id: "home2",
   network_name: "Home 2",
   latest_snapshot: {
@@ -172,7 +172,7 @@ const liveDetailLimited: TopologyNetworkDetail = {
   links: [],
   inventory: { device_count: 102, router_count: 14, end_device_count: 88 },
   layout_available: false,
-};
+});
 
 const HISTORICAL_NEIGHBOR_LIMITATIONS = [
   "This link was seen recently but is not in the latest usable snapshot. That can happen if the device is sleepy, recently moved, powered off, or simply absent from the latest map. Check the device before treating this as a mesh problem.",
@@ -226,7 +226,7 @@ function makeHistoricalAggregate(
 }
 
 /** The home network plus backend-aggregated recent-missing evidence. */
-const liveDetailWithHistory: TopologyEvidenceGraphDetail = {
+const liveDetailWithHistory: TopologyEvidenceGraphDetail = makeTopologyEvidenceGraphDetail({
   ...liveDetailHome,
   data_source: "latest_snapshot_plus_history",
   latest_layout_limited: false,
@@ -269,22 +269,9 @@ const liveDetailWithHistory: TopologyEvidenceGraphDetail = {
   device_stats: {},
   device_stats_window: { days: 7, max_snapshots: 10, snapshots_considered: 0 },
   limitations: [],
-  counts: {
-    latest_snapshot_neighbor_edges: 2,
-    latest_snapshot_route_edges: 1,
-    historical_neighbor_edges: 1,
-    historical_route_edges: 1,
-    recent_missing_link_count_total: 2,
-    last_known_link_count: 0,
-    passive_hint_count_available: 0,
-    passive_hint_count_total: 0,
-    passive_hint_count_drawn: null,
-    hidden_for_readability: null,
-    known_inventory_devices: 4,
-    observed_topology_nodes: 3,
-  },
+  counts: undefined,
   topology_facts: emptyTopologyNetworkFacts,
-};
+});
 
 const LAST_KNOWN_LIMITATIONS = [
   "This is the most recent stored link evidence for a device that reported no links in the latest snapshot. It is last known evidence, not a currently reported link, and does not prove current connectivity or live routing.",
@@ -309,14 +296,11 @@ function makeLastKnownLink(overrides: Partial<LastKnownLinkAggregate>): LastKnow
 }
 
 /** The home network plus one last known link for a linkless sleepy device. */
-const liveDetailWithLastKnown: TopologyEvidenceGraphDetail = {
+const liveDetailWithLastKnown: TopologyEvidenceGraphDetail = makeTopologyEvidenceGraphDetail({
   ...liveDetailWithHistory,
   last_known_links: [makeLastKnownLink({})],
-  counts: {
-    ...liveDetailWithHistory.counts,
-    last_known_link_count: 1,
-  },
-};
+  counts: undefined,
+});
 
 const PASSIVE_HINT_LIMITATIONS = [
   "This suggestion comes from passive observations, not topology evidence. It is useful for deciding which devices to inspect together, but it should not be treated as a connection between them.",
@@ -348,15 +332,11 @@ function makePassiveHint(overrides: Partial<PassiveHintAggregate>): PassiveHintA
 }
 
 /** The home network plus one passive-derived investigation hint. */
-const liveDetailWithPassiveHints: TopologyEvidenceGraphDetail = {
+const liveDetailWithPassiveHints: TopologyEvidenceGraphDetail = makeTopologyEvidenceGraphDetail({
   ...liveDetailWithHistory,
   passive_hints: [makePassiveHint({})],
-  counts: {
-    ...liveDetailWithHistory.counts,
-    passive_hint_count_available: 1,
-    passive_hint_count_total: 1,
-  },
-};
+  counts: undefined,
+});
 
 const INVESTIGATION_GENERIC_LIMITATION =
   "This is a place to look first based on available ZigbeeLens evidence. It is not a root-cause claim and does not prove live routing or current connectivity.";
@@ -390,16 +370,18 @@ function makeInvestigationCard(overrides: Partial<InvestigationCard>): Investiga
 }
 
 /** The home network plus one ranked problem-first investigation card. */
-const liveDetailWithInvestigations: TopologyEvidenceGraphDetail = {
+const liveDetailWithInvestigations: TopologyEvidenceGraphDetail = makeTopologyEvidenceGraphDetail({
   ...liveDetailWithHistory,
   investigations: [makeInvestigationCard({})],
   investigation_counts: { available: 1, returned: 1 },
-};
+  counts: undefined,
+});
 
 // Same snapshot, but the link table references an endpoint that appears in
 // neither the node list nor the inventory (seen on real networks).
-const liveDetailWithGhostEndpoint: TopologyNetworkDetail = {
+const liveDetailWithGhostEndpoint: TopologyEvidenceGraphDetail = makeTopologyEvidenceGraphDetail({
   ...liveDetailHome,
+  latest_snapshot: { ...liveDetailHome.latest_snapshot, link_count: 4 },
   links: [
     ...liveDetailHome.links!,
     {
@@ -410,7 +392,8 @@ const liveDetailWithGhostEndpoint: TopologyNetworkDetail = {
       route_count: null,
     },
   ],
-};
+  counts: undefined,
+});
 
 /**
  * A dense network shaped like the real reference deployment: a coordinator
@@ -419,7 +402,7 @@ const liveDetailWithGhostEndpoint: TopologyNetworkDetail = {
  * (0xr7) already flagged as needing attention.
  */
 function makeDenseNetwork(routerCount = 30): {
-  detail: TopologyNetworkDetail;
+  detail: TopologyEvidenceGraphDetail;
   devices: DeviceSummary[];
 } {
   const nodes = [
@@ -432,7 +415,7 @@ function makeDenseNetwork(routerCount = 30): {
       device_type: "Coordinator",
     }),
   ];
-  const links: NonNullable<TopologyNetworkDetail["links"]> = [];
+  const links: TopologyEvidenceGraphDetail["links"] = [];
   for (let i = 0; i < routerCount; i += 1) {
     const ieee = `0xr${i}`;
     nodes.push({ ieee_address: ieee, friendly_name: `Dense Router ${i}`, node_type: "Router" });
@@ -471,7 +454,7 @@ function makeDenseNetwork(routerCount = 30): {
     route_count: 2,
   });
   return {
-    detail: {
+    detail: makeTopologyEvidenceGraphDetail({
       network_id: "home",
       network_name: "Home",
       latest_snapshot: {
@@ -488,13 +471,17 @@ function makeDenseNetwork(routerCount = 30): {
       links,
       inventory: { device_count: devices.length, router_count: routerCount, end_device_count: 0 },
       layout_available: true,
-    },
+    }),
     devices,
   };
 }
 
-let mockDetail: TopologyNetworkDetail | null = liveDetailHome;
+let mockDetail: TopologyEvidenceGraphDetail | null = liveDetailHome;
 let mockDevices: DeviceSummary[] = liveDevices;
+let mockInventoryAccepted = true;
+let mockInventoryLoading = false;
+let mockInventoryError: string | null = null;
+let mockInventoryRefetch = vi.fn();
 
 vi.mock("@/context/ScenarioContext", () => ({
   useScenario: () => ({
@@ -522,10 +509,12 @@ vi.mock("@/hooks/useLiveResource", async (importOriginal) => {
         options.refetchOn.includes("dashboard_updated")
       ) {
         return {
-          data: { items: mockDevices, total: mockDevices.length },
-          loading: false,
-          error: null,
-          refetch: vi.fn(),
+          data: mockInventoryAccepted
+            ? { items: mockDevices, total: mockDevices.length }
+            : null,
+          loading: mockInventoryLoading,
+          error: mockInventoryError,
+          refetch: mockInventoryRefetch,
         };
       }
       // Evidence graph: single networkId dependency.
@@ -578,6 +567,10 @@ const emptyDeviceStory: DeviceStoryDto = {
 beforeEach(() => {
   mockDetail = liveDetailHome;
   mockDevices = liveDevices;
+  mockInventoryAccepted = true;
+  mockInventoryLoading = false;
+  mockInventoryError = null;
+  mockInventoryRefetch = vi.fn();
   localStorage.clear();
   vi.spyOn(api, "topologyDeviceSnapshotHistory").mockImplementation(() =>
     Promise.resolve(emptyDeviceHistory),
@@ -604,6 +597,15 @@ function renderGraphPage(networkId = "home") {
   );
 }
 
+function ChangeNetworkButton({ networkId }: { networkId: string }) {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate(`/investigate/${networkId}`)}>
+      Change test network
+    </button>
+  );
+}
+
 async function renderLiveAndWaitForLayout(networkId = "home") {
   const result = renderGraphPage(networkId);
   await screen.findByText("Live Hall Router");
@@ -619,6 +621,8 @@ describe("TopologyGraphPage live mode", () => {
     expect(screen.queryByText(/sample data/i)).not.toBeInTheDocument();
     expect(screen.getByText("Snapshot status")).toBeInTheDocument();
     expect(screen.getByText("Captured")).toBeInTheDocument();
+    expect(screen.getByText("Observed topology nodes").parentElement).toHaveTextContent("3");
+    expect(screen.getByText("Recent missing links").parentElement).toHaveTextContent("—");
   });
 
   it("renders the live devices from the evidence API", async () => {
@@ -626,6 +630,237 @@ describe("TopologyGraphPage live mode", () => {
     expect(screen.getByText("Live Coordinator")).toBeInTheDocument();
     expect(screen.getByText("Live Lamp")).toBeInTheDocument();
     expect(screen.getByText("Live Sleepy Sensor")).toBeInTheDocument();
+  });
+
+  it("renders topology while device inventory is still loading without claiming inventory absence", async () => {
+    mockInventoryAccepted = false;
+    mockInventoryLoading = true;
+
+    await renderLiveAndWaitForLayout();
+    expect(
+      screen.getByText(
+        "Device inventory is still loading. Showing topology evidence without inventory confirmation.",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(
+      within(drawer).getByText("Device inventory unavailable — inventory status unknown"),
+    ).toBeInTheDocument();
+    expect(drawer).not.toHaveTextContent("not in the current device inventory");
+  });
+
+  it("renders topology after an initial inventory failure with a contextual retry", async () => {
+    mockInventoryAccepted = false;
+    mockInventoryError = "request failed";
+
+    await renderLiveAndWaitForLayout();
+    expect(
+      screen.getByText(
+        "Device inventory is unavailable. Showing topology evidence without inventory confirmation.",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry device inventory" }));
+    expect(mockInventoryRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats an accepted empty inventory as factual absence", async () => {
+    mockDevices = [];
+
+    await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    expect(screen.getByRole("dialog", { name: /device details/i })).toHaveTextContent(
+      "Observed in topology snapshot only — not in the current device inventory",
+    );
+  });
+
+  it("includes inventory-only devices after an accepted nonempty inventory arrives", async () => {
+    mockInventoryAccepted = false;
+    const view = await renderLiveAndWaitForLayout();
+    expect(screen.queryByText("Live Sleepy Sensor")).not.toBeInTheDocument();
+
+    mockInventoryAccepted = true;
+    view.rerender(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Live Sleepy Sensor")).toBeInTheDocument();
+  });
+
+  it("updates an open device drawer when inventory Retry succeeds", async () => {
+    mockInventoryAccepted = false;
+    mockInventoryError = "request failed";
+    const view = await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(drawer).toHaveTextContent("Device inventory unavailable — inventory status unknown");
+    fireEvent.click(screen.getByRole("button", { name: "Retry device inventory" }));
+    expect(mockInventoryRefetch).toHaveBeenCalledTimes(1);
+
+    mockInventoryAccepted = true;
+    mockInventoryError = null;
+    mockDevices = liveDevices.map((device) =>
+      device.ieee_address === "0xe1"
+        ? {
+            ...device,
+            friendly_name: "Accepted Kitchen Router",
+            device_type: "Router",
+            decision: {
+              status: "review_first",
+              priority: "high",
+              headline_code: "device_review_first",
+              coverage_label_codes: [],
+            },
+          }
+        : device,
+    );
+    view.rerender(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await within(drawer).findByText("Accepted Kitchen Router")).toBeInTheDocument();
+    expect(drawer).toHaveTextContent("Router");
+    expect(drawer).toHaveTextContent("Needs attention");
+    expect(drawer).toHaveTextContent("In Zigbee2MQTT device inventory");
+  });
+
+  it("closes an open device drawer when the selected identity disappears", async () => {
+    const view = await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    expect(screen.getByRole("dialog", { name: /device details/i })).toBeInTheDocument();
+
+    const links = liveDetailHome.links.filter(
+      (link) => link.source_ieee !== "0xe1" && link.target_ieee !== "0xe1",
+    );
+    mockDevices = liveDevices.filter((device) => device.ieee_address !== "0xe1");
+    mockDetail = makeTopologyEvidenceGraphDetail({
+      ...liveDetailHome,
+      latest_snapshot: {
+        ...liveDetailHome.latest_snapshot,
+        end_device_count: 0,
+        link_count: links.length,
+      },
+      nodes: liveDetailHome.nodes.filter((node) => node.ieee_address !== "0xe1"),
+      links,
+      counts: undefined,
+    });
+    view.rerender(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: /device details/i })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("updates an open edge drawer and closes it if the edge disappears", async () => {
+    const view = await renderLiveAndWaitForLayout();
+    fireEvent.click(
+      await screen.findByLabelText("Route hint from Live Hall Router to Live Coordinator"),
+    );
+    const drawer = screen.getByRole("dialog", { name: /link details/i });
+    expect(within(drawer).getByText("Route hints observed").nextElementSibling).toHaveTextContent(
+      "2",
+    );
+
+    const refreshedLinks = liveDetailHome.links.map((link) =>
+      link.source_ieee === "0xr1" && link.target_ieee === "0xc0"
+        ? { ...link, route_count: 7 }
+        : link,
+    );
+    mockDetail = makeTopologyEvidenceGraphDetail({
+      ...liveDetailHome,
+      links: refreshedLinks,
+      counts: undefined,
+    });
+    view.rerender(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(within(drawer).getByText("Route hints observed").nextElementSibling).toHaveTextContent(
+      "7",
+    );
+
+    mockDetail = makeTopologyEvidenceGraphDetail({
+      ...liveDetailHome,
+      links: refreshedLinks.map((link) => ({ ...link, route_count: 0 })),
+      counts: undefined,
+    });
+    view.rerender(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: /link details/i })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("clears an open drawer when the network route changes", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <ChangeNetworkButton networkId="home2" />
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByText("Live Hall Router");
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    expect(screen.getByRole("dialog", { name: /device details/i })).toBeInTheDocument();
+
+    mockDetail = liveDetailLimited;
+    mockDevices = [];
+    await user.click(screen.getByRole("button", { name: "Change test network" }));
+
+    expect(
+      await screen.findByText(/did not provide usable node\/link layout data/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /device details/i })).not.toBeInTheDocument();
+  });
+
+  it("retains accepted inventory evidence after a refresh failure", async () => {
+    const view = await renderLiveAndWaitForLayout();
+    expect(screen.getByText("Live Sleepy Sensor")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(drawer).toHaveTextContent("In Zigbee2MQTT device inventory");
+
+    mockInventoryError = "refresh failed";
+    view.rerender(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(
+      screen.getByText(
+        "Device inventory could not be refreshed. Showing the last loaded inventory confirmation.",
+      ),
+    ).toBeInTheDocument();
+    expect(drawer).toHaveTextContent("In Zigbee2MQTT device inventory");
+    expect(drawer).toHaveTextContent("End device");
+    expect(drawer).toHaveTextContent("Healthy");
+    expect(screen.getByRole("button", { name: "Retry device inventory" })).toBeInTheDocument();
   });
 
   it("maps neighbour links to latest_snapshot_neighbor edges, merging directions", async () => {
@@ -669,8 +904,17 @@ describe("TopologyGraphPage live mode", () => {
     expect(connectionCheckbox(/recent missing links/i)).toBeDisabled();
     expect(screen.queryByText(/previously seen/i)).not.toBeInTheDocument();
     expect(
-      screen.getByText("No recent missing links in the selected history window."),
+      screen.getByText(
+        "No previous complete snapshots are available in the selected 7-day history window, so recent missing links could not be evaluated.",
+      ),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "No previous complete snapshots are available, so last known links could not be evaluated.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Live Sleepy Sensor")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/every device has link evidence/i);
     // No passive hints in this response: suggested investigation links
     // disabled with honest empty copy.
     expect(
@@ -686,10 +930,11 @@ describe("TopologyGraphPage live mode", () => {
   });
 
   it("disables route hints with capture guidance when the snapshot has no route tables", async () => {
-    mockDetail = {
+    mockDetail = makeTopologyEvidenceGraphDetail({
       ...liveDetailHome,
       links: liveDetailHome.links!.map((link) => ({ ...link, route_count: 0 })),
-    };
+      counts: undefined,
+    });
     const { container } = await renderLiveAndWaitForLayout();
     expect(connectionCheckbox(/route hints/i)).toBeDisabled();
     expect(screen.getByText(/No route hints in the latest snapshot/)).toBeInTheDocument();
@@ -873,7 +1118,7 @@ describe("TopologyGraphPage live mode", () => {
   });
 
   it("shows a waiting state when no snapshot exists", async () => {
-    mockDetail = {
+    mockDetail = makeTopologyEvidenceGraphDetail({
       network_id: "home2",
       network_name: "Home 2",
       latest_snapshot: null,
@@ -881,7 +1126,7 @@ describe("TopologyGraphPage live mode", () => {
       links: [],
       inventory: { device_count: 5, router_count: 1, end_device_count: 3 },
       layout_available: false,
-    };
+    });
     renderGraphPage("home2");
     expect(await screen.findByText("Waiting for a topology snapshot")).toBeInTheDocument();
     expect(
@@ -889,7 +1134,7 @@ describe("TopologyGraphPage live mode", () => {
     ).toBeInTheDocument();
   });
 
-  it("creates a clearly labelled placeholder node for a link endpoint unknown to inventory and node list", async () => {
+  it("creates a clearly labelled placeholder node for a link endpoint absent from accepted inventory and node list", async () => {
     mockDetail = liveDetailWithGhostEndpoint;
     await renderLiveAndWaitForLayout();
     const ghost = screen.getByTestId("mesh-node-0xghost");
@@ -899,7 +1144,9 @@ describe("TopologyGraphPage live mode", () => {
     fireEvent.click(ghost);
     const drawer = screen.getByRole("dialog", { name: /device details/i });
     expect(
-      within(drawer).getByText("Referenced by topology links only — unknown to inventory and node list"),
+      within(drawer).getByText(
+        "Referenced by topology links only — not in the current device inventory or node list",
+      ),
     ).toBeInTheDocument();
     expect(
       within(drawer).getByText(
@@ -1045,7 +1292,7 @@ describe("TopologyGraphPage layout stability", () => {
     const before = nodePosition(view.container, "0xr1");
 
     // Simulate a routine API refetch: identical content, fresh object identity.
-    mockDetail = JSON.parse(JSON.stringify(liveDetailHome)) as TopologyNetworkDetail;
+    mockDetail = structuredClone(liveDetailHome);
     view.rerender(
       <MemoryRouter initialEntries={["/investigate/home"]}>
         <Routes>
@@ -1125,7 +1372,9 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     expect(panel.getByRole("checkbox", { name: /recent missing links/i })).toBeDisabled();
     expect(panel.queryByText(/previously seen/i)).not.toBeInTheDocument();
     expect(
-      panel.getByText("No recent missing links in the selected history window."),
+      panel.getByText(
+        "No previous complete snapshots are available in the selected 7-day history window, so recent missing links could not be evaluated.",
+      ),
     ).toBeInTheDocument();
     expect(panel.queryByRole("checkbox", { name: /selected device links/i })).not.toBeInTheDocument();
 
@@ -1407,6 +1656,9 @@ describe("TopologyGraphPage historical evidence (live)", () => {
     const checkbox = connectionCheckbox(/recent missing links/i);
     expect(checkbox).toBeEnabled();
     expect(checkbox).toBeChecked();
+    expect(
+      screen.getByText("2 recent missing links are available from evaluated history."),
+    ).toBeInTheDocument();
     // The old label is gone everywhere.
     expect(screen.queryByText(/previously seen/i)).not.toBeInTheDocument();
     // Troubleshooting preset: historical edges render by default.
@@ -1670,45 +1922,6 @@ describe("TopologyGraphPage historical evidence (live)", () => {
     expect(within(drawer).queryByText(/no recent missing/i)).not.toBeInTheDocument();
   });
 
-  it("qualifies rather than overclaims when the latest layout is limited", async () => {
-    const limitedNeighborCopy =
-      "This neighbour link was observed in a recent previous topology snapshot. The latest snapshot has limited topology evidence, so absence from the latest graph is not meaningful by itself.";
-    mockDetail = {
-      ...liveDetailWithHistory,
-      latest_layout_limited: true,
-      historical_neighbors: [
-        makeHistoricalAggregate({
-          latest_layout_limited: true,
-          not_seen_in_latest_snapshot: true,
-          limitations: [limitedNeighborCopy],
-        }),
-      ],
-      historical_routes: [],
-    };
-    await renderLiveAndWaitForLayout();
-    const edge = await screen.findByLabelText(
-      "Recent missing link between Live Lamp and Live Sleepy Sensor",
-    );
-    fireEvent.click(edge);
-    const drawer = screen.getByRole("dialog", { name: /link details/i });
-    expect(
-      within(drawer).getAllByText(/absence from the latest graph is not meaningful by itself/i)
-        .length,
-    ).toBeGreaterThan(0);
-    // No unqualified "missing from latest" claim.
-    expect(
-      within(drawer).queryByText(/not observed in the latest topology snapshot\./i),
-    ).not.toBeInTheDocument();
-
-    // Node drawer carries the same qualification.
-    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
-    const nodeDrawer = screen.getByRole("dialog", { name: /device details/i });
-    expect(
-      within(nodeDrawer).getByText(
-        /the latest snapshot has limited topology evidence, so absence from the latest graph is not meaningful by itself/i,
-      ),
-    ).toBeInTheDocument();
-  });
 });
 
 describe("TopologyGraphPage historical evidence on large graphs", () => {
@@ -2065,6 +2278,9 @@ describe("TopologyGraphPage last known links", () => {
     const checkbox = panel.getByRole("checkbox", { name: /last known links/i });
     expect(checkbox).toBeEnabled();
     expect(checkbox).toBeChecked();
+    expect(
+      screen.getByText("1 last known link is available from stored evidence."),
+    ).toBeInTheDocument();
   });
 
   it("turning the control off removes the drawn edge", async () => {
@@ -2103,7 +2319,7 @@ describe("TopologyGraphPage last known links", () => {
     expect(text).not.toMatch(/currently routed/i);
   });
 
-  it("disables the control with honest copy when every device has latest link evidence", async () => {
+  it("disables the control with measured-empty copy after history was evaluated", async () => {
     mockDetail = liveDetailWithHistory;
     await renderLiveAndWaitForLayout();
     const panel = connectionControlsPanel();
@@ -2112,7 +2328,7 @@ describe("TopologyGraphPage last known links", () => {
     expect(checkbox).not.toBeChecked();
     expect(
       panel.getByText(
-        "Every device has link evidence in the latest snapshot, so no last known links are needed.",
+        "Previous snapshots were evaluated, but no last known link qualified for display.",
       ),
     ).toBeInTheDocument();
     // And the legend does not advertise the entry.
@@ -2247,6 +2463,110 @@ describe("TopologyGraphPage investigation panel", () => {
     expect(nodePosition(container, "0xe1")).toBe(beforePos);
   });
 
+  it("refreshes active investigation focus and sidebar content from the current card identity", async () => {
+    const user = userEvent.setup();
+    const view = await renderLiveAndWaitForLayout();
+    const { container } = view;
+    await user.click(focusButton());
+    await waitFor(() => {
+      expect(container.querySelector('.react-flow__node[data-id="0xe1"]')).toHaveClass(
+        "mesh-node--investigation-focus",
+      );
+    });
+
+    mockDetail = makeTopologyEvidenceGraphDetail({
+      ...liveDetailWithInvestigations,
+      investigations: [
+        makeInvestigationCard({ id: "refreshed-rank-1", title: "Refreshed rank one" }),
+        makeInvestigationCard({ id: "refreshed-rank-2", title: "Refreshed rank two" }),
+        makeInvestigationCard({ id: "refreshed-rank-3", title: "Refreshed rank three" }),
+        makeInvestigationCard({
+          title: "Updated investigation now follows the router area",
+          summary: "Current evidence now involves the coordinator and hall router.",
+          device_ieees: ["0xc0", "0xr1"],
+          edge_ids: ["live-neighbor-0xc0|0xr1"],
+          primary_device_ieee: "0xr1",
+        }),
+        makeInvestigationCard({ id: "refreshed-rank-5", title: "Refreshed rank five" }),
+      ],
+      investigation_counts: { available: 5, returned: 5 },
+    });
+    view.rerender(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(
+      await screen.findByText("Updated investigation now follows the router area"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Current evidence now involves the coordinator and hall router."),
+    ).toBeInTheDocument();
+    const panel = screen.getByRole("region", { name: /where to look first/i });
+    expect(within(panel).getAllByTestId("investigation-card")).toHaveLength(4);
+    expect(
+      within(panel).getAllByText("Updated investigation now follows the router area"),
+    ).toHaveLength(1);
+    expect(
+      within(panel).getByRole("button", {
+        name: /^clear focus: updated investigation now follows the router area/i,
+      }),
+    ).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Show more (1)" })).toBeInTheDocument();
+    expect(
+      within(panel).queryByText("Several recent missing links involve Live Lamp"),
+    ).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(container.querySelector('.react-flow__node[data-id="0xc0"]')).toHaveClass(
+        "mesh-node--investigation-focus",
+      );
+      expect(container.querySelector('.react-flow__node[data-id="0xr1"]')).toHaveClass(
+        "mesh-node--investigation-focus",
+      );
+      expect(container.querySelector('.react-flow__node[data-id="0xe1"]')).not.toHaveClass(
+        "mesh-node--investigation-focus",
+      );
+      expect(container.querySelector('.react-flow__node[data-id="0xe2"]')).not.toHaveClass(
+        "mesh-node--investigation-focus",
+      );
+    });
+  });
+
+  it("clears graph focus when the active investigation disappears", async () => {
+    const user = userEvent.setup();
+    const view = await renderLiveAndWaitForLayout();
+    const { container } = view;
+    await user.click(focusButton());
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(2);
+    });
+    expect(screen.getByRole("button", { name: /^clear focus:/i })).toBeInTheDocument();
+    expect(screen.getByTestId("investigation-card")).toHaveClass("border-zl-accent");
+
+    mockDetail = makeTopologyEvidenceGraphDetail({
+      ...liveDetailWithInvestigations,
+      investigations: [],
+      investigation_counts: { available: 0, returned: 0 },
+    });
+    view.rerender(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId("investigation-empty")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^clear focus:/i })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(0);
+      expect(container.querySelectorAll(".mesh-node--muted")).toHaveLength(0);
+    });
+  });
+
   it("focusing does not change connection-control choices", async () => {
     const user = userEvent.setup();
     await renderLiveAndWaitForLayout();
@@ -2291,6 +2611,7 @@ describe("TopologyGraphPage investigation panel", () => {
     await user.click(within(card).getByRole("button", { name: /^open router details:/i }));
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: /device details/i })).toBeInTheDocument();
+      expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(2);
     });
     expect(within(screen.getByRole("dialog")).getByText("0xr1")).toBeInTheDocument();
     expect(nodePosition(container, "0xr1")).toBe(beforePos);
@@ -2373,6 +2694,61 @@ describe("TopologyGraphPage investigation panel", () => {
 
     await user.click(within(panel).getByRole("button", { name: /show more/i }));
     expect(titles()).toEqual(["Card One", "Card Two", "Card Three", "Card Four"]);
+  });
+
+  it("keeps a focused fourth card visibly owned after Show fewer until focus is cleared", async () => {
+    const user = userEvent.setup();
+    mockDetail = {
+      ...liveDetailWithInvestigations,
+      investigations: [
+        makeInvestigationCard({ id: "card-1", title: "Card One", priority: "Review first" }),
+        makeInvestigationCard({ id: "card-2", title: "Card Two" }),
+        makeInvestigationCard({ id: "card-3", title: "Card Three" }),
+        makeInvestigationCard({ id: "card-4", title: "Card Four", priority: "Lower priority" }),
+        makeInvestigationCard({ id: "card-5", title: "Card Five", priority: "Lower priority" }),
+      ],
+      investigation_counts: { available: 5, returned: 5 },
+    };
+    const { container } = await renderLiveAndWaitForLayout();
+    const panel = screen.getByRole("region", { name: /where to look first/i });
+    const visibleTitles = () =>
+      within(panel)
+        .getAllByTestId("investigation-card")
+        .map(
+          (card) =>
+            within(card).getByText(/^Card (One|Two|Three|Four|Five)$/).textContent,
+        );
+
+    expect(visibleTitles()).toEqual(["Card One", "Card Two", "Card Three"]);
+    expect(within(panel).getByRole("button", { name: "Show more (2)" })).toBeInTheDocument();
+    await user.click(within(panel).getByRole("button", { name: "Show more (2)" }));
+
+    const cardFourTitle = within(panel).getByText("Card Four");
+    const cardFour = cardFourTitle.closest("[data-testid='investigation-card']");
+    if (!(cardFour instanceof HTMLElement)) {
+      throw new Error("Card Four did not resolve to an investigation card");
+    }
+    await user.click(within(cardFour).getByRole("button", { name: /^focus graph:/i }));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(2);
+    });
+    expect(cardFour).toHaveClass("border-zl-accent");
+    expect(within(cardFour).getByRole("button", { name: /^clear focus:/i })).toBeInTheDocument();
+
+    await user.click(within(panel).getByRole("button", { name: "Show fewer" }));
+    expect(visibleTitles()).toEqual(["Card One", "Card Two", "Card Three", "Card Four"]);
+    expect(within(panel).getAllByText("Card Four")).toHaveLength(1);
+    expect(within(panel).getByRole("button", { name: "Show more (1)" })).toBeInTheDocument();
+    expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(2);
+
+    await user.click(within(panel).getByRole("button", { name: /^clear focus:/i }));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(0);
+      expect(container.querySelectorAll(".mesh-node--muted")).toHaveLength(0);
+    });
+    expect(visibleTitles()).toEqual(["Card One", "Card Two", "Card Three"]);
+    expect(within(panel).queryByText("Card Four")).not.toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Show more (2)" })).toBeInTheDocument();
   });
 
   it("renders no forbidden wording anywhere with investigation cards shown", async () => {

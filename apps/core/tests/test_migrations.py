@@ -34,7 +34,7 @@ def test_migrations_idempotent(tmp_path: Path):
     db = Database(db_path)
     version1 = db.migrate()
     version2 = db.migrate()
-    assert version1 == version2 == 13
+    assert version1 == version2 == 14
 
     tables = {
         row[0]
@@ -153,7 +153,7 @@ def test_upgrade_v10_to_v11_incident_networks_backfill(tmp_path: Path):
         )
     }
 
-    assert db.migrate() == 13
+    assert db.migrate() == 14
     assert "incident_networks" in {
         row[0]
         for row in db.conn.execute(
@@ -189,11 +189,11 @@ def test_upgrade_v10_to_v11_incident_networks_backfill(tmp_path: Path):
     assert after == before
 
     # Idempotent migrate + Python multi-network backfill retry path.
-    assert db.migrate() == 13
+    assert db.migrate() == 14
     assert networks_for("inc-multi") == ["home", "home2"]
     assert networks_for("inc-unprovable") == []
     count = db.conn.execute("SELECT COUNT(*) FROM incident_networks").fetchone()[0]
-    assert db.migrate() == 13
+    assert db.migrate() == 14
     assert db.conn.execute("SELECT COUNT(*) FROM incident_networks").fetchone()[0] == count
     db.close()
 
@@ -250,7 +250,7 @@ def test_friendly_name_not_globally_unique(tmp_path: Path):
 
 def test_composition_read_indexes_exist(tmp_path: Path):
     db = Database(tmp_path / "indexes.sqlite")
-    assert db.migrate() == 13
+    assert db.migrate() == 14
     indexes = {
         row[0]
         for row in db.conn.execute(
@@ -290,7 +290,7 @@ def test_upgrade_v12_to_v13_query_performance_indexes(tmp_path: Path):
         ).fetchall()
     }
     assert "idx_incidents_recent_order" not in before
-    assert db.migrate() == 13
+    assert db.migrate() == 14
     after = {
         row[0]
         for row in db.conn.execute(
@@ -308,7 +308,7 @@ def test_upgrade_v12_to_v13_query_performance_indexes(tmp_path: Path):
     assert "idx_topology_links_snapshot_source" not in after
     assert db.conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
     assert db.conn.execute("PRAGMA foreign_key_check").fetchall() == []
-    assert db.migrate() == 13
+    assert db.migrate() == 14
     # Migration 013 uses only features available since SQLite 3.25+/3.34.1
     # (CREATE INDEX IF NOT EXISTS; no generated columns / table rebuilds).
     runtime = sqlite3.sqlite_version_info

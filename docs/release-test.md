@@ -303,7 +303,7 @@ Open the dashboard: **http://localhost:8377**
 - [ ] No `network_key` in downloaded report
 - [ ] Container logs do not show MQTT password (`docker logs zigbeelens`)
 - [ ] Mesh has no client-only “Create report” menu / evidence-summary Blob export
-- [ ] Legacy stored v1/v2 reports still download unchanged
+- [ ] Non-v3 stored rows fail closed from list, detail, and download after migration 014
 
 ### Track 6 storage upgrade / backup / dry-run checklist
 

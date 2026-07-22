@@ -739,7 +739,8 @@ background refresh failures retain last accepted history/raw detail with retry.
 Network Detail, and Mesh / Investigate. The Reports page is Saved reports history
 with one Create full report action. All current creation uses Core
 `ReportDetailV3` / stored reports. The client-only Mesh evidence export menu is
-removed from production. Legacy v1/v2 stored bodies remain immutable.
+removed from production. Migration 014 clears development-era v1/v2 bodies;
+saved report list/detail/download accepts exact `ReportDetailV3` only.
 
 ## Master Phase 7 — Hardening, performance and release quality
 
@@ -749,7 +750,7 @@ Add query-specific repository methods and indexes for Beast-sized networks.
 
 ### Phase 7B — Test architecture
 
-Add decision, coverage, ViewModel, report parity and forbidden wording tests.
+**Done (branch `test/release-quality-architecture`, corrective pass):** oracle contract v2 + Core vocabulary manifest; one freshness owner; self-contained `scripts/validate-contracts.sh`; exact Core→UI→ReportDetailV3 parity; migration 014 deletes all stored development reports (schema 14, v3-only); unknown-not-zero + primary-copy guardrails; `/api`↔`/api/v1` + OpenAPI structural matrix. No v1/v2 stored-report compatibility remains.
 
 ### Phase 7C — Documentation/screenshots
 

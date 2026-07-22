@@ -1,27 +1,65 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { MeshEvidenceDevice, MeshEvidenceEdge } from "@/lib/meshEvidence";
 
-export function useGraphSelection() {
-  const [selectedEdge, setSelectedEdge] = useState<MeshEvidenceEdge | null>(null);
-  const [selectedDevice, setSelectedDevice] = useState<MeshEvidenceDevice | null>(null);
+interface GraphSelectionEvidence {
+  devices: MeshEvidenceDevice[];
+  edges: MeshEvidenceEdge[];
+}
+
+type GraphSelection =
+  | { kind: "edge"; networkId: string; id: string }
+  | { kind: "device"; networkId: string; id: string }
+  | null;
+
+export function useGraphSelection(
+  networkId: string | undefined,
+  evidence: GraphSelectionEvidence | null,
+) {
+  const [selection, setSelection] = useState<GraphSelection>(null);
+  const selectionIsForNetwork = selection?.networkId === networkId;
+
+  const selectedEdge = useMemo(() => {
+    if (!selectionIsForNetwork || selection?.kind !== "edge" || evidence === null) return null;
+    return evidence.edges.find((edge) => edge.id === selection.id) ?? null;
+  }, [evidence, selection, selectionIsForNetwork]);
+
+  const selectedDevice = useMemo(() => {
+    if (!selectionIsForNetwork || selection?.kind !== "device" || evidence === null) return null;
+    return evidence.devices.find((device) => device.ieee_address === selection.id) ?? null;
+  }, [evidence, selection, selectionIsForNetwork]);
+
+  useEffect(() => {
+    if (selection === null) return;
+    if (!selectionIsForNetwork) {
+      setSelection(null);
+      return;
+    }
+    if (evidence === null) return;
+    const identityStillExists =
+      selection.kind === "edge"
+        ? evidence.edges.some((edge) => edge.id === selection.id)
+        : evidence.devices.some((device) => device.ieee_address === selection.id);
+    if (!identityStillExists) setSelection(null);
+  }, [evidence, selection, selectionIsForNetwork]);
 
   const selectEdge = (edge: MeshEvidenceEdge) => {
-    setSelectedDevice(null);
-    setSelectedEdge(edge);
+    setSelection({ kind: "edge", networkId: networkId ?? edge.network_id, id: edge.id });
   };
 
   const selectNode = (device: MeshEvidenceDevice) => {
-    setSelectedEdge(null);
-    setSelectedDevice(device);
+    setSelection({
+      kind: "device",
+      networkId: networkId ?? device.network_id,
+      id: device.ieee_address,
+    });
   };
 
   const clearSelection = () => {
-    setSelectedEdge(null);
-    setSelectedDevice(null);
+    setSelection(null);
   };
 
-  const clearEdge = () => setSelectedEdge(null);
-  const clearNode = () => setSelectedDevice(null);
+  const clearEdge = () => setSelection((current) => (current?.kind === "edge" ? null : current));
+  const clearNode = () => setSelection((current) => (current?.kind === "device" ? null : current));
 
   return {
     selectedEdge,

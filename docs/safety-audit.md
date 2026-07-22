@@ -68,7 +68,7 @@ Tests: report and redaction tests in `apps/core/tests/`
 | Contextual report dialog shows redaction profile and summary before save | Enforced |
 | Reports mount fetches saved list only (no target discovery / preview) | Enforced |
 | Save-and-download creates one stored report then downloads that ID | Enforced |
-| Legacy v1/v2 stored reports remain immutable on download/copy | Enforced |
+| Saved report list/detail/download accepts exact `ReportDetailV3` only | Enforced |
 
 ## HACS integration
 

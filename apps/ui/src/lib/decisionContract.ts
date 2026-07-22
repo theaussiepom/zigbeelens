@@ -15,7 +15,6 @@ import type {
   DeviceDetail,
   DeviceSummary,
   Incident,
-  LegacyStoredReportBody,
   NetworkSummary,
   ReportDetailV3,
   ReportDomainDetailsV3,
@@ -48,14 +47,29 @@ const DECISION_STATUS_ORDER: readonly DecisionStatus[] = [
   "data_unavailable",
 ];
 
-const DECISION_PRIORITIES: readonly DecisionPriority[] = ["none", "low", "medium", "high"];
+/** Wire DecisionPriority values — not a user-facing label catalogue. */
+export const DECISION_PRIORITIES: readonly DecisionPriority[] = [
+  "none",
+  "low",
+  "medium",
+  "high",
+];
 
-const DECISION_PRIORITY_ORDER: readonly DecisionPriority[] = [
+/**
+ * Stable highest-priority resolution order (high → none).
+ * DecisionPriority is ordering/contract metadata, not primary UI copy.
+ */
+export const DECISION_PRIORITY_ORDER: readonly DecisionPriority[] = [
   "high",
   "medium",
   "low",
   "none",
 ];
+
+/** Rank for stable sorting/comparison; lower = higher urgency. */
+export function decisionPriorityRank(priority: DecisionPriority): number {
+  return DECISION_PRIORITY_ORDER.indexOf(priority);
+}
 
 const REPORT_SCOPES: readonly ReportScope[] = ["full", "incident", "network", "device"];
 const REPORT_FORMATS: readonly ReportFormat[] = ["json", "yaml", "markdown"];
@@ -695,55 +709,6 @@ export function validateIncidents(items: unknown): Incident[] {
   return items.map(parseIncident);
 }
 
-export type StoredReportVersionKind = "legacy" | "current" | "protocol_error";
-
-export interface StoredReportVersionClassification {
-  kind: StoredReportVersionKind;
-  version?: number;
-}
-
-export function classifyStoredReportVersion(
-  body: Record<string, unknown>,
-): StoredReportVersionClassification {
-  if (!("report_version" in body)) {
-    return { kind: "legacy", version: 1 };
-  }
-  const raw = body.report_version;
-  if (typeof raw === "number" && Number.isInteger(raw) && !Number.isNaN(raw)) {
-    if (raw === 1 || raw === 2) {
-      return { kind: "legacy", version: raw };
-    }
-    if (raw === 3) {
-      return { kind: "current", version: 3 };
-    }
-    return { kind: "protocol_error" };
-  }
-  if (typeof raw === "string") {
-    const stripped = raw.trim();
-    if (stripped === "1" || stripped === "2") {
-      return { kind: "legacy", version: Number(stripped) };
-    }
-    return { kind: "protocol_error" };
-  }
-  return { kind: "protocol_error" };
-}
-
-/** @deprecated Prefer classifyStoredReportVersion for exact classification. */
-export function storedReportVersion(body: LegacyStoredReportBody): number {
-  const classification = classifyStoredReportVersion(body);
-  if (classification.kind === "legacy" || classification.kind === "current") {
-    return classification.version ?? 1;
-  }
-  return 1;
-}
-
-export function isLegacyStoredReportBody(body: unknown): body is LegacyStoredReportBody {
-  if (!isPlainObject(body)) {
-    return false;
-  }
-  return classifyStoredReportVersion(body).kind === "legacy";
-}
-
 function parseRedaction(value: unknown): ReportRedactionStatus {
   if (!isPlainObject(value)) {
     protocolFailure();
@@ -813,6 +778,9 @@ export function validateReportDetailV3(value: unknown): ReportDetailV3 {
 
   requireNonEmptyString(value.id);
   if (value.product !== "ZigbeeLens") {
+    protocolFailure();
+  }
+  if (typeof value.report_version !== "number" || !Number.isInteger(value.report_version)) {
     protocolFailure();
   }
   if (value.report_version !== 3) {
@@ -894,16 +862,6 @@ export function validateReportDetailV3(value: unknown): ReportDetailV3 {
   return value as unknown as ReportDetailV3;
 }
 
-export function parseStoredReport(value: unknown): ReportDetailV3 | LegacyStoredReportBody {
-  if (!isPlainObject(value)) {
-    protocolFailure();
-  }
-  const classification = classifyStoredReportVersion(value);
-  if (classification.kind === "legacy") {
-    return value as LegacyStoredReportBody;
-  }
-  if (classification.kind === "current") {
-    return validateReportDetailV3(value);
-  }
-  protocolFailure();
+export function parseStoredReport(value: unknown): ReportDetailV3 {
+  return validateReportDetailV3(value);
 }
