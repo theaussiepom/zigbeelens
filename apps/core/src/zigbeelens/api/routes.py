@@ -55,13 +55,13 @@ from zigbeelens.schemas import (
     ZigbeeLensConfigStatus,
 )
 from zigbeelens.services.report_scope import ReportScopeAmbiguityError
+from zigbeelens.services.report_storage import load_stored_report_envelope
 from zigbeelens.services.reports import (
     generate_report,
     report_body_as_json,
     report_body_as_yaml,
     store_report,
     summary_from_detail,
-    summary_from_row,
 )
 
 public_router = APIRouter()
@@ -611,7 +611,14 @@ def create_report(
 
 @read_router.get("/reports", response_model=list[ReportSummary])
 def list_reports(ctx: AppContext = Depends(ctx_dep)) -> list[ReportSummary]:
-    return [summary_from_row(row) for row in ctx.repo.reports.list_reports()]
+    """List only exact ReportDetailV3 rows; malformed/non-v3 bodies are omitted."""
+    summaries: list[ReportSummary] = []
+    for row in ctx.repo.reports.list_reports():
+        envelope = load_stored_report_envelope(row)
+        if envelope is None:
+            continue
+        summaries.append(summary_from_detail(row, envelope.body))
+    return summaries
 
 
 @read_router.get("/reports/{report_id}")

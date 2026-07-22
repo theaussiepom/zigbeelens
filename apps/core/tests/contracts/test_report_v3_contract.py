@@ -154,3 +154,51 @@ def test_manual_non_v3_row_not_readable_after_migration(tmp_path):
     )
     bad = repo.reports.get_report("legacy-insert")
     assert load_stored_report_envelope(bad) is None
+
+
+def test_list_detail_download_omit_non_v3_rows(mock_client: TestClient):
+    """Saved-report list is an exact-v3 read boundary (same as detail/download)."""
+    created = mock_client.post("/api/reports", json={"scope": "full", "format": "json"})
+    assert created.status_code == 200
+    good_id = created.json()["id"]
+
+    ctx = mock_client.app.state.ctx
+    for report_id, body in (
+        ("bad-missing", {"id": "bad-missing"}),
+        ("bad-v1", {"id": "bad-v1", "report_version": 1, "markdown_summary": "old"}),
+        ("bad-string3", {"id": "bad-string3", "report_version": "3"}),
+        ("bad-malformed-meta", {"report_version": 3, "product": "ZigbeeLens"}),
+    ):
+        ctx.repo.reports.save_report(
+            report_id=report_id,
+            format="json",
+            scope="full",
+            redaction_profile="standard",
+            summary="should-not-list",
+            body=body,
+            markdown="old",
+            redaction={},
+            metadata={"incident_count": 9, "device_count": 9, "network_count": 9},
+        )
+
+    for prefix in ("/api", "/api/v1"):
+        listed = mock_client.get(f"{prefix}/reports")
+        assert listed.status_code == 200
+        ids = {row["id"] for row in listed.json()}
+        assert good_id in ids
+        assert "bad-missing" not in ids
+        assert "bad-v1" not in ids
+        assert "bad-string3" not in ids
+        assert "bad-malformed-meta" not in ids
+        for bad_id in ("bad-missing", "bad-v1", "bad-string3", "bad-malformed-meta"):
+            assert mock_client.get(f"{prefix}/reports/{bad_id}").status_code == 404
+            assert (
+                mock_client.get(f"{prefix}/reports/{bad_id}/download").status_code == 404
+            )
+            # Rows remain stored until explicitly deleted.
+            assert ctx.repo.reports.get_report(bad_id) is not None
+
+    # Valid list row derives counts from validated v3 body, not bogus metadata.
+    good_row = next(row for row in listed.json() if row["id"] == good_id)
+    assert good_row["summary"]
+    assert isinstance(good_row["device_count"], int)
