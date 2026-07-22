@@ -749,7 +749,7 @@ Add query-specific repository methods and indexes for Beast-sized networks.
 
 ### Phase 7B — Test architecture
 
-Add decision, coverage, ViewModel, report parity and forbidden wording tests.
+**Done (branch `test/release-quality-architecture`):** canonical oracle fixture corpus, layer ownership (`docs/test-architecture.md`), Core/UI contract lanes, ReportDetailV3 parity (client Mesh exporter retired), unknown-not-zero + primary-copy guardrails, `/api`↔`/api/v1` matrix, `scripts/validate-contracts.sh`.
 
 ### Phase 7C — Documentation/screenshots
 

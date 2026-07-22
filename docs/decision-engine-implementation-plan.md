@@ -1889,6 +1889,10 @@ Composer 2.5 for indexing/query changes. Use 4.5 for performance investigation i
 
 ## Phase 7B — Test architecture
 
+### Status
+
+**Implemented on `test/release-quality-architecture`.** See `docs/test-architecture.md`.
+
 ### Goal
 
 Add tests at the right layers.
@@ -1900,15 +1904,19 @@ Add tests at the right layers.
 - reason-code tests;
 - ViewModel tests;
 - component render tests;
-- report parity tests;
+- report parity tests (ReportDetailV3; client Mesh exporter retired);
 - forbidden wording sweeps;
-- API compatibility tests.
+- API compatibility tests (`/api` ↔ `/api/v1`);
+- canonical oracle fixture corpus + freshness gate;
+- fast contract lane: `scripts/validate-contracts.sh`.
 
 ### Acceptance criteria
 
 - Same decision renders consistently in UI and reports.
 - Unknown values never become zero.
 - Forbidden wording does not return in primary copy.
+- Ordinary UI unit tests do not spawn Core Python.
+- Fixture freshness remains an explicit Core/contract validation gate.
 
 ### Composer model
 

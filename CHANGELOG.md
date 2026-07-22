@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Phase 7B test architecture:** canonical oracle contract fixtures (`oracle_contract_version: 1`), Core/UI contract lanes, `scripts/validate-contracts.sh`, Core→UI→ReportDetailV3 parity, unknown-not-zero and primary-copy guardrails, `/api`↔`/api/v1` decision/report matrix, OpenAPI structural checks; see `docs/test-architecture.md`
+
 ### Changed
 
 - **Phase 7A query bounds (final):** additive incident `order=recent` closes Overview PR #83; latest topology uses per-network indexed seeks (not history-wide `ROW_NUMBER`); device snapshot-history endpoint is target-row/link-bounded (no complete device inventory; network tracking via existence probe; `UNION ALL` + `idx_topology_links_snapshot_target`) with deep topology_facts parity; metric windows use deterministic `id` tie-break; shared-availability instability reads offline transitions in SQL; cursor versions accept only exact `int` `{1,2}`; History full/network report ops measured; migration `013` index-only and runtime-smoked on SQLite 3.34.1; Track 5 baselines frozen
