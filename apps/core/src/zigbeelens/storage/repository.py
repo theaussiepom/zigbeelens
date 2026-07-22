@@ -1589,6 +1589,34 @@ class Repository:
                     result[snapshot_id].append(item)
         return result
 
+    def _topology_links_for_device_in_snapshots_sql(
+        self, chunk: list[str], ieee_address: str
+    ) -> tuple[str, list[Any]]:
+        """Production multi-snapshot source-or-target link SELECT for one device.
+
+        UNION ALL keeps source seeks on the PK and target seeks on
+        ``idx_topology_links_snapshot_target``. The OR form cannot use a useful
+        target index without a temporary ORDER BY B-tree. The target branch
+        excludes ``source_ieee = ieee`` so a self-link cannot appear twice.
+        """
+        placeholders = ",".join("?" for _ in chunk)
+        sql = f"""
+            SELECT snapshot_id, source_ieee, target_ieee, source_type, target_type,
+                   linkquality, depth, relationship, route_count
+            FROM topology_links
+            WHERE snapshot_id IN ({placeholders})
+              AND source_ieee = ?
+            UNION ALL
+            SELECT snapshot_id, source_ieee, target_ieee, source_type, target_type,
+                   linkquality, depth, relationship, route_count
+            FROM topology_links
+            WHERE snapshot_id IN ({placeholders})
+              AND target_ieee = ?
+              AND source_ieee != ?
+            ORDER BY snapshot_id ASC
+        """
+        return sql, [*chunk, ieee_address, *chunk, ieee_address, ieee_address]
+
     def list_topology_links_for_device_in_snapshots(
         self,
         snapshot_ids: Collection[str],
@@ -1601,18 +1629,8 @@ class Repository:
         if not ordered_ids or not ieee:
             return result
         for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
-            placeholders = ",".join("?" for _ in chunk)
-            cur = self.db.conn.execute(
-                f"""
-                SELECT snapshot_id, source_ieee, target_ieee, source_type, target_type,
-                       linkquality, depth, relationship, route_count
-                FROM topology_links
-                WHERE snapshot_id IN ({placeholders})
-                  AND (source_ieee = ? OR target_ieee = ?)
-                ORDER BY snapshot_id ASC
-                """,
-                (*chunk, ieee, ieee),
-            )
+            sql, params = self._topology_links_for_device_in_snapshots_sql(chunk, ieee)
+            cur = self.db.conn.execute(sql, params)
             for row in cur.fetchall():
                 snapshot_id = str(row["snapshot_id"])
                 if snapshot_id in result:
@@ -1993,6 +2011,24 @@ class Repository:
         )
         row = cur.fetchone()
         return row[0] if row and row[0] else None
+
+    def network_has_explicit_availability_state(self, network_id: str) -> bool:
+        """True when any device reports explicit online/offline current state.
+
+        Network-level signal: an unrelated device can establish tracking.
+        Unknown/missing rows do not count.
+        """
+        cur = self.db.conn.execute(
+            """
+            SELECT 1
+            FROM device_current_state
+            WHERE network_id = ?
+              AND availability IN ('online', 'offline')
+            LIMIT 1
+            """,
+            (network_id,),
+        )
+        return cur.fetchone() is not None
 
     def list_availability_changes_since(
         self, network_id: str, since_iso: str

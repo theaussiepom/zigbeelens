@@ -323,8 +323,8 @@ No page class above may contain `USE TEMP B-TREE FOR ORDER BY`.
 | PR #83 recent changes | Overview uses `order=recent`; true `updated_at DESC, id DESC` page |
 | Recent index | `idx_incidents_recent_order` selected; no TEMP B-TREE on recent first/cursor/`updated_after` |
 | Latest topology | per-network indexed seek (`idx_topology_snapshots_latest_complete`); no history-wide `ROW_NUMBER`; 1-vs-1000 snapshots and 2-vs-40 networks same statement count within a chunk |
-| Device snapshot history | exact endpoint SQL-limits `MAX_SNAPSHOT_HISTORY` complete rows + target-device links for those IDs; 10/30/300 retained row volume plateaus; dense unrelated links do not inflate target reads |
-| Topology link indexes | rejected — PK autoindex selected by EXPLAIN on dense snapshots |
+| Device snapshot history | exact endpoint SQL-limits `MAX_SNAPSHOT_HISTORY` complete rows + target-device `UNION ALL` links; no complete device inventory; 1-vs-1000 unrelated devices same response; deep parity vs former broad evidence path |
+| Topology link indexes | source candidate rejected (PK); `idx_topology_links_snapshot_target` required for multi-snapshot device-history target branch |
 | Metrics | `ORDER BY sampled_at DESC, id DESC` + `idx_metric_samples_device_time` |
 | Availability grouping | offline-only SQL path for `_instability_events`; `idx_availability_changes_offline_since` |
 | Reports | Compact/Beast unchanged vs Track 5; History full/network ops added (`report_full_history`=40, `report_network_history`=39); no per-incident/device N+1 |

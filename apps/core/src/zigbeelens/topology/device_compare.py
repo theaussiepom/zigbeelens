@@ -354,9 +354,15 @@ def load_device_snapshot_history_network_context(
     links_by_snapshot_id: dict[str, list[dict[str, Any]]] | None = None,
     earliest_availability_at: str | None | object = None,
     earliest_availability_supplied: bool = False,
+    tracking_enabled_now: bool | None = None,
+    tracking_enabled_supplied: bool = False,
     devices: list | None = None,
 ) -> DeviceSnapshotHistoryNetworkContext:
     """Load network-scoped snapshot-history evidence once for a network."""
+    if tracking_enabled_supplied and not isinstance(tracking_enabled_now, bool):
+        raise TypeError(
+            "tracking_enabled_now must be a bool when tracking_enabled_supplied is True"
+        )
     if snapshots is not None:
         usable = [
             snapshot
@@ -385,17 +391,21 @@ def load_device_snapshot_history_network_context(
         resolved_earliest = repo.availability.get_earliest_availability_change_at(
             network_id
         )
+    if tracking_enabled_supplied:
+        resolved_tracking = bool(tracking_enabled_now)
+    else:
+        resolved_tracking = availability_tracking_enabled_now(
+            repo,
+            network_id,
+            earliest_availability_at=resolved_earliest,
+            devices=devices,
+        )
     return DeviceSnapshotHistoryNetworkContext(
         network_id=network_id,
         usable_snapshots=usable,
         links_by_snapshot_id=resolved_links,
         earliest_availability_at=resolved_earliest,  # type: ignore[arg-type]
-        tracking_enabled_now=availability_tracking_enabled_now(
-            repo,
-            network_id,
-            earliest_availability_at=resolved_earliest,
-            devices=devices,
-        ),
+        tracking_enabled_now=resolved_tracking,
     )
 
 

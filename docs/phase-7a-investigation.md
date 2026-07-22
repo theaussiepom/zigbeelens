@@ -30,17 +30,20 @@ Branch `perf/release-query-bounds`. Distinguishes:
 - **Final 7A:** `WITH requested(network_id) AS (VALUES …)` + correlated `ORDER BY captured_at DESC, snapshot_id DESC LIMIT 1` seek per network; single-network method restored to the same indexed `LIMIT 1` query.
 - Proofs: 1-vs-1000 retained snapshots same statement count; 2-vs-40 networks same chunk statement count; EXPLAIN selects `idx_topology_snapshots_latest_complete`; no TEMP B-TREE; no `ROW_NUMBER`.
 
-### 3. Device snapshot history — final: row/link bounded endpoint
+### 3. Device snapshot history — final: target-bounded endpoint
 
 - Exact entry point: `build_device_snapshot_history_response`.
 - Loads at most `MAX_SNAPSHOT_HISTORY` complete snapshots; comparison links only for those IDs (target-device scoped); latest nodes/links once.
-- Instrumentation records snapshot/link/node row volumes; 10/30/300 retained proofs; dense unrelated links do not inflate target reads.
-- Full response parity retained including coded `topology_facts`.
+- Does **not** call `list_devices` / `list_devices_for_networks`. Network-level tracking uses:
+  - earliest transition, else
+  - `network_has_explicit_availability_state` (`SELECT 1 … availability IN ('online','offline') LIMIT 1`).
+- Target `DeviceRow` fetched once; `has_current_issue` remains target-offline only.
+- Deep equality vs the former broad `EVIDENCE_GRAPH_FACTS_REQUIREMENTS` path is proven in the Phase 7A matrix (including topology_facts).
 
-### 4. Topology link source/target indexes — rejected
+### 4. Topology link indexes
 
-- Dense-snapshot EXPLAIN still prefers PK autoindex.
-- Write/storage cost not justified while planner ignores candidates.
+- `idx_topology_links_snapshot_source` — **rejected** (PK covers source seeks).
+- `idx_topology_links_snapshot_target` — **required** for the multi-snapshot device-history query after rewriting to `UNION ALL` (source branch → PK; target branch → this index; no TEMP B-TREE). The OR form either ignores the target index or introduces `USE TEMP B-TREE FOR ORDER BY`.
 
 ### 5. Metric sample window — retained
 
@@ -69,8 +72,8 @@ No per-incident / per-device query loops; timeline/metrics/availability remain S
 | `idx_topology_snapshots_latest_complete` | **required** — indexed latest-complete seek |
 | `idx_metric_samples_device_time` | **required** — mixed-metric newest-N |
 | `idx_availability_changes_offline_since` | **required** — offline lookback |
-| `idx_topology_links_snapshot_source` | **rejected** — PK sufficient / planner ignores |
-| `idx_topology_links_snapshot_target` | **rejected** — PK sufficient / planner ignores |
+| `idx_topology_links_snapshot_source` | **rejected** — PK sufficient for source seeks |
+| `idx_topology_links_snapshot_target` | **required** — target branch of device-history `UNION ALL` |
 
 ## SQLite 3.34.1 smoke
 

@@ -265,7 +265,7 @@ def test_composition_read_indexes_exist(tmp_path: Path):
     assert "idx_incidents_recent_order" in indexes
     assert "idx_topology_snapshots_latest_complete" in indexes
     assert "idx_topology_links_snapshot_source" not in indexes
-    assert "idx_topology_links_snapshot_target" not in indexes
+    assert "idx_topology_links_snapshot_target" in indexes
     assert "idx_metric_samples_device_time" in indexes
     assert "idx_availability_changes_offline_since" in indexes
     assert "idx_events_retention" in indexes
@@ -302,10 +302,10 @@ def test_upgrade_v12_to_v13_query_performance_indexes(tmp_path: Path):
         "idx_topology_snapshots_latest_complete",
         "idx_metric_samples_device_time",
         "idx_availability_changes_offline_since",
+        "idx_topology_links_snapshot_target",
     ):
         assert name in after
     assert "idx_topology_links_snapshot_source" not in after
-    assert "idx_topology_links_snapshot_target" not in after
     assert db.conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
     assert db.conn.execute("PRAGMA foreign_key_check").fetchall() == []
     assert db.migrate() == 13

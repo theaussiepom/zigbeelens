@@ -68,8 +68,10 @@ def test_sqlite_3_34_1_migration_013_and_production_queries(tmp_path: Path):
         "idx_topology_snapshots_latest_complete",
         "idx_metric_samples_device_time",
         "idx_availability_changes_offline_since",
+        "idx_topology_links_snapshot_target",
     ):
         assert name in indexes
+    assert "idx_topology_links_snapshot_source" not in indexes
 
     repo = Repository(db)
     db.conn.execute(

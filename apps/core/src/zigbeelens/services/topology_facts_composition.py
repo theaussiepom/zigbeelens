@@ -12,7 +12,6 @@ from zigbeelens.decisions.topology_facts import (
 )
 from zigbeelens.decisions.availability_tracking import availability_tracking_enabled_now
 from zigbeelens.decisions.topology_coverage import build_network_topology_coverage
-from zigbeelens.topology.device_compare import device_snapshot_history
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -123,13 +122,16 @@ def build_device_snapshot_history_response(
     """Exact device snapshot-history endpoint with row/link bounds.
 
     Loads at most ``MAX_SNAPSHOT_HISTORY`` complete snapshots and only
-    target-device links for those IDs. Preserves coded device topology facts
-    without the broad all-history NetworkEvidenceContext path.
+    target-device links for those IDs. Does not materialise the complete
+    network device inventory; network-level availability tracking uses a
+    bounded existence probe when no transition history exists.
     """
     from datetime import datetime, timezone
 
+    from zigbeelens.decisions.availability_tracking import availability_tracking_enabled_now
     from zigbeelens.topology.device_compare import (
         MAX_SNAPSHOT_HISTORY,
+        build_device_snapshot_history,
         load_device_snapshot_history_network_context,
     )
 
@@ -149,7 +151,15 @@ def build_device_snapshot_history_response(
     earliest_availability_at = repo.availability.get_earliest_availability_change_at(
         network_id
     )
-    devices = repo.list_devices(network_id)
+    tracking_enabled_now = availability_tracking_enabled_now(
+        repo,
+        network_id,
+        earliest_availability_at=earliest_availability_at,
+    )
+    device_row = repo.get_device(network_id, device_ieee)
+    has_current_issue = bool(
+        device_row is not None and device_row.availability == "offline"
+    )
     network_context = load_device_snapshot_history_network_context(
         repo,
         network_id,
@@ -158,14 +168,15 @@ def build_device_snapshot_history_response(
         links_by_snapshot_id=links_by_snapshot_id,
         earliest_availability_at=earliest_availability_at,
         earliest_availability_supplied=True,
-        devices=devices,
+        tracking_enabled_now=tracking_enabled_now,
+        tracking_enabled_supplied=True,
     )
-    history = device_snapshot_history(
+    history = build_device_snapshot_history(
         repo,
-        network_id,
+        network_context,
         device_ieee,
-        max_snapshots=MAX_SNAPSHOT_HISTORY,
-        network_context=network_context,
+        device_row=device_row,
+        has_current_issue=has_current_issue,
     )
 
     latest = usable[0] if usable else None
