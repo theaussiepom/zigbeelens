@@ -1,7 +1,7 @@
 # Test architecture (Phase 7B)
 
 Narrow ownership map for Decision, report, and public-contract confidence.
-This is not broad contributor documentation (Phase 7D).
+This is not broad contributor documentation (Phase 7C).
 
 ## Layers
 
@@ -79,9 +79,11 @@ development-era saved reports once when upgrading schema 13 → 14.
 After migration 014:
 
 - only newly generated exact ReportDetailV3 reports exist;
-- every stored report read validates exact ReportDetailV3;
-- malformed / non-v3 bodies fail closed;
+- every stored report read (list, detail, download) validates exact ReportDetailV3;
+- malformed / non-v3 bodies fail closed and are omitted from Saved reports;
 - one report parser, one ViewModel path, one current report contract suite.
+- `DecisionPriority` is wire/order contract metadata (exact enum + ranking), not
+  a user-facing label catalogue; statuses and primary copy codes own presentation.
 
 This is a deliberate pre-release reset, not a user-facing migration feature.
 

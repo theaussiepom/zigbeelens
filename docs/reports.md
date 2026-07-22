@@ -149,13 +149,13 @@ Large networks may produce large reports — use narrower scopes for sharing.
 curl -X POST http://localhost:8377/api/reports \
   -H 'Content-Type: application/json' \
   -d '{
-    "scope": "overview",
+    "scope": "full",
     "format": "markdown",
-    "redaction": "public_safe"
+    "redaction": { "profile": "public_safe" }
   }'
 ```
 
-Preview without storing: `GET /api/reports/preview?redaction=public_safe`
+Preview without storing: `GET /api/reports/preview?profile=public_safe`
 
 ## Related
 
