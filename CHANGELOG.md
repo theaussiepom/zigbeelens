@@ -9,10 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Phase 7B test architecture:** canonical oracle contract fixtures (`oracle_contract_version: 1`), Core/UI contract lanes, `scripts/validate-contracts.sh`, Core→UI→ReportDetailV3 parity, unknown-not-zero and primary-copy guardrails, `/api`↔`/api/v1` decision/report matrix, OpenAPI structural checks; see `docs/test-architecture.md`
+- **Phase 7B test architecture:** canonical oracle contract fixtures (`oracle_contract_version: 2` with Core-owned vocabulary manifest), Core/UI contract lanes, self-contained `scripts/validate-contracts.sh` (no `uv` requirement), Core→UI→ReportDetailV3 exact parity, unknown-not-zero and primary-copy guardrails, `/api`↔`/api/v1` decision/report matrix, OpenAPI structural checks; see `docs/test-architecture.md`
 
 ### Changed
 
+- **Pre-release report reset:** migration `014` deletes all stored development reports; Core/shared/UI accept exact ReportDetailV3 only — no v1/v2 compatibility branch remains
 - **Phase 7A query bounds (final):** additive incident `order=recent` closes Overview PR #83; latest topology uses per-network indexed seeks (not history-wide `ROW_NUMBER`); device snapshot-history endpoint is target-row/link-bounded (no complete device inventory; network tracking via existence probe; `UNION ALL` + `idx_topology_links_snapshot_target`) with deep topology_facts parity; metric windows use deterministic `id` tie-break; shared-availability instability reads offline transitions in SQL; cursor versions accept only exact `int` `{1,2}`; History full/network report ops measured; migration `013` index-only and runtime-smoked on SQLite 3.34.1; Track 5 baselines frozen
 - **Phase 6A navigation:** primary workflows are Overview, Mesh / Investigate, Devices, Incidents, Reports, Settings; supporting Networks / Timeline / Topology snapshots / How it works live under Advanced & support; canonical investigation routes are `/investigate` and `/investigate/:networkId` with legacy `/topology/:networkId/graph` redirect compatibility
 - **Phase 6B router UX:** observed router areas are investigated in Mesh / Investigate; standalone Router diagnostics page removed; `/routers` remains a compatibility redirect; Core/HACS/report router facts retained; router-area cards can focus graph evidence and open the existing device drawer without changing layout or presets

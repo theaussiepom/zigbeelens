@@ -749,7 +749,7 @@ Add query-specific repository methods and indexes for Beast-sized networks.
 
 ### Phase 7B — Test architecture
 
-**Done (branch `test/release-quality-architecture`):** canonical oracle fixture corpus, layer ownership (`docs/test-architecture.md`), Core/UI contract lanes, ReportDetailV3 parity (client Mesh exporter retired), unknown-not-zero + primary-copy guardrails, `/api`↔`/api/v1` matrix, `scripts/validate-contracts.sh`.
+**Done (branch `test/release-quality-architecture`, corrective pass):** oracle contract v2 + Core vocabulary manifest; one freshness owner; self-contained `scripts/validate-contracts.sh`; exact Core→UI→ReportDetailV3 parity; migration 014 deletes all stored development reports (schema 14, v3-only); unknown-not-zero + primary-copy guardrails; `/api`↔`/api/v1` + OpenAPI structural matrix. No v1/v2 stored-report compatibility remains.
 
 ### Phase 7C — Documentation/screenshots
 

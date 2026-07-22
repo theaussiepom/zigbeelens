@@ -1891,7 +1891,7 @@ Composer 2.5 for indexing/query changes. Use 4.5 for performance investigation i
 
 ### Status
 
-**Implemented on `test/release-quality-architecture`.** See `docs/test-architecture.md`.
+**Implemented on `test/release-quality-architecture` (corrective pass).** See `docs/test-architecture.md`.
 
 ### Goal
 
@@ -1904,11 +1904,13 @@ Add tests at the right layers.
 - reason-code tests;
 - ViewModel tests;
 - component render tests;
-- report parity tests (ReportDetailV3; client Mesh exporter retired);
+- report parity tests (exact ReportDetailV3 only; client Mesh exporter retired);
 - forbidden wording sweeps;
 - API compatibility tests (`/api` ↔ `/api/v1`);
-- canonical oracle fixture corpus + freshness gate;
-- fast contract lane: `scripts/validate-contracts.sh`.
+- canonical oracle fixture corpus v2 + Core-owned vocabulary manifest;
+- one fixture freshness owner (two hash-seed generations);
+- self-contained fast contract lane: `scripts/validate-contracts.sh` (no `uv`);
+- migration 014 pre-release report-table reset (schema 14).
 
 ### Acceptance criteria
 
@@ -1916,7 +1918,8 @@ Add tests at the right layers.
 - Unknown values never become zero.
 - Forbidden wording does not return in primary copy.
 - Ordinary UI unit tests do not spawn Core Python.
-- Fixture freshness remains an explicit Core/contract validation gate.
+- Fixture freshness remains an explicit Core contract owner (exactly two generations).
+- Stored reports are exact v3 only after migration 014.
 
 ### Composer model
 
