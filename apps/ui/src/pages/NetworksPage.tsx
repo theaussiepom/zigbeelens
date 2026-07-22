@@ -268,7 +268,7 @@ export function NetworkDetailPage() {
           <ErrorState
             message="Active incidents are unavailable."
             onRetry={activeIncidentsResource.refetch}
-            retryLabel="Retry"
+            retryLabel="Retry active incidents"
           />
         ) : (
           <div className="space-y-3">
@@ -276,6 +276,7 @@ export function NetworkDetailPage() {
               <SectionRefreshWarning
                 message="Active incidents could not be refreshed. Showing the last loaded results."
                 onRetry={activeIncidentsResource.refetch}
+                retryLabel="Retry active incidents"
               />
             )}
             {activeIncidents.length === 0 ? (
@@ -331,7 +332,7 @@ export function NetworkDetailPage() {
           <ErrorState
             message="Recent events are unavailable."
             onRetry={timeline.refetch}
-            retryLabel="Retry"
+            retryLabel="Retry recent events"
           />
         ) : (
           <div className="space-y-3">
@@ -339,6 +340,7 @@ export function NetworkDetailPage() {
               <SectionRefreshWarning
                 message="Recent events could not be refreshed. Showing the last loaded timeline."
                 onRetry={timeline.refetch}
+                retryLabel="Retry recent events"
               />
             )}
             {timeline.data.length === 0 ? (
@@ -364,9 +366,11 @@ export function NetworkDetailPage() {
 function SectionRefreshWarning({
   message,
   onRetry,
+  retryLabel,
 }: {
   message: string;
   onRetry: () => void;
+  retryLabel: string;
 }) {
   return (
     <div
@@ -376,6 +380,7 @@ function SectionRefreshWarning({
       <p>{message}</p>
       <button
         type="button"
+        aria-label={retryLabel}
         onClick={onRetry}
         className="mt-2 min-h-11 rounded-lg border border-zl-border px-3 py-1.5 text-sm text-zl-text hover:bg-zl-surface-2"
       >

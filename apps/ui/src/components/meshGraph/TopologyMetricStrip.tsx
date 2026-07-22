@@ -12,6 +12,10 @@ export function TopologyMetricStrip({
   snapshot: NonNullable<TopologyEvidenceGraphDetail["latest_snapshot"]>;
   liveEdgeCount: number;
 }) {
+  const historyAvailable = graphDetail.history_window.snapshots_considered > 0;
+  const recentMissingLinkCount =
+    graphDetail.counts.historical_neighbor_edges + graphDetail.counts.historical_route_edges;
+
   return (
     <div className="flex flex-wrap gap-2">
       <MetricPill label="Network" value={graphDetail.network_name} />
@@ -31,11 +35,12 @@ export function TopologyMetricStrip({
       />
       <MetricPill
         label="Recent missing links"
-        value={
-          graphDetail.counts.historical_neighbor_edges +
-          graphDetail.counts.historical_route_edges
+        value={historyAvailable ? recentMissingLinkCount : "—"}
+        description={
+          historyAvailable
+            ? "Links seen in recent previous snapshots but not present in the latest usable snapshot."
+            : "History unavailable because no previous snapshots were considered."
         }
-        description="Links seen in recent previous snapshots but not present in the latest usable snapshot."
       />
       {graphDetail.inventory && (
         <MetricPill

@@ -140,7 +140,7 @@ describe("NetworkDetailPage active incident resource states", () => {
     resources.activeIncidents = state(null, { error: "request failed" });
     renderPage();
     expect(screen.getByText("Active incidents are unavailable.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry active incidents" })).toBeInTheDocument();
     expect(screen.queryByText("No active incidents on this network")).not.toBeInTheDocument();
   });
 
@@ -163,7 +163,7 @@ describe("NetworkDetailPage active incident resource states", () => {
     expect(
       screen.getByText("Active incidents could not be refreshed. Showing the last loaded results."),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry active incidents" })).toBeInTheDocument();
   });
 });
 
@@ -179,7 +179,7 @@ describe("NetworkDetailPage recent timeline resource states", () => {
     resources.timeline = state(null, { error: "request failed" });
     renderPage();
     expect(screen.getByText("Recent events are unavailable.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry recent events" })).toBeInTheDocument();
     expect(screen.queryByText("No recent events.")).not.toBeInTheDocument();
   });
 
@@ -202,6 +202,19 @@ describe("NetworkDetailPage recent timeline resource states", () => {
     expect(
       screen.getByText("Recent events could not be refreshed. Showing the last loaded timeline."),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry recent events" })).toBeInTheDocument();
+  });
+
+  it("gives simultaneous incident and timeline retries unique accessible names", () => {
+    resources.activeIncidents = state(null, { error: "incident request failed" });
+    resources.timeline = state(null, { error: "timeline request failed" });
+
+    renderPage();
+
+    const retryNames = screen.getAllByRole("button", { name: /^Retry / }).map(
+      (button) => button.getAttribute("aria-label") ?? button.textContent,
+    );
+    expect(retryNames).toEqual(["Retry active incidents", "Retry recent events"]);
+    expect(new Set(retryNames).size).toBe(retryNames.length);
   });
 });

@@ -139,8 +139,16 @@ Python resolution in `validate-contracts.sh`:
 
 - Core: `apps/core/tests/support/`
 - UI: `apps/ui/src/test/contracts/`
+- Exact topology evidence-graph DTOs: `apps/ui/src/test/topologyEvidenceGraphFixture.ts`
 
 Production modules must not import test support or fixtures.
+
+The topology fixture builder owns the complete `TopologyEvidenceGraphDetail`
+shape for component and page tests. Tests may override deliberate evidence,
+but must not substitute the smaller `TopologyNetworkDetail` payload or cast an
+incomplete object. Resource-state tests separately represent no accepted data,
+accepted empty data, accepted nonempty data, and retained accepted data with a
+refresh error.
 
 ## Zero-fallback classifications
 

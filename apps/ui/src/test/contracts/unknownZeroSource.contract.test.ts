@@ -63,7 +63,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/lib/meshEvidenceLive.ts",
     "kind": "nullishCoalescing",
     "expression": "neighborCounts.get(ieee) ?? 0",
-    "line": 529,
+    "line": 510,
     "character": 31,
     "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
@@ -72,7 +72,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/lib/meshEvidenceLive.ts",
     "kind": "nullishCoalescing",
     "expression": "neighborCounts.get(ieee) ?? 0",
-    "line": 704,
+    "line": 685,
     "character": 22,
     "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
@@ -81,7 +81,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/lib/meshEvidenceLive.ts",
     "kind": "nullishCoalescing",
     "expression": "neighborCounts.get(ieee) ?? 0",
-    "line": 719,
+    "line": 701,
     "character": 7,
     "classification": "graph algorithm accumulator",
     "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
@@ -279,7 +279,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/pages/OverviewPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "data.decision_summary.status_counts.review_first ?? 0",
-    "line": 132,
+    "line": 147,
     "character": 23,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
@@ -288,7 +288,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/pages/OverviewPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "data.decision_summary.status_counts.worth_reviewing ?? 0",
-    "line": 133,
+    "line": 148,
     "character": 26,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."

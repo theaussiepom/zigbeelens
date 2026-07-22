@@ -75,6 +75,24 @@ export function TopologyGraphPage() {
         {GRAPH_SAFETY_COPY_LIVE}
       </div>
 
+      {detail.data && inventory.data === null && (
+        <MeshInventoryWarning
+          message={
+            inventory.loading
+              ? "Device inventory is still loading. Showing topology evidence without inventory confirmation."
+              : "Device inventory is unavailable. Showing topology evidence without inventory confirmation."
+          }
+          onRetry={inventory.error ? inventory.refetch : undefined}
+        />
+      )}
+
+      {detail.data && inventory.data !== null && inventory.error && (
+        <MeshInventoryWarning
+          message="Device inventory could not be refreshed. Showing the last loaded inventory confirmation."
+          onRetry={inventory.refetch}
+        />
+      )}
+
       {!networkId ? (
         <Card title="No network selected">
           <p className="text-sm text-zl-muted">
@@ -201,6 +219,33 @@ export function TopologyGraphPage() {
       )}
       {selectedDevice && (
         <NodeDrawer device={selectedDevice} onClose={clearNode} />
+      )}
+    </div>
+  );
+}
+
+function MeshInventoryWarning({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div
+      role="status"
+      className="rounded-lg border border-zl-watch/40 bg-zl-watch/10 px-3 py-2 text-sm text-zl-watch"
+    >
+      <p>{message}</p>
+      {onRetry && (
+        <button
+          type="button"
+          aria-label="Retry device inventory"
+          onClick={onRetry}
+          className="mt-2 min-h-11 rounded-lg border border-zl-border px-3 py-1.5 text-sm text-zl-text hover:bg-zl-surface-2"
+        >
+          Retry
+        </button>
       )}
     </div>
   );

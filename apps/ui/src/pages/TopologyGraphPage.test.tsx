@@ -13,7 +13,6 @@ import type {
   LastKnownLinkAggregate,
   PassiveHintAggregate,
   TopologyEvidenceGraphDetail,
-  TopologyNetworkDetail,
 } from "@/lib/api";
 import { api } from "@/lib/api";
 import type { DataCoverageDto } from "@/types/decisions";
@@ -27,6 +26,7 @@ import { findForbiddenUserFacingPhrases, GRAPH_VIEW_DRAW_MORE_LINKS } from "@/li
 import { viewPresetStorageKey } from "@/lib/meshGraphPresets";
 import { positionStorageKey } from "@/lib/meshGraphSmartLayout";
 import { mockReactFlow } from "@/test/mockReactFlow";
+import { makeTopologyEvidenceGraphDetail } from "@/test/topologyEvidenceGraphFixture";
 
 beforeAll(() => {
   mockReactFlow();
@@ -108,7 +108,7 @@ const liveDevices: DeviceSummary[] = [
   }),
 ];
 
-const liveDetailHome: TopologyNetworkDetail = {
+const liveDetailHome = makeTopologyEvidenceGraphDetail({
   network_id: "home",
   network_name: "Home",
   latest_snapshot: {
@@ -153,9 +153,9 @@ const liveDetailHome: TopologyNetworkDetail = {
   ],
   inventory: { device_count: 4, router_count: 1, end_device_count: 2 },
   layout_available: true,
-};
+});
 
-const liveDetailLimited: TopologyNetworkDetail = {
+const liveDetailLimited = makeTopologyEvidenceGraphDetail({
   network_id: "home2",
   network_name: "Home 2",
   latest_snapshot: {
@@ -172,7 +172,7 @@ const liveDetailLimited: TopologyNetworkDetail = {
   links: [],
   inventory: { device_count: 102, router_count: 14, end_device_count: 88 },
   layout_available: false,
-};
+});
 
 const HISTORICAL_NEIGHBOR_LIMITATIONS = [
   "This link was seen recently but is not in the latest usable snapshot. That can happen if the device is sleepy, recently moved, powered off, or simply absent from the latest map. Check the device before treating this as a mesh problem.",
@@ -398,7 +398,7 @@ const liveDetailWithInvestigations: TopologyEvidenceGraphDetail = {
 
 // Same snapshot, but the link table references an endpoint that appears in
 // neither the node list nor the inventory (seen on real networks).
-const liveDetailWithGhostEndpoint: TopologyNetworkDetail = {
+const liveDetailWithGhostEndpoint: TopologyEvidenceGraphDetail = {
   ...liveDetailHome,
   links: [
     ...liveDetailHome.links!,
@@ -419,7 +419,7 @@ const liveDetailWithGhostEndpoint: TopologyNetworkDetail = {
  * (0xr7) already flagged as needing attention.
  */
 function makeDenseNetwork(routerCount = 30): {
-  detail: TopologyNetworkDetail;
+  detail: TopologyEvidenceGraphDetail;
   devices: DeviceSummary[];
 } {
   const nodes = [
@@ -432,7 +432,7 @@ function makeDenseNetwork(routerCount = 30): {
       device_type: "Coordinator",
     }),
   ];
-  const links: NonNullable<TopologyNetworkDetail["links"]> = [];
+  const links: TopologyEvidenceGraphDetail["links"] = [];
   for (let i = 0; i < routerCount; i += 1) {
     const ieee = `0xr${i}`;
     nodes.push({ ieee_address: ieee, friendly_name: `Dense Router ${i}`, node_type: "Router" });
@@ -471,7 +471,7 @@ function makeDenseNetwork(routerCount = 30): {
     route_count: 2,
   });
   return {
-    detail: {
+    detail: makeTopologyEvidenceGraphDetail({
       network_id: "home",
       network_name: "Home",
       latest_snapshot: {
@@ -488,13 +488,17 @@ function makeDenseNetwork(routerCount = 30): {
       links,
       inventory: { device_count: devices.length, router_count: routerCount, end_device_count: 0 },
       layout_available: true,
-    },
+    }),
     devices,
   };
 }
 
-let mockDetail: TopologyNetworkDetail | null = liveDetailHome;
+let mockDetail: TopologyEvidenceGraphDetail | null = liveDetailHome;
 let mockDevices: DeviceSummary[] = liveDevices;
+let mockInventoryAccepted = true;
+let mockInventoryLoading = false;
+let mockInventoryError: string | null = null;
+let mockInventoryRefetch = vi.fn();
 
 vi.mock("@/context/ScenarioContext", () => ({
   useScenario: () => ({
@@ -522,10 +526,12 @@ vi.mock("@/hooks/useLiveResource", async (importOriginal) => {
         options.refetchOn.includes("dashboard_updated")
       ) {
         return {
-          data: { items: mockDevices, total: mockDevices.length },
-          loading: false,
-          error: null,
-          refetch: vi.fn(),
+          data: mockInventoryAccepted
+            ? { items: mockDevices, total: mockDevices.length }
+            : null,
+          loading: mockInventoryLoading,
+          error: mockInventoryError,
+          refetch: mockInventoryRefetch,
         };
       }
       // Evidence graph: single networkId dependency.
@@ -578,6 +584,10 @@ const emptyDeviceStory: DeviceStoryDto = {
 beforeEach(() => {
   mockDetail = liveDetailHome;
   mockDevices = liveDevices;
+  mockInventoryAccepted = true;
+  mockInventoryLoading = false;
+  mockInventoryError = null;
+  mockInventoryRefetch = vi.fn();
   localStorage.clear();
   vi.spyOn(api, "topologyDeviceSnapshotHistory").mockImplementation(() =>
     Promise.resolve(emptyDeviceHistory),
@@ -619,6 +629,8 @@ describe("TopologyGraphPage live mode", () => {
     expect(screen.queryByText(/sample data/i)).not.toBeInTheDocument();
     expect(screen.getByText("Snapshot status")).toBeInTheDocument();
     expect(screen.getByText("Captured")).toBeInTheDocument();
+    expect(screen.getByText("Observed topology nodes").parentElement).toHaveTextContent("3");
+    expect(screen.getByText("Recent missing links").parentElement).toHaveTextContent("—");
   });
 
   it("renders the live devices from the evidence API", async () => {
@@ -626,6 +638,83 @@ describe("TopologyGraphPage live mode", () => {
     expect(screen.getByText("Live Coordinator")).toBeInTheDocument();
     expect(screen.getByText("Live Lamp")).toBeInTheDocument();
     expect(screen.getByText("Live Sleepy Sensor")).toBeInTheDocument();
+  });
+
+  it("renders topology while device inventory is still loading without claiming inventory absence", async () => {
+    mockInventoryAccepted = false;
+    mockInventoryLoading = true;
+
+    await renderLiveAndWaitForLayout();
+    expect(
+      screen.getByText(
+        "Device inventory is still loading. Showing topology evidence without inventory confirmation.",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(
+      within(drawer).getByText("Device inventory unavailable — inventory status unknown"),
+    ).toBeInTheDocument();
+    expect(drawer).not.toHaveTextContent("not in the current device inventory");
+  });
+
+  it("renders topology after an initial inventory failure with a contextual retry", async () => {
+    mockInventoryAccepted = false;
+    mockInventoryError = "request failed";
+
+    await renderLiveAndWaitForLayout();
+    expect(
+      screen.getByText(
+        "Device inventory is unavailable. Showing topology evidence without inventory confirmation.",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry device inventory" }));
+    expect(mockInventoryRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats an accepted empty inventory as factual absence", async () => {
+    mockDevices = [];
+
+    await renderLiveAndWaitForLayout();
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    expect(screen.getByRole("dialog", { name: /device details/i })).toHaveTextContent(
+      "Observed in topology snapshot only — not in the current device inventory",
+    );
+  });
+
+  it("includes inventory-only devices after an accepted nonempty inventory arrives", async () => {
+    mockInventoryAccepted = false;
+    const view = await renderLiveAndWaitForLayout();
+    expect(screen.queryByText("Live Sleepy Sensor")).not.toBeInTheDocument();
+
+    mockInventoryAccepted = true;
+    view.rerender(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route path="/investigate/:networkId" element={<TopologyGraphPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Live Sleepy Sensor")).toBeInTheDocument();
+  });
+
+  it("retains accepted inventory evidence after a refresh failure", async () => {
+    mockInventoryError = "refresh failed";
+
+    await renderLiveAndWaitForLayout();
+    expect(screen.getByText("Live Sleepy Sensor")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Device inventory could not be refreshed. Showing the last loaded inventory confirmation.",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("mesh-node-0xe1"));
+    const drawer = screen.getByRole("dialog", { name: /device details/i });
+    expect(drawer).toHaveTextContent("In Zigbee2MQTT device inventory");
+    expect(drawer).toHaveTextContent("End device");
+    expect(drawer).toHaveTextContent("Healthy");
+    expect(screen.getByRole("button", { name: "Retry device inventory" })).toBeInTheDocument();
   });
 
   it("maps neighbour links to latest_snapshot_neighbor edges, merging directions", async () => {
@@ -686,10 +775,10 @@ describe("TopologyGraphPage live mode", () => {
   });
 
   it("disables route hints with capture guidance when the snapshot has no route tables", async () => {
-    mockDetail = {
+    mockDetail = makeTopologyEvidenceGraphDetail({
       ...liveDetailHome,
       links: liveDetailHome.links!.map((link) => ({ ...link, route_count: 0 })),
-    };
+    });
     const { container } = await renderLiveAndWaitForLayout();
     expect(connectionCheckbox(/route hints/i)).toBeDisabled();
     expect(screen.getByText(/No route hints in the latest snapshot/)).toBeInTheDocument();
@@ -873,7 +962,7 @@ describe("TopologyGraphPage live mode", () => {
   });
 
   it("shows a waiting state when no snapshot exists", async () => {
-    mockDetail = {
+    mockDetail = makeTopologyEvidenceGraphDetail({
       network_id: "home2",
       network_name: "Home 2",
       latest_snapshot: null,
@@ -881,7 +970,7 @@ describe("TopologyGraphPage live mode", () => {
       links: [],
       inventory: { device_count: 5, router_count: 1, end_device_count: 3 },
       layout_available: false,
-    };
+    });
     renderGraphPage("home2");
     expect(await screen.findByText("Waiting for a topology snapshot")).toBeInTheDocument();
     expect(
@@ -889,7 +978,7 @@ describe("TopologyGraphPage live mode", () => {
     ).toBeInTheDocument();
   });
 
-  it("creates a clearly labelled placeholder node for a link endpoint unknown to inventory and node list", async () => {
+  it("creates a clearly labelled placeholder node for a link endpoint absent from accepted inventory and node list", async () => {
     mockDetail = liveDetailWithGhostEndpoint;
     await renderLiveAndWaitForLayout();
     const ghost = screen.getByTestId("mesh-node-0xghost");
@@ -899,7 +988,9 @@ describe("TopologyGraphPage live mode", () => {
     fireEvent.click(ghost);
     const drawer = screen.getByRole("dialog", { name: /device details/i });
     expect(
-      within(drawer).getByText("Referenced by topology links only — unknown to inventory and node list"),
+      within(drawer).getByText(
+        "Referenced by topology links only — not in the current device inventory or node list",
+      ),
     ).toBeInTheDocument();
     expect(
       within(drawer).getByText(
@@ -1045,7 +1136,7 @@ describe("TopologyGraphPage layout stability", () => {
     const before = nodePosition(view.container, "0xr1");
 
     // Simulate a routine API refetch: identical content, fresh object identity.
-    mockDetail = JSON.parse(JSON.stringify(liveDetailHome)) as TopologyNetworkDetail;
+    mockDetail = structuredClone(liveDetailHome);
     view.rerender(
       <MemoryRouter initialEntries={["/investigate/home"]}>
         <Routes>

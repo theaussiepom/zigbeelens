@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { DashboardPayload, Incident } from "@zigbeelens/shared";
 import { OVERVIEW_LAST_VIEWED_STORAGE_KEY } from "@/lib/overviewVisitStorage";
@@ -645,7 +645,7 @@ describe("OverviewPage secondary incident resource states", () => {
     mockState.activeResource.error = "request failed";
     renderOverview();
     expect(screen.getByText("Active incidents are unavailable.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry active incidents" })).toBeInTheDocument();
     expect(screen.queryByText("No active incidents")).not.toBeInTheDocument();
   });
 
@@ -669,7 +669,7 @@ describe("OverviewPage secondary incident resource states", () => {
     expect(
       screen.getByText("Active incidents could not be refreshed. Showing the last loaded results."),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry active incidents" })).toBeInTheDocument();
   });
 
   it("does not claim no changes while recent incidents are loading", () => {
@@ -718,7 +718,7 @@ describe("OverviewPage secondary incident resource states", () => {
     mockState.recentResource.error = "request failed";
     renderOverview();
     expect(screen.getByText("Incident changes are unavailable.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry incident changes" })).toBeInTheDocument();
     expect(
       screen.queryByText("No recorded changes since your previous Overview visit."),
     ).not.toBeInTheDocument();
@@ -748,6 +748,104 @@ describe("OverviewPage secondary incident resource states", () => {
         "Incident changes could not be refreshed. Showing the last loaded incident evidence.",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry incident changes" })).toBeInTheDocument();
+  });
+
+  it("gives simultaneous active-incident and incident-change retries unique accessible names", () => {
+    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, "2026-07-05T00:00:00.000Z");
+    mockState.activeResource.dataOverride = null;
+    mockState.activeResource.error = "active request failed";
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.error = "recent request failed";
+
+    renderOverview();
+
+    const retryNames = screen.getAllByRole("button", { name: /^Retry / }).map(
+      (button) => button.getAttribute("aria-label") ?? button.textContent,
+    );
+    expect(retryNames).toEqual(["Retry incident changes", "Retry active incidents"]);
+    expect(new Set(retryNames).size).toBe(retryNames.length);
+  });
+});
+
+describe("OverviewPage visit watermark", () => {
+  const previousBoundary = "2026-07-05T00:00:00.000Z";
+  const visitTimestamp = "2026-07-22T03:04:05.000Z";
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(visitTimestamp));
+    localStorage.clear();
+    mockState.dashboard = makeDashboard();
+    mockState.activeIncidents = [];
+    mockState.recentIncidents = [];
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("writes the first watermark once dashboard data is accepted", () => {
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.loading = true;
+    renderOverview();
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(visitTimestamp);
+  });
+
+  it("preserves a previous boundary while recent incidents are initially loading", () => {
+    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, previousBoundary);
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.loading = true;
+    renderOverview();
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(previousBoundary);
+  });
+
+  it("preserves a previous boundary after an initial recent-incident failure", () => {
+    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, previousBoundary);
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.error = "request failed";
+    renderOverview();
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(previousBoundary);
+  });
+
+  it("advances after an accepted empty recent-incident result", () => {
+    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, previousBoundary);
+    renderOverview();
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(visitTimestamp);
+  });
+
+  it("advances after an accepted nonempty recent-incident result", () => {
+    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, previousBoundary);
+    mockState.recentIncidents = [makeOverviewIncident()];
+    renderOverview();
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(visitTimestamp);
+  });
+
+  it("advances with retained accepted incident data after a refresh error", () => {
+    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, previousBoundary);
+    mockState.recentIncidents = [makeOverviewIncident()];
+    mockState.recentResource.error = "refresh failed";
+    renderOverview();
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(visitTimestamp);
+  });
+
+  it("advances when retry produces the first accepted incident result", () => {
+    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, previousBoundary);
+    mockState.recentResource.dataOverride = null;
+    mockState.recentResource.error = "request failed";
+    const view = renderOverview();
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(previousBoundary);
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry incident changes" }));
+    expect(mockState.recentResource.refetch).toHaveBeenCalledTimes(1);
+    mockState.recentResource.dataOverride = [];
+    mockState.recentResource.error = null;
+    view.rerender(
+      <MemoryRouter>
+        <OverviewPage />
+      </MemoryRouter>,
+    );
+
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(visitTimestamp);
   });
 });

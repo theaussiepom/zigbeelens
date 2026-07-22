@@ -38,7 +38,7 @@ export function RecentChangesSection({
         <ErrorState
           message="Incident changes are unavailable."
           onRetry={incidentEvidence.onRetry}
-          retryLabel="Retry"
+          retryLabel="Retry incident changes"
         />
       ) : (
         <div className="space-y-3">
@@ -50,12 +50,14 @@ export function RecentChangesSection({
                   : "Incident changes are still loading. Showing changes from the loaded dashboard evidence."
               }
               onRetry={incidentEvidence.error ? incidentEvidence.onRetry : undefined}
+              retryLabel="Retry incident changes"
             />
           )}
           {incidentEvidence?.hasAcceptedData && incidentEvidence.error && (
             <IncidentEvidenceWarning
               message="Incident changes could not be refreshed. Showing the last loaded incident evidence."
               onRetry={incidentEvidence.onRetry}
+              retryLabel="Retry incident changes"
             />
           )}
           {section.items.length === 0 ? (
@@ -88,9 +90,11 @@ export function RecentChangesSection({
 function IncidentEvidenceWarning({
   message,
   onRetry,
+  retryLabel,
 }: {
   message: string;
   onRetry?: () => void;
+  retryLabel: string;
 }) {
   return (
     <div
@@ -101,6 +105,7 @@ function IncidentEvidenceWarning({
       {onRetry && (
         <button
           type="button"
+          aria-label={retryLabel}
           onClick={onRetry}
           className="mt-2 min-h-11 rounded-lg border border-zl-border px-3 py-1.5 text-sm text-zl-text hover:bg-zl-surface-2"
         >

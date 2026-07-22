@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { makeTopologyEvidenceGraphDetail } from "@/test/topologyEvidenceGraphFixture";
 
 const listeners = new Set<(eventName: string) => void>();
 const emit = (eventName: string) => {
@@ -47,12 +48,17 @@ describe("useTopologyGraphData", () => {
     listeners.clear();
     topologyEvidenceGraph.mockReset();
     devices.mockReset();
-    topologyEvidenceGraph.mockResolvedValue({
-      latest_snapshot: { snapshot_id: "snap-1", captured_at: "2026-01-01T00:00:00+00:00" },
-      nodes: [],
-      links: [],
-      layout_available: false,
-    });
+    topologyEvidenceGraph.mockResolvedValue(
+      makeTopologyEvidenceGraphDetail({
+        latest_snapshot: {
+          snapshot_id: "snap-1",
+          captured_at: "2026-01-01T00:00:00+00:00",
+        },
+        nodes: [],
+        links: [],
+        layout_available: false,
+      }),
+    );
     devices.mockResolvedValue({ items: [] });
   });
 

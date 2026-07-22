@@ -7,7 +7,6 @@ import type {
   PassiveHintAggregate,
   TopologyEvidenceGraphDetail,
   TopologyLinkRow,
-  TopologyNetworkDetail,
   TopologyNodeRow,
 } from "@/lib/api";
 import type {
@@ -381,6 +380,7 @@ function buildDevice(
   ieee: string,
   networkId: string,
   summary: DeviceSummary | undefined,
+  inventoryAccepted: boolean,
   node: TopologyNodeRow | undefined,
   neighborCount: number,
   diagnosticStats: MeshDiagnosticStat[],
@@ -406,16 +406,18 @@ function buildDevice(
           : "unknown",
     manufacturer: summary?.manufacturer ?? null,
     model: summary?.model ?? null,
-    in_inventory: Boolean(summary),
+    in_inventory: summary ? true : inventoryAccepted ? false : null,
     in_latest_snapshot: Boolean(node),
     last_seen_at: summary?.last_seen ?? null,
     health_bucket: summary ? bucketFromDecision(summary.decision?.status) : "unknown",
     flags: summary ? flagsForDevice(summary, role) : [],
     inventory_status: summary
       ? "In Zigbee2MQTT device inventory"
-      : node
-        ? "Observed in topology snapshot only — not in the current device inventory"
-        : "Referenced by topology links only — unknown to inventory and node list",
+      : !inventoryAccepted
+        ? "Device inventory unavailable — inventory status unknown"
+        : node
+          ? "Observed in topology snapshot only — not in the current device inventory"
+          : "Referenced by topology links only — not in the current device inventory or node list",
     topology_evidence_summary: topologySummary(node, neighborCount, sleepy),
     passive_observation_summary: summary?.decision?.headline_code
       ? summary.decision.headline_code.replace(/_/g, " ")
@@ -479,28 +481,6 @@ function buildHistoricalEdge(
 }
 
 /**
- * Live detail for the evidence graph: the latest-snapshot payload, plus the
- * backend-aggregated historical evidence when the evidence-graph endpoint
- * supplied it.
- */
-export type LiveTopologyDetail = TopologyNetworkDetail &
-  Partial<
-    Pick<
-      TopologyEvidenceGraphDetail,
-      | "historical_neighbors"
-      | "historical_routes"
-      | "history_window"
-      | "last_known_links"
-      | "last_known_window"
-      | "limitations"
-      | "passive_hints"
-      | "passive_hint_window"
-      | "device_stats"
-      | "device_stats_window"
-    >
-  >;
-
-/**
  * Build the live evidence set from the latest snapshot plus inventory.
  * Neighbour entries reported in both directions collapse into one
  * non-directional edge; route-table entries produce directional route edges.
@@ -508,8 +488,8 @@ export type LiveTopologyDetail = TopologyNetworkDetail &
  * historical_neighbor / historical_route edges.
  */
 export function buildLiveMeshEvidence(
-  detail: LiveTopologyDetail,
-  inventoryDevices: DeviceSummary[],
+  detail: TopologyEvidenceGraphDetail,
+  inventoryDevices: DeviceSummary[] | null,
 ): LiveMeshEvidence {
   const networkId = detail.network_id;
   const capturedAt = detail.latest_snapshot?.captured_at ?? null;
@@ -519,8 +499,9 @@ export function buildLiveMeshEvidence(
   const nodeByIeee = new Map<string, TopologyNodeRow>();
   for (const node of nodes) nodeByIeee.set(normalizeIeee(node.ieee_address), node);
 
+  const inventoryAccepted = inventoryDevices !== null;
   const summaryByIeee = new Map<string, DeviceSummary>();
-  for (const device of inventoryDevices) {
+  for (const device of inventoryDevices ?? []) {
     summaryByIeee.set(normalizeIeee(device.ieee_address), device);
   }
 
@@ -715,6 +696,7 @@ export function buildLiveMeshEvidence(
       ieee,
       networkId,
       summary,
+      inventoryAccepted,
       nodeByIeee.get(ieee),
       neighborCounts.get(ieee) ?? 0,
       diagnosticStats,

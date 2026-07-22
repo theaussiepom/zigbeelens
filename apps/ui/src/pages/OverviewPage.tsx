@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { api } from "@/lib/api";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
@@ -60,6 +60,7 @@ export function OverviewPage() {
   });
   const previousLastViewedAt = useMemo(() => readOverviewLastViewedAt(), []);
   const visitTimestamp = useMemo(() => new Date().toISOString(), []);
+  const visitTimestampWritten = useRef(false);
 
   const activeIncidentsResource = useLiveResource(
     () =>
@@ -90,10 +91,24 @@ export function OverviewPage() {
   );
 
   useEffect(() => {
-    if (dashboard.data && !dashboard.loading) {
+    const recentIncidentEvidenceAccepted =
+      previousLastViewedAt === null || recentIncidentsResource.data !== null;
+    if (
+      !visitTimestampWritten.current &&
+      dashboard.data &&
+      !dashboard.loading &&
+      recentIncidentEvidenceAccepted
+    ) {
       writeOverviewLastViewedAt(visitTimestamp);
+      visitTimestampWritten.current = true;
     }
-  }, [dashboard.data, dashboard.loading, visitTimestamp]);
+  }, [
+    dashboard.data,
+    dashboard.loading,
+    previousLastViewedAt,
+    recentIncidentsResource.data,
+    visitTimestamp,
+  ]);
 
   if (dashboard.error) return <ErrorState message={dashboard.error} onRetry={() => {
     dashboard.refetch();
@@ -285,7 +300,7 @@ export function OverviewPage() {
           <ErrorState
             message="Active incidents are unavailable."
             onRetry={activeIncidentsResource.refetch}
-            retryLabel="Retry"
+            retryLabel="Retry active incidents"
           />
         ) : (
           <div className="space-y-3">
@@ -293,6 +308,7 @@ export function OverviewPage() {
               <SectionRefreshWarning
                 message="Active incidents could not be refreshed. Showing the last loaded results."
                 onRetry={activeIncidentsResource.refetch}
+                retryLabel="Retry active incidents"
               />
             )}
             {active.length === 0 ? (
@@ -337,9 +353,11 @@ export function OverviewPage() {
 function SectionRefreshWarning({
   message,
   onRetry,
+  retryLabel,
 }: {
   message: string;
   onRetry: () => void;
+  retryLabel: string;
 }) {
   return (
     <div
@@ -349,6 +367,7 @@ function SectionRefreshWarning({
       <p>{message}</p>
       <button
         type="button"
+        aria-label={retryLabel}
         onClick={onRetry}
         className="mt-2 min-h-11 rounded-lg border border-zl-border px-3 py-1.5 text-sm text-zl-text hover:bg-zl-surface-2"
       >
