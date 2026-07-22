@@ -1,19 +1,16 @@
 /**
- * Central primary-copy safety guardrails.
- * Strict on headlines/reasons/checks; limitation-aware for negative caveats.
+ * Central primary-copy safety guardrails over the complete vocabulary manifest.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  HEADLINE_CODES,
-  REASON_CODES,
   headlineText,
   limitationText,
   reasonText,
   suggestedCheckText,
 } from "@/viewModels/decisionCopy";
-import { allOracleScenarios } from "@/test/contracts/oracleFixture";
+import oracleFixture from "@/test/fixtures/oracleMockScenarios.json";
 
 const FORBIDDEN_POSITIVE = [
   /\bparent router\b/i,
@@ -42,41 +39,55 @@ const SAFE_NEGATIVE_LIMITATION = [
   /not proof of/i,
 ];
 
-/** Exact allowlist: file + pattern + reason. No broad directory exclusions. */
-const STATIC_COPY_ALLOWLIST: Array<{
+type AllowEntry = {
   file: string;
   pattern: RegExp;
+  lineIncludes: string;
   reason: string;
-}> = [
+};
+
+const STATIC_COPY_ALLOWLIST: AllowEntry[] = [
   {
     file: "apps/ui/src/lib/meshGraphCopy.ts",
     pattern: /\bparent router\b/i,
-    reason: "FORBIDDEN_USER_FACING_PHRASES catalogue entry (not rendered copy)",
+    lineIncludes: '"parent router"',
+    reason: "FORBIDDEN_USER_FACING_PHRASES catalogue declaration",
   },
   {
     file: "apps/ui/src/lib/meshGraphCopy.ts",
     pattern: /\bcurrent route\b/i,
-    reason: "FORBIDDEN_USER_FACING_PHRASES catalogue entry (not rendered copy)",
+    lineIncludes: '"current route"',
+    reason: "FORBIDDEN_USER_FACING_PHRASES catalogue declaration",
   },
   {
     file: "apps/ui/src/lib/meshGraphCopy.ts",
     pattern: /\bactual path\b/i,
-    reason: "FORBIDDEN_USER_FACING_PHRASES catalogue entry (not rendered copy)",
+    lineIncludes: '"actual path"',
+    reason: "FORBIDDEN_USER_FACING_PHRASES catalogue declaration",
   },
   {
     file: "apps/ui/src/lib/meshGraphCopy.ts",
     pattern: /\bcaused by\b/i,
-    reason: "FORBIDDEN_USER_FACING_PHRASES catalogue entry (not rendered copy)",
+    lineIncludes: '"caused by"',
+    reason: "FORBIDDEN_USER_FACING_PHRASES catalogue declaration",
   },
   {
     file: "apps/ui/src/lib/meshGraphCopy.ts",
     pattern: /\broot cause\b/i,
-    reason: "FORBIDDEN_USER_FACING_PHRASES catalogue entry (not rendered copy)",
+    lineIncludes: '"root cause"',
+    reason: "FORBIDDEN_USER_FACING_PHRASES catalogue declaration",
   },
   {
     file: "apps/ui/src/lib/meshGraphCopy.ts",
     pattern: /\binferred route\b/i,
-    reason: "FORBIDDEN_USER_FACING_PHRASES catalogue entry (not rendered copy)",
+    lineIncludes: '"inferred route"',
+    reason: "FORBIDDEN_USER_FACING_PHRASES catalogue declaration",
+  },
+  {
+    file: "apps/ui/src/lib/meshGraphCopy.ts",
+    pattern: /\bbroken link\b/i,
+    lineIncludes: '"broken link"',
+    reason: "FORBIDDEN_USER_FACING_PHRASES catalogue declaration",
   },
 ];
 
@@ -90,9 +101,7 @@ function assertLimitationSafe(text: string, context: string): void {
   for (const pattern of FORBIDDEN_POSITIVE) {
     if (!pattern.test(text)) continue;
     const allowed = SAFE_NEGATIVE_LIMITATION.some((safe) => safe.test(text));
-    expect(allowed, `${context}: forbidden positive in limitation: ${text}`).toBe(
-      true,
-    );
+    expect(allowed, `${context}: forbidden positive in limitation: ${text}`).toBe(true);
   }
 }
 
@@ -111,45 +120,60 @@ function listTsFiles(dir: string): string[] {
   return out;
 }
 
+function lineAllowed(rel: string, pattern: RegExp, line: string): boolean {
+  return STATIC_COPY_ALLOWLIST.some(
+    (entry) =>
+      entry.file === rel &&
+      entry.pattern.source === pattern.source &&
+      line.includes(entry.lineIncludes),
+  );
+}
+
 describe("primary-copy guardrails", () => {
   it("rejects a deliberately unsafe sample", () => {
     const unsafe = "This failed link is the root cause of the route changed event.";
     expect(() => assertPrimarySafe(unsafe, "deliberate")).toThrow();
   });
 
-  it("oracle-mapped headlines/reasons/checks are primary-safe", () => {
-    for (const [, scenario] of allOracleScenarios()) {
-      for (const story of Object.values(scenario.device_stories)) {
-        assertPrimarySafe(headlineText(story.headline_code), story.headline_code);
-        for (const reason of story.reasons) {
-          assertPrimarySafe(
-            reasonText(reason.code, reason.params ?? {}),
-            reason.code,
-          );
-        }
-        for (const check of story.suggested_checks) {
-          assertPrimarySafe(
-            suggestedCheckText(check.code, check.params ?? {}),
-            check.code,
-          );
-        }
-        for (const limitation of story.limitations) {
-          assertLimitationSafe(
-            limitationText(limitation.code, limitation.params ?? {}),
-            limitation.code,
-          );
-        }
-      }
+  it("maps the complete vocabulary manifest primary-safe", () => {
+    const vocab = oracleFixture.vocabulary;
+    for (const code of vocab.headline_codes) {
+      assertPrimarySafe(headlineText(code), code);
+    }
+    for (const code of vocab.reason_codes) {
+      assertPrimarySafe(reasonText(code, {}), code);
+    }
+    for (const code of vocab.suggested_check_codes) {
+      assertPrimarySafe(suggestedCheckText(code, {}), code);
+    }
+    for (const code of vocab.limitation_codes) {
+      assertLimitationSafe(limitationText(code, {}), code);
     }
   });
 
-  it("catalogue headline/reason codes render primary-safe with empty params", () => {
-    for (const code of HEADLINE_CODES) {
-      assertPrimarySafe(headlineText(code), code);
-    }
-    for (const code of REASON_CODES) {
-      assertPrimarySafe(reasonText(code, {}), code);
-    }
+  it("exact catalogue declaration passes and nearby unsafe fails", () => {
+    const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
+    const file = path.join(repoRoot, "apps/ui/src/lib/meshGraphCopy.ts");
+    const text = readFileSync(file, "utf8");
+    const catalogueLine = text
+      .split("\n")
+      .find((line) => line.includes('"parent router"'));
+    expect(catalogueLine).toBeTruthy();
+    expect(
+      lineAllowed(
+        "apps/ui/src/lib/meshGraphCopy.ts",
+        /\bparent router\b/i,
+        catalogueLine!,
+      ),
+    ).toBe(true);
+
+    const unsafeSameFile = 'const bad = "parent router caused the outage";';
+    expect(
+      lineAllowed("apps/ui/src/lib/meshGraphCopy.ts", /\bparent router\b/i, unsafeSameFile),
+    ).toBe(false);
+    expect(
+      lineAllowed("apps/ui/src/lib/meshGraphCopy.ts", /\bcaused by\b/i, catalogueLine!),
+    ).toBe(false);
   });
 
   it("static primary component copy has no undeclared forbidden positives", () => {
@@ -170,18 +194,10 @@ describe("primary-copy guardrails", () => {
       const rel = path.relative(repoRoot, file);
       const text = readFileSync(file, "utf8");
       for (const pattern of FORBIDDEN_POSITIVE) {
-        if (!pattern.test(text)) continue;
-        const allowed = STATIC_COPY_ALLOWLIST.some(
-          (entry) =>
-            entry.file === rel &&
-            (entry.pattern.source === pattern.source || entry.pattern.test(text)),
-        );
-        // Allow negative caveats that include forbidden substrings only when the
-        // surrounding sentence is an explicit safety limitation.
-        const lines = text.split("\n").filter((line) => pattern.test(line));
-        for (const line of lines) {
+        for (const line of text.split("\n")) {
+          if (!pattern.test(line)) continue;
           if (SAFE_NEGATIVE_LIMITATION.some((safe) => safe.test(line))) continue;
-          if (allowed) continue;
+          if (lineAllowed(rel, pattern, line)) continue;
           expect.fail(`${rel}: undeclared forbidden primary copy: ${line.trim()}`);
         }
       }
