@@ -87,7 +87,11 @@ def test_report_v3_preserves_null_device_facts_and_network_only_incidents():
                 network_only_incidents += 1
                 # Measured empty affected set is allowed; unknown must not become 1.
                 assert list(affected) == []
-    assert null_device_facts >= 1 or network_only_incidents >= 0
+    assert null_device_facts + network_only_incidents >= 1, (
+        f"expected null telemetry and/or network-only incidents in oracle corpus; "
+        f"got null_device_facts={null_device_facts}, "
+        f"network_only_incidents={network_only_incidents}"
+    )
 
 
 def test_device_story_model_dump_keeps_empty_collections_empty():

@@ -12,9 +12,24 @@ export interface TopologyLandingSnapshotViewModel {
   summaryText: string;
 }
 
+function formatTopologyCount(
+  count: number | null | undefined,
+  singular: string,
+  plural: string,
+): string {
+  if (count === null || count === undefined) {
+    return `— ${plural}`;
+  }
+  if (count === 1) {
+    return `1 ${singular}`;
+  }
+  return `${count} ${plural}`;
+}
+
 /**
  * Presentation for a network's latest overview snapshot on `/topology`.
  * Does not invent Core status values; unknown never becomes complete.
+ * Individual null counts stay unknown and are never coerced to measured zero.
  */
 export function buildTopologyLandingSnapshotViewModel(
   latest: TopologySnapshotSummary | null | undefined,
@@ -42,9 +57,10 @@ export function buildTopologyLandingSnapshotViewModel(
           : "Topology layout limited",
       };
     }
-    const routers = latest.router_count ?? 0;
-    const links = latest.link_count ?? 0;
-    const counts = `${routers} topology routers · ${links} topology links`;
+    const counts = [
+      formatTopologyCount(latest.router_count, "topology router", "topology routers"),
+      formatTopologyCount(latest.link_count, "topology link", "topology links"),
+    ].join(" · ");
     return {
       label: topologyStatusLabel("complete"),
       severity: "healthy",

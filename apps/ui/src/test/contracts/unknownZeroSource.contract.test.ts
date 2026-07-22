@@ -267,33 +267,6 @@ const DECLARED: DeclaredEntry[] = [
     "note": "Classified zero fallback"
   },
   {
-    "file": "apps/ui/src/lib/topologyStats.ts",
-    "kind": "nullishCoalescing",
-    "expression": "snapshot.router_count ?? 0",
-    "line": 70,
-    "character": 6,
-    "classification": "factual measured default",
-    "note": "Classified zero fallback"
-  },
-  {
-    "file": "apps/ui/src/lib/topologyStats.ts",
-    "kind": "nullishCoalescing",
-    "expression": "snapshot.end_device_count ?? 0",
-    "line": 71,
-    "character": 6,
-    "classification": "factual measured default",
-    "note": "Classified zero fallback"
-  },
-  {
-    "file": "apps/ui/src/lib/topologyStats.ts",
-    "kind": "nullishCoalescing",
-    "expression": "snapshot.link_count ?? 0",
-    "line": 72,
-    "character": 6,
-    "classification": "factual measured default",
-    "note": "Classified zero fallback"
-  },
-  {
     "file": "apps/ui/src/pages/InvestigateLandingPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "summary.status_counts.review_first ?? 0",
@@ -454,28 +427,10 @@ const DECLARED: DeclaredEntry[] = [
     "character": 19,
     "classification": "factual measured default",
     "note": "Classified zero fallback"
-  },
-  {
-    "file": "apps/ui/src/viewModels/topology/topologyLandingSnapshotViewModel.ts",
-    "kind": "nullishCoalescing",
-    "expression": "latest.router_count ?? 0",
-    "line": 45,
-    "character": 21,
-    "classification": "factual measured default",
-    "note": "Classified zero fallback"
-  },
-  {
-    "file": "apps/ui/src/viewModels/topology/topologyLandingSnapshotViewModel.ts",
-    "kind": "nullishCoalescing",
-    "expression": "latest.link_count ?? 0",
-    "line": 46,
-    "character": 19,
-    "classification": "factual measured default",
-    "note": "Classified zero fallback"
   }
 ];
 
-const EXPECTED_TOTAL = 50;
+const EXPECTED_TOTAL = 45;
 
 const ROOTS = [
   "apps/ui/src/viewModels",

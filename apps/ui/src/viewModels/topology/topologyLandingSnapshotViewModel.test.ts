@@ -31,6 +31,35 @@ describe("buildTopologyLandingSnapshotViewModel", () => {
     expect(vm.summaryText).toMatch(/4 topology links/);
   });
 
+  it("preserves partial unknown router count without inventing zero", () => {
+    const vm = buildTopologyLandingSnapshotViewModel(
+      snap({ router_count: null, end_device_count: 8, link_count: 4 }),
+    );
+    expect(vm.label).toBe("Complete");
+    expect(vm.summaryText).toMatch(/— topology routers/);
+    expect(vm.summaryText).toMatch(/4 topology links/);
+    expect(vm.summaryText).not.toMatch(/0 topology routers/);
+  });
+
+  it("preserves partial unknown link count without inventing zero", () => {
+    const vm = buildTopologyLandingSnapshotViewModel(
+      snap({ router_count: 2, end_device_count: 8, link_count: null }),
+    );
+    expect(vm.label).toBe("Complete");
+    expect(vm.summaryText).toMatch(/2 topology routers/);
+    expect(vm.summaryText).toMatch(/— topology links/);
+    expect(vm.summaryText).not.toMatch(/0 topology links/);
+  });
+
+  it("keeps measured zero distinct from unknown", () => {
+    const vm = buildTopologyLandingSnapshotViewModel(
+      snap({ router_count: 0, end_device_count: 8, link_count: 4 }),
+    );
+    expect(vm.label).toBe("Complete");
+    expect(vm.summaryText).toMatch(/0 topology routers/);
+    expect(vm.summaryText).not.toMatch(/— topology routers/);
+  });
+
   it("presents complete layout-limited without measured zeros", () => {
     const vm = buildTopologyLandingSnapshotViewModel(
       snap({ router_count: 0, link_count: 0, end_device_count: 0 }),
@@ -39,6 +68,16 @@ describe("buildTopologyLandingSnapshotViewModel", () => {
     expect(vm.severity).toBe("watch");
     expect(vm.summaryText).toMatch(/layout limited/i);
     expect(vm.summaryText).not.toMatch(/0 topology routers/);
+  });
+
+  it("does not treat null counts as layout-limited measured zeros", () => {
+    const vm = buildTopologyLandingSnapshotViewModel(
+      snap({ router_count: null, link_count: null, end_device_count: null }),
+    );
+    expect(vm.label).toBe("Complete");
+    expect(vm.summaryText).toMatch(/— topology routers/);
+    expect(vm.summaryText).toMatch(/— topology links/);
+    expect(vm.label).not.toMatch(/layout limited/i);
   });
 
   it("presents pending without completed counts", () => {
