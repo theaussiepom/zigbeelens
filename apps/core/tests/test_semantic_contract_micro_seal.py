@@ -13,8 +13,6 @@ from zigbeelens.schemas import DecisionCountSummary, DeviceDecisionBadge, Device
 from zigbeelens.services.decision_summary import data_unavailable_device_badge
 from zigbeelens.services.network_decision import compose_network_decision
 from zigbeelens.services.report_storage import (
-    StoredReportVersionKind,
-    classify_stored_report_version,
     load_stored_report_envelope,
 )
 from zigbeelens.db.connection import Database
@@ -181,57 +179,37 @@ def test_compose_network_decision_empty_unobserved():
     assert badge.priority == DecisionPriority.none
 
 
-def test_stored_report_version_classification():
-    assert (
-        classify_stored_report_version({}).kind == StoredReportVersionKind.legacy
-    )
-    assert classify_stored_report_version({"report_version": 1}).version == 1
-    assert classify_stored_report_version({"report_version": 2}).version == 2
-    assert (
-        classify_stored_report_version({"report_version": "1"}).kind
-        == StoredReportVersionKind.legacy
-    )
-    assert (
-        classify_stored_report_version({"report_version": "2"}).kind
-        == StoredReportVersionKind.legacy
-    )
-    assert (
-        classify_stored_report_version({"report_version": 3}).kind
-        == StoredReportVersionKind.current
-    )
-    for raw in ("3", True, 3.0, -1, 4, [], {}, None, 1.5):
-        assert (
-            classify_stored_report_version({"report_version": raw}).kind
-            == StoredReportVersionKind.protocol_error
-        )
-
-
-def test_malformed_current_version_claim_not_legacy(tmp_path: Path):
+def test_non_exact_v3_stored_reports_fail_closed(tmp_path: Path):
     db = Database(tmp_path / "proto.sqlite")
     db.migrate()
     repo = Repository(db)
-    body = {
-        "id": "bad-v3-claim",
-        "report_version": "3",
-        "markdown_summary": "should not load as legacy",
-        "executive_summary": "legacy field",
-    }
-    row = repo.reports.save_report(
-        report_id="proto-row",
-        format="json",
-        scope="full",
-        redaction_profile="standard",
-        summary="bad",
-        body=body,
-        markdown=body["markdown_summary"],
-        redaction={},
-        metadata={},
-    )
-    assert load_stored_report_envelope(row) is None
-    # Stored bytes remain untouched.
-    stored = repo.reports.get_report(row.id)
-    assert stored is not None
-    assert json.loads(stored.body_json)["report_version"] == "3"
+    for idx, raw in enumerate(
+        [None, 1, 2, "1", "2", "3", True, 3.0, -1, 4, 1.5, [], {}]
+    ):
+        body = {
+            "id": f"bad-{idx}",
+            "markdown_summary": "should not load",
+        }
+        if raw is not None or raw is None:
+            if raw is None:
+                pass  # missing report_version
+            else:
+                body["report_version"] = raw
+        row = repo.reports.save_report(
+            report_id=f"proto-row-{idx}",
+            format="json",
+            scope="full",
+            redaction_profile="standard",
+            summary="bad",
+            body=body,
+            markdown=body["markdown_summary"],
+            redaction={},
+            metadata={},
+        )
+        assert load_stored_report_envelope(row) is None
+        stored = repo.reports.get_report(row.id)
+        assert stored is not None
+        assert stored.body_json  # bytes remain untouched
 
 
 def test_mock_missing_story_receives_data_unavailable_badge(

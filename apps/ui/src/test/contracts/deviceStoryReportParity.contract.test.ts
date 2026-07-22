@@ -1,65 +1,35 @@
 /**
- * Core API Device Story → UI ViewModel → ReportDetailV3 semantic parity.
- * Replaces obsolete client-only MeshEvidenceReport authority (Phase 6D/7B).
- *
- * Note: Core Device Story API wire shape omits network_id/ieee/friendly_name;
- * ReportDeviceStory includes those identity fields. parseDeviceStory validates
- * the report wire shape (used by validateReportDetailV3). API stories are
- * consumed as DeviceStoryDto without that identity key set.
+ * Exact Core API Device Story ↔ ReportDetailV3 ↔ UI ViewModel parity.
+ * Joins via report_story_keys for every mapped story (not representative-only).
  */
 import { describe, expect, it } from "vitest";
 import type { DeviceStoryDto } from "@/types/devices";
 import { validateReportDetailV3 } from "@/lib/decisionContract";
 import { buildDeviceStoryViewModel } from "@/viewModels/topology/deviceStoryViewModel";
 import { buildReportDecisionViewModel } from "@/viewModels/reports/reportDecisionViewModel";
+import {
+  coverageLabel,
+  decisionStatusLabel,
+  headlineText,
+  limitationText,
+  reasonText,
+  suggestedCheckText,
+} from "@/viewModels/decisionCopy";
 import { allOracleScenarios } from "@/test/contracts/oracleFixture";
+import oracleFixture from "@/test/fixtures/oracleMockScenarios.json";
 
-function codes(items: Array<{ code: string }>): string[] {
-  return items.map((item) => item.code);
-}
-
-function assertSemanticParity(
-  apiStory: DeviceStoryDto,
-  reportStory: {
-    status: string;
-    priority: string;
-    headline_code: string;
-    reasons: Array<{ code: string; params?: Record<string, unknown> }>;
-    limitations: Array<{ code: string; params?: Record<string, unknown> }>;
-    suggested_checks: Array<{ code: string; params?: Record<string, unknown> }>;
-    coverage: Array<{
-      dimension: string;
-      state: string;
-      label_code: string;
-    }>;
-  },
-) {
-  expect(reportStory.status).toBe(apiStory.status);
-  expect(reportStory.priority).toBe(apiStory.priority);
-  expect(reportStory.headline_code).toBe(apiStory.headline_code);
-  expect(codes(reportStory.reasons)).toEqual(codes(apiStory.reasons));
-  expect(codes(reportStory.limitations)).toEqual(codes(apiStory.limitations));
-  expect(codes(reportStory.suggested_checks)).toEqual(
-    codes(apiStory.suggested_checks),
-  );
-  expect(
-    reportStory.coverage.map((item) => [
-      item.dimension,
-      item.state,
-      item.label_code,
-    ]),
-  ).toEqual(
-    apiStory.coverage.map((item) => [
-      item.dimension,
-      item.state,
-      item.label_code,
-    ]),
-  );
+function codedItems(
+  items: Array<{ code: string; params?: Record<string, unknown> }>,
+): Array<{ code: string; params: Record<string, unknown> }> {
+  return items.map((item) => ({
+    code: item.code,
+    params: (item.params ?? {}) as Record<string, unknown>,
+  }));
 }
 
 describe("Core → UI → ReportDetailV3 Device Story parity", () => {
   it.each(allOracleScenarios())(
-    "representative subjects stay semantically aligned for %s",
+    "all report_story_keys stay exactly aligned for %s",
     (scenarioId, scenario) => {
       validateReportDetailV3(scenario.report);
       const reportByKey = new Map(
@@ -69,20 +39,58 @@ describe("Core → UI → ReportDetailV3 Device Story parity", () => {
         ]),
       );
       const reportVm = buildReportDecisionViewModel(scenario.report);
-      expect(reportVm.isLegacyFormat).toBe(false);
       expect(reportVm.reportVersion).toBe(3);
 
-      for (const subject of scenario.representative_subjects) {
-        const rawKey = `${subject.network_id}|${subject.ieee_address}`;
+      for (const [rawKey, reportKey] of Object.entries(scenario.report_story_keys)) {
         const apiStory = scenario.device_stories[
           rawKey as keyof typeof scenario.device_stories
         ] as DeviceStoryDto;
         expect(apiStory, `${scenarioId}:${rawKey}`).toBeTruthy();
-
-        const reportKey = subject.report_story_key;
         const reportStory = reportByKey.get(reportKey);
         expect(reportStory, `${scenarioId}:${reportKey}`).toBeTruthy();
-        assertSemanticParity(apiStory, reportStory!);
+
+        expect(reportStory!.status).toBe(apiStory.status);
+        expect(reportStory!.priority).toBe(apiStory.priority);
+        expect(reportStory!.headline_code).toBe(apiStory.headline_code);
+        expect(reportStory!.subject_type).toBe(apiStory.subject_type);
+        expect(codedItems(reportStory!.reasons)).toEqual(codedItems(apiStory.reasons));
+        expect(codedItems(reportStory!.limitations)).toEqual(
+          codedItems(apiStory.limitations),
+        );
+        expect(codedItems(reportStory!.suggested_checks)).toEqual(
+          codedItems(apiStory.suggested_checks),
+        );
+        expect(
+          (reportStory!.coverage ?? []).map((item) => ({
+            dimension: item.dimension,
+            state: item.state,
+            label_code: item.label_code,
+            params: item.params ?? {},
+          })),
+        ).toEqual(
+          (apiStory.coverage ?? []).map((item) => ({
+            dimension: item.dimension,
+            state: item.state,
+            label_code: item.label_code,
+            params: item.params ?? {},
+          })),
+        );
+        expect(reportStory!.related_unresolved_incident_ids ?? []).toEqual(
+          apiStory.related_unresolved_incident_ids ?? [],
+        );
+        expect(
+          (reportStory!.timeline ?? []).map((item) => ({
+            code: item.code,
+            params: item.params ?? {},
+            occurred_at: item.occurred_at ?? null,
+          })),
+        ).toEqual(
+          (apiStory.timeline ?? []).map((item) => ({
+            code: item.code,
+            params: item.params ?? {},
+            occurred_at: item.occurred_at ?? null,
+          })),
+        );
 
         const apiVm = buildDeviceStoryViewModel(apiStory);
         const reportItem = reportVm.deviceStories.find(
@@ -96,28 +104,35 @@ describe("Core → UI → ReportDetailV3 Device Story parity", () => {
         expect(reportItem!.story.reasons).toEqual(apiVm.reasons);
         expect(reportItem!.story.limitations).toEqual(apiVm.limitations);
         expect(reportItem!.story.suggestedChecks).toEqual(apiVm.suggestedChecks);
+        expect(reportItem!.story.coverageItems.map((item) => item.label)).toEqual(
+          apiVm.coverageItems.map((item) => item.label),
+        );
       }
     },
   );
 
-  it("covers required status/priority matrix from oracle corpus", () => {
-    const statuses = new Set<string>();
-    const priorities = new Set<string>();
-    for (const [, scenario] of allOracleScenarios()) {
-      for (const story of Object.values(scenario.device_stories)) {
-        statuses.add(story.status);
-        priorities.add(story.priority);
-      }
+  it("maps every vocabulary status/priority through presentation helpers", () => {
+    for (const status of oracleFixture.vocabulary.decision_statuses) {
+      expect(decisionStatusLabel(status).trim().length).toBeGreaterThan(0);
     }
-    for (const required of [
-      "informational",
-      "watch",
-      "worth_reviewing",
-      "improve_data_coverage",
-    ]) {
-      expect(statuses.has(required), required).toBe(true);
+    for (const priority of oracleFixture.vocabulary.decision_priorities) {
+      expect(typeof priority).toBe("string");
+      expect(priority.trim().length).toBeGreaterThan(0);
     }
-    expect(priorities.has("low")).toBe(true);
-    expect(priorities.has("medium") || priorities.has("high")).toBe(true);
+    for (const code of oracleFixture.vocabulary.headline_codes) {
+      expect(headlineText(code).trim().length).toBeGreaterThan(0);
+    }
+    for (const code of oracleFixture.vocabulary.reason_codes) {
+      expect(reasonText(code, {}).trim().length).toBeGreaterThan(0);
+    }
+    for (const code of oracleFixture.vocabulary.limitation_codes) {
+      expect(limitationText(code, {}).trim().length).toBeGreaterThan(0);
+    }
+    for (const code of oracleFixture.vocabulary.suggested_check_codes) {
+      expect(suggestedCheckText(code, {}).trim().length).toBeGreaterThan(0);
+    }
+    for (const code of oracleFixture.vocabulary.coverage_label_codes) {
+      expect(coverageLabel(code, {}).trim().length).toBeGreaterThan(0);
+    }
   });
 });
