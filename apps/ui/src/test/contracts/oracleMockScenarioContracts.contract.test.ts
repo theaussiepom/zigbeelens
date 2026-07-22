@@ -72,8 +72,8 @@ describe("oracle mock scenario contracts (UI consumption)", () => {
     expect(() => validateReportDetailV3(scenario.report)).not.toThrow();
   });
 
-  it("does not invoke child_process or python at import time", () => {
-    // Structural guard: this module graph must stay pure-TS.
+  it("UI contract support modules do not spawn Python or child processes", () => {
+    // Covered by uiContractNoPython.contract.test.ts (TypeScript import/API scan).
     expect(allOracleScenarios().length).toBe(oracleScenarioIds().length);
   });
 });

@@ -4,7 +4,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# Tests may override the repository root via ZIGBEELENS_CONTRACT_ROOT.
+ROOT="${ZIGBEELENS_CONTRACT_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 
 resolve_core_python() {
   if [[ -n "${CORE_PYTHON:-}" ]]; then
@@ -28,19 +29,31 @@ resolve_core_python() {
   return 1
 }
 
-CORE_PYTHON="$(resolve_core_python)"
-export PYTHONPATH="${ROOT}/apps/core/src${PYTHONPATH:+:${PYTHONPATH}}"
+main() {
+  if [[ "${1:-}" == "--print-core-python" ]]; then
+    resolve_core_python
+    return 0
+  fi
 
-echo "==> Core contract suite (oracle freshness owner; Python=${CORE_PYTHON})"
-(
-  cd "${ROOT}/apps/core"
-  "${CORE_PYTHON}" -m pytest -q tests/contracts
-)
+  local core_python
+  core_python="$(resolve_core_python)"
+  export PYTHONPATH="${ROOT}/apps/core/src${PYTHONPATH:+:${PYTHONPATH}}"
 
-echo "==> UI contract suite"
-(
-  cd "${ROOT}"
-  pnpm --filter @zigbeelens/ui test:contracts
-)
+  echo "==> Core contract suite (oracle freshness owner; Python=${core_python})"
+  (
+    cd "${ROOT}/apps/core"
+    "${core_python}" -m pytest -q tests/contracts
+  )
 
-echo "Contract validation OK"
+  echo "==> UI contract suite"
+  (
+    cd "${ROOT}"
+    pnpm --filter @zigbeelens/ui test:contracts
+  )
+
+  echo "Contract validation OK"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

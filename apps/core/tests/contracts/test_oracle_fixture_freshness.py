@@ -138,6 +138,7 @@ def test_publication_fails_when_builder_raises(tmp_path: Path, monkeypatch: pyte
 )
 def test_publication_fails_closed_without_overwrite(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     mutate,
     match: str,
 ):
@@ -152,10 +153,19 @@ def test_publication_fails_closed_without_overwrite(
     else:
         mutate(payload)
 
+    # Validator-specific unit check (non-publication).
     with pytest.raises(ValueError, match=match):
         validate_fixture_payload(payload)
-    # Direct publication path must not be reached after validation failure.
+
+    monkeypatch.setattr(
+        "generate_oracle_mock_fixtures.build_fixtures",
+        lambda: payload,
+    )
+    from generate_oracle_mock_fixtures import main
+
+    assert main(["--output", str(destination)]) == 1
     assert destination.read_text(encoding="utf-8") == "KEEP\n"
+    assert not destination.with_suffix(destination.suffix + ".tmp").exists()
 
 
 def test_publish_only_after_validation(tmp_path: Path):
