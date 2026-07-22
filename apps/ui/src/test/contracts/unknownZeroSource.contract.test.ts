@@ -279,7 +279,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/pages/OverviewPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "data.decision_summary.status_counts.review_first ?? 0",
-    "line": 147,
+    "line": 171,
     "character": 23,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
@@ -288,7 +288,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/pages/OverviewPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "data.decision_summary.status_counts.worth_reviewing ?? 0",
-    "line": 148,
+    "line": 172,
     "character": 26,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."

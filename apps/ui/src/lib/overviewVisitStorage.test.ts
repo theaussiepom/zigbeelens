@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   OVERVIEW_LAST_VIEWED_STORAGE_KEY,
   readOverviewLastViewedAt,
+  resolveOverviewPreviousLastViewedAt,
   writeOverviewLastViewedAt,
 } from "./overviewVisitStorage";
 
@@ -53,5 +54,29 @@ describe("overviewVisitStorage", () => {
     const storage = memoryStorage();
     writeOverviewLastViewedAt("2026-07-11T08:00:00.000Z", storage);
     expect(readOverviewLastViewedAt(storage)).toBe("2026-07-11T08:00:00.000Z");
+  });
+
+  it("keeps a stored boundary at or before Core's dashboard clock", () => {
+    expect(
+      resolveOverviewPreviousLastViewedAt(
+        "2026-07-10T12:00:00.000Z",
+        "2026-07-10T12:00:00.000Z",
+      ),
+    ).toBe("2026-07-10T12:00:00.000Z");
+    expect(
+      resolveOverviewPreviousLastViewedAt(
+        "2026-07-09T12:00:00.000Z",
+        "2026-07-10T12:00:00.000Z",
+      ),
+    ).toBe("2026-07-09T12:00:00.000Z");
+  });
+
+  it("discards a future browser-clock boundary instead of risking skipped evidence", () => {
+    expect(
+      resolveOverviewPreviousLastViewedAt(
+        "2027-01-01T00:00:00.000Z",
+        "2026-07-10T12:00:00.000Z",
+      ),
+    ).toBeNull();
   });
 });

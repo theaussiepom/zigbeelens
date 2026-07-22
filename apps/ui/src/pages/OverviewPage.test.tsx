@@ -770,11 +770,12 @@ describe("OverviewPage secondary incident resource states", () => {
 
 describe("OverviewPage visit watermark", () => {
   const previousBoundary = "2026-07-05T00:00:00.000Z";
-  const visitTimestamp = "2026-07-22T03:04:05.000Z";
+  const browserTimestamp = "2026-07-22T03:04:05.000Z";
+  const coreTimestamp = "2026-07-06T12:00:00+00:00";
 
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date(visitTimestamp));
+    vi.setSystemTime(new Date(browserTimestamp));
     localStorage.clear();
     mockState.dashboard = makeDashboard();
     mockState.activeIncidents = [];
@@ -789,7 +790,7 @@ describe("OverviewPage visit watermark", () => {
     mockState.recentResource.dataOverride = null;
     mockState.recentResource.loading = true;
     renderOverview();
-    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(visitTimestamp);
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(coreTimestamp);
   });
 
   it("preserves a previous boundary while recent incidents are initially loading", () => {
@@ -811,14 +812,14 @@ describe("OverviewPage visit watermark", () => {
   it("advances after an accepted empty recent-incident result", () => {
     localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, previousBoundary);
     renderOverview();
-    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(visitTimestamp);
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(coreTimestamp);
   });
 
   it("advances after an accepted nonempty recent-incident result", () => {
     localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, previousBoundary);
     mockState.recentIncidents = [makeOverviewIncident()];
     renderOverview();
-    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(visitTimestamp);
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(coreTimestamp);
   });
 
   it("advances with retained accepted incident data after a refresh error", () => {
@@ -826,7 +827,7 @@ describe("OverviewPage visit watermark", () => {
     mockState.recentIncidents = [makeOverviewIncident()];
     mockState.recentResource.error = "refresh failed";
     renderOverview();
-    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(visitTimestamp);
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(coreTimestamp);
   });
 
   it("advances when retry produces the first accepted incident result", () => {
@@ -838,6 +839,7 @@ describe("OverviewPage visit watermark", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Retry incident changes" }));
     expect(mockState.recentResource.refetch).toHaveBeenCalledTimes(1);
+    mockState.dashboard = makeDashboard({ generated_at: "2026-07-06T13:00:00+00:00" });
     mockState.recentResource.dataOverride = [];
     mockState.recentResource.error = null;
     view.rerender(
@@ -846,6 +848,46 @@ describe("OverviewPage visit watermark", () => {
       </MemoryRouter>,
     );
 
-    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(visitTimestamp);
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(coreTimestamp);
+  });
+
+  it("uses Core time when the browser clock is behind", () => {
+    vi.setSystemTime(new Date("2020-01-01T00:00:00.000Z"));
+    renderOverview();
+
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(coreTimestamp);
+  });
+
+  it("repairs a pre-existing future browser-clock boundary conservatively", () => {
+    localStorage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, "2027-01-01T00:00:00.000Z");
+    renderOverview();
+
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBe(coreTimestamp);
+    expect(
+      screen.getByText("Recent changes will appear here after your next visit."),
+    ).toBeInTheDocument();
+  });
+
+  it("writes the Core boundary only once per mount", () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    const view = renderOverview();
+    mockState.dashboard = makeDashboard({ generated_at: "2026-07-06T14:00:00+00:00" });
+    view.rerender(
+      <MemoryRouter>
+        <OverviewPage />
+      </MemoryRouter>,
+    );
+
+    expect(
+      setItem.mock.calls.filter(([key]) => key === OVERVIEW_LAST_VIEWED_STORAGE_KEY),
+    ).toEqual([[OVERVIEW_LAST_VIEWED_STORAGE_KEY, coreTimestamp]]);
+    setItem.mockRestore();
+  });
+
+  it("does not persist an invalid Core dashboard timestamp", () => {
+    mockState.dashboard = makeDashboard({ generated_at: "not-a-timestamp" });
+    renderOverview();
+
+    expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBeNull();
   });
 });

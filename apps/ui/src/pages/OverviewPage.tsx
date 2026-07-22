@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
@@ -35,7 +35,9 @@ import {
   buildDataCoverageWarningViewModel,
 } from "@/viewModels/overview/dataCoverageViewModel";
 import {
+  isValidOverviewVisitTimestamp,
   readOverviewLastViewedAt,
+  resolveOverviewPreviousLastViewedAt,
   writeOverviewLastViewedAt,
 } from "@/lib/overviewVisitStorage";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
@@ -58,9 +60,30 @@ export function OverviewPage() {
   const dashboard = useLiveResource(() => api.dashboard(scenario || undefined), [scenario], {
     refetchOn: DASHBOARD_EVENTS,
   });
-  const previousLastViewedAt = useMemo(() => readOverviewLastViewedAt(), []);
-  const visitTimestamp = useMemo(() => new Date().toISOString(), []);
+  const storedLastViewedAt = useMemo(() => readOverviewLastViewedAt(), []);
+  const [visitTimestamp, setVisitTimestamp] = useState<string | null>(null);
   const visitTimestampWritten = useRef(false);
+
+  useEffect(() => {
+    if (
+      visitTimestamp === null &&
+      dashboard.data &&
+      !dashboard.loading &&
+      isValidOverviewVisitTimestamp(dashboard.data.generated_at)
+    ) {
+      // Freeze the first accepted Core clock for this mount. Dashboard
+      // refreshes must not move the boundary for the visit already underway.
+      setVisitTimestamp(dashboard.data.generated_at);
+    }
+  }, [dashboard.data, dashboard.loading, visitTimestamp]);
+
+  const previousLastViewedAt = useMemo(
+    () =>
+      visitTimestamp
+        ? resolveOverviewPreviousLastViewedAt(storedLastViewedAt, visitTimestamp)
+        : null,
+    [storedLastViewedAt, visitTimestamp],
+  );
 
   const activeIncidentsResource = useLiveResource(
     () =>
@@ -74,7 +97,7 @@ export function OverviewPage() {
   );
   const recentIncidentsResource = useLiveResource(
     () => {
-      if (!previousLastViewedAt) {
+      if (!visitTimestamp || !previousLastViewedAt) {
         return Promise.resolve([]);
       }
       return api
@@ -86,8 +109,8 @@ export function OverviewPage() {
         })
         .then((r) => r.items);
     },
-    [scenario, previousLastViewedAt],
-    { refetchOn: DASHBOARD_EVENTS },
+    [scenario, previousLastViewedAt, visitTimestamp],
+    { enabled: Boolean(visitTimestamp), refetchOn: DASHBOARD_EVENTS },
   );
 
   useEffect(() => {
@@ -95,6 +118,7 @@ export function OverviewPage() {
       previousLastViewedAt === null || recentIncidentsResource.data !== null;
     if (
       !visitTimestampWritten.current &&
+      visitTimestamp !== null &&
       dashboard.data &&
       !dashboard.loading &&
       recentIncidentEvidenceAccepted
