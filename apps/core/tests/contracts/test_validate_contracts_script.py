@@ -16,26 +16,33 @@ def _base_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k != "CORE_PYTHON"}
 
 
-def _isolated_bin(tmp_path: Path, *names: Path) -> Path:
-    """PATH with only controlled executables (plus bash for the script itself)."""
+def _make_executable(path: Path, marker: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"#!/bin/sh\necho {marker}\n", encoding="utf-8")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return path
+
+
+def _isolated_bin(tmp_path: Path, *executables: Path) -> Path:
+    """PATH containing only bash plus the provided controlled executables."""
     bin_dir = tmp_path / "isolated-bin"
     bin_dir.mkdir()
     bash = shutil.which("bash")
     assert bash, "bash is required to exercise validate-contracts.sh"
     (bin_dir / "bash").symlink_to(bash)
-    for src in names:
+    for src in executables:
         dest = bin_dir / src.name
         if dest.exists() or dest.is_symlink():
             dest.unlink()
-        dest.symlink_to(src)
+        dest.symlink_to(src.resolve())
     return bin_dir
 
 
 def _print_core_python(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    bash = env.get("PATH", "").split(os.pathsep)[0]
-    bash_path = Path(bash) / "bash" if bash else Path(shutil.which("bash") or "bash")
+    path_entries = [p for p in env.get("PATH", "").split(os.pathsep) if p]
+    bash_path = Path(path_entries[0]) / "bash" if path_entries else Path("bash")
     return subprocess.run(
-        [str(bash_path) if bash_path.exists() else "bash", str(SCRIPT), "--print-core-python"],
+        [str(bash_path), str(SCRIPT), "--print-core-python"],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
@@ -44,42 +51,52 @@ def _print_core_python(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_validate_contracts_script_explicit_core_python(tmp_path: Path):
-    fake = tmp_path / "explicit-python"
-    fake.write_text("#!/bin/sh\n", encoding="utf-8")
-    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
-    bin_dir = _isolated_bin(tmp_path)
+def _fake_repo_with_venv(tmp_path: Path) -> tuple[Path, Path]:
+    root = tmp_path / "fake-repo"
+    venv_python = _make_executable(
+        root / "apps" / "core" / ".venv" / "bin" / "python",
+        "venv",
+    )
+    return root, venv_python
+
+
+def test_validate_contracts_script_explicit_core_python_wins(tmp_path: Path):
+    fake_root, venv_python = _fake_repo_with_venv(tmp_path)
+    python3 = _make_executable(tmp_path / "python3", "python3")
+    python = _make_executable(tmp_path / "python", "python")
+    explicit = _make_executable(tmp_path / "explicit-python", "explicit")
+    bin_dir = _isolated_bin(tmp_path, python3, python)
     env = _base_env()
-    env["CORE_PYTHON"] = str(fake)
-    env["ZIGBEELENS_CONTRACT_ROOT"] = str(tmp_path)
+    env["CORE_PYTHON"] = str(explicit)
+    env["ZIGBEELENS_CONTRACT_ROOT"] = str(fake_root)
     env["PATH"] = str(bin_dir)
     result = _print_core_python(env)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == str(fake)
+    assert result.stdout.strip() == str(explicit)
+    assert "Core contract suite" not in result.stdout
+    assert "UI contract suite" not in result.stdout
+    assert venv_python.exists()
 
 
-def test_validate_contracts_script_prefers_core_venv(tmp_path: Path):
-    bin_dir = _isolated_bin(tmp_path)
+def test_validate_contracts_script_prefers_temp_venv_over_path_pythons(tmp_path: Path):
+    fake_root, venv_python = _fake_repo_with_venv(tmp_path)
+    python3 = _make_executable(tmp_path / "python3", "python3")
+    python = _make_executable(tmp_path / "python", "python")
+    bin_dir = _isolated_bin(tmp_path, python3, python)
     env = _base_env()
+    env["ZIGBEELENS_CONTRACT_ROOT"] = str(fake_root)
     env["PATH"] = str(bin_dir)
-    env["ZIGBEELENS_CONTRACT_ROOT"] = str(REPO_ROOT)
     result = _print_core_python(env)
-    venv_python = REPO_ROOT / "apps" / "core" / ".venv" / "bin" / "python"
-    if venv_python.is_file() and os.access(venv_python, os.X_OK):
-        assert result.returncode == 0, result.stderr
-        assert Path(result.stdout.strip()).resolve() == venv_python.resolve()
-    else:
-        assert result.returncode != 0
-        assert "no Python interpreter found" in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert Path(result.stdout.strip()).resolve() == venv_python.resolve()
 
 
 def test_validate_contracts_script_falls_back_to_python3(tmp_path: Path):
-    fake_root = tmp_path / "repo"
+    fake_root = tmp_path / "repo-no-venv"
     fake_root.mkdir()
-    python3 = tmp_path / "python3"
-    python3.write_text("#!/bin/sh\n", encoding="utf-8")
-    python3.chmod(python3.stat().st_mode | stat.S_IXUSR)
-    bin_dir = _isolated_bin(tmp_path, python3)
+    python3 = _make_executable(tmp_path / "python3", "python3")
+    python = _make_executable(tmp_path / "python", "python")
+    bin_dir = _isolated_bin(tmp_path, python3, python)
     env = _base_env()
     env["PATH"] = str(bin_dir)
     env["ZIGBEELENS_CONTRACT_ROOT"] = str(fake_root)
@@ -89,11 +106,9 @@ def test_validate_contracts_script_falls_back_to_python3(tmp_path: Path):
 
 
 def test_validate_contracts_script_falls_back_to_python(tmp_path: Path):
-    fake_root = tmp_path / "repo"
+    fake_root = tmp_path / "repo-no-venv"
     fake_root.mkdir()
-    python = tmp_path / "python"
-    python.write_text("#!/bin/sh\n", encoding="utf-8")
-    python.chmod(python.stat().st_mode | stat.S_IXUSR)
+    python = _make_executable(tmp_path / "python", "python")
     bin_dir = _isolated_bin(tmp_path, python)
     env = _base_env()
     env["PATH"] = str(bin_dir)
@@ -104,7 +119,7 @@ def test_validate_contracts_script_falls_back_to_python(tmp_path: Path):
 
 
 def test_validate_contracts_script_fails_without_interpreter(tmp_path: Path):
-    fake_root = tmp_path / "repo"
+    fake_root = tmp_path / "repo-no-venv"
     fake_root.mkdir()
     bin_dir = _isolated_bin(tmp_path)
     env = _base_env()
@@ -113,6 +128,8 @@ def test_validate_contracts_script_fails_without_interpreter(tmp_path: Path):
     result = _print_core_python(env)
     assert result.returncode != 0
     assert "no Python interpreter found" in result.stderr
+    assert "Core contract suite" not in result.stdout
+    assert "UI contract suite" not in result.stdout
 
 
 def test_validate_contracts_script_mentions_no_uv_requirement():
@@ -122,3 +139,7 @@ def test_validate_contracts_script_mentions_no_uv_requirement():
     assert "-m pytest" in text
     assert "--print-core-python" in text
     assert "BASH_SOURCE[0]" in text
+    assert "dirname " not in text
+    assert 'dirname "' not in text
+    assert "$(dirname" not in text
+    assert "${SCRIPT_PATH%/*}" in text

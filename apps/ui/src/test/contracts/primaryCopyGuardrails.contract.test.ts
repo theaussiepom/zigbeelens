@@ -7,6 +7,7 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { FORBIDDEN_USER_FACING_PHRASES } from "@/lib/meshGraphCopy";
 import {
+  LIMITATION_CODES,
   headlineText,
   limitationText,
   reasonText,
@@ -16,26 +17,35 @@ import oracleFixture from "@/test/fixtures/oracleMockScenarios.json";
 
 const CATALOGUE_FILE = "apps/ui/src/lib/meshGraphCopy.ts";
 
-/** Safe negative limitation fragments — only for limitationText() output. */
-const SAFE_LIMITATION_NEGATIVE = [
-  /does not prove/i,
-  /does not claim/i,
-  /absence does not prove/i,
-  /not (a |an )?(live|proven|causal)/i,
-  /not proof of/i,
-];
+const EXPECTED_LIMITATIONS: Record<(typeof LIMITATION_CODES)[number], string> = {
+  absence_from_latest_not_failure:
+    "Absence from the latest snapshot does not prove the device failed or left the network.",
+  route_hints_not_live_routing:
+    "Route hints describe stored snapshot evidence. They do not prove live routing paths.",
+  availability_limits_interpretation:
+    "Availability and last-seen evidence is limited for this period, so offline or stale interpretation is constrained.",
+  extended_silence_not_failure:
+    "Silence longer than the observed reporting rhythm does not prove the device failed, lost power, or left the network.",
+  reported_lqi_not_path_failure:
+    "A drop in reported link quality does not prove a Zigbee path, route, or device failure.",
+  model_pattern_not_causal:
+    "A pattern among devices with the same stored model identity does not prove a model defect, manufacturer fault, or shared cause.",
+};
 
-function assertPrimarySafe(text: string, context: string): void {
-  for (const phrase of FORBIDDEN_USER_FACING_PHRASES) {
-    expect(text.toLowerCase(), `${context}: ${text}`).not.toContain(phrase.toLowerCase());
-  }
+function normalizeWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
-function assertLimitationSafe(text: string, context: string): void {
+function containsPhrase(text: string, phrase: string): boolean {
+  const normalized = normalizeWhitespace(text);
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|[^a-z0-9])${escaped}(?:$|[^a-z0-9])`, "i").test(normalized);
+}
+
+function assertPrimarySafe(text: string, context: string): void {
+  const normalized = normalizeWhitespace(text);
   for (const phrase of FORBIDDEN_USER_FACING_PHRASES) {
-    if (!text.toLowerCase().includes(phrase.toLowerCase())) continue;
-    const allowed = SAFE_LIMITATION_NEGATIVE.some((safe) => safe.test(text));
-    expect(allowed, `${context}: forbidden positive in limitation: ${text}`).toBe(true);
+    expect(containsPhrase(normalized, phrase), `${context}: ${normalized}`).toBe(false);
   }
 }
 
@@ -54,24 +64,74 @@ function listTsFiles(dir: string): string[] {
   return out;
 }
 
-function stringLiteralsInFile(filePath: string): string[] {
-  const sourceText = readFileSync(filePath, "utf8");
-  const source = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true);
+function staticBinaryText(node: ts.BinaryExpression, source: ts.SourceFile): string | null {
+  if (node.operatorToken.kind !== ts.SyntaxKind.PlusToken) return null;
+  const left = staticTextFromNode(node.left, source);
+  const right = staticTextFromNode(node.right, source);
+  if (left === null || right === null) return null;
+  return left + right;
+}
+
+function staticTextFromNode(node: ts.Node, source: ts.SourceFile): string | null {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    return node.text;
+  }
+  if (ts.isJsxText(node)) {
+    return node.getText(source);
+  }
+  if (ts.isTemplateExpression(node)) {
+    let text = node.head.text;
+    for (const span of node.templateSpans) {
+      // Only keep static fragments; interpolated expressions are not static copy.
+      text += span.literal.text;
+    }
+    return text;
+  }
+  if (ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) {
+    return node.text;
+  }
+  if (ts.isBinaryExpression(node)) {
+    return staticBinaryText(node, source);
+  }
+  if (ts.isParenthesizedExpression(node)) {
+    return staticTextFromNode(node.expression, source);
+  }
+  if (ts.isJsxExpression(node) && node.expression) {
+    return staticTextFromNode(node.expression, source);
+  }
+  if (ts.isJsxAttribute(node) && node.initializer) {
+    if (ts.isStringLiteral(node.initializer) || ts.isNoSubstitutionTemplateLiteral(node.initializer)) {
+      return node.initializer.text;
+    }
+    if (ts.isJsxExpression(node.initializer) && node.initializer.expression) {
+      return staticTextFromNode(node.initializer.expression, source);
+    }
+  }
+  return null;
+}
+
+function collectUserFacingStaticTexts(sourceText: string, fileName = "snippet.tsx"): string[] {
+  const source = ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const found: string[] = [];
   const visit = (node: ts.Node) => {
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
       found.push(node.text);
+    } else if (ts.isJsxText(node)) {
+      const text = normalizeWhitespace(node.getText(source));
+      if (text) found.push(text);
+    } else if (ts.isTemplateExpression(node)) {
+      found.push(node.head.text);
+      for (const span of node.templateSpans) {
+        found.push(span.literal.text);
+      }
+    } else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const joined = staticBinaryText(node, source);
+      if (joined !== null) found.push(joined);
     }
     ts.forEachChild(node, visit);
   };
   visit(source);
-  return found;
-}
-
-function containsPhrase(text: string, phrase: string): boolean {
-  // Word-boundary match so import paths like DrawerShell do not hit "drawer".
-  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?:^|[^a-z0-9])${escaped}(?:$|[^a-z0-9])`, "i").test(text);
+  return found.map(normalizeWhitespace).filter(Boolean);
 }
 
 describe("primary-copy guardrails", () => {
@@ -95,9 +155,21 @@ describe("primary-copy guardrails", () => {
     for (const code of vocab.suggested_check_codes) {
       assertPrimarySafe(suggestedCheckText(code, {}), code);
     }
-    for (const code of vocab.limitation_codes) {
-      assertLimitationSafe(limitationText(code, {}), code);
+  });
+
+  it("limitationText matches reviewed exact strings without mixed-positive exemptions", () => {
+    expect(LIMITATION_CODES.length).toBe(Object.keys(EXPECTED_LIMITATIONS).length);
+    for (const code of LIMITATION_CODES) {
+      const text = limitationText(code, {});
+      expect(text).toBe(EXPECTED_LIMITATIONS[code]);
+      assertPrimarySafe(text, code);
     }
+    expect(() =>
+      assertPrimarySafe(
+        "The parent router is the root cause, although this does not prove the device moved.",
+        "mixed",
+      ),
+    ).toThrow();
   });
 
   it("catalogue declarations are the only static exceptions and each is consumed once", () => {
@@ -119,10 +191,10 @@ describe("primary-copy guardrails", () => {
     let catalogueHits = 0;
     for (const file of files) {
       const rel = path.relative(repoRoot, file);
-      for (const literal of stringLiteralsInFile(file)) {
+      const texts = collectUserFacingStaticTexts(readFileSync(file, "utf8"), file);
+      for (const literal of texts) {
         for (const phrase of FORBIDDEN_USER_FACING_PHRASES) {
           if (!containsPhrase(literal, phrase)) continue;
-          // Exact catalogue declaration: the whole string is the phrase.
           if (rel === CATALOGUE_FILE && literal === phrase) {
             expect(remaining.has(phrase), `duplicate catalogue hit: ${phrase}`).toBe(true);
             remaining.delete(phrase);
@@ -130,7 +202,7 @@ describe("primary-copy guardrails", () => {
             continue;
           }
           expect.fail(
-            `${rel}: undeclared forbidden primary copy literal containing "${phrase}": ${JSON.stringify(literal)}`,
+            `${rel}: undeclared forbidden primary copy containing "${phrase}": ${JSON.stringify(literal)}`,
           );
         }
       }
@@ -140,11 +212,33 @@ describe("primary-copy guardrails", () => {
     expect(remaining.size, `unused catalogue phrases: ${[...remaining].join(", ")}`).toBe(0);
   });
 
+  it("detects forbidden phrases in JSX text, templates, and concatenations", () => {
+    const jsxTexts = collectUserFacingStaticTexts(
+      `export const Bad = () => <p>The parent router failed.</p>;`,
+    );
+    expect(jsxTexts.some((text) => containsPhrase(text, "parent router"))).toBe(true);
+
+    const templateTexts = collectUserFacingStaticTexts(
+      "export const note = `observed root cause at ${when}`;",
+    );
+    expect(templateTexts.some((text) => containsPhrase(text, "root cause"))).toBe(true);
+
+    const concatTexts = collectUserFacingStaticTexts(
+      'export const note = "broken " + "link detected";',
+    );
+    expect(concatTexts.some((text) => containsPhrase(text, "broken link"))).toBe(true);
+
+    expect(() => assertPrimarySafe("The parent router is the root cause.", "jsx-control")).toThrow();
+  });
+
   it("exact catalogue declaration passes and nearby unsafe fails", () => {
     const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
-    const literals = stringLiteralsInFile(path.join(repoRoot, CATALOGUE_FILE));
-    expect(literals).toContain("parent router");
-    expect(literals).not.toContain("parent router caused the outage");
+    const texts = collectUserFacingStaticTexts(
+      readFileSync(path.join(repoRoot, CATALOGUE_FILE), "utf8"),
+      CATALOGUE_FILE,
+    );
+    expect(texts).toContain("parent router");
+    expect(texts).not.toContain("parent router caused the outage");
     expect(() => assertPrimarySafe("parent router caused the outage", "same-file")).toThrow();
   });
 });

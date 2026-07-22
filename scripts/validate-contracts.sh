@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
 # Fast contract lane: Core contracts (owns oracle freshness) → UI contracts.
 # Self-contained: does not require uv. CI may use pip-installed Core.
+# Bootstrap uses Bash builtins only so isolated-PATH tests can exercise the resolver.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+# Resolve relative invocation without depending on external path utilities.
+case "${SCRIPT_PATH}" in
+  /*) ;;
+  *) SCRIPT_PATH="${PWD}/${SCRIPT_PATH}" ;;
+esac
+SCRIPT_DIR="${SCRIPT_PATH%/*}"
+if [[ "${SCRIPT_DIR}" == "${SCRIPT_PATH}" ]]; then
+  SCRIPT_DIR="${PWD}"
+fi
+SCRIPT_DIR="$(cd "${SCRIPT_DIR}" && pwd)"
 # Tests may override the repository root via ZIGBEELENS_CONTRACT_ROOT.
 ROOT="${ZIGBEELENS_CONTRACT_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 
