@@ -1014,15 +1014,33 @@ describe("OverviewPage visit watermark", () => {
     expect(storedOverviewBoundary("scenario-b")).toBe("2026-07-08T00:00:00+00:00");
   });
 
-  it("repairs a pre-existing future browser-clock boundary conservatively", () => {
+  it("discards an ambiguous past v1 boundary before selecting an incident query", () => {
+    const legacyBoundary = "2026-07-05T00:00:00.000Z";
     localStorage.setItem(
       OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY,
-      "2027-01-01T00:00:00.000Z",
+      legacyBoundary,
     );
     renderOverview();
 
-    expect(storedOverviewBoundary()).toBe(coreTimestamp);
     expect(localStorage.getItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY)).toBeNull();
+    expect(recentIncidentQueries()).toEqual([]);
+    expect(
+      vi.mocked(api.incidents).mock.calls.map(([query]) => query?.updated_after),
+    ).not.toContain(legacyBoundary);
+    expect(
+      screen.getByText("Recent changes will appear here after your next visit."),
+    ).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY) ?? "{}")).toEqual({
+      [overviewVisitScope("")]: coreTimestamp,
+    });
+  });
+
+  it("repairs a pre-existing future v2 boundary conservatively", () => {
+    setStoredOverviewBoundary("2027-01-01T00:00:00.000Z");
+    renderOverview();
+
+    expect(storedOverviewBoundary()).toBe(coreTimestamp);
+    expect(recentIncidentQueries()).toEqual([]);
     expect(
       screen.getByText("Recent changes will appear here after your next visit."),
     ).toBeInTheDocument();

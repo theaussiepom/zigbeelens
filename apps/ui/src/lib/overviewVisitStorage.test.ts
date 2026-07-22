@@ -83,17 +83,69 @@ describe("overviewVisitStorage", () => {
     );
   });
 
-  it("migrates the old global v1 boundary only into native scope", () => {
+  it("discards the old global v1 boundary for native scope", () => {
+    const legacy = "2026-07-09T12:00:00.000Z";
+    const storage = memoryStorage({ [OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY]: legacy });
+
+    expect(readOverviewLastViewedAt(nativeScope, storage)).toBeNull();
+    expect(storage.getItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY)).toBeNull();
+    expect(storage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBeNull();
+  });
+
+  it("discards the old global v1 boundary for named-scenario scope", () => {
     const legacy = "2026-07-09T12:00:00.000Z";
     const storage = memoryStorage({ [OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY]: legacy });
 
     expect(readOverviewLastViewedAt(scenarioAScope, storage)).toBeNull();
-    expect(storage.getItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY)).toBe(legacy);
-    expect(readOverviewLastViewedAt(nativeScope, storage)).toBe(legacy);
     expect(storage.getItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY)).toBeNull();
-    expect(JSON.parse(storage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY) ?? "{}")).toEqual({
-      [nativeScope]: legacy,
+    expect(storage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBeNull();
+  });
+
+  it("keeps a valid native v2 boundary while discarding v1", () => {
+    const boundaries = {
+      [nativeScope]: "2026-07-10T12:00:00.000Z",
+      [scenarioAScope]: "2026-07-11T08:00:00.000Z",
+    };
+    const storage = memoryStorage({
+      [OVERVIEW_LAST_VIEWED_STORAGE_KEY]: JSON.stringify(boundaries),
+      [OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY]: "2026-07-09T12:00:00.000Z",
     });
+
+    expect(readOverviewLastViewedAt(nativeScope, storage)).toBe(boundaries[nativeScope]);
+    expect(storage.getItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY)).toBeNull();
+    expect(JSON.parse(storage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY) ?? "{}")).toEqual(
+      boundaries,
+    );
+  });
+
+  it("keeps a valid scenario v2 boundary while discarding v1", () => {
+    const boundaries = {
+      [nativeScope]: "2026-07-10T12:00:00.000Z",
+      [scenarioAScope]: "2026-07-11T08:00:00.000Z",
+    };
+    const storage = memoryStorage({
+      [OVERVIEW_LAST_VIEWED_STORAGE_KEY]: JSON.stringify(boundaries),
+      [OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY]: "2026-07-09T12:00:00.000Z",
+    });
+
+    expect(readOverviewLastViewedAt(scenarioAScope, storage)).toBe(
+      boundaries[scenarioAScope],
+    );
+    expect(storage.getItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY)).toBeNull();
+    expect(JSON.parse(storage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY) ?? "{}")).toEqual(
+      boundaries,
+    );
+  });
+
+  it("removes malformed v2 data and discards v1 without migrating it", () => {
+    const storage = memoryStorage({
+      [OVERVIEW_LAST_VIEWED_STORAGE_KEY]: "",
+      [OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY]: "2026-07-09T12:00:00.000Z",
+    });
+
+    expect(readOverviewLastViewedAt(nativeScope, storage)).toBeNull();
+    expect(storage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY)).toBeNull();
+    expect(storage.getItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY)).toBeNull();
   });
 
   it("keeps a stored boundary at or before Core's dashboard clock", () => {

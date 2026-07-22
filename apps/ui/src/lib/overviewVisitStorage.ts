@@ -37,7 +37,7 @@ export function resolveOverviewPreviousLastViewedAt(
 
 function readBoundaries(storage: OverviewVisitStorage): OverviewVisitBoundaries {
   const raw = storage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY);
-  if (!raw) return {};
+  if (raw === null) return {};
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
@@ -69,22 +69,12 @@ export function readOverviewLastViewedAt(
 ): string | null {
   try {
     const boundaries = readBoundaries(storage);
-    const current = boundaries[scope];
-    if (current) return current;
 
-    // The old global boundary belonged to native Core data. Named scenarios
-    // must never inherit it, even when no v2 entry exists for their scope.
-    if (scope !== OVERVIEW_NATIVE_VISIT_SCOPE) return null;
-    const legacy = storage.getItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY);
-    if (!legacy || !isValidOverviewVisitTimestamp(legacy)) {
-      if (legacy) storage.removeItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY);
-      return null;
-    }
-
-    boundaries[OVERVIEW_NATIVE_VISIT_SCOPE] = legacy;
-    storage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, JSON.stringify(boundaries));
+    // The v1 boundary was shared by native and named scenarios, so its source
+    // cannot be identified safely. Discard it instead of assigning it to any
+    // v2 scope and risking skipped incident evidence.
     storage.removeItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY);
-    return legacy;
+    return boundaries[scope] ?? null;
   } catch {
     return null;
   }
@@ -102,9 +92,7 @@ export function writeOverviewLastViewedAt(
     const boundaries = readBoundaries(storage);
     boundaries[scope] = iso;
     storage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, JSON.stringify(boundaries));
-    if (scope === OVERVIEW_NATIVE_VISIT_SCOPE) {
-      storage.removeItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY);
-    }
+    storage.removeItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY);
   } catch {
     // Ignore quota / private-mode failures.
   }
