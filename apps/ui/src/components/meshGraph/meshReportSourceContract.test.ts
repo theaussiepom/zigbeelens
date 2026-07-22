@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const MESH_DIR = path.join(__dirname);
+const UI_SRC = path.resolve(__dirname, "../..");
 const PRODUCTION_GLOBS = [".tsx", ".ts"];
 
 function listProductionSources(dir: string): string[] {
@@ -10,6 +11,7 @@ function listProductionSources(dir: string): string[] {
   for (const name of readdirSync(dir)) {
     const full = path.join(dir, name);
     if (statSync(full).isDirectory()) {
+      if (name === "test") continue;
       out.push(...listProductionSources(full));
       continue;
     }
@@ -22,13 +24,14 @@ function listProductionSources(dir: string): string[] {
 
 describe("Mesh production report source contract", () => {
   it("does not import or call the removed client-only Mesh report path", () => {
-    const sources = listProductionSources(MESH_DIR);
+    const sources = listProductionSources(UI_SRC);
     expect(sources.length).toBeGreaterThan(0);
     for (const file of sources) {
       const text = readFileSync(file, "utf8");
       expect(text, file).not.toMatch(/\bEvidenceReportMenu\b/);
       expect(text, file).not.toMatch(/\bbuildMeshEvidenceReport\b/);
       expect(text, file).not.toMatch(/\bMeshEvidenceReport\b/);
+      expect(text, file).not.toMatch(/meshEvidenceReport/);
     }
   });
 

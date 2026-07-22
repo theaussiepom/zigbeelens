@@ -200,7 +200,7 @@ export const REPORT_COPIED_MESSAGE = "Copied evidence summary.";
 export const REPORT_COPY_FAILED_MESSAGE =
   "Copy did not complete. Download the Markdown report instead.";
 
-/** Used by non-product meshEvidenceReport helper / parity tests only. */
+/** Shared Mesh copy catalogue (Device Story leads and Create report labels). */
 export const REPORT_TITLE = "ZigbeeLens evidence summary";
 export const REPORT_SAFETY_NOTE =
   "This is an evidence summary, not a live routing map.";
