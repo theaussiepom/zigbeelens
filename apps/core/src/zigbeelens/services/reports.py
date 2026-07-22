@@ -626,12 +626,13 @@ def store_report(repo: Repository, detail: ReportDetailV3, request: ReportReques
 
 
 def summary_from_detail(row: ReportRow, detail: ReportDetailV3) -> ReportSummary:
-    """Build a public summary from the validated ReportDetailV3 body.
+    """Build a public summary from an exact validated ReportDetailV3.
 
-    The storage row is the lookup/index container; public summary fields that
-    exist on the body are owned by the validated body (not stale row metadata).
-    Callers must only pass bodies already accepted by load_stored_report_envelope
-    (including detail.id == row.id).
+    Invariant: ``detail`` is an exact ReportDetailV3 whose ``id`` matches the
+    storage row. ``create_report`` passes a freshly generated validated body;
+    ``list_reports`` passes a loader-accepted body. Every ReportSummary field
+    below is derived from that validated body (the row is only the lookup key /
+    index container — not a second source of public summary truth).
     """
     if detail.id != row.id:
         raise ValueError(
@@ -650,24 +651,4 @@ def summary_from_detail(row: ReportRow, detail: ReportDetailV3) -> ReportSummary
         format=str(detail.format),
         scope=str(detail.scope),
         redaction_profile=profile_value,
-    )
-
-
-def summary_from_row(row: ReportRow) -> ReportSummary:
-    meta: dict[str, Any] = {}
-    try:
-        meta = json.loads(row.metadata_json) if row.metadata_json else {}
-    except (ValueError, TypeError):
-        meta = {}
-    return ReportSummary(
-        id=row.id,
-        generated_at=row.generated_at,
-        redaction_applied=True,
-        incident_count=int(meta.get("incident_count", 0)),
-        device_count=int(meta.get("device_count", 0)),
-        network_count=int(meta.get("network_count", 0)),
-        summary=row.summary,
-        format=row.format,
-        scope=row.scope,
-        redaction_profile=row.redaction_profile,
     )

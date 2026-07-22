@@ -1,4 +1,4 @@
-"""Phase 5D-2: Version 2 Markdown presenter and Version 1 stored compatibility."""
+"""Phase 5D-2: Markdown presenter and Version 1 fail-closed storage proofs."""
 
 from __future__ import annotations
 
@@ -21,9 +21,7 @@ from zigbeelens.schemas import (
 )
 from legacy_report_shapes import ReportSummaryBlock
 from zigbeelens.services.data_service import DataService
-from zigbeelens.services.reports import (
-    summary_from_row,
-)
+from zigbeelens.services.report_storage import load_stored_report_envelope
 from zigbeelens.storage.repository import Repository
 
 
@@ -178,8 +176,12 @@ def test_version1_stored_report_fails_closed(tmp_path, mock_client: TestClient):
     config.mode.mock = True
     data = DataService(config, repo)
     assert data.get_stored_report(row.id) is None
-    listed = summary_from_row(row)
-    assert listed.summary == "Legacy executive finding."
+    assert load_stored_report_envelope(row) is None
+    # Storage row remains untouched; it is simply not a public exact-v3 summary.
+    stored = repo.reports.get_report(row.id)
+    assert stored is not None
+    assert stored.summary == "Legacy executive finding."
+    assert json.loads(stored.body_json)["report_version"] == 1
 
 
 def test_version3_storage_round_trip(mock_client: TestClient):

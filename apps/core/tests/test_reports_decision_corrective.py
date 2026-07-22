@@ -43,7 +43,6 @@ from zigbeelens.services.reports import (
     _without_timelines,
     generate_report,
     render_markdown_v3,
-    summary_from_row,
 )
 from zigbeelens.storage.repository import Repository
 
@@ -634,7 +633,10 @@ def test_version1_stored_report_fails_closed_on_load(tmp_path, mock_client):
     data = DataService(config, repo)
     assert data.get_stored_report(row.id) is None
     assert load_stored_report_envelope(row) is None
-    assert summary_from_row(row).summary == "Legacy executive finding."
+    stored = repo.reports.get_report(row.id)
+    assert stored is not None
+    assert stored.summary == "Legacy executive finding."
+    assert json.loads(stored.body_json)["report_version"] == 1
 
 
 def test_scenario_isolation_exact_identity(tmp_path):
