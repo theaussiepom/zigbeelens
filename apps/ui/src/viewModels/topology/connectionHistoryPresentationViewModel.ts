@@ -59,20 +59,23 @@ function lastKnownPresentation(
 ): HistoryControlPresentation {
   const evidenceCount = detail.last_known_links.length;
 
-  if (detail.last_known_window.snapshots_considered === 0) {
-    return {
-      state: "not_evaluated",
-      evidenceCount,
-      helper:
-        "No previous complete snapshots are available, so last known links could not be evaluated.",
-    };
-  }
+  // Core intentionally returns a zeroed last-known window when the latest
+  // layout is limited. Layout limitation therefore owns precedence over the
+  // otherwise ambiguous zero snapshot count.
   if (detail.latest_layout_limited === true || detail.layout_available === false) {
     return {
       state: "layout_limited",
       evidenceCount,
       helper:
         "The latest topology layout is limited, so absence from it cannot be assessed for last known links.",
+    };
+  }
+  if (detail.last_known_window.snapshots_considered === 0) {
+    return {
+      state: "not_evaluated",
+      evidenceCount,
+      helper:
+        "No previous complete snapshots are available, so last known links could not be evaluated.",
     };
   }
   if (evidenceCount === 0) {

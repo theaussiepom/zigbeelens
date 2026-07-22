@@ -67,7 +67,7 @@ describe("TopologyMetricStrip", () => {
       makeTopologyEvidenceGraphDetail({
         history_window: {
           days: 7,
-          max_snapshots: 30,
+          max_snapshots: 3,
           snapshots_considered: 0,
           earliest_captured_at: null,
           latest_captured_at: null,
@@ -86,7 +86,7 @@ describe("TopologyMetricStrip", () => {
       makeTopologyEvidenceGraphDetail({
         history_window: {
           days: 7,
-          max_snapshots: 30,
+          max_snapshots: 3,
           snapshots_considered: 3,
           earliest_captured_at: "2026-07-01T00:00:00+00:00",
           latest_captured_at: "2026-07-05T00:00:00+00:00",
@@ -102,8 +102,8 @@ describe("TopologyMetricStrip", () => {
       makeTopologyEvidenceGraphDetail({
         history_window: {
           days: 7,
-          max_snapshots: 30,
-          snapshots_considered: 4,
+          max_snapshots: 3,
+          snapshots_considered: 3,
           earliest_captured_at: "2026-07-01T00:00:00+00:00",
           latest_captured_at: "2026-07-05T00:00:00+00:00",
         },

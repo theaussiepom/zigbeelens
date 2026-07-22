@@ -32,7 +32,7 @@ const lastKnownLink: LastKnownLinkAggregate = {
 const evaluatedWindows = {
   history_window: {
     days: 7,
-    max_snapshots: 30,
+    max_snapshots: 3,
     snapshots_considered: 3,
     earliest_captured_at: "2026-07-01T00:00:00Z",
     latest_captured_at: "2026-07-05T00:00:00Z",
@@ -59,19 +59,24 @@ describe("buildConnectionHistoryPresentationViewModel", () => {
     expect(viewModel.lastKnownLinks.helper).not.toMatch(/every device/i);
   });
 
-  it("qualifies both controls when the latest layout is limited", () => {
+  it("uses exact Core precedence when the latest layout is limited with no history", () => {
     const viewModel = buildConnectionHistoryPresentationViewModel(
       makeTopologyEvidenceGraphDetail({
-        nodes: [{ ieee_address: "0x1" }],
+        nodes: [],
+        links: [],
+        layout_available: false,
         latest_layout_limited: true,
-        ...evaluatedWindows,
       }),
     );
 
-    expect(viewModel.recentMissingLinks.state).toBe("layout_limited");
-    expect(viewModel.recentMissingLinks.helper).toMatch(/cannot be measured reliably/i);
+    // Recent-missing aggregation had no previous snapshots to examine, so it
+    // remains unmeasured. Core separately skips last-known evaluation because
+    // absence cannot be assessed against a limited latest layout.
+    expect(viewModel.recentMissingLinks.state).toBe("not_evaluated");
+    expect(viewModel.recentMissingLinks.helper).toMatch(/no previous complete snapshots/i);
     expect(viewModel.lastKnownLinks.state).toBe("layout_limited");
     expect(viewModel.lastKnownLinks.helper).toMatch(/cannot be assessed/i);
+    expect(viewModel.lastKnownLinks.helper).not.toMatch(/no previous complete snapshots/i);
   });
 
   it("describes measured empty history only after snapshots were considered", () => {

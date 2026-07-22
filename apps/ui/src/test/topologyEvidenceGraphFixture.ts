@@ -62,6 +62,58 @@ function assertConsistent(
   }
 }
 
+function isValidTimestamp(value: string | null | undefined): value is string {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+
+function assertWindowCoherence(
+  field: "history_window" | "last_known_window",
+  window: {
+    snapshots_considered: number;
+    earliest_captured_at?: string | null;
+    latest_captured_at?: string | null;
+  },
+  evidenceCount: number,
+  allowInconsistentOverrides: boolean,
+): void {
+  if (allowInconsistentOverrides) return;
+
+  const {
+    snapshots_considered: snapshots,
+    earliest_captured_at: earliest,
+    latest_captured_at: latest,
+  } = window;
+  if (!Number.isInteger(snapshots) || snapshots < 0) {
+    throw new Error(
+      `Inconsistent topology evidence fixture override for ${field}.snapshots_considered: expected a non-negative integer`,
+    );
+  }
+  if (snapshots === 0) {
+    if (evidenceCount > 0) {
+      throw new Error(
+        `Inconsistent topology evidence fixture override for ${field}: evidence arrays require snapshots_considered > 0`,
+      );
+    }
+    if (earliest !== null || latest !== null) {
+      throw new Error(
+        `Inconsistent topology evidence fixture override for ${field}: a zero window requires null earliest_captured_at and latest_captured_at`,
+      );
+    }
+    return;
+  }
+
+  if (!isValidTimestamp(earliest) || !isValidTimestamp(latest)) {
+    throw new Error(
+      `Inconsistent topology evidence fixture override for ${field}: a positive window requires valid earliest_captured_at and latest_captured_at timestamps`,
+    );
+  }
+  if (Date.parse(earliest) > Date.parse(latest)) {
+    throw new Error(
+      `Inconsistent topology evidence fixture override for ${field}: earliest_captured_at cannot be later than latest_captured_at`,
+    );
+  }
+}
+
 function assertCountOverrides(
   explicit: Partial<TopologyEvidenceGraphCounts> | undefined,
   derived: TopologyEvidenceGraphCounts,
@@ -177,16 +229,22 @@ export function makeTopologyEvidenceGraphDetail(
   );
   const layoutAvailable = overrides.layout_available ?? derivedLayoutAvailable;
   const derivedLatestLayoutLimited = !layoutAvailable;
-  if (overrides.latest_layout_limited === false && derivedLatestLayoutLimited) {
-    assertConsistent(
-      "latest_layout_limited",
-      overrides.latest_layout_limited,
-      derivedLatestLayoutLimited,
-      allowInconsistentOverrides,
-    );
-  }
+  assertConsistent(
+    "latest_layout_limited",
+    overrides.latest_layout_limited,
+    !derivedLayoutAvailable,
+    allowInconsistentOverrides,
+  );
   const latestLayoutLimited =
     overrides.latest_layout_limited ?? derivedLatestLayoutLimited;
+
+  if (overrides.latest_snapshot === null && !allowInconsistentOverrides) {
+    if (nodes.length > 0 || links.length > 0 || layoutAvailable || !latestLayoutLimited) {
+      throw new Error(
+        "Inconsistent topology evidence fixture override for latest_snapshot: null requires empty nodes and links, layout_available false, and latest_layout_limited true",
+      );
+    }
+  }
 
   const derivedCounts: TopologyEvidenceGraphCounts = {
     latest_snapshot_neighbor_edges: latestNeighborPairCount(links),
@@ -269,7 +327,7 @@ export function makeTopologyEvidenceGraphDetail(
 
   const historyWindow = overrides.history_window ?? {
     days: 7,
-    max_snapshots: 30,
+    max_snapshots: 3,
     snapshots_considered: 0,
     earliest_captured_at: null,
     latest_captured_at: null,
@@ -279,6 +337,38 @@ export function makeTopologyEvidenceGraphDetail(
     earliest_captured_at: null,
     latest_captured_at: null,
   };
+  assertWindowCoherence(
+    "history_window",
+    historyWindow,
+    historicalNeighbors.length + historicalRoutes.length,
+    allowInconsistentOverrides,
+  );
+  assertWindowCoherence(
+    "last_known_window",
+    lastKnownWindow,
+    lastKnownLinks.length,
+    allowInconsistentOverrides,
+  );
+  if (
+    !allowInconsistentOverrides &&
+    historyWindow.snapshots_considered > historyWindow.max_snapshots
+  ) {
+    throw new Error(
+      "Inconsistent topology evidence fixture override for history_window: snapshots_considered cannot exceed max_snapshots",
+    );
+  }
+  if (!allowInconsistentOverrides && latestLayoutLimited) {
+    if (
+      lastKnownWindow.snapshots_considered !== 0 ||
+      lastKnownLinks.length > 0 ||
+      lastKnownWindow.earliest_captured_at !== null ||
+      lastKnownWindow.latest_captured_at !== null
+    ) {
+      throw new Error(
+        "Inconsistent topology evidence fixture override for last_known_window: Core returns a zeroed last-known result when the latest layout is limited",
+      );
+    }
+  }
   const investigationCounts = overrides.investigation_counts ?? {
     available: investigations.length,
     returned: investigations.length,
@@ -324,7 +414,7 @@ export function makeTopologyEvidenceGraphDetail(
     device_stats: overrides.device_stats ?? {},
     device_stats_window: overrides.device_stats_window ?? {
       days: 7,
-      max_snapshots: 30,
+      max_snapshots: 10,
       snapshots_considered: 0,
     },
     limitations: overrides.limitations ?? [],
