@@ -17,6 +17,20 @@ import oracleFixture from "@/test/fixtures/oracleMockScenarios.json";
 
 const CATALOGUE_FILE = "apps/ui/src/lib/meshGraphCopy.ts";
 
+/**
+ * Explicit additional primary-copy scan roots beyond components/pages/ViewModels
+ * and the catalogue file. These modules expose human-facing labels or report
+ * action copy; transport errors and internal diagnostics are intentionally out
+ * of scope.
+ */
+const ADDITIONAL_COPY_SCAN_ROOTS = [
+  "apps/ui/src/lib/topologyLabels.ts",
+  "apps/ui/src/reports",
+  "apps/ui/src/lib/format.ts",
+  "apps/ui/src/lib/monitoringGuide.ts",
+  "apps/ui/src/navigation/model.ts",
+] as const;
+
 const EXPECTED_LIMITATIONS: Record<(typeof LIMITATION_CODES)[number], string> = {
   absence_from_latest_not_failure:
     "Absence from the latest snapshot does not prove the device failed or left the network.",
@@ -181,6 +195,7 @@ describe("primary-copy guardrails", () => {
       path.join(repoRoot, "apps/ui/src/pages"),
       path.join(repoRoot, "apps/ui/src/viewModels"),
       path.join(repoRoot, CATALOGUE_FILE),
+      ...ADDITIONAL_COPY_SCAN_ROOTS.map((root) => path.join(repoRoot, root)),
     ];
     const files: string[] = [];
     for (const root of roots) {
@@ -229,6 +244,34 @@ describe("primary-copy guardrails", () => {
     expect(concatTexts.some((text) => containsPhrase(text, "broken link"))).toBe(true);
 
     expect(() => assertPrimarySafe("The parent router is the root cause.", "jsx-control")).toThrow();
+  });
+
+  it("rejects disappeared in normal strings, JSX text, and template fragments", () => {
+    expect(FORBIDDEN_USER_FACING_PHRASES).toContain("disappeared");
+    expect(FORBIDDEN_USER_FACING_PHRASES).toContain("lost link");
+    expect(FORBIDDEN_USER_FACING_PHRASES).not.toContain("lost");
+    expect(FORBIDDEN_USER_FACING_PHRASES).not.toContain("lost power");
+
+    expect(() => assertPrimarySafe("the device disappeared", "string")).toThrow();
+
+    const jsxTexts = collectUserFacingStaticTexts(
+      `export const Bad = () => <p>the device disappeared overnight</p>;`,
+    );
+    expect(jsxTexts.some((text) => containsPhrase(text, "disappeared"))).toBe(true);
+
+    const templateTexts = collectUserFacingStaticTexts(
+      "export const note = `the device disappeared at ${when}`;",
+    );
+    expect(templateTexts.some((text) => containsPhrase(text, "disappeared"))).toBe(true);
+
+    // Approved practical-check wording may mention lost power; do not blanket-ban "lost".
+    expect(() =>
+      assertPrimarySafe(
+        "This may be worth checking if the device has moved, lost power, or has weak mesh conditions.",
+        "lost-power-ok",
+      ),
+    ).not.toThrow();
+    expect(() => assertPrimarySafe("lost link between neighbours", "lost-link")).toThrow();
   });
 
   it("exact catalogue declaration passes and nearby unsafe fails", () => {

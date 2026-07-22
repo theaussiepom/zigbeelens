@@ -606,6 +606,7 @@ export const FORBIDDEN_USER_FACING_PHRASES: readonly string[] = [
   "failed link",
   "broken link",
   "lost link",
+  "disappeared",
   "inferred route",
   "derived route",
   "derived neighbour",

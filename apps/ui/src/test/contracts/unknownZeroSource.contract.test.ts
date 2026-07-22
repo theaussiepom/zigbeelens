@@ -30,7 +30,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 131,
     "character": 23,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
   },
   {
     "file": "apps/ui/src/components/cards.tsx",
@@ -39,7 +39,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 132,
     "character": 26,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
   },
   {
     "file": "apps/ui/src/components/meshGraph/TopologyMetricStrip.tsx",
@@ -48,7 +48,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 26,
     "character": 16,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Array length fallback is a measured empty collection when the source list is absent or empty."
   },
   {
     "file": "apps/ui/src/components/reports/ContextualReportDialog.tsx",
@@ -57,7 +57,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 579,
     "character": 43,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Optional numeric formatter input treats a missing measured count as zero for display arithmetic."
   },
   {
     "file": "apps/ui/src/hooks/useTopologyGraphData.ts",
@@ -66,7 +66,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 51,
     "character": 9,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Array length fallback is a measured empty collection when the source list is absent or empty."
   },
   {
     "file": "apps/ui/src/hooks/useTopologyGraphData.ts",
@@ -75,7 +75,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 51,
     "character": 50,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Array length fallback is a measured empty collection when the source list is absent or empty."
   },
   {
     "file": "apps/ui/src/lib/decisionContract.ts",
@@ -84,7 +84,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 287,
     "character": 12,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
   },
   {
     "file": "apps/ui/src/lib/decisionContract.ts",
@@ -93,7 +93,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 297,
     "character": 12,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Missing DecisionCountSummary priority enum key means a measured count of zero subjects for that priority."
   },
   {
     "file": "apps/ui/src/lib/meshEvidenceLive.ts",
@@ -102,7 +102,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 212,
     "character": 17,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Advanced evidence-live debug counter: absent backend stats mean zero snapshots with links in that debug panel."
   },
   {
     "file": "apps/ui/src/lib/meshEvidenceLive.ts",
@@ -111,7 +111,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 524,
     "character": 31,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshEvidenceLive.ts",
@@ -120,7 +120,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 699,
     "character": 22,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshEvidenceLive.ts",
@@ -129,7 +129,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 714,
     "character": 7,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshGraphDense.ts",
@@ -138,7 +138,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 337,
     "character": 25,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshGraphDense.ts",
@@ -147,7 +147,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 338,
     "character": 25,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshGraphDense.ts",
@@ -156,7 +156,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 402,
     "character": 25,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshGraphDense.ts",
@@ -165,7 +165,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 403,
     "character": 25,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshGraphSmartLayout.ts",
@@ -174,7 +174,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 165,
     "character": 30,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshGraphSmartLayout.ts",
@@ -183,7 +183,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 166,
     "character": 30,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshGraphSmartLayout.ts",
@@ -192,7 +192,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 212,
     "character": 23,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshGraphSmartLayout.ts",
@@ -201,7 +201,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 242,
     "character": 20,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshGraphSmartLayout.ts",
@@ -210,7 +210,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 243,
     "character": 20,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshGraphSmartLayout.ts",
@@ -219,7 +219,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 247,
     "character": 16,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshGraphSmartLayout.ts",
@@ -228,7 +228,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 247,
     "character": 52,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshGraphSmartLayout.ts",
@@ -237,7 +237,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 265,
     "character": 19,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshGraphSmartLayout.ts",
@@ -246,7 +246,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 309,
     "character": 17,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshGraphSmartLayout.ts",
@@ -255,7 +255,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 309,
     "character": 53,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/lib/meshGraphSmartLayout.ts",
@@ -264,7 +264,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 425,
     "character": 17,
     "classification": "advanced/debug only",
-    "note": "Classified zero fallback"
+    "note": "Map.get fallback is a graph algorithm accumulator for an unseen node/edge key, not unknown telemetry."
   },
   {
     "file": "apps/ui/src/pages/InvestigateLandingPage.tsx",
@@ -273,7 +273,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 67,
     "character": 33,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
   },
   {
     "file": "apps/ui/src/pages/InvestigateLandingPage.tsx",
@@ -282,7 +282,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 68,
     "character": 36,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
   },
   {
     "file": "apps/ui/src/pages/NetworksPage.tsx",
@@ -291,7 +291,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 228,
     "character": 20,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
   },
   {
     "file": "apps/ui/src/pages/NetworksPage.tsx",
@@ -300,7 +300,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 229,
     "character": 24,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
   },
   {
     "file": "apps/ui/src/pages/NetworksPage.tsx",
@@ -309,7 +309,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 233,
     "character": 20,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
   },
   {
     "file": "apps/ui/src/pages/NetworksPage.tsx",
@@ -318,7 +318,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 234,
     "character": 24,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
   },
   {
     "file": "apps/ui/src/pages/NetworksPage.tsx",
@@ -327,7 +327,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 308,
     "character": 11,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Array length fallback is a measured empty collection when the source list is absent or empty."
   },
   {
     "file": "apps/ui/src/pages/OverviewPage.tsx",
@@ -336,7 +336,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 132,
     "character": 23,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
   },
   {
     "file": "apps/ui/src/pages/OverviewPage.tsx",
@@ -345,7 +345,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 133,
     "character": 26,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
   },
   {
     "file": "apps/ui/src/pages/SettingsPage.tsx",
@@ -354,7 +354,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 89,
     "character": 50,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Collector settings counter: missing subscribed_topics_count is a measured zero topics subscribed."
   },
   {
     "file": "apps/ui/src/pages/SettingsPage.tsx",
@@ -363,7 +363,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 126,
     "character": 21,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "MQTT discovery settings counter: missing published_entities_count is a measured zero published entities."
   },
   {
     "file": "apps/ui/src/pages/SettingsPage.tsx",
@@ -372,7 +372,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 177,
     "character": 27,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Home Assistant enrichment counter: missing matched_devices is a measured zero matched devices."
   },
   {
     "file": "apps/ui/src/pages/TopologyGraphPage.tsx",
@@ -381,7 +381,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 44,
     "character": 5,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Array length fallback is a measured empty collection when the source list is absent or empty."
   },
   {
     "file": "apps/ui/src/reports/savedReportActionLabels.ts",
@@ -390,7 +390,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 42,
     "character": 22,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Label-frequency Map.get fallback is a measured empty group for a newly encountered action label."
   },
   {
     "file": "apps/ui/src/reports/savedReportActionLabels.ts",
@@ -399,7 +399,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 48,
     "character": 24,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Duplicate-label ordinal count starts from a measured empty group when the label has not been seen yet."
   },
   {
     "file": "apps/ui/src/viewModels/incidents/incidentViewModel.ts",
@@ -408,7 +408,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 106,
     "character": 24,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Duplicate-label ordinal count starts from a measured empty group when the incident label has not been seen yet."
   },
   {
     "file": "apps/ui/src/viewModels/reports/reportDecisionViewModel.ts",
@@ -417,7 +417,7 @@ const DECLARED: DeclaredEntry[] = [
     "line": 102,
     "character": 19,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
   },
   {
     "file": "apps/ui/src/viewModels/reports/reportDecisionViewModel.ts",
@@ -426,9 +426,37 @@ const DECLARED: DeclaredEntry[] = [
     "line": 116,
     "character": 19,
     "classification": "factual measured default",
-    "note": "Classified zero fallback"
+    "note": "Optional priority count from a measured DecisionCountSummary map defaults to zero subjects when the key is absent."
   }
 ];
+
+
+const ADVANCED_DEBUG_ALLOWLIST = new Set([
+  "apps/ui/src/lib/meshEvidenceLive.ts",
+  "apps/ui/src/lib/meshGraphDense.ts",
+  "apps/ui/src/lib/meshGraphSmartLayout.ts",
+]);
+
+const PRIMARY_PRESENTATION_PREFIXES = [
+  "apps/ui/src/components/",
+  "apps/ui/src/pages/",
+  "apps/ui/src/viewModels/",
+  "apps/ui/src/reports/",
+];
+
+const PLACEHOLDER_NOTE_RE =
+  /^(classified zero fallback|safe|expected)$/i;
+
+function noteIsMeaningful(note: string): boolean {
+  const trimmed = note.trim();
+  if (trimmed.length < 24) return false;
+  if (PLACEHOLDER_NOTE_RE.test(trimmed)) return false;
+  if (/\b(classified zero fallback)\b/i.test(trimmed)) return false;
+  // Require a domain cue beyond a bare adjective.
+  return /\b(measured|accumulator|collection|enum|group|count|telemetry|debug|empty|absent|missing)\b/i.test(
+    trimmed,
+  );
+}
 
 const EXPECTED_TOTAL = 45;
 
@@ -564,5 +592,38 @@ describe("unknown-zero source classifications", () => {
       remaining.delete(key);
     }
     expect(remaining.size, `unused declarations: ${[...remaining].join(", ")}`).toBe(0);
+  });
+  it("every declared note is a domain-specific safety justification", () => {
+    for (const entry of DECLARED) {
+      expect(entry.note.trim().length, entryKey(entry)).toBeGreaterThan(0);
+      expect(
+        noteIsMeaningful(entry.note),
+        `placeholder or non-domain note for ${entryKey(entry)}: ${entry.note}`,
+      ).toBe(true);
+      expect(PLACEHOLDER_NOTE_RE.test(entry.note.trim())).toBe(false);
+    }
+  });
+
+  it("classification policy matches module role", () => {
+    for (const entry of DECLARED) {
+      if (entry.classification === "advanced/debug only") {
+        expect(
+          ADVANCED_DEBUG_ALLOWLIST.has(entry.file),
+          `advanced/debug outside allowlist: ${entry.file}`,
+        ).toBe(true);
+        continue;
+      }
+      expect(ADVANCED_DEBUG_ALLOWLIST.has(entry.file)).toBe(false);
+      const isPrimary = PRIMARY_PRESENTATION_PREFIXES.some((prefix) =>
+        entry.file.startsWith(prefix),
+      );
+      if (isPrimary) {
+        expect(
+          entry.classification === "factual measured default" ||
+            entry.classification === "safe rendering fallback",
+          `primary presentation must not be advanced/debug: ${entryKey(entry)}`,
+        ).toBe(true);
+      }
+    }
   });
 });
