@@ -146,19 +146,27 @@ Production modules must not import test support or fixtures.
 The topology fixture builder owns the complete `TopologyEvidenceGraphDetail`
 shape for component and page tests. Tests may override deliberate evidence,
 but must not substitute the smaller `TopologyNetworkDetail` payload or cast an
-incomplete object. Its structural counts, layout flags, and snapshot link count
-are derived from the supplied evidence; malformed-payload tests must use the
+incomplete object. Its structural counts, exact inverse layout flags, snapshot
+link count, and history/last-known window coherence are derived or validated
+from the supplied evidence. Defaults mirror Core's three-snapshot recent-history
+cap and ten-snapshot device-stat cap; malformed-payload tests must use the
 builder's named inconsistent-override opt-in. Resource-state tests separately
 represent no accepted data, accepted empty data, accepted nonempty data, and
 retained accepted data with a refresh error.
 
 Mesh history-control evaluation copy is owned by
 `connectionHistoryPresentationViewModel.test.ts`; page tests own the control and
-drawer integration. `useGraphSelection.test.tsx` owns identity resolution across
-accepted evidence replacements, while page tests prove open drawers update and
-close with production evidence. Overview visit-watermark tests own the rule that
-the first accepted Core `dashboard.generated_at` is stable for the mount and
-future browser-clock boundaries are reset conservatively.
+drawer integration. Core's exact limited-layout payload is classified by the
+ViewModel, while `TopologyGraphPage` owns its limited-layout presentation and
+does not render graph sidebar controls without usable layout evidence.
+`useGraphSelection.test.tsx` owns identity resolution across accepted evidence
+replacements, while page tests prove open drawers update and close with
+production evidence. Investigation focus likewise stores only an id and page
+tests prove that current card membership owns graph focus after refresh.
+Overview visit-watermark tests own the rule that the first accepted Core
+`dashboard.generated_at` is stable within each native/scenario scope, v1 data
+migrates only to native Core, and future browser-clock boundaries are reset
+conservatively.
 
 ## Zero-fallback classifications
 

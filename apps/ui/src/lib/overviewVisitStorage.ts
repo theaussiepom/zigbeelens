@@ -1,8 +1,15 @@
-/**
- * Browser-local Overview visit timestamp helpers (Phase 5A-3).
- */
+/** Browser-local, Core-clock Overview visit boundaries. */
 
-export const OVERVIEW_LAST_VIEWED_STORAGE_KEY = "zigbeelens.overview.lastViewedAt.v1";
+export const OVERVIEW_LAST_VIEWED_STORAGE_KEY = "zigbeelens.overview.lastViewedAt.v2";
+export const OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY = "zigbeelens.overview.lastViewedAt.v1";
+export const OVERVIEW_NATIVE_VISIT_SCOPE = "native";
+
+type OverviewVisitStorage = Pick<Storage, "getItem" | "removeItem" | "setItem">;
+type OverviewVisitBoundaries = Record<string, string>;
+
+export function overviewVisitScope(scenario: string | null | undefined): string {
+  return scenario ? `scenario:${scenario}` : OVERVIEW_NATIVE_VISIT_SCOPE;
+}
 
 export function isValidOverviewVisitTimestamp(value: string): boolean {
   const ms = Date.parse(value);
@@ -28,32 +35,76 @@ export function resolveOverviewPreviousLastViewedAt(
   return Date.parse(storedBoundary) <= Date.parse(coreGeneratedAt) ? storedBoundary : null;
 }
 
+function readBoundaries(storage: OverviewVisitStorage): OverviewVisitBoundaries {
+  const raw = storage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY);
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      storage.removeItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY);
+      return {};
+    }
+    const boundaries: OverviewVisitBoundaries = {};
+    let discardedInvalidEntry = false;
+    for (const [scope, value] of Object.entries(parsed)) {
+      if (typeof value === "string" && isValidOverviewVisitTimestamp(value)) {
+        boundaries[scope] = value;
+      } else {
+        discardedInvalidEntry = true;
+      }
+    }
+    if (discardedInvalidEntry) {
+      storage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, JSON.stringify(boundaries));
+    }
+    return boundaries;
+  } catch {
+    storage.removeItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY);
+    return {};
+  }
+}
+
 export function readOverviewLastViewedAt(
-  storage: Pick<Storage, "getItem" | "removeItem"> = localStorage,
+  scope: string,
+  storage: OverviewVisitStorage = localStorage,
 ): string | null {
   try {
-    const raw = storage.getItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY);
-    if (!raw || !isValidOverviewVisitTimestamp(raw)) {
-      if (raw) {
-        storage.removeItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY);
-      }
+    const boundaries = readBoundaries(storage);
+    const current = boundaries[scope];
+    if (current) return current;
+
+    // The old global boundary belonged to native Core data. Named scenarios
+    // must never inherit it, even when no v2 entry exists for their scope.
+    if (scope !== OVERVIEW_NATIVE_VISIT_SCOPE) return null;
+    const legacy = storage.getItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY);
+    if (!legacy || !isValidOverviewVisitTimestamp(legacy)) {
+      if (legacy) storage.removeItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY);
       return null;
     }
-    return raw;
+
+    boundaries[OVERVIEW_NATIVE_VISIT_SCOPE] = legacy;
+    storage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, JSON.stringify(boundaries));
+    storage.removeItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY);
+    return legacy;
   } catch {
     return null;
   }
 }
 
 export function writeOverviewLastViewedAt(
+  scope: string,
   iso: string,
-  storage: Pick<Storage, "setItem"> = localStorage,
+  storage: OverviewVisitStorage = localStorage,
 ): void {
   if (!isValidOverviewVisitTimestamp(iso)) {
     return;
   }
   try {
-    storage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, iso);
+    const boundaries = readBoundaries(storage);
+    boundaries[scope] = iso;
+    storage.setItem(OVERVIEW_LAST_VIEWED_STORAGE_KEY, JSON.stringify(boundaries));
+    if (scope === OVERVIEW_NATIVE_VISIT_SCOPE) {
+      storage.removeItem(OVERVIEW_LAST_VIEWED_V1_STORAGE_KEY);
+    }
   } catch {
     // Ignore quota / private-mode failures.
   }

@@ -36,6 +36,7 @@ import {
 } from "@/viewModels/overview/dataCoverageViewModel";
 import {
   isValidOverviewVisitTimestamp,
+  overviewVisitScope,
   readOverviewLastViewedAt,
   resolveOverviewPreviousLastViewedAt,
   writeOverviewLastViewedAt,
@@ -56,11 +57,34 @@ const DASHBOARD_EVENTS = [
 
 export function OverviewPage() {
   const { scenario } = useScenario();
+  const visitScope = overviewVisitScope(scenario);
 
+  // Scenario selection changes in place without remounting the routed page.
+  // Key the data-owning body by source scope so no frozen timestamp, accepted
+  // resource, or write guard can cross from one source into another.
+  return (
+    <OverviewPageForScope
+      key={visitScope}
+      scenario={scenario}
+      visitScope={visitScope}
+    />
+  );
+}
+
+function OverviewPageForScope({
+  scenario,
+  visitScope,
+}: {
+  scenario: string;
+  visitScope: string;
+}) {
   const dashboard = useLiveResource(() => api.dashboard(scenario || undefined), [scenario], {
     refetchOn: DASHBOARD_EVENTS,
   });
-  const storedLastViewedAt = useMemo(() => readOverviewLastViewedAt(), []);
+  const storedLastViewedAt = useMemo(
+    () => readOverviewLastViewedAt(visitScope),
+    [visitScope],
+  );
   const [visitTimestamp, setVisitTimestamp] = useState<string | null>(null);
   const visitTimestampWritten = useRef(false);
 
@@ -123,7 +147,7 @@ export function OverviewPage() {
       !dashboard.loading &&
       recentIncidentEvidenceAccepted
     ) {
-      writeOverviewLastViewedAt(visitTimestamp);
+      writeOverviewLastViewedAt(visitScope, visitTimestamp);
       visitTimestampWritten.current = true;
     }
   }, [
@@ -131,6 +155,7 @@ export function OverviewPage() {
     dashboard.loading,
     previousLastViewedAt,
     recentIncidentsResource.data,
+    visitScope,
     visitTimestamp,
   ]);
 
