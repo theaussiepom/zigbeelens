@@ -114,6 +114,34 @@ function assertWindowCoherence(
   }
 }
 
+function assertDeviceStatsWindowCoherence(
+  window: TopologyEvidenceGraphDetail["device_stats_window"],
+  allowInconsistentOverrides: boolean,
+): void {
+  if (allowInconsistentOverrides) return;
+
+  if (!Number.isInteger(window.snapshots_considered) || window.snapshots_considered < 0) {
+    throw new Error(
+      "Inconsistent topology evidence fixture override for device_stats_window.snapshots_considered: expected a non-negative integer",
+    );
+  }
+  if (!Number.isInteger(window.max_snapshots) || window.max_snapshots <= 0) {
+    throw new Error(
+      "Inconsistent topology evidence fixture override for device_stats_window.max_snapshots: expected a positive integer",
+    );
+  }
+  if (window.snapshots_considered > window.max_snapshots) {
+    throw new Error(
+      "Inconsistent topology evidence fixture override for device_stats_window: snapshots_considered cannot exceed max_snapshots",
+    );
+  }
+  if (!Number.isInteger(window.days) || window.days <= 0) {
+    throw new Error(
+      "Inconsistent topology evidence fixture override for device_stats_window.days: expected a positive integer",
+    );
+  }
+}
+
 function assertCountOverrides(
   explicit: Partial<TopologyEvidenceGraphCounts> | undefined,
   derived: TopologyEvidenceGraphCounts,
@@ -219,6 +247,23 @@ export function makeTopologyEvidenceGraphDetail(
     overrides.inventory === undefined
       ? { device_count: 0, router_count: 0, end_device_count: 0 }
       : overrides.inventory;
+  const historyWindow = overrides.history_window ?? {
+    days: 7,
+    max_snapshots: 3,
+    snapshots_considered: 0,
+    earliest_captured_at: null,
+    latest_captured_at: null,
+  };
+  const lastKnownWindow = overrides.last_known_window ?? {
+    snapshots_considered: 0,
+    earliest_captured_at: null,
+    latest_captured_at: null,
+  };
+  const deviceStatsWindow = overrides.device_stats_window ?? {
+    days: 7,
+    max_snapshots: 10,
+    snapshots_considered: 0,
+  };
 
   const derivedLayoutAvailable = nodes.length > 0 || links.length > 0;
   assertConsistent(
@@ -242,6 +287,27 @@ export function makeTopologyEvidenceGraphDetail(
     if (nodes.length > 0 || links.length > 0 || layoutAvailable || !latestLayoutLimited) {
       throw new Error(
         "Inconsistent topology evidence fixture override for latest_snapshot: null requires empty nodes and links, layout_available false, and latest_layout_limited true",
+      );
+    }
+    if (
+      historyWindow.snapshots_considered !== 0 ||
+      historicalNeighbors.length > 0 ||
+      historicalRoutes.length > 0 ||
+      historyWindow.earliest_captured_at !== null ||
+      historyWindow.latest_captured_at !== null
+    ) {
+      throw new Error(
+        "Inconsistent topology evidence fixture override for latest_snapshot: null requires a zeroed history_window and empty historical_neighbors and historical_routes",
+      );
+    }
+    if (
+      lastKnownWindow.snapshots_considered !== 0 ||
+      lastKnownLinks.length > 0 ||
+      lastKnownWindow.earliest_captured_at !== null ||
+      lastKnownWindow.latest_captured_at !== null
+    ) {
+      throw new Error(
+        "Inconsistent topology evidence fixture override for latest_snapshot: null requires a zeroed last_known_window and empty last_known_links",
       );
     }
   }
@@ -325,18 +391,6 @@ export function makeTopologyEvidenceGraphDetail(
     };
   }
 
-  const historyWindow = overrides.history_window ?? {
-    days: 7,
-    max_snapshots: 3,
-    snapshots_considered: 0,
-    earliest_captured_at: null,
-    latest_captured_at: null,
-  };
-  const lastKnownWindow = overrides.last_known_window ?? {
-    snapshots_considered: 0,
-    earliest_captured_at: null,
-    latest_captured_at: null,
-  };
   assertWindowCoherence(
     "history_window",
     historyWindow,
@@ -369,6 +423,10 @@ export function makeTopologyEvidenceGraphDetail(
       );
     }
   }
+  assertDeviceStatsWindowCoherence(
+    deviceStatsWindow,
+    allowInconsistentOverrides,
+  );
   const investigationCounts = overrides.investigation_counts ?? {
     available: investigations.length,
     returned: investigations.length,
@@ -412,11 +470,7 @@ export function makeTopologyEvidenceGraphDetail(
     investigations,
     investigation_counts: investigationCounts,
     device_stats: overrides.device_stats ?? {},
-    device_stats_window: overrides.device_stats_window ?? {
-      days: 7,
-      max_snapshots: 10,
-      snapshots_considered: 0,
-    },
+    device_stats_window: deviceStatsWindow,
     limitations: overrides.limitations ?? [],
     topology_facts: overrides.topology_facts ?? {
       stale_threshold_hours: null,

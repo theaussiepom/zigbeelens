@@ -905,7 +905,7 @@ describe("TopologyGraphPage live mode", () => {
     expect(screen.queryByText(/previously seen/i)).not.toBeInTheDocument();
     expect(
       screen.getByText(
-        "No previous complete snapshots are available, so recent missing links could not be evaluated.",
+        "No previous complete snapshots are available in the selected 7-day history window, so recent missing links could not be evaluated.",
       ),
     ).toBeInTheDocument();
     expect(
@@ -1373,7 +1373,7 @@ describe("TopologyGraphPage focused view on large graphs", () => {
     expect(panel.queryByText(/previously seen/i)).not.toBeInTheDocument();
     expect(
       panel.getByText(
-        "No previous complete snapshots are available, so recent missing links could not be evaluated.",
+        "No previous complete snapshots are available in the selected 7-day history window, so recent missing links could not be evaluated.",
       ),
     ).toBeInTheDocument();
     expect(panel.queryByRole("checkbox", { name: /selected device links/i })).not.toBeInTheDocument();
@@ -2477,6 +2477,9 @@ describe("TopologyGraphPage investigation panel", () => {
     mockDetail = makeTopologyEvidenceGraphDetail({
       ...liveDetailWithInvestigations,
       investigations: [
+        makeInvestigationCard({ id: "refreshed-rank-1", title: "Refreshed rank one" }),
+        makeInvestigationCard({ id: "refreshed-rank-2", title: "Refreshed rank two" }),
+        makeInvestigationCard({ id: "refreshed-rank-3", title: "Refreshed rank three" }),
         makeInvestigationCard({
           title: "Updated investigation now follows the router area",
           summary: "Current evidence now involves the coordinator and hall router.",
@@ -2484,7 +2487,9 @@ describe("TopologyGraphPage investigation panel", () => {
           edge_ids: ["live-neighbor-0xc0|0xr1"],
           primary_device_ieee: "0xr1",
         }),
+        makeInvestigationCard({ id: "refreshed-rank-5", title: "Refreshed rank five" }),
       ],
+      investigation_counts: { available: 5, returned: 5 },
     });
     view.rerender(
       <MemoryRouter initialEntries={["/investigate/home"]}>
@@ -2500,6 +2505,20 @@ describe("TopologyGraphPage investigation panel", () => {
     expect(
       screen.getByText("Current evidence now involves the coordinator and hall router."),
     ).toBeInTheDocument();
+    const panel = screen.getByRole("region", { name: /where to look first/i });
+    expect(within(panel).getAllByTestId("investigation-card")).toHaveLength(4);
+    expect(
+      within(panel).getAllByText("Updated investigation now follows the router area"),
+    ).toHaveLength(1);
+    expect(
+      within(panel).getByRole("button", {
+        name: /^clear focus: updated investigation now follows the router area/i,
+      }),
+    ).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Show more (1)" })).toBeInTheDocument();
+    expect(
+      within(panel).queryByText("Several recent missing links involve Live Lamp"),
+    ).not.toBeInTheDocument();
     await waitFor(() => {
       expect(container.querySelector('.react-flow__node[data-id="0xc0"]')).toHaveClass(
         "mesh-node--investigation-focus",
@@ -2524,6 +2543,8 @@ describe("TopologyGraphPage investigation panel", () => {
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(2);
     });
+    expect(screen.getByRole("button", { name: /^clear focus:/i })).toBeInTheDocument();
+    expect(screen.getByTestId("investigation-card")).toHaveClass("border-zl-accent");
 
     mockDetail = makeTopologyEvidenceGraphDetail({
       ...liveDetailWithInvestigations,
@@ -2539,6 +2560,7 @@ describe("TopologyGraphPage investigation panel", () => {
     );
 
     expect(await screen.findByTestId("investigation-empty")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^clear focus:/i })).not.toBeInTheDocument();
     await waitFor(() => {
       expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(0);
       expect(container.querySelectorAll(".mesh-node--muted")).toHaveLength(0);
@@ -2672,6 +2694,61 @@ describe("TopologyGraphPage investigation panel", () => {
 
     await user.click(within(panel).getByRole("button", { name: /show more/i }));
     expect(titles()).toEqual(["Card One", "Card Two", "Card Three", "Card Four"]);
+  });
+
+  it("keeps a focused fourth card visibly owned after Show fewer until focus is cleared", async () => {
+    const user = userEvent.setup();
+    mockDetail = {
+      ...liveDetailWithInvestigations,
+      investigations: [
+        makeInvestigationCard({ id: "card-1", title: "Card One", priority: "Review first" }),
+        makeInvestigationCard({ id: "card-2", title: "Card Two" }),
+        makeInvestigationCard({ id: "card-3", title: "Card Three" }),
+        makeInvestigationCard({ id: "card-4", title: "Card Four", priority: "Lower priority" }),
+        makeInvestigationCard({ id: "card-5", title: "Card Five", priority: "Lower priority" }),
+      ],
+      investigation_counts: { available: 5, returned: 5 },
+    };
+    const { container } = await renderLiveAndWaitForLayout();
+    const panel = screen.getByRole("region", { name: /where to look first/i });
+    const visibleTitles = () =>
+      within(panel)
+        .getAllByTestId("investigation-card")
+        .map(
+          (card) =>
+            within(card).getByText(/^Card (One|Two|Three|Four|Five)$/).textContent,
+        );
+
+    expect(visibleTitles()).toEqual(["Card One", "Card Two", "Card Three"]);
+    expect(within(panel).getByRole("button", { name: "Show more (2)" })).toBeInTheDocument();
+    await user.click(within(panel).getByRole("button", { name: "Show more (2)" }));
+
+    const cardFourTitle = within(panel).getByText("Card Four");
+    const cardFour = cardFourTitle.closest("[data-testid='investigation-card']");
+    if (!(cardFour instanceof HTMLElement)) {
+      throw new Error("Card Four did not resolve to an investigation card");
+    }
+    await user.click(within(cardFour).getByRole("button", { name: /^focus graph:/i }));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(2);
+    });
+    expect(cardFour).toHaveClass("border-zl-accent");
+    expect(within(cardFour).getByRole("button", { name: /^clear focus:/i })).toBeInTheDocument();
+
+    await user.click(within(panel).getByRole("button", { name: "Show fewer" }));
+    expect(visibleTitles()).toEqual(["Card One", "Card Two", "Card Three", "Card Four"]);
+    expect(within(panel).getAllByText("Card Four")).toHaveLength(1);
+    expect(within(panel).getByRole("button", { name: "Show more (1)" })).toBeInTheDocument();
+    expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(2);
+
+    await user.click(within(panel).getByRole("button", { name: /^clear focus:/i }));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(0);
+      expect(container.querySelectorAll(".mesh-node--muted")).toHaveLength(0);
+    });
+    expect(visibleTitles()).toEqual(["Card One", "Card Two", "Card Three"]);
+    expect(within(panel).queryByText("Card Four")).not.toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Show more (2)" })).toBeInTheDocument();
   });
 
   it("renders no forbidden wording anywhere with investigation cards shown", async () => {

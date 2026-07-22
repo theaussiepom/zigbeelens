@@ -54,10 +54,38 @@ describe("buildConnectionHistoryPresentationViewModel", () => {
     );
 
     expect(viewModel.recentMissingLinks.state).toBe("not_evaluated");
-    expect(viewModel.recentMissingLinks.helper).toMatch(/could not be evaluated/i);
+    expect(viewModel.recentMissingLinks.helper).toBe(
+      "No previous complete snapshots are available in the selected 7-day history window, so recent missing links could not be evaluated.",
+    );
     expect(viewModel.lastKnownLinks.state).toBe("not_evaluated");
     expect(viewModel.lastKnownLinks.helper).not.toMatch(/every device/i);
   });
+
+  it.each([1, 13])(
+    "uses the DTO's %i-day selected window without changing last-known wording",
+    (days) => {
+      const viewModel = buildConnectionHistoryPresentationViewModel(
+        makeTopologyEvidenceGraphDetail({
+          nodes: [{ ieee_address: "0x1" }],
+          inventory: { device_count: 1, router_count: 0, end_device_count: 0 },
+          history_window: {
+            days,
+            max_snapshots: 3,
+            snapshots_considered: 0,
+            earliest_captured_at: null,
+            latest_captured_at: null,
+          },
+        }),
+      );
+
+      expect(viewModel.recentMissingLinks.helper).toBe(
+        `No previous complete snapshots are available in the selected ${days}-day history window, so recent missing links could not be evaluated.`,
+      );
+      expect(viewModel.lastKnownLinks.helper).toBe(
+        "No previous complete snapshots are available, so last known links could not be evaluated.",
+      );
+    },
+  );
 
   it("uses exact Core precedence when the latest layout is limited with no history", () => {
     const viewModel = buildConnectionHistoryPresentationViewModel(

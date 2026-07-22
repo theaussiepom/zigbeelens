@@ -24,11 +24,11 @@ function recentMissingPresentation(
     detail.counts.historical_neighbor_edges + detail.counts.historical_route_edges;
 
   if (detail.history_window.snapshots_considered === 0) {
+    const days = detail.history_window.days;
     return {
       state: "not_evaluated",
       evidenceCount,
-      helper:
-        "No previous complete snapshots are available, so recent missing links could not be evaluated.",
+      helper: `No previous complete snapshots are available in the selected ${days}-day history window, so recent missing links could not be evaluated.`,
     };
   }
   if (detail.latest_layout_limited === true || detail.layout_available === false) {

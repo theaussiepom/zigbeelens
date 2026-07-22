@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
   HistoricalEdgeAggregate,
+  InvestigationCard,
   LastKnownLinkAggregate,
   PassiveHintAggregate,
 } from "@/types/topology";
@@ -48,6 +49,26 @@ const passiveHint: PassiveHintAggregate = {
   supporting_observations: [],
   limitations: [],
   suggested_investigation: [],
+};
+
+const sharedAvailabilityInvestigation: InvestigationCard = {
+  id: "shared-event-fixture",
+  type: "shared_availability_event",
+  priority: "Worth checking",
+  score: 8,
+  title: "Several devices went offline around the same time",
+  summary: "Two devices had a shared recorded availability event.",
+  why_it_matters: "The shared timing is worth reviewing as one recorded event.",
+  supporting_evidence: ["Two recorded offline transitions occurred together."],
+  limitations: ["Shared timing does not prove a shared cause."],
+  suggested_next_steps: ["Review the recorded availability timelines."],
+  device_ieees: ["0x2", "0x6"],
+  edge_ids: [],
+  primary_device_ieee: null,
+  primary_neighbourhood_ieee: null,
+  created_from_evidence_classes: ["availability_transition"],
+  latest_supporting_evidence_at: "2026-07-05T00:00:00Z",
+  action_group: "investigate_shared_event",
 };
 
 const evaluatedHistoryWindow = {
@@ -115,7 +136,11 @@ describe("makeTopologyEvidenceGraphDetail", () => {
     expect(detail.history_window.snapshots_considered).toBe(0);
     expect(detail.history_window.max_snapshots).toBe(3);
     expect(detail.last_known_window.snapshots_considered).toBe(0);
-    expect(detail.device_stats_window).toMatchObject({ days: 7, max_snapshots: 10 });
+    expect(detail.device_stats_window).toEqual({
+      days: 7,
+      max_snapshots: 10,
+      snapshots_considered: 0,
+    });
   });
 
   it("does not count route_count zero as a latest route edge", () => {
@@ -267,6 +292,165 @@ describe("makeTopologyEvidenceGraphDetail", () => {
     ).toThrow(/latest_snapshot.*requires empty nodes and links/i);
   });
 
+  it("rejects recent topology history when there is no latest snapshot", () => {
+    expect(() =>
+      makeTopologyEvidenceGraphDetail({
+        latest_snapshot: null,
+        history_window: evaluatedHistoryWindow,
+      }),
+    ).toThrow(/latest_snapshot.*zeroed history_window/i);
+    expect(() =>
+      makeTopologyEvidenceGraphDetail({
+        latest_snapshot: null,
+        history_window: evaluatedHistoryWindow,
+        historical_neighbors: [
+          { ...historicalNeighbor, latest_layout_limited: true },
+        ],
+      }),
+    ).toThrow(/latest_snapshot.*historical_neighbors/i);
+    expect(() =>
+      makeTopologyEvidenceGraphDetail({
+        latest_snapshot: null,
+        history_window: evaluatedHistoryWindow,
+        historical_routes: [
+          { ...historicalRoute, latest_layout_limited: true },
+        ],
+      }),
+    ).toThrow(/latest_snapshot.*historical_routes/i);
+    expect(() =>
+      makeTopologyEvidenceGraphDetail({
+        latest_snapshot: null,
+        history_window: {
+          days: 7,
+          max_snapshots: 3,
+          snapshots_considered: 0,
+          earliest_captured_at: "2026-07-01T00:00:00Z",
+          latest_captured_at: null,
+        },
+      }),
+    ).toThrow(/latest_snapshot.*zeroed history_window/i);
+  });
+
+  it("rejects last-known topology history when there is no latest snapshot", () => {
+    expect(() =>
+      makeTopologyEvidenceGraphDetail({
+        latest_snapshot: null,
+        last_known_window: evaluatedLastKnownWindow,
+        last_known_links: [lastKnownLink],
+      }),
+    ).toThrow(/latest_snapshot.*zeroed last_known_window/i);
+  });
+
+  it("permits null-snapshot topology history only through the named malformed opt-in", () => {
+    const detail = makeTopologyEvidenceGraphDetail(
+      {
+        latest_snapshot: null,
+        history_window: evaluatedHistoryWindow,
+        historical_neighbors: [
+          { ...historicalNeighbor, latest_layout_limited: true },
+        ],
+        historical_routes: [
+          { ...historicalRoute, latest_layout_limited: true },
+        ],
+      },
+      { allowInconsistentOverrides: true },
+    );
+
+    expect(detail.latest_snapshot).toBeNull();
+    expect(detail.history_window.snapshots_considered).toBe(2);
+    expect(detail.historical_neighbors).toHaveLength(1);
+    expect(detail.historical_routes).toHaveLength(1);
+  });
+
+  it("allows non-topology evidence when there is no latest snapshot", () => {
+    const detail = makeTopologyEvidenceGraphDetail({
+      latest_snapshot: null,
+      inventory: { device_count: 2, router_count: 0, end_device_count: 2 },
+      passive_hints: [passiveHint],
+      investigations: [sharedAvailabilityInvestigation],
+    });
+
+    expect(detail.latest_snapshot).toBeNull();
+    expect(detail.passive_hints).toEqual([passiveHint]);
+    expect(detail.investigations).toEqual([sharedAvailabilityInvestigation]);
+    expect(detail.history_window.snapshots_considered).toBe(0);
+  });
+
+  it("allows evaluated history with a non-null but empty-layout latest snapshot", () => {
+    const detail = makeTopologyEvidenceGraphDetail({
+      history_window: evaluatedHistoryWindow,
+    });
+
+    expect(detail.latest_snapshot).not.toBeNull();
+    expect(detail.layout_available).toBe(false);
+    expect(detail.latest_layout_limited).toBe(true);
+    expect(detail.history_window.snapshots_considered).toBe(2);
+  });
+
+  it.each([
+    {
+      name: "negative snapshots_considered",
+      window: { days: 7, max_snapshots: 10, snapshots_considered: -1 },
+      error: /device_stats_window\.snapshots_considered.*non-negative integer/i,
+    },
+    {
+      name: "fractional snapshots_considered",
+      window: { days: 7, max_snapshots: 10, snapshots_considered: 1.5 },
+      error: /device_stats_window\.snapshots_considered.*non-negative integer/i,
+    },
+    {
+      name: "zero max_snapshots",
+      window: { days: 7, max_snapshots: 0, snapshots_considered: 0 },
+      error: /device_stats_window\.max_snapshots.*positive integer/i,
+    },
+    {
+      name: "negative max_snapshots",
+      window: { days: 7, max_snapshots: -1, snapshots_considered: 0 },
+      error: /device_stats_window\.max_snapshots.*positive integer/i,
+    },
+    {
+      name: "fractional max_snapshots",
+      window: { days: 7, max_snapshots: 2.5, snapshots_considered: 0 },
+      error: /device_stats_window\.max_snapshots.*positive integer/i,
+    },
+    {
+      name: "zero days",
+      window: { days: 0, max_snapshots: 10, snapshots_considered: 0 },
+      error: /device_stats_window\.days.*positive integer/i,
+    },
+    {
+      name: "negative days",
+      window: { days: -1, max_snapshots: 10, snapshots_considered: 0 },
+      error: /device_stats_window\.days.*positive integer/i,
+    },
+    {
+      name: "fractional days",
+      window: { days: 1.5, max_snapshots: 10, snapshots_considered: 0 },
+      error: /device_stats_window\.days.*positive integer/i,
+    },
+    {
+      name: "snapshots_considered over the cap",
+      window: { days: 7, max_snapshots: 2, snapshots_considered: 3 },
+      error: /snapshots_considered cannot exceed max_snapshots/i,
+    },
+  ])("rejects a device-stat window with $name", ({ window, error }) => {
+    expect(() =>
+      makeTopologyEvidenceGraphDetail({ device_stats_window: window }),
+    ).toThrow(error);
+  });
+
+  it("accepts a positive integer device-stat window within its cap", () => {
+    const detail = makeTopologyEvidenceGraphDetail({
+      device_stats_window: { days: 1, max_snapshots: 4, snapshots_considered: 4 },
+    });
+
+    expect(detail.device_stats_window).toEqual({
+      days: 1,
+      max_snapshots: 4,
+      snapshots_considered: 4,
+    });
+  });
+
   it("requires a named opt-in for a deliberately inconsistent DTO", () => {
     const detail = makeTopologyEvidenceGraphDetail(
       {
@@ -276,6 +460,7 @@ describe("makeTopologyEvidenceGraphDetail", () => {
         latest_layout_limited: true,
         historical_neighbors: [historicalNeighbor],
         last_known_links: [lastKnownLink],
+        device_stats_window: { days: 0, max_snapshots: 0, snapshots_considered: -1 },
         counts: { observed_topology_nodes: 99 },
       },
       { allowInconsistentOverrides: true },
@@ -286,6 +471,11 @@ describe("makeTopologyEvidenceGraphDetail", () => {
     expect(detail.latest_layout_limited).toBe(true);
     expect(detail.history_window.snapshots_considered).toBe(0);
     expect(detail.last_known_window.snapshots_considered).toBe(0);
+    expect(detail.device_stats_window).toEqual({
+      days: 0,
+      max_snapshots: 0,
+      snapshots_considered: -1,
+    });
     expect(detail.counts.observed_topology_nodes).toBe(99);
   });
 });

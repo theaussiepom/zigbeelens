@@ -147,10 +147,14 @@ The topology fixture builder owns the complete `TopologyEvidenceGraphDetail`
 shape for component and page tests. Tests may override deliberate evidence,
 but must not substitute the smaller `TopologyNetworkDetail` payload or cast an
 incomplete object. Its structural counts, exact inverse layout flags, snapshot
-link count, and history/last-known window coherence are derived or validated
-from the supplied evidence. Defaults mirror Core's three-snapshot recent-history
-cap and ten-snapshot device-stat cap; malformed-payload tests must use the
-builder's named inconsistent-override opt-in. Resource-state tests separately
+link count, history/last-known window coherence, null-snapshot topology-history
+emptiness, and device-stat window integer/cap bounds are derived or validated
+from the supplied evidence. A null latest snapshot requires empty recent
+topology history and a zeroed last-known result, while passive and
+availability-derived evidence remain permitted. Defaults mirror Core's
+three-snapshot recent-history cap and seven-day, ten-snapshot device-stat
+window; malformed-payload tests must use the builder's named
+inconsistent-override opt-in. Resource-state tests separately
 represent no accepted data, accepted empty data, accepted nonempty data, and
 retained accepted data with a refresh error.
 
@@ -165,8 +169,8 @@ production evidence. Investigation focus likewise stores only an id and page
 tests prove that current card membership owns graph focus after refresh.
 Overview visit-watermark tests own the rule that the first accepted Core
 `dashboard.generated_at` is stable within each native/scenario scope, v1 data
-migrates only to native Core, and future browser-clock boundaries are reset
-conservatively.
+is discarded because its scope is ambiguous, and future browser-clock
+boundaries are reset conservatively.
 
 ## Zero-fallback classifications
 
