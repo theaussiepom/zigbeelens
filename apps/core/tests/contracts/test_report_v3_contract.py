@@ -204,6 +204,45 @@ def test_list_detail_download_omit_non_v3_rows(mock_client: TestClient):
     assert isinstance(good_row["device_count"], int)
 
 
+def test_list_redaction_applied_owned_by_validated_body(mock_client: TestClient):
+    """Public list redaction_applied follows body.redaction.applied, not a hardcode."""
+    from report_v3_helpers import full_redaction_status, minimal_report_v3
+
+    detail = minimal_report_v3(
+        id="redact-applied-false",
+        redaction=full_redaction_status(applied=False),
+        markdown_summary="# ZigbeeLens Evidence Report\n",
+    )
+    body = detail.model_dump(mode="json")
+    ctx = mock_client.app.state.ctx
+    ctx.repo.reports.save_report(
+        report_id=detail.id,
+        format="json",
+        scope="full",
+        redaction_profile="standard",
+        summary="fixture",
+        body=body,
+        markdown=detail.markdown_summary,
+        redaction=body["redaction"],
+        metadata={},
+    )
+    assert load_stored_report_envelope(ctx.repo.reports.get_report(detail.id)) is not None
+
+    generated = mock_client.post("/api/reports", json={"scope": "full", "format": "json"})
+    assert generated.status_code == 200
+    assert generated.json()["redaction_applied"] is True
+
+    for prefix in ("/api", "/api/v1"):
+        listed = mock_client.get(f"{prefix}/reports")
+        assert listed.status_code == 200
+        row = next(item for item in listed.json() if item["id"] == detail.id)
+        assert row["redaction_applied"] is False
+        fetched = mock_client.get(f"{prefix}/reports/{detail.id}")
+        assert fetched.status_code == 200
+        assert fetched.json()["redaction"]["applied"] is False
+        ReportDetailV3.model_validate(fetched.json())
+
+
 def test_list_uses_validated_body_over_stale_row_metadata(mock_client: TestClient):
     created = mock_client.post(
         "/api/reports",

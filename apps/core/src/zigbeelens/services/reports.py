@@ -643,7 +643,7 @@ def summary_from_detail(row: ReportRow, detail: ReportDetailV3) -> ReportSummary
     return ReportSummary(
         id=detail.id,
         generated_at=detail.generated_at,
-        redaction_applied=True,
+        redaction_applied=detail.redaction.applied,
         incident_count=len(detail.incidents),
         device_count=_report_device_count(detail),
         network_count=_report_network_count(detail),
