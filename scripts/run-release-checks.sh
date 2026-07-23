@@ -29,7 +29,7 @@ echo "==> SQLite 3.34.1 runtime smoke"
 bash scripts/smoke-sqlite-3.34.1.sh
 
 echo "==> Safety guardrails"
-(cd apps/core && uv run pytest -q tests/test_safety_guardrails.py)
+bash scripts/validate-safety-guardrails.sh
 
 echo "==> UI shared types"
 pnpm --filter @zigbeelens/shared build

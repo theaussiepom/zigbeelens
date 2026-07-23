@@ -88,6 +88,7 @@ jobs:
         run: bash scripts/smoke-core.sh
 
       - name: Safety guardrails
-        run: pytest apps/core/tests/test_safety_guardrails.py -q
+        run: bash scripts/validate-safety-guardrails.sh
         env:
+          CORE_PYTHON: python3
           PYTHONPATH: apps/core/src

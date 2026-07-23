@@ -128,11 +128,10 @@ It records a pre-existing Decision-surface mismatch (`watch` versus
 **xfail**, not pass. Any additional xfail or skip is a new result that requires
 review.
 
-The canonical Core suite currently also reports two skips. The SQLite 3.34.1
-case is intentionally delegated to `scripts/smoke-sqlite-3.34.1.sh`.
-`test_ui_has_no_repair_controls` is unintentionally skipped because its
-`UI_SRC` path does not resolve to `apps/ui/src`; treat that as an open
-release-test blocker until the guard actually executes.
+The canonical Core suite's SQLite 3.34.1 case is intentionally delegated to
+`scripts/smoke-sqlite-3.34.1.sh`. The UI safety owner resolves the repository
+root once, scans production `.tsx` files under `apps/ui/src`, and fails if that
+expected source path is absent.
 
 ## Adding a new Decision code
 
