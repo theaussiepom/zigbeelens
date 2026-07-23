@@ -66,6 +66,7 @@ authorized task.
 
 Reviewed public-satellite state (historical evidence):
 
+- repository: `theaussiepom/zigbeelens-hacs`
 - commit: `050d118b3e1406343255594fe64cd569e2420888`
 - reviewed: `2026-07-23`
 
@@ -78,13 +79,24 @@ decision.
 ### Staged source provenance
 
 The source-tree integration manifest keeps a stable `main` documentation URL
-for direct source browsing. A generated local stage has a different ownership
-contract: `./scripts/package-hacs-repo.sh` records the exact monorepo source
-commit in `SOURCE_COMMIT`, includes that commit in the generated README, and
-rewrites the staged manifest Documentation URL to the immutable
-`zigbeelens/blob/<source-commit>/docs/hacs.md` page. The provenance file and URL
-must agree. This identifies the reviewed monorepo source; it does not establish
-satellite synchronization or publication readiness.
+for direct source browsing. A generated local stage has a different,
+fail-closed ownership contract. `./scripts/package-hacs-repo.sh` requires the
+monorepo Git checkout, selects the checked-out `HEAD` commit, rejects a supplied
+`ZIGBEELENS_SOURCE_COMMIT` unless it resolves to that same commit, and rejects
+tracked changes or nonignored untracked files in every package input. It then
+reads those inputs from the selected Git tree, so ignored generated caches
+cannot enter the stage, records the commit in `SOURCE_COMMIT`, includes it in
+the generated README, and pins both staged installation guides to immutable
+`blob/<source-commit>/docs/hacs.md` and `docs/docker.md` pages.
+
+`ZIGBEELENS_SOURCE_REPOSITORY` identifies the source repository used by those
+immutable links and defaults to `theaussiepom/zigbeelens`.
+`ZIGBEELENS_FUTURE_HACS_REPOSITORY` independently identifies the conditional
+future publication destination and defaults to
+`theaussiepom/zigbeelens-hacs`. Neither setting rewrites the fixed historical
+repository, commit, and review date above. The selected tree, provenance file,
+README, and manifest must agree. This identifies the reviewed monorepo source;
+it does not establish satellite synchronization or publication readiness.
 
 The integration's OptionsFlow accepts a 15–900-second polling interval, manually
 updates the entry, and then returns an empty options result. Home Assistant

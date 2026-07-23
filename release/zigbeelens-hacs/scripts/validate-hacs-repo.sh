@@ -54,6 +54,22 @@ import json, re, sys
 from datetime import date
 from pathlib import Path
 
+REPOSITORY_PATTERN = (
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?"
+    r"/[A-Za-z0-9_.-]{1,100}"
+)
+REVIEWED_HACS_REPOSITORY = "theaussiepom/zigbeelens-hacs"
+REVIEWED_HACS_COMMIT = "050d118b3e1406343255594fe64cd569e2420888"
+REVIEWED_HACS_DATE = "2026-07-23"
+
+
+def repository_is_valid(value: str) -> bool:
+    if re.fullmatch(REPOSITORY_PATTERN, value) is None:
+        return False
+    repository = value.split("/", 1)[1]
+    return repository not in {".", ".."}
+
+
 root = Path(sys.argv[1])
 source_commit_path = root / "SOURCE_COMMIT"
 if not source_commit_path.is_file():
@@ -83,7 +99,9 @@ documentation = manifest.get("documentation")
 documentation_match = (
     re.fullmatch(
         r"https://github\.com/"
-        r"(?P<owner>[A-Za-z0-9_.-]+)/zigbeelens/blob/"
+        r"(?P<repository>"
+        + REPOSITORY_PATTERN
+        + r")/blob/"
         r"(?P<commit>[0-9a-f]{40})/docs/hacs\.md",
         documentation,
     )
@@ -100,39 +118,178 @@ if documentation_match.group("commit") != source_commit:
         "manifest documentation commit does not match SOURCE_COMMIT: "
         f"{documentation_match.group('commit')} != {source_commit}"
     )
-owner = documentation_match.group("owner")
+source_repository = documentation_match.group("repository")
+if not repository_is_valid(source_repository):
+    sys.exit(
+        "manifest documentation source repository must be an exact "
+        "owner/repository identifier"
+    )
+expected_issue_tracker = f"https://github.com/{source_repository}/issues"
+if manifest.get("issue_tracker") != expected_issue_tracker:
+    sys.exit(
+        "manifest issue tracker does not match the declared source repository"
+    )
 readme = (root / "README.md").read_text(encoding="utf-8")
-expected_commit_url = (
-    f"https://github.com/{owner}/zigbeelens/commit/{source_commit}"
+unresolved_placeholders = sorted(
+    set(re.findall(r"@[A-Z][A-Z0-9_]*@", readme))
 )
-expected_commit_link = f"[`{source_commit}`]({expected_commit_url})"
+if unresolved_placeholders:
+    sys.exit(
+        "README contains an unresolved template placeholder: "
+        + ", ".join(unresolved_placeholders)
+    )
+expected_source_url = f"https://github.com/{source_repository}"
+expected_docker_image = f"ghcr.io/{source_repository}"
+expected_docker_documentation = (
+    f"https://github.com/{source_repository}/blob/"
+    f"{source_commit}/docs/docker.md"
+)
+status_heading = "## Release status — local/staged integration only"
 local_heading = "## Local staged integration testing"
 future_heading = "## Conditional public HACS installation"
+status_start = readme.find(status_heading)
 local_start = readme.find(local_heading)
 future_start = readme.find(future_heading)
-if local_start < 0 or future_start <= local_start:
+if (
+    status_start < 0
+    or local_start <= status_start
+    or future_start <= local_start
+):
     sys.exit(
-        "README must contain ordered local-stage and conditional-public-HACS sections"
+        "README must contain ordered release-status, local-stage, and "
+        "conditional-public-HACS sections"
     )
+current_readme = readme[:future_start]
 local_readme = readme[local_start:future_start]
-if local_readme.count(expected_commit_link) != 1:
+future_readme = readme[future_start:]
+source_urls = re.findall(
+    r"\[ZigbeeLens Core\]\((?P<url>[^)\s]+)\)",
+    current_readme,
+)
+if source_urls != [expected_source_url]:
+    sys.exit("README Core repository link does not match source repository")
+docker_images = re.findall(
+    r"ghcr\.io/[A-Za-z0-9_.-]+/[A-Za-z0-9_.:@/-]+",
+    current_readme,
+)
+if docker_images != [expected_docker_image]:
+    sys.exit("README Docker image does not match source repository")
+commit_links = re.findall(
+    r"\[`(?P<label>[0-9A-Fa-f]{40})`\]\("
+    r"https://github\.com/(?P<repository>[^)\s]+?)/commit/"
+    r"(?P<commit>[0-9A-Fa-f]{40})\)",
+    local_readme,
+)
+if commit_links != [(source_commit, source_repository, source_commit)]:
     sys.exit("README package source commit does not match SOURCE_COMMIT")
-if local_readme.count(documentation) != 1:
+current_documentation_urls = re.findall(
+    r"https://github\.com/[^\s)`\]]+/blob/"
+    r"[^\s)`\]]+/docs/[^\s)`\]]+",
+    current_readme,
+)
+local_documentation_urls = re.findall(
+    r"https://github\.com/[^\s)`\]]+/blob/"
+    r"[^\s)`\]]+/docs/[^\s)`\]]+",
+    local_readme,
+)
+if local_documentation_urls.count(documentation) != 1:
     sys.exit(
         "README pinned documentation URL does not match manifest documentation"
     )
-if "@SOURCE_COMMIT@" in readme:
-    sys.exit("README contains an unresolved SOURCE_COMMIT placeholder")
-reviewed_state = re.search(
-    r"Reviewed public-satellite state \(historical evidence\):\s*"
-    r"- commit: `(?P<commit>[0-9a-f]{40})`\s*"
-    r"- reviewed: `(?P<reviewed>[0-9]{4}-[0-9]{2}-[0-9]{2})`",
+if current_documentation_urls.count(expected_docker_documentation) != 1:
+    sys.exit(
+        "README pinned Docker documentation URL does not match SOURCE_COMMIT/"
+        "source repository"
+    )
+if "/blob/main/docs/" in current_readme:
+    sys.exit(
+        "README current/local guidance must not use blob/main documentation "
+        "(blob/main/docs/)"
+    )
+expected_current_documentation_urls = sorted(
+    (documentation, expected_docker_documentation)
+)
+if sorted(current_documentation_urls) != expected_current_documentation_urls:
+    sys.exit(
+        "README current/local operational documentation must use exactly the "
+        "declared source repository and SOURCE_COMMIT HACS and Docker URLs"
+    )
+for current_url in current_documentation_urls:
+    repository_and_path = current_url.removeprefix(
+        "https://github.com/"
+    )
+    repository, revision_and_path = repository_and_path.split("/blob/", 1)
+    revision, _ = revision_and_path.split("/docs/", 1)
+    if (
+        not repository_is_valid(repository)
+        or repository != source_repository
+        or revision != source_commit
+    ):
+        sys.exit(
+            "README current/local operational documentation must use the "
+            "declared source repository and SOURCE_COMMIT"
+        )
+issues_targets = re.findall(
+    r"(?i)\bissues:[ \t]*(?P<target>\S+)",
     readme,
 )
-if reviewed_state is None:
+if issues_targets != [expected_issue_tracker]:
+    sys.exit("README issue link does not match manifest/source repository")
+future_repository_matches = re.findall(
+    r"`https://github\.com/(?P<repository>"
+    + REPOSITORY_PATTERN
+    + r")` as a HACS Integration",
+    future_readme,
+)
+if (
+    len(future_repository_matches) != 1
+    or not repository_is_valid(future_repository_matches[0])
+):
     sys.exit(
-        "README reviewed public-satellite state must include a 40-character "
-        "commit SHA and ISO-format review date"
+        "README conditional future HACS repository must be one exact "
+        "owner/repository URL"
+    )
+reviewed_state_pattern = re.compile(
+    r"Reviewed public-satellite state \(historical evidence\):\s*"
+    r"- repository: `(?P<repository>"
+    + REPOSITORY_PATTERN
+    + r")`\s*"
+    r"- commit: `(?P<commit>[0-9a-f]{40})`\s*"
+    r"- reviewed: `(?P<reviewed>[0-9]{4}-[0-9]{2}-[0-9]{2})`",
+)
+reviewed_states = list(reviewed_state_pattern.finditer(readme))
+if len(reviewed_states) != 1:
+    sys.exit(
+        "README must contain exactly one reviewed public-satellite state with "
+        "an exact repository, 40-character commit SHA, and ISO-format review date"
+    )
+reviewed_state = reviewed_states[0]
+reviewed_repository = reviewed_state.group("repository")
+if (
+    not repository_is_valid(reviewed_repository)
+    or reviewed_repository != REVIEWED_HACS_REPOSITORY
+):
+    sys.exit(
+        "README reviewed public-satellite repository does not match the "
+        "repository actually inspected"
+    )
+if (
+    reviewed_state.group("commit") != REVIEWED_HACS_COMMIT
+    or reviewed_state.group("reviewed") != REVIEWED_HACS_DATE
+):
+    sys.exit(
+        "README reviewed public-satellite commit and date do not match the "
+        "coupled historical evidence"
+    )
+if (
+    current_readme.count(
+        f"reviewed public `{reviewed_repository}` satellite"
+    )
+    != 1
+):
+    sys.exit(
+        "README release status must name the reviewed public-satellite "
+        "repository"
     )
 try:
     date.fromisoformat(reviewed_state.group("reviewed"))
@@ -159,6 +316,7 @@ if strings != translations:
 print(
     "OK: SOURCE_COMMIT agrees with README and pinned manifest documentation"
 )
+print("OK: source, future, and reviewed repository identities are separated")
 print("OK: hacs.json, manifest.json, strings.json, translations/en.json parse")
 PY
 
