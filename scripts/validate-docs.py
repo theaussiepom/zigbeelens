@@ -12,6 +12,7 @@ import json
 import re
 import subprocess
 import sys
+from datetime import date
 from pathlib import Path
 from types import UnionType
 from typing import Union, get_args, get_origin
@@ -501,8 +502,24 @@ def validate_hacs_proxy_image_truth() -> int:
         "C": (
             "future compatible published companion/Core pair",
             "export ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge",
-            "docker-compose.traefik.example.yaml up -d",
+            "mkdir -p ~/zigbeelens-traefik/{config,data}",
+            "cp deploy/docker/docker-compose.traefik.example.yaml",
+            "~/zigbeelens-traefik/docker-compose.yaml",
+            "cp deploy/docker/config.example.yaml",
+            "~/zigbeelens-traefik/config/config.yaml",
+            "`mqtt.server`",
+            "`base_topic`",
+            "security settings",
+            "Traefik hostname",
+            "external proxy-network name",
+            "cd ~/zigbeelens-traefik",
+            "docker compose config",
+            "docker compose pull",
+            "docker compose up -d",
             "Keep `ZIGBEELENS_IMAGE` set",
+            "~/zigbeelens-traefik/.env",
+            "default `latest` tagged release",
+            "ghcr.io/theaussiepom/zigbeelens:X.Y.Z",
             "not remote release-validation evidence",
         ),
         "D": (
@@ -528,6 +545,37 @@ def validate_hacs_proxy_image_truth() -> int:
                 + ", ".join(missing)
             )
         assertions += len(fragments)
+
+    option_c = option_section(embedded, "C")
+    if re.search(
+        r"docker compose\s+-f\s+(?:\./)?deploy/docker/"
+        r"docker-compose\.traefik\.example\.yaml",
+        option_c,
+        flags=re.IGNORECASE,
+    ):
+        raise DocumentationError(
+            "docs/hacs-embedded-view.md: Option C must not execute the "
+            "maintained Traefik template in place"
+        )
+    copied_layout_order = (
+        "mkdir -p ~/zigbeelens-traefik/{config,data}",
+        "cp deploy/docker/docker-compose.traefik.example.yaml",
+        "cp deploy/docker/config.example.yaml",
+        "cd ~/zigbeelens-traefik",
+        "export ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge",
+        "docker compose config",
+        "docker compose pull",
+        "docker compose up -d",
+    )
+    ordered_positions = tuple(option_c.find(command) for command in copied_layout_order)
+    if any(position < 0 for position in ordered_positions) or ordered_positions != tuple(
+        sorted(ordered_positions)
+    ):
+        raise DocumentationError(
+            "docs/hacs-embedded-view.md: Option C copied-layout commands must "
+            "create, enter, render, pull, and start the installation in order"
+        )
+    assertions += 1 + len(copied_layout_order)
     return assertions
 
 
@@ -626,6 +674,9 @@ def validate_companion_publication_truth() -> int:
             "<home-assistant-config>/custom_components/zigbeelens/",
             "full Home Assistant restart",
             "Do not use the unsynchronized public satellite",
+            "@SOURCE_COMMIT@",
+            "generated `SOURCE_COMMIT` file records the same commit",
+            "blob/@SOURCE_COMMIT@/docs/hacs.md",
         ),
     }
     future_install_contracts: dict[str, tuple[str, ...]] = {
@@ -779,6 +830,51 @@ def validate_companion_publication_truth() -> int:
         require_document_fragments(relative, fragments)
         for relative, fragments in synchronization_gates.items()
     )
+    reviewed_state_pattern = re.compile(
+        r"Reviewed public-satellite state \(historical evidence\):\s*"
+        r"- commit: `(?P<commit>[0-9a-f]{40})`\s*"
+        r"- reviewed: `(?P<reviewed>[0-9]{4}-[0-9]{2}-[0-9]{2})`"
+    )
+    reviewed_evidence: list[tuple[str, str]] = []
+    for relative in (
+        "docs/release-infra.md",
+        "release/zigbeelens-hacs/README.md.in",
+    ):
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        reviewed_state = reviewed_state_pattern.search(text)
+        if reviewed_state is None:
+            raise DocumentationError(
+                f"{relative}: reviewed public-satellite state must contain a "
+                "40-character commit SHA and ISO-format review date"
+            )
+        try:
+            date.fromisoformat(reviewed_state.group("reviewed"))
+        except ValueError as exc:
+            raise DocumentationError(
+                f"{relative}: public-satellite review date must be a valid ISO date"
+            ) from exc
+        if re.search(
+            r"re-check its current tree(?: immediately)? before (?:any )?publication",
+            text,
+            flags=re.IGNORECASE,
+        ) is None:
+            raise DocumentationError(
+                f"{relative}: public-satellite evidence must require a re-check "
+                "before publication"
+            )
+        reviewed_evidence.append(
+            (
+                reviewed_state.group("commit"),
+                reviewed_state.group("reviewed"),
+            )
+        )
+        assertions += 4
+    if len(set(reviewed_evidence)) != 1:
+        raise DocumentationError(
+            "public-satellite reviewed commit and date must agree between "
+            "release infrastructure and the generated HACS README template"
+        )
+    assertions += 1
     manifest = json.loads(
         (
             ROOT
@@ -796,16 +892,40 @@ def validate_companion_publication_truth() -> int:
     hacs_generator = (ROOT / "scripts/package-hacs-repo.sh").read_text(
         encoding="utf-8"
     )
-    expected_generated_documentation = (
-        'data["documentation"] = '
-        '"https://github.com/${OWNER}/zigbeelens/blob/main/docs/hacs.md"'
+    assertions += require_text_fragments(
+        "scripts/package-hacs-repo.sh immutable staged-package provenance",
+        hacs_generator,
+        (
+            "ZIGBEELENS_SOURCE_COMMIT",
+            'git -C "${ROOT}" rev-parse',
+            "SOURCE_COMMIT_VALUE",
+            '${#SOURCE_COMMIT_VALUE}',
+            "*[!0-9a-f]*",
+            '"${DIST}/SOURCE_COMMIT"',
+            "@SOURCE_COMMIT@",
+            "zigbeelens/blob/${SOURCE_COMMIT_VALUE}/docs/hacs.md",
+        ),
     )
-    if expected_generated_documentation not in hacs_generator:
-        raise DocumentationError(
-            "scripts/package-hacs-repo.sh: generated manifest documentation "
-            "must point to the monorepo's current HACS status guide"
-        )
-    assertions += 2
+    assertions += require_document_fragments(
+        "release/zigbeelens-hacs/scripts/validate-hacs-repo.sh",
+        (
+            "SOURCE_COMMIT",
+            'r"[0-9a-f]{40}\\n"',
+            'documentation_match.group("commit") != source_commit',
+            "README package source commit does not match SOURCE_COMMIT",
+            "README pinned documentation URL does not match manifest documentation",
+        ),
+    )
+    assertions += require_document_fragments(
+        "apps/core/tests/test_hacs_package_provenance.py",
+        (
+            "test_packager_derives_source_commit_from_git_head",
+            "test_packager_normalizes_source_commit_override",
+            "test_packager_rejects_invalid_source_commit_override",
+            "test_package_validator_rejects_source_commit_mismatch",
+        ),
+    )
+    assertions += 1
     assertions += require_document_fragments(
         "apps/addon/zigbeelens/README.md",
         (
