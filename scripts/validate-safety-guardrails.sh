@@ -26,7 +26,7 @@ trap cleanup EXIT
   cd "${ROOT}/apps/core"
   export PYTHONPATH="${ROOT}/apps/core/src${PYTHONPATH:+:${PYTHONPATH}}"
   "${PYTHON}" -m pytest \
-    -q tests/test_safety_guardrails.py -ra \
+    -q -s tests/test_safety_guardrails.py -ra \
     --junitxml="${RESULT}"
 )
 

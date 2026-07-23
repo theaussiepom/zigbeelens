@@ -172,6 +172,19 @@ Human-facing terminology follows [ubiquitous-language.md](ubiquitous-language.md
 | Home Assistant diagnostics redact secrets | Enforced |
 | No Home Assistant control services/entities are introduced | Enforced |
 
+Release safety ownership is split across the two production UI sources:
+
+- Core UI production `.ts` and `.tsx` under `apps/ui/src`;
+- Home Assistant companion panel production JavaScript under
+  `apps/ha_integration/custom_components/zigbeelens/panel`, including the
+  canonical `zigbeelens-panel.js` entrypoint.
+
+`apps/core/tests/test_safety_guardrails.py` applies the same Zigbee
+mutation-control phrase policy to both corpora, with separate missing-source,
+empty-corpus, and unsafe-control diagnostics. The fail-closed
+`scripts/validate-safety-guardrails.sh` wrapper is the release owner: it rejects
+zero collected tests and any skip, failure, or error.
+
 Core topology's allowlisted network-map request and optional MQTT Discovery
 publishes are Core policies, not actions performed by the Home Assistant
 integration.
@@ -200,6 +213,7 @@ uv run pytest -q \
 From the repository root, run contract validation:
 
 ```bash
+bash scripts/validate-safety-guardrails.sh
 bash scripts/validate-contracts.sh
 ```
 

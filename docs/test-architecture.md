@@ -129,10 +129,17 @@ It records a pre-existing Decision-surface mismatch (`watch` versus
 review.
 
 The canonical Core suite's SQLite 3.34.1 case is intentionally delegated to
-`scripts/smoke-sqlite-3.34.1.sh`. The UI safety owner resolves the repository
-root once, scans production `.ts` and `.tsx` files under `apps/ui/src`, excludes
-declarations plus test, contract, fixture, and generated paths relative to that
-source root, and fails if the source directory or production corpus is absent.
+`scripts/smoke-sqlite-3.34.1.sh`. The release UI safety owner resolves the
+repository root once and keeps two corpus diagnostics separate. It scans Core
+UI production `.ts` and `.tsx` under `apps/ui/src`, excluding declarations plus
+test, contract, fixture, and generated paths relative to that source root. It
+also scans the canonical Home Assistant companion-panel JavaScript under
+`apps/ha_integration/custom_components/zigbeelens/panel` and requires
+`zigbeelens-panel.js`. Either missing source or an empty corpus is a failure,
+and both corpora use the same Zigbee mutation-control phrase policy.
+`scripts/validate-safety-guardrails.sh` remains the single release wrapper and
+fails on zero collected tests or any skipped test. Its release output reports
+the production file count for each corpus so path or discovery drift is visible.
 
 ## Adding a new Decision code
 

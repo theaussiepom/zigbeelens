@@ -14,6 +14,15 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 CORE_SRC = REPO_ROOT / "apps" / "core" / "src" / "zigbeelens"
 MQTT_PKG = CORE_SRC / "mqtt"
 UI_SRC = REPO_ROOT / "apps" / "ui" / "src"
+COMPANION_PANEL_SRC = (
+    REPO_ROOT
+    / "apps"
+    / "ha_integration"
+    / "custom_components"
+    / "zigbeelens"
+    / "panel"
+)
+COMPANION_PANEL_ENTRYPOINT = COMPANION_PANEL_SRC / "zigbeelens-panel.js"
 
 UNSAFE_UI_PATTERNS = (
     "permit join",
@@ -87,6 +96,28 @@ def _assert_ui_has_no_repair_controls(directory: Path) -> None:
     assert not hits, f"Unsafe UI controls found: {hits}"
 
 
+def _production_companion_panel_files(directory: Path) -> list[Path]:
+    return sorted(path for path in directory.rglob("*.js") if path.is_file())
+
+
+def _assert_companion_panel_has_no_repair_controls(directory: Path) -> None:
+    assert directory.is_dir(), (
+        f"Required Home Assistant companion panel source is missing: {directory}"
+    )
+    files = _production_companion_panel_files(directory)
+    assert files, (
+        "Home Assistant companion panel safety guard discovered zero "
+        f"production .js files under {directory}"
+    )
+    hits: list[tuple[str, str]] = []
+    for path in files:
+        text = path.read_text(encoding="utf-8").lower()
+        for pattern in UNSAFE_UI_PATTERNS:
+            if pattern in text:
+                hits.append((str(path.relative_to(directory)), pattern))
+    assert not hits, f"Unsafe Home Assistant companion panel controls found: {hits}"
+
+
 def test_collector_package_has_no_publish_calls():
     """MQTT collector package must remain subscribe-only."""
     hits = _find_publish_calls_in_tree(MQTT_PKG)
@@ -129,6 +160,14 @@ def test_topology_allows_networkmap_only():
 def test_ui_has_no_repair_controls():
     """UI must not expose Zigbee mutation controls."""
     _assert_ui_has_no_repair_controls(UI_SRC)
+    files = _production_ui_files(UI_SRC)
+    ts_count = sum(path.suffix == ".ts" for path in files)
+    tsx_count = sum(path.suffix == ".tsx" for path in files)
+    print(
+        "Core UI safety corpus: "
+        f"{len(files)} production files ({ts_count} .ts, {tsx_count} .tsx) "
+        "under apps/ui/src."
+    )
 
 
 def test_ui_source_path_matches_monorepo_layout():
@@ -225,6 +264,79 @@ def test_ui_file_enumerator_ignores_excluded_checkout_ancestors(tmp_path: Path):
 
     assert _production_ui_files(ui_src) == [production]
     _assert_ui_has_no_repair_controls(ui_src)
+
+
+def test_companion_panel_has_no_repair_controls():
+    """Home Assistant companion panel must not expose Zigbee mutation controls."""
+    _assert_companion_panel_has_no_repair_controls(COMPANION_PANEL_SRC)
+    files = _production_companion_panel_files(COMPANION_PANEL_SRC)
+    names = ", ".join(path.name for path in files)
+    print(
+        "Home Assistant companion panel safety corpus: "
+        f"{len(files)} production .js file(s) ({names})."
+    )
+
+
+def test_companion_panel_source_path_matches_monorepo_layout():
+    """The release owner must scan the canonical companion panel JavaScript."""
+    expected_src = (
+        REPO_ROOT
+        / "apps"
+        / "ha_integration"
+        / "custom_components"
+        / "zigbeelens"
+        / "panel"
+    )
+    assert COMPANION_PANEL_SRC == expected_src
+    assert COMPANION_PANEL_SRC.is_dir(), (
+        f"Required Home Assistant companion panel source is missing: {COMPANION_PANEL_SRC}"
+    )
+    assert COMPANION_PANEL_ENTRYPOINT.is_file(), (
+        "Expected Home Assistant companion panel entrypoint is missing: "
+        f"{COMPANION_PANEL_ENTRYPOINT}"
+    )
+    assert COMPANION_PANEL_ENTRYPOINT in _production_companion_panel_files(
+        COMPANION_PANEL_SRC
+    ), (
+        "Home Assistant companion panel entrypoint was excluded from the safety corpus: "
+        f"{COMPANION_PANEL_ENTRYPOINT}"
+    )
+
+
+def test_companion_panel_guard_fails_when_source_is_missing(tmp_path: Path):
+    missing = tmp_path / "custom_components" / "zigbeelens" / "panel"
+    with pytest.raises(
+        AssertionError,
+        match="Required Home Assistant companion panel source is missing",
+    ):
+        _assert_companion_panel_has_no_repair_controls(missing)
+
+
+def test_companion_panel_guard_fails_when_production_corpus_is_empty(tmp_path: Path):
+    panel_src = tmp_path / "custom_components" / "zigbeelens" / "panel"
+    panel_src.mkdir(parents=True)
+    with pytest.raises(
+        AssertionError,
+        match=(
+            "Home Assistant companion panel safety guard discovered zero "
+            r"production \.js files"
+        ),
+    ):
+        _assert_companion_panel_has_no_repair_controls(panel_src)
+
+
+def test_companion_panel_guard_rejects_deliberate_unsafe_control(tmp_path: Path):
+    panel_src = tmp_path / "custom_components" / "zigbeelens" / "panel"
+    panel_src.mkdir(parents=True)
+    (panel_src / "zigbeelens-panel.js").write_text(
+        'const deviceActionLabel = "Remove device";\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        AssertionError,
+        match="Unsafe Home Assistant companion panel controls found.*remove device",
+    ):
+        _assert_companion_panel_has_no_repair_controls(panel_src)
 
 
 def test_topology_startup_defaults_in_example_configs():
