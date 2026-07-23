@@ -25,10 +25,11 @@ Reviewed public-satellite state (historical evidence):
 
 At that commit, the public satellite advertised version `0.1.13`. The reviewed
 materially different candidate stage now uses the previously unused version
-`@VERSION@`, which uniquely identifies that stage. The satellite is not assumed
-to remain at that commit. Re-check its current tree before publication, then
-make the staged and intended satellite trees identical while preserving a
-version that uniquely identifies that tree.
+declared in its manifest, which uniquely identifies that stage. The satellite
+is not assumed to remain at that commit.
+Re-check its current tree before publication, then make the staged and intended
+satellite trees identical while preserving a version that uniquely identifies
+that tree.
 
 The staged package owns durable polling options, fail-closed compatibility,
 distinct Decision payload repair guidance, declarative/runtime single-entry
