@@ -11,6 +11,8 @@ import pytest
 
 import zigbeelens.api as api_module
 from zigbeelens.api import ZigbeeLensApiClient
+from zigbeelens.compatibility import EnrichmentContractState
+from zigbeelens.enrichment_manager import HomeAssistantEnrichmentManager
 from zigbeelens.exceptions import (
     ZigbeeLensAuthError,
     ZigbeeLensInvalidResponseError,
@@ -221,6 +223,28 @@ async def test_publish_uses_exact_route_request_and_validated_response():
 
 
 @pytest.mark.asyncio
+async def test_publish_preserves_valid_partial_core_counts():
+    partial = {
+        **_result_payload(),
+        "matched": 0,
+        "unmatched": 1,
+        "stored": 0,
+    }
+    session = FakeSession(post=[FakeResponse(200, partial)])
+    client = ZigbeeLensApiClient(session, "http://core.local")
+
+    result = await client.async_publish_home_assistant_enrichment((_row(),))
+
+    assert (
+        result.submitted,
+        result.matched,
+        result.unmatched,
+        result.ambiguous,
+        result.stored,
+    ) == (1, 0, 1, 0, 0)
+
+
+@pytest.mark.asyncio
 async def test_production_registry_fixture_reaches_exact_post_shape():
     """HA-side cross-app proof: official registries → resolver → API request."""
     device = SimpleNamespace(
@@ -300,6 +324,117 @@ async def test_production_registry_fixture_reaches_exact_post_shape():
             "entity_id": "light.reading_lamp",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_production_manager_publishes_registry_rename_area_and_removal():
+    """Production HA registry builder → manager → strict API client."""
+    device = SimpleNamespace(
+        id="ha-device-id",
+        connections={("zigbee", IEEE)},
+        identifiers=set(),
+        name="source-lamp",
+        name_by_user="Reading Lamp",
+        area_id="living",
+    )
+    device_registry = SimpleNamespace(devices={device.id: device})
+    entity_registry = object()
+    area_names = {
+        "living": "Living Room",
+        "office": "Office",
+    }
+    area_registry = SimpleNamespace(
+        async_get_area=lambda area_id: (
+            SimpleNamespace(name=area_names[area_id]) if area_id in area_names else None
+        )
+    )
+    inventory_payload = {
+        "items": [
+            {
+                "network_id": "home",
+                "ieee_address": IEEE,
+                "friendly_name": "source-lamp",
+            }
+        ],
+        "total": 1,
+        "next_cursor": None,
+    }
+    session = FakeSession(
+        get=[
+            FakeResponse(200, inventory_payload),
+            FakeResponse(200, inventory_payload),
+            FakeResponse(200, inventory_payload),
+        ],
+        post=[
+            FakeResponse(200, _result_payload()),
+            FakeResponse(200, _result_payload()),
+            FakeResponse(200, _result_payload()),
+        ],
+    )
+    client = ZigbeeLensApiClient(session, "http://core.local")
+    hass = SimpleNamespace()
+    hass.bus = SimpleNamespace(async_listen=lambda *_args: lambda: None)
+    entry = SimpleNamespace(
+        async_on_unload=lambda _callback: None,
+        async_start_reauth=lambda *_args, **_kwargs: None,
+    )
+    manager = HomeAssistantEnrichmentManager(
+        hass,
+        entry,
+        client,
+        capability_provider=lambda: EnrichmentContractState.SUPPORTED,
+        later_scheduler=lambda _delay, _action: lambda: None,
+        interval_scheduler=lambda _interval, _action: lambda: None,
+    )
+
+    with (
+        patch(
+            "zigbeelens.ha_enrichment.dr.async_get",
+            return_value=device_registry,
+        ),
+        patch(
+            "zigbeelens.ha_enrichment.er.async_get",
+            return_value=entity_registry,
+        ),
+        patch(
+            "zigbeelens.ha_enrichment.ar.async_get",
+            return_value=area_registry,
+        ),
+        patch(
+            "zigbeelens.ha_enrichment.er.async_entries_for_device",
+            return_value=[
+                SimpleNamespace(
+                    entity_id="light.reading_lamp",
+                    area_id=None,
+                )
+            ],
+        ),
+    ):
+        await manager.async_start()
+
+        device.name_by_user = "Desk Lamp"
+        device.area_id = "office"
+        await manager.async_reconcile()
+
+        device.name = None
+        device.name_by_user = None
+        device.area_id = None
+        await manager.async_reconcile()
+
+    posted_rows = [
+        kwargs["json"]["devices"][0]
+        for method, _url, kwargs in session.calls
+        if method == "post"
+    ]
+    assert [(row["ha_device_name"], row["area_name"]) for row in posted_rows] == [
+        ("Reading Lamp", "Living Room"),
+        ("Desk Lamp", "Office"),
+        (None, None),
+    ]
+    assert all(row["network_id"] == "home" for row in posted_rows)
+    assert manager.diagnostics["sync_state"] == "successful"
+    assert manager.diagnostics["match_state"] == "complete"
+    await manager.async_stop()
 
 
 @pytest.mark.asyncio

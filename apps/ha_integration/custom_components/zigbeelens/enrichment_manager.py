@@ -7,6 +7,7 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import Enum
+import logging
 from typing import Any, Protocol
 
 from homeassistant.core import Event, HomeAssistant, callback
@@ -44,6 +45,8 @@ TaskFactory = Callable[
 ]
 RegistryBuilder = Callable[[HomeAssistant], HomeAssistantRegistrySnapshot]
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class EnrichmentSyncState(str, Enum):
     """Safe diagnostics state for the publisher lifecycle."""
@@ -62,6 +65,60 @@ class EnrichmentSyncState(str, Enum):
     SERVER_FAILED = "failed_server"
     REQUEST_REJECTED = "failed_request_rejected"
     INVALID_RESPONSE = "failed_invalid_response"
+    PARTIAL_ACCEPTANCE = "partial_acceptance"
+
+
+class EnrichmentMatchState(str, Enum):
+    """Identity-free coverage outcome for the latest completed snapshot."""
+
+    UNKNOWN = "unknown"
+    NO_CANDIDATES = "no_candidates"
+    COMPLETE = "complete"
+    PARTIAL_UNMATCHED = "partial_unmatched"
+    PARTIAL_AMBIGUOUS = "partial_ambiguous"
+    NO_MATCHES = "no_matches"
+    NO_MATCHES_AMBIGUOUS = "no_matches_ambiguous"
+
+
+ENRICHMENT_FAILURE_REASONS = frozenset(
+    {
+        "authentication",
+        "bad_request",
+        "conflict",
+        "connection",
+        "fingerprint_unavailable",
+        "forbidden",
+        "inconsistent_result",
+        "inventory_connection",
+        "inventory_invalid_response",
+        "malformed",
+        "missing",
+        "not_found",
+        "partial_acceptance",
+        "rate_limited",
+        "registry_unavailable",
+        "request_rejected",
+        "server_error",
+        "unavailable",
+        "unknown",
+        "unsupported",
+        "validation",
+        "invalid_response",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _CompletedEnrichmentOutcome:
+    """Exact aggregate of one builder result and one accepted Core result."""
+
+    submitted: int
+    matched: int
+    unmatched: int
+    ambiguous: int
+    stored: int
+    match_state: EnrichmentMatchState
+    fully_converged: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +126,7 @@ class EnrichmentManagerDiagnostics:
     """Non-identifying manager facts safe to expose through diagnostics."""
 
     state: EnrichmentSyncState
+    match_state: EnrichmentMatchState
     last_attempt_at: str | None
     last_success_at: str | None
     submitted: int | None
@@ -82,6 +140,7 @@ class EnrichmentManagerDiagnostics:
         """Return the exact identity-free shape consumed by diagnostics/repairs."""
         return {
             "sync_state": self.state.value,
+            "match_state": self.match_state.value,
             "last_attempt_at": self.last_attempt_at,
             "last_success_at": self.last_success_at,
             "submitted": self.submitted,
@@ -91,6 +150,108 @@ class EnrichmentManagerDiagnostics:
             "stored": self.stored,
             "failure_reason": self.failure_reason,
         }
+
+
+DiagnosticsChangedCallback = Callable[[EnrichmentManagerDiagnostics], None]
+
+
+def _strict_nonnegative_count(value: object) -> int:
+    """Return one exact non-negative count without bool coercion."""
+    if isinstance(value, bool) or type(value) is not int or value < 0:
+        raise ValueError("enrichment result count is invalid")
+    return value
+
+
+def _safe_timestamp(value: object) -> str | None:
+    """Keep only a bounded timezone-aware timestamp in callback diagnostics."""
+    if (
+        not isinstance(value, str)
+        or value != value.strip()
+        or not value
+        or len(value) > 64
+    ):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return value
+
+
+def _match_state(
+    *,
+    submitted: int,
+    ambiguous: int,
+    stored: int,
+) -> EnrichmentMatchState:
+    """Classify aggregate coverage without retaining any registry identity."""
+    if submitted == 0:
+        return EnrichmentMatchState.NO_CANDIDATES
+    if stored == submitted:
+        return EnrichmentMatchState.COMPLETE
+    if stored == 0:
+        return (
+            EnrichmentMatchState.NO_MATCHES_AMBIGUOUS
+            if ambiguous
+            else EnrichmentMatchState.NO_MATCHES
+        )
+    if ambiguous:
+        return EnrichmentMatchState.PARTIAL_AMBIGUOUS
+    return EnrichmentMatchState.PARTIAL_UNMATCHED
+
+
+def _completed_outcome(
+    build: EnrichmentBuildResult,
+    result: HomeAssistantEnrichmentResult,
+) -> _CompletedEnrichmentOutcome:
+    """Aggregate builder and Core-owned counts, failing closed on inconsistency."""
+    posted = len(build.devices)
+    server_submitted = _strict_nonnegative_count(result.submitted)
+    server_matched = _strict_nonnegative_count(result.matched)
+    server_unmatched = _strict_nonnegative_count(result.unmatched)
+    server_ambiguous = _strict_nonnegative_count(result.ambiguous)
+    server_stored = _strict_nonnegative_count(result.stored)
+    if _safe_timestamp(result.last_push_at) is None:
+        raise ValueError("Core enrichment timestamp is invalid")
+    if (
+        server_submitted != posted
+        or server_submitted != server_matched + server_unmatched + server_ambiguous
+        or server_stored != server_matched
+    ):
+        raise ValueError("Core enrichment result is inconsistent")
+
+    submitted = _strict_nonnegative_count(build.submitted_candidates)
+    builder_unmatched = _strict_nonnegative_count(build.unmatched)
+    builder_ambiguous = _strict_nonnegative_count(build.ambiguous)
+    matched = server_matched
+    unmatched = builder_unmatched + server_unmatched
+    ambiguous = builder_ambiguous + server_ambiguous
+    stored = server_stored
+    if submitted != matched + unmatched + ambiguous or stored != matched:
+        raise ValueError("aggregate enrichment result is inconsistent")
+
+    fully_converged = (
+        server_submitted == posted
+        and server_matched == server_submitted
+        and server_unmatched == 0
+        and server_ambiguous == 0
+        and server_stored == server_matched
+    )
+    return _CompletedEnrichmentOutcome(
+        submitted=submitted,
+        matched=matched,
+        unmatched=unmatched,
+        ambiguous=ambiguous,
+        stored=stored,
+        match_state=_match_state(
+            submitted=submitted,
+            ambiguous=ambiguous,
+            stored=stored,
+        ),
+        fully_converged=fully_converged,
+    )
 
 
 class EnrichmentApiClient(Protocol):
@@ -131,6 +292,7 @@ class HomeAssistantEnrichmentManager:
         interval_scheduler: IntervalScheduler | None = None,
         task_factory: TaskFactory | None = None,
         now: Callable[[], str] | None = None,
+        on_diagnostics_changed: DiagnosticsChangedCallback | None = None,
         debounce_seconds: float = 2.0,
         retry_delays: tuple[float, ...] = (15.0, 60.0, 300.0),
         reconciliation_interval: timedelta = timedelta(minutes=15),
@@ -146,6 +308,7 @@ class HomeAssistantEnrichmentManager:
         )
         self._task_factory = task_factory or self._default_task_factory
         self._now = now or self._default_now
+        self._on_diagnostics_changed = on_diagnostics_changed
         self._debounce_seconds = debounce_seconds
         self._retry_delays = retry_delays
         self._reconciliation_interval = reconciliation_interval
@@ -163,9 +326,11 @@ class HomeAssistantEnrichmentManager:
         self._stopped = False
         self._reauth_started = False
         self._last_fingerprint: str | None = None
+        self._last_full_result: HomeAssistantEnrichmentResult | None = None
         self._terminal_failure_fingerprint: str | None = None
         self._diagnostics = EnrichmentManagerDiagnostics(
             state=EnrichmentSyncState.NEVER_ATTEMPTED,
+            match_state=EnrichmentMatchState.UNKNOWN,
             last_attempt_at=None,
             last_success_at=None,
             submitted=None,
@@ -255,6 +420,7 @@ class HomeAssistantEnrichmentManager:
         self._retry_cancel = None
         self._periodic_cancel = None
         self._unsubscribers.clear()
+        self._on_diagnostics_changed = None
 
         current = asyncio.current_task()
         pending = [
@@ -327,36 +493,71 @@ class HomeAssistantEnrichmentManager:
         self,
         state: EnrichmentSyncState,
         *,
-        build: EnrichmentBuildResult | None = None,
+        outcome: _CompletedEnrichmentOutcome | None = None,
         last_success_at: str | None = None,
-        result: HomeAssistantEnrichmentResult | None = None,
         failure_reason: str | None = None,
-        preserve_stored: bool = False,
     ) -> None:
         previous = self._diagnostics
-        self._diagnostics = EnrichmentManagerDiagnostics(
+        safe_failure_reason = (
+            (
+                failure_reason
+                if failure_reason in ENRICHMENT_FAILURE_REASONS
+                else "unknown"
+            )
+            if failure_reason is not None
+            else None
+        )
+        next_diagnostics = EnrichmentManagerDiagnostics(
             state=state,
-            last_attempt_at=self._now(),
+            match_state=(
+                outcome.match_state
+                if outcome is not None
+                else EnrichmentMatchState.UNKNOWN
+            ),
+            last_attempt_at=_safe_timestamp(self._now()),
             last_success_at=(
-                last_success_at
+                _safe_timestamp(last_success_at)
                 if last_success_at is not None
                 else previous.last_success_at
             ),
-            submitted=(build.submitted_candidates if build is not None else 0)
-            if build is not None
-            else None,
-            matched=len(build.devices) if build is not None else None,
-            unmatched=build.unmatched if build is not None else None,
-            ambiguous=build.ambiguous if build is not None else None,
-            stored=(
-                result.stored
-                if result is not None
-                else previous.stored
-                if preserve_stored
-                else None
-            ),
-            failure_reason=failure_reason,
+            submitted=outcome.submitted if outcome is not None else None,
+            matched=outcome.matched if outcome is not None else None,
+            unmatched=outcome.unmatched if outcome is not None else None,
+            ambiguous=outcome.ambiguous if outcome is not None else None,
+            stored=outcome.stored if outcome is not None else None,
+            failure_reason=safe_failure_reason,
         )
+        self._diagnostics = next_diagnostics
+        previous_semantics = (
+            previous.state,
+            previous.match_state,
+            previous.submitted,
+            previous.matched,
+            previous.unmatched,
+            previous.ambiguous,
+            previous.stored,
+            previous.failure_reason,
+        )
+        next_semantics = (
+            next_diagnostics.state,
+            next_diagnostics.match_state,
+            next_diagnostics.submitted,
+            next_diagnostics.matched,
+            next_diagnostics.unmatched,
+            next_diagnostics.ambiguous,
+            next_diagnostics.stored,
+            next_diagnostics.failure_reason,
+        )
+        if (
+            self._stopped
+            or self._on_diagnostics_changed is None
+            or next_semantics == previous_semantics
+        ):
+            return
+        try:
+            self._on_diagnostics_changed(next_diagnostics)
+        except Exception:
+            _LOGGER.error("Home Assistant enrichment diagnostics callback failed")
 
     async def async_reconcile(self, *, force: bool = False) -> None:
         """Build and publish at most one snapshot concurrently."""
@@ -382,6 +583,8 @@ class HomeAssistantEnrichmentManager:
         if contract_state is not EnrichmentContractState.SUPPORTED:
             # A capability transition is external Core state, so a later return
             # to supported must get one fresh attempt even for identical rows.
+            self._last_fingerprint = None
+            self._last_full_result = None
             self._terminal_failure_fingerprint = None
             state = {
                 EnrichmentContractState.UNSUPPORTED: (
@@ -417,12 +620,12 @@ class HomeAssistantEnrichmentManager:
         try:
             inventory = await self._client.async_get_device_inventory()
         except ZigbeeLensAuthError:
+            self._cancel_retry()
+            self._start_reauth_once()
             self._set_diagnostics(
                 EnrichmentSyncState.AUTHENTICATION_FAILED,
                 failure_reason="authentication",
             )
-            self._cancel_retry()
-            self._start_reauth_once()
             return
         except ZigbeeLensConnectionError:
             self._set_diagnostics(
@@ -460,7 +663,6 @@ class HomeAssistantEnrichmentManager:
         if build.state is EnrichmentSnapshotState.UNAVAILABLE:
             self._set_diagnostics(
                 EnrichmentSyncState.SOURCE_UNAVAILABLE,
-                build=build,
                 failure_reason="registry_unavailable",
             )
             self._schedule_retry()
@@ -469,23 +671,30 @@ class HomeAssistantEnrichmentManager:
         if fingerprint is None:
             self._set_diagnostics(
                 EnrichmentSyncState.INVALID_RESPONSE,
-                build=build,
                 failure_reason="fingerprint_unavailable",
             )
             self._cancel_retry()
             return
-        if not force and fingerprint == self._last_fingerprint:
-            self._set_diagnostics(
-                EnrichmentSyncState.SUCCESSFUL,
-                build=build,
-                preserve_stored=True,
-            )
-            return
+        if (
+            not force
+            and fingerprint == self._last_fingerprint
+            and self._last_full_result is not None
+        ):
+            try:
+                outcome = _completed_outcome(build, self._last_full_result)
+            except ValueError:
+                self._last_fingerprint = None
+                self._last_full_result = None
+            else:
+                self._set_diagnostics(
+                    EnrichmentSyncState.SUCCESSFUL,
+                    outcome=outcome,
+                )
+                return
         if not force and fingerprint == self._terminal_failure_fingerprint:
             previous = self._diagnostics
             self._set_diagnostics(
                 previous.state,
-                build=build,
                 failure_reason=previous.failure_reason,
             )
             return
@@ -495,18 +704,16 @@ class HomeAssistantEnrichmentManager:
                 build.devices
             )
         except ZigbeeLensAuthError:
-            self._set_diagnostics(
-                EnrichmentSyncState.AUTHENTICATION_FAILED,
-                build=build,
-                failure_reason="authentication",
-            )
             self._cancel_retry()
             self._start_reauth_once()
+            self._set_diagnostics(
+                EnrichmentSyncState.AUTHENTICATION_FAILED,
+                failure_reason="authentication",
+            )
             return
         except ZigbeeLensConnectionError:
             self._set_diagnostics(
                 EnrichmentSyncState.CONNECTION_FAILED,
-                build=build,
                 failure_reason="connection",
             )
             self._schedule_retry()
@@ -514,7 +721,6 @@ class HomeAssistantEnrichmentManager:
         except ZigbeeLensServerError as err:
             self._set_diagnostics(
                 EnrichmentSyncState.SERVER_FAILED,
-                build=build,
                 failure_reason=err.category,
             )
             self._schedule_retry()
@@ -527,7 +733,6 @@ class HomeAssistantEnrichmentManager:
             )
             self._set_diagnostics(
                 state,
-                build=build,
                 failure_reason=err.category,
             )
             if err.status_code == 429:
@@ -537,24 +742,52 @@ class HomeAssistantEnrichmentManager:
                 self._cancel_retry()
             return
         except ZigbeeLensInvalidResponseError:
+            self._last_fingerprint = None
+            self._last_full_result = None
             self._set_diagnostics(
                 EnrichmentSyncState.INVALID_RESPONSE,
-                build=build,
                 failure_reason="invalid_response",
             )
             self._terminal_failure_fingerprint = fingerprint
             self._cancel_retry()
             return
 
-        self._last_fingerprint = fingerprint
+        try:
+            outcome = _completed_outcome(build, result)
+        except ValueError:
+            self._last_fingerprint = None
+            self._last_full_result = None
+            self._set_diagnostics(
+                EnrichmentSyncState.INVALID_RESPONSE,
+                failure_reason="inconsistent_result",
+            )
+            self._terminal_failure_fingerprint = fingerprint
+            self._cancel_retry()
+            return
+
         self._terminal_failure_fingerprint = None
+        if not outcome.fully_converged:
+            # Core accepted a replacement but did not retain every posted exact
+            # identity. Any prior accepted fingerprint no longer describes Core.
+            self._last_fingerprint = None
+            self._last_full_result = None
+            self._set_diagnostics(
+                EnrichmentSyncState.PARTIAL_ACCEPTANCE,
+                outcome=outcome,
+                last_success_at=result.last_push_at,
+                failure_reason="partial_acceptance",
+            )
+            self._schedule_retry()
+            return
+
+        self._last_fingerprint = fingerprint
+        self._last_full_result = result
         self._retry_index = 0
         self._cancel_retry()
         self._set_diagnostics(
             EnrichmentSyncState.SUCCESSFUL,
-            build=build,
+            outcome=outcome,
             last_success_at=result.last_push_at,
-            result=result,
         )
 
     def _cancel_retry(self) -> None:

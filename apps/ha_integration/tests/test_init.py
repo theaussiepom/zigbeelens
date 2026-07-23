@@ -62,7 +62,10 @@ def _enrichment_manager():
     manager = MagicMock()
     manager.async_start = AsyncMock()
     manager.async_request_sync = MagicMock()
-    manager.diagnostics = {"sync_state": "never_attempted"}
+    manager.diagnostics = {
+        "sync_state": "never_attempted",
+        "match_state": "unknown",
+    }
     return manager
 
 
@@ -268,7 +271,7 @@ async def test_multi_entry_secondary_skips_panel_and_repairs():
         "zigbeelens.ZigbeeLensDataUpdateCoordinator", return_value=coordinator
     ), patch(
         "zigbeelens.HomeAssistantEnrichmentManager", return_value=manager
-    ), patch("zigbeelens.async_register_panel", new=AsyncMock()) as register, patch(
+    ) as manager_cls, patch("zigbeelens.async_register_panel", new=AsyncMock()) as register, patch(
         "zigbeelens.async_unregister_panel", new=AsyncMock()
     ) as unregister, patch("zigbeelens.async_manage_repairs") as manage:
         ok = await async_setup_entry(hass, secondary)
@@ -277,11 +280,14 @@ async def test_multi_entry_secondary_skips_panel_and_repairs():
         unregister.assert_not_awaited()
         manage.assert_not_called()
         assert "entry_b" in hass.data[DOMAIN]
+        diagnostics_callback = manager_cls.call_args.kwargs["on_diagnostics_changed"]
+        diagnostics_callback(object())
+        manage.assert_not_called()
 
         # If the legacy primary later unloads, promotion changes the dynamic
-        # owner marker and the already-registered listener owns repairs.
+        # owner marker and the already-registered manager callback owns repairs.
         hass.data[DOMAIN]["_global_owner_entry_id"] = "entry_b"
-        listeners[0]()
+        diagnostics_callback(object())
         manage.assert_called_once_with(hass, coordinator, manager)
 
 
@@ -356,6 +362,43 @@ async def test_coordinator_listener_requests_enrichment_and_repairs_synchronousl
     assert result is None
     manager.async_request_sync.assert_called_once_with()
     assert repairs.call_args_list[-1].args == (hass, coordinator, manager)
+
+
+@pytest.mark.asyncio
+async def test_manager_diagnostics_callback_updates_only_live_global_owner_repairs():
+    hass = MagicMock()
+    entry = _entry(panel_enabled=True)
+    client = MagicMock(core_url="http://127.0.0.1:8377")
+    coordinator = MagicMock()
+    coordinator.async_config_entry_first_refresh = AsyncMock()
+    coordinator.async_add_listener = MagicMock(return_value=lambda: None)
+    manager = _enrichment_manager()
+    hass.data = {}
+    hass.config_entries.async_entries = MagicMock(return_value=[entry])
+    hass.config_entries.async_forward_entry_setups = AsyncMock(return_value=True)
+
+    with (
+        patch("zigbeelens.async_get_clientsession", return_value=MagicMock()),
+        patch("zigbeelens.ZigbeeLensApiClient", return_value=client),
+        patch("zigbeelens.ZigbeeLensDataUpdateCoordinator", return_value=coordinator),
+        patch(
+            "zigbeelens.HomeAssistantEnrichmentManager", return_value=manager
+        ) as manager_cls,
+        patch("zigbeelens.async_register_panel", new=AsyncMock()),
+        patch("zigbeelens.async_manage_repairs") as repairs,
+    ):
+        assert await async_setup_entry(hass, entry) is True
+        repairs.reset_mock()
+        diagnostics_callback = manager_cls.call_args.kwargs["on_diagnostics_changed"]
+
+        diagnostics_callback(object())
+        repairs.assert_called_once_with(hass, coordinator, manager)
+
+        # Once the runtime is removed/unloaded, a retained callback cannot own
+        # issue-registry mutations.
+        hass.data[DOMAIN].pop(entry.entry_id)
+        diagnostics_callback(object())
+        repairs.assert_called_once_with(hass, coordinator, manager)
 
 
 @pytest.mark.asyncio

@@ -139,6 +139,10 @@
     "home_assistant_enrichment_sync_failed": {
       "title": "Home Assistant enrichment sync failed",
       "description": "The most recent bounded registry enrichment sync failed. Core retains the last accepted snapshot. Review the categorical integration diagnostics; transient failures are retried automatically."
+    },
+    "home_assistant_enrichment_match_incomplete": {
+      "title": "Some Home Assistant Zigbee devices could not be linked",
+      "description": "The latest complete registry snapshot contained Zigbee candidates that could not all be assigned safely to Core devices. Review the identity-free match state and counts in integration diagnostics; ZigbeeLens retries transient Core-side convergence automatically."
     }
   }
 }

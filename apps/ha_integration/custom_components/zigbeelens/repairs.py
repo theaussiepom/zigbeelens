@@ -22,6 +22,7 @@ from .const import (
     ISSUE_DECISION_CONTRACT_NEWER,
     ISSUE_DECISION_CONTRACT_OLDER,
     ISSUE_DECISION_PAYLOAD_MALFORMED,
+    ISSUE_ENRICHMENT_MATCH_INCOMPLETE,
     ISSUE_ENRICHMENT_SYNC_FAILED,
     ISSUE_ENRICHMENT_UNSUPPORTED,
     ISSUE_INCOMPATIBLE_VERSION,
@@ -43,6 +44,7 @@ _COMPATIBILITY_ISSUES = (
     ISSUE_DECISION_PAYLOAD_MALFORMED,
     ISSUE_ENRICHMENT_UNSUPPORTED,
     ISSUE_ENRICHMENT_SYNC_FAILED,
+    ISSUE_ENRICHMENT_MATCH_INCOMPLETE,
 )
 
 
@@ -173,6 +175,11 @@ def async_manage_repairs(
         if isinstance(manager_state, dict)
         else ""
     )
+    manager_match_state = (
+        str(manager_state.get("match_state", ""))
+        if isinstance(manager_state, dict)
+        else ""
+    )
     route_unsupported = manager_sync_state == "failed_contract_unsupported"
     enrichment_issue = route_unsupported or (
         data.enrichment_contract_state
@@ -213,6 +220,28 @@ def async_manage_repairs(
         )
     else:
         ir.async_delete_issue(hass, DOMAIN, ISSUE_ENRICHMENT_SYNC_FAILED)
+
+    match_incomplete = manager_match_state in {
+        "partial_unmatched",
+        "partial_ambiguous",
+        "no_matches",
+        "no_matches_ambiguous",
+    }
+    if (
+        match_incomplete
+        and manager_sync_state != "failed_authentication"
+        and data.core_version_state is CoreVersionState.COMPATIBLE
+    ):
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            ISSUE_ENRICHMENT_MATCH_INCOMPLETE,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=ISSUE_ENRICHMENT_MATCH_INCOMPLETE,
+        )
+    else:
+        ir.async_delete_issue(hass, DOMAIN, ISSUE_ENRICHMENT_MATCH_INCOMPLETE)
 
     if data.collector_connected is False:
         ir.async_create_issue(
@@ -287,6 +316,7 @@ def async_clear_repairs(hass: HomeAssistant) -> None:
         ISSUE_DECISION_PAYLOAD_MALFORMED,
         ISSUE_ENRICHMENT_UNSUPPORTED,
         ISSUE_ENRICHMENT_SYNC_FAILED,
+        ISSUE_ENRICHMENT_MATCH_INCOMPLETE,
         ISSUE_COLLECTOR_DISCONNECTED,
         ISSUE_NO_NETWORKS,
         ISSUE_NO_MQTT_DATA,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -13,8 +14,19 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from zigbeelens.api import HomeAssistantEnrichmentResult
-from zigbeelens.compatibility import EnrichmentContractState
+from zigbeelens.compatibility import (
+    CapabilitiesState,
+    CoreVersionState,
+    DecisionContractState,
+    DecisionPayloadState,
+    EnrichmentContractState,
+)
+from zigbeelens.const import (
+    ISSUE_ENRICHMENT_MATCH_INCOMPLETE,
+    ISSUE_ENRICHMENT_SYNC_FAILED,
+)
 from zigbeelens.enrichment_manager import (
+    EnrichmentMatchState,
     EnrichmentSyncState,
     HomeAssistantEnrichmentManager,
 )
@@ -31,8 +43,10 @@ from zigbeelens.ha_enrichment import (
     RegistryCandidate,
     RegistrySnapshotState,
 )
+from zigbeelens.repairs import async_manage_repairs
 
 IEEE = "0x00124b0001abcdef"
+IEEE_2 = "0x00124b0001abcdee"
 
 
 @dataclass
@@ -179,15 +193,43 @@ class FakeClient:
             self.active_publish -= 1
 
 
-def _result(submitted: int) -> HomeAssistantEnrichmentResult:
+def _result(
+    submitted: int,
+    *,
+    matched: int | None = None,
+    unmatched: int = 0,
+    ambiguous: int = 0,
+    stored: int | None = None,
+) -> HomeAssistantEnrichmentResult:
+    matched = submitted - unmatched - ambiguous if matched is None else matched
+    stored = matched if stored is None else stored
     return HomeAssistantEnrichmentResult(
         home_assistant_enrichment_contract_version=1,
         submitted=submitted,
-        matched=submitted,
-        unmatched=0,
-        ambiguous=0,
-        stored=submitted,
+        matched=matched,
+        unmatched=unmatched,
+        ambiguous=ambiguous,
+        stored=stored,
         last_push_at="2026-07-23T12:00:00+00:00",
+    )
+
+
+def _candidate(
+    *,
+    ieee_address: str = IEEE,
+    ha_device_id: str = "ha-device-id",
+    entity_id: str = "light.reading_lamp",
+    original_name: str = "source-lamp",
+    name: str = "Reading Lamp",
+) -> RegistryCandidate:
+    return RegistryCandidate(
+        ieee_address=ieee_address,
+        ha_device_id=ha_device_id,
+        ha_device_name=name,
+        area_id="living",
+        area_name="Living Room",
+        entity_id=entity_id,
+        original_name=original_name,
     )
 
 
@@ -200,17 +242,7 @@ def _registry(
         return HomeAssistantRegistrySnapshot(state)
     return HomeAssistantRegistrySnapshot(
         state,
-        (
-            RegistryCandidate(
-                ieee_address=IEEE,
-                ha_device_id="ha-device-id",
-                ha_device_name=name,
-                area_id="living",
-                area_name="Living Room",
-                entity_id="light.reading_lamp",
-                original_name="source-lamp",
-            ),
-        ),
+        (_candidate(name=name),),
     )
 
 
@@ -225,6 +257,8 @@ def _manager(
     client: FakeClient,
     *,
     contract_state: EnrichmentContractState = EnrichmentContractState.SUPPORTED,
+    on_diagnostics_changed=None,
+    now=None,
 ):
     bus = FakeBus()
     hass = SimpleNamespace(bus=bus)
@@ -240,11 +274,35 @@ def _manager(
         later_scheduler=later.schedule,
         interval_scheduler=interval.schedule,
         task_factory=asyncio.create_task,
-        now=lambda: "2026-07-23T12:00:01+00:00",
+        now=now or (lambda: "2026-07-23T12:00:01+00:00"),
+        on_diagnostics_changed=on_diagnostics_changed,
         debounce_seconds=2,
         retry_delays=(5, 10),
     )
     return manager, bus, entry, later, interval
+
+
+def _healthy_coordinator():
+    return SimpleNamespace(
+        auth_failed=False,
+        last_update_success=True,
+        data=SimpleNamespace(
+            health={"mock_mode": False},
+            dashboard={"networks": [{"id": "home"}], "device_count": 1},
+            config_status={
+                "configured_networks": [{"id": "home"}],
+                "mock_mode": False,
+            },
+            core_version="0.1.13",
+            core_version_state=CoreVersionState.COMPATIBLE,
+            capabilities_state=CapabilitiesState.ACCEPTED,
+            decision_contract_version=2,
+            decision_contract_state=DecisionContractState.SUPPORTED_EXACT,
+            decision_payload_state=DecisionPayloadState.VALID,
+            enrichment_contract_state=EnrichmentContractState.SUPPORTED,
+            collector_connected=True,
+        ),
+    )
 
 
 @pytest.mark.asyncio
@@ -268,6 +326,7 @@ async def test_initial_sync_registers_exact_listeners_and_posts_complete_snapsho
     assert client.published[0][0].network_id == "home"
     assert manager.diagnostics == {
         "sync_state": "successful",
+        "match_state": "complete",
         "last_attempt_at": "2026-07-23T12:00:01+00:00",
         "last_success_at": "2026-07-23T12:00:00+00:00",
         "submitted": 1,
@@ -302,9 +361,167 @@ async def test_complete_empty_or_zero_match_may_post_empty(registry):
     if registry.candidates:
         assert diagnostics["submitted"] == 1
         assert diagnostics["unmatched"] == 1
+        assert diagnostics["match_state"] == "no_matches"
     else:
         assert diagnostics["submitted"] == 0
         assert diagnostics["unmatched"] == 0
+        assert diagnostics["match_state"] == "no_candidates"
+    await manager.async_stop()
+
+
+@pytest.mark.parametrize(
+    ("registry", "inventory", "expected_state", "expected_counts"),
+    [
+        (
+            HomeAssistantRegistrySnapshot(RegistrySnapshotState.COMPLETE),
+            CoreInventorySnapshot(()),
+            EnrichmentMatchState.NO_CANDIDATES,
+            (0, 0, 0, 0, 0),
+        ),
+        (
+            _registry(),
+            _inventory(),
+            EnrichmentMatchState.COMPLETE,
+            (1, 1, 0, 0, 1),
+        ),
+        (
+            HomeAssistantRegistrySnapshot(
+                RegistrySnapshotState.COMPLETE,
+                (
+                    _candidate(),
+                    _candidate(
+                        ieee_address=IEEE_2,
+                        ha_device_id="ha-device-id-2",
+                        entity_id="light.second_lamp",
+                        original_name="second-lamp",
+                    ),
+                ),
+            ),
+            _inventory(),
+            EnrichmentMatchState.PARTIAL_UNMATCHED,
+            (2, 1, 1, 0, 1),
+        ),
+        (
+            HomeAssistantRegistrySnapshot(
+                RegistrySnapshotState.COMPLETE,
+                (_candidate(),),
+                ambiguous_candidates=1,
+            ),
+            _inventory(),
+            EnrichmentMatchState.PARTIAL_AMBIGUOUS,
+            (2, 1, 0, 1, 1),
+        ),
+        (
+            _registry(),
+            CoreInventorySnapshot(()),
+            EnrichmentMatchState.NO_MATCHES,
+            (1, 0, 1, 0, 0),
+        ),
+        (
+            HomeAssistantRegistrySnapshot(
+                RegistrySnapshotState.COMPLETE,
+                ambiguous_candidates=1,
+            ),
+            CoreInventorySnapshot(()),
+            EnrichmentMatchState.NO_MATCHES_AMBIGUOUS,
+            (1, 0, 0, 1, 0),
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_completed_match_states_keep_exact_aggregate_counts(
+    registry,
+    inventory,
+    expected_state,
+    expected_counts,
+):
+    source = MutableRegistrySource(registry)
+    client = FakeClient(inventory)
+    manager, _bus, _entry, _later, _interval = _manager(source, client)
+
+    await manager.async_start()
+
+    diagnostics = manager.diagnostics
+    observed_counts = tuple(
+        diagnostics[key]
+        for key in ("submitted", "matched", "unmatched", "ambiguous", "stored")
+    )
+    assert diagnostics["match_state"] == expected_state.value
+    assert observed_counts == expected_counts
+    assert diagnostics["submitted"] == (
+        diagnostics["matched"] + diagnostics["unmatched"] + diagnostics["ambiguous"]
+    )
+    assert diagnostics["stored"] == diagnostics["matched"]
+    await manager.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_partial_core_acceptance_retries_with_truthful_counts_and_converges():
+    source = MutableRegistrySource(_registry())
+    client = FakeClient(
+        _inventory(),
+        publish_outcomes=[
+            _result(1, matched=0, unmatched=1, stored=0),
+        ],
+    )
+    transitions = []
+    manager, _bus, _entry, later, _interval = _manager(
+        source,
+        client,
+        on_diagnostics_changed=transitions.append,
+    )
+
+    await manager.async_start()
+
+    assert manager.diagnostics == {
+        "sync_state": "partial_acceptance",
+        "match_state": "no_matches",
+        "last_attempt_at": "2026-07-23T12:00:01+00:00",
+        "last_success_at": "2026-07-23T12:00:00+00:00",
+        "submitted": 1,
+        "matched": 0,
+        "unmatched": 1,
+        "ambiguous": 0,
+        "stored": 0,
+        "failure_reason": "partial_acceptance",
+    }
+    assert manager._last_fingerprint is None
+    assert [handle.when for handle in later.pending()] == [5]
+
+    later.fire(later.pending()[0])
+    await manager.async_wait_for_idle()
+
+    assert client.inventory_calls == 2
+    assert len(client.published) == 2
+    assert client.max_active_publish == 1
+    assert manager.diagnostics["sync_state"] == "successful"
+    assert manager.diagnostics["match_state"] == "complete"
+    assert manager.diagnostics["matched"] == 1
+    assert manager.diagnostics["stored"] == 1
+    assert later.pending() == []
+    assert [item.state for item in transitions] == [
+        EnrichmentSyncState.PARTIAL_ACCEPTANCE,
+        EnrichmentSyncState.SUCCESSFUL,
+    ]
+    await manager.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_inconsistent_completed_counts_fail_closed_without_accepting_fingerprint():
+    source = MutableRegistrySource(_registry())
+    client = FakeClient(
+        _inventory(),
+        publish_outcomes=[_result(2)],
+    )
+    manager, _bus, _entry, later, _interval = _manager(source, client)
+
+    await manager.async_start()
+
+    assert manager.diagnostics["sync_state"] == "failed_invalid_response"
+    assert manager.diagnostics["match_state"] == "unknown"
+    assert manager.diagnostics["failure_reason"] == "inconsistent_result"
+    assert manager._last_fingerprint is None
+    assert later.pending() == []
     await manager.async_stop()
 
 
@@ -451,6 +668,32 @@ async def test_core_inventory_change_changes_exact_network_and_republishes():
 
 
 @pytest.mark.asyncio
+async def test_no_match_recovers_after_inventory_refresh_without_stale_deduplication():
+    source = MutableRegistrySource(_registry())
+    client = FakeClient(
+        _inventory(),
+        inventory_outcomes=[
+            CoreInventorySnapshot(()),
+            _inventory(),
+        ],
+    )
+    manager, _bus, _entry, later, _interval = _manager(source, client)
+    await manager.async_start()
+
+    assert client.published == [()]
+    assert manager.diagnostics["match_state"] == "no_matches"
+
+    manager.async_request_sync()
+    later.fire(later.pending()[0])
+    await manager.async_wait_for_idle()
+
+    assert len(client.published) == 2
+    assert client.published[-1][0].ieee_address == IEEE
+    assert manager.diagnostics["match_state"] == "complete"
+    await manager.async_stop()
+
+
+@pytest.mark.asyncio
 async def test_periodic_reconciliation_forces_republish_for_core_restart_recovery():
     source = MutableRegistrySource(_registry())
     client = FakeClient(_inventory())
@@ -487,6 +730,96 @@ async def test_transient_publish_failure_retries_without_clearing_or_duplication
     assert bus.active_count == 3
     assert manager.diagnostics["sync_state"] == "successful"
     assert later.pending() == []
+    await manager.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_registry_failure_and_retry_repair_without_coordinator_refresh():
+    source = MutableRegistrySource(_registry(name="Accepted"))
+    client = FakeClient(_inventory())
+    hass = MagicMock()
+    coordinator = _healthy_coordinator()
+    manager_ref = {}
+
+    def on_diagnostics_changed(_diagnostics):
+        async_manage_repairs(hass, coordinator, manager_ref["manager"])
+
+    manager, bus, _entry, later, _interval = _manager(
+        source,
+        client,
+        on_diagnostics_changed=on_diagnostics_changed,
+    )
+    manager_ref["manager"] = manager
+
+    with patch("zigbeelens.repairs.ir.async_create_issue") as create_issue, patch(
+        "zigbeelens.repairs.ir.async_delete_issue"
+    ) as delete_issue:
+        await manager.async_start()
+        create_issue.reset_mock()
+        delete_issue.reset_mock()
+
+        source.snapshot = _registry(name="Changed")
+        client.publish_outcomes.append(ZigbeeLensConnectionError("offline"))
+        bus.fire(dr.EVENT_DEVICE_REGISTRY_UPDATED)
+        later.fire(later.pending()[0])
+        await manager.async_wait_for_idle()
+
+        assert any(
+            call.args[2] == ISSUE_ENRICHMENT_SYNC_FAILED
+            for call in create_issue.call_args_list
+        )
+
+        delete_issue.reset_mock()
+        later.fire(later.pending()[0])
+        await manager.async_wait_for_idle()
+
+    assert any(
+        call.args[2] == ISSUE_ENRICHMENT_SYNC_FAILED
+        for call in delete_issue.call_args_list
+    )
+    assert manager.diagnostics["sync_state"] == "successful"
+    await manager.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_partial_acceptance_repair_clears_on_retry_without_coordinator_refresh():
+    source = MutableRegistrySource(_registry())
+    client = FakeClient(
+        _inventory(),
+        publish_outcomes=[_result(1, matched=0, unmatched=1, stored=0)],
+    )
+    hass = MagicMock()
+    coordinator = _healthy_coordinator()
+    manager_ref = {}
+
+    def on_diagnostics_changed(_diagnostics):
+        async_manage_repairs(hass, coordinator, manager_ref["manager"])
+
+    manager, _bus, _entry, later, _interval = _manager(
+        source,
+        client,
+        on_diagnostics_changed=on_diagnostics_changed,
+    )
+    manager_ref["manager"] = manager
+
+    with patch("zigbeelens.repairs.ir.async_create_issue") as create_issue, patch(
+        "zigbeelens.repairs.ir.async_delete_issue"
+    ) as delete_issue:
+        await manager.async_start()
+        assert any(
+            call.args[2] == ISSUE_ENRICHMENT_MATCH_INCOMPLETE
+            for call in create_issue.call_args_list
+        )
+
+        delete_issue.reset_mock()
+        later.fire(later.pending()[0])
+        await manager.async_wait_for_idle()
+
+    assert any(
+        call.args[2] == ISSUE_ENRICHMENT_MATCH_INCOMPLETE
+        for call in delete_issue.call_args_list
+    )
+    assert manager.diagnostics["match_state"] == "complete"
     await manager.async_stop()
 
 
@@ -558,6 +891,74 @@ async def test_authentication_failure_starts_linked_reauth_once():
     assert later.pending() == []
     assert manager.diagnostics["sync_state"] == "failed_authentication"
     await manager.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_authentication_callback_runs_after_linked_reauth_and_is_identity_free():
+    source = MutableRegistrySource(_registry(name="private-device-name"))
+    client = FakeClient(
+        _inventory(),
+        inventory_outcomes=[ZigbeeLensAuthError("private-auth-detail")],
+    )
+    entry_ref = {}
+    transitions = []
+
+    def on_diagnostics_changed(diagnostics):
+        transitions.append((diagnostics, entry_ref["entry"].reauth_calls))
+
+    manager, _bus, entry, _later, _interval = _manager(
+        source,
+        client,
+        on_diagnostics_changed=on_diagnostics_changed,
+    )
+    entry_ref["entry"] = entry
+
+    await manager.async_start()
+
+    assert entry.reauth_calls == 1
+    assert len(transitions) == 1
+    diagnostics, reauth_calls_at_callback = transitions[0]
+    assert diagnostics.state is EnrichmentSyncState.AUTHENTICATION_FAILED
+    assert diagnostics.match_state is EnrichmentMatchState.UNKNOWN
+    assert reauth_calls_at_callback == 1
+    encoded = repr(diagnostics)
+    assert "private-device-name" not in encoded
+    assert "private-auth-detail" not in encoded
+    await manager.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_callback_ignores_timestamp_only_changes_and_stops_on_unload():
+    source = MutableRegistrySource(_registry())
+    client = FakeClient(_inventory())
+    timestamps = iter(
+        (
+            "2026-07-23T12:00:01+00:00",
+            "2026-07-23T12:00:02+00:00",
+            "2026-07-23T12:00:03+00:00",
+        )
+    )
+    transitions = []
+    manager, _bus, entry, later, _interval = _manager(
+        source,
+        client,
+        on_diagnostics_changed=transitions.append,
+        now=lambda: next(timestamps),
+    )
+    await manager.async_start()
+    assert len(transitions) == 1
+
+    manager.async_request_sync()
+    later.fire(later.pending()[0])
+    await manager.async_wait_for_idle()
+
+    assert len(client.published) == 1
+    assert manager.diagnostics["last_attempt_at"] == "2026-07-23T12:00:02+00:00"
+    assert len(transitions) == 1
+
+    await entry.async_run_unload()
+    await manager.async_reconcile(force=True)
+    assert len(transitions) == 1
 
 
 @pytest.mark.asyncio

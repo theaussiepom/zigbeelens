@@ -249,6 +249,69 @@ initial sync, debounced official registry listeners, bounded retry, and forced
 Core. Explicit config-entry removal attempts the exact clear without preventing
 removal if Core is unavailable.
 
+### Exact convergence and coverage
+
+The manager keeps transfer convergence separate from identity coverage. It
+validates Core's response against the rows actually posted
+(`submitted = matched + unmatched + ambiguous` and `stored = matched`), then
+combines the Core counts with candidates omitted during local resolution. The
+aggregate remains exact:
+
+`submitted candidates = matched + unmatched + ambiguous`, with
+`stored = matched`.
+
+The identity-free `match_state` distinguishes:
+
+| State | Meaning |
+|-------|---------|
+| `no_candidates` | The complete HA registry snapshot contained no Zigbee candidates; an accepted empty replacement is healthy. |
+| `complete` | Every candidate was resolved and stored. |
+| `partial_unmatched` | Some candidates were stored and the remainder were unmatched. |
+| `partial_ambiguous` | Some candidates were stored and at least one remainder was ambiguous. |
+| `no_matches` | Candidates existed, but none were stored; all were unmatched. |
+| `no_matches_ambiguous` | Candidates existed, none were stored, and at least one was ambiguous. |
+
+If Core returns HTTP 200 but does not retain every posted exact identity, the
+sync state is `partial_acceptance`. That result is not fingerprinted as
+converged: the manager performs a bounded forced retry, including a fresh Core
+inventory read, and never runs concurrent publishes. A later exact acceptance
+records the fingerprint, cancels retry, and deduplicates unchanged registry
+events. Local unmatched or ambiguous candidates can coexist with a successful
+transfer; their `match_state` remains incomplete until registry/inventory
+evidence converges.
+
+### Diagnostics and immediate repairs
+
+Enrichment diagnostics expose only allowlisted state, bounded timestamps,
+non-negative aggregate counts, and a fixed failure-reason vocabulary. They
+contain no device, entity, IEEE, name, area, URL, or credential.
+
+Repair evaluation runs immediately when an owner manager's repair-relevant
+diagnostics change; it does not wait for the coordinator polling interval.
+Timestamp-only changes do not churn repairs. Incomplete-match states create
+the specific enrichment-coverage warning, while `no_candidates` and `complete`
+clear it. Non-authentication transfer failures use the distinct sync warning,
+and unsupported contracts use the distinct compatibility warning.
+Authentication remains owned by linked reauthentication rather than a
+competing enrichment repair.
+
+Only the current singleton runtime owner may update global repairs. A stopped
+manager drops its callback, secondary legacy entries cannot change the owner's
+repairs, and promotion evaluates the promoted manager immediately. Unload
+clears owned issues without allowing a late callback to recreate them.
+
+### Live metadata convergence
+
+An accepted rename, area change, metadata removal, complete-empty replacement,
+or explicit config-entry clear commits in Core before Core emits
+`home_assistant_enrichment_updated`. Core also schedules one current Dashboard
+rebuild. The open Core UI treats the event as a precise invalidation for
+enrichment-derived Dashboard, device, network, investigation, settings, and
+mesh/device-story projections, so it refetches and displays the committed
+metadata without requiring a page reload. Raw topology history, incident,
+timeline, report, and storage resources are not refetched merely because HA
+display metadata changed.
+
 ## Architecture
 
 ```mermaid

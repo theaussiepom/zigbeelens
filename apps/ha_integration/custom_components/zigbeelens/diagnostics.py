@@ -19,6 +19,11 @@ from .compatibility import (
 )
 from .coordinator import ZigbeeLensDataUpdateCoordinator
 from .core_origin import InvalidCoreOrigin, canonicalize_core_origin
+from .enrichment_manager import (
+    ENRICHMENT_FAILURE_REASONS,
+    EnrichmentMatchState,
+    EnrichmentSyncState,
+)
 
 
 def _redact_url(url: str) -> str:
@@ -88,32 +93,48 @@ def _collector_diagnostics(value: object) -> dict[str, Any]:
 
 def _enrichment_diagnostics(runtime: dict[str, Any]) -> dict[str, Any]:
     """Return an allowlisted, identity-free manager diagnostic summary."""
+    default = {
+        "sync_state": EnrichmentSyncState.NEVER_ATTEMPTED.value,
+        "match_state": EnrichmentMatchState.UNKNOWN.value,
+        "last_attempt_at": None,
+        "last_success_at": None,
+        "submitted": None,
+        "matched": None,
+        "unmatched": None,
+        "ambiguous": None,
+        "stored": None,
+        "failure_reason": None,
+    }
     manager = runtime.get("enrichment_manager")
     raw = getattr(manager, "diagnostics", None)
     if not isinstance(raw, dict):
-        return {
-            "sync_state": "never_attempted",
-            "last_attempt_at": None,
-            "last_success_at": None,
-            "submitted": None,
-            "matched": None,
-            "unmatched": None,
-            "ambiguous": None,
-            "stored": None,
-            "failure_reason": None,
-        }
-    allowed = (
-        "sync_state",
-        "last_attempt_at",
-        "last_success_at",
-        "submitted",
-        "matched",
-        "unmatched",
-        "ambiguous",
-        "stored",
-        "failure_reason",
-    )
-    return {key: raw.get(key) for key in allowed}
+        return default
+    failure_reason = raw.get("failure_reason")
+    return {
+        "sync_state": _safe_category(
+            raw.get("sync_state"),
+            frozenset(state.value for state in EnrichmentSyncState),
+        ),
+        "match_state": _safe_category(
+            raw.get("match_state"),
+            frozenset(state.value for state in EnrichmentMatchState),
+        ),
+        "last_attempt_at": _safe_timestamp(raw.get("last_attempt_at")),
+        "last_success_at": _safe_timestamp(raw.get("last_success_at")),
+        "submitted": _safe_nonnegative_int(raw.get("submitted")),
+        "matched": _safe_nonnegative_int(raw.get("matched")),
+        "unmatched": _safe_nonnegative_int(raw.get("unmatched")),
+        "ambiguous": _safe_nonnegative_int(raw.get("ambiguous")),
+        "stored": _safe_nonnegative_int(raw.get("stored")),
+        "failure_reason": (
+            failure_reason
+            if isinstance(failure_reason, str)
+            and failure_reason in ENRICHMENT_FAILURE_REASONS
+            else "unknown"
+            if failure_reason is not None
+            else None
+        ),
+    }
 
 
 async def async_get_config_entry_diagnostics(

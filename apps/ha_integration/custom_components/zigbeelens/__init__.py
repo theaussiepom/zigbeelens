@@ -164,6 +164,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await coordinator.async_config_entry_first_refresh()
 
+    manager: HomeAssistantEnrichmentManager
+
+    def _handle_enrichment_diagnostics(_diagnostics: object) -> None:
+        """Refresh singleton repairs immediately for the current runtime owner."""
+        domain_data = hass.data.get(DOMAIN) or {}
+        runtime = domain_data.get(entry.entry_id)
+        if (
+            domain_data.get(_GLOBAL_OWNER_KEY) != entry.entry_id
+            or not isinstance(runtime, dict)
+            or runtime.get("enrichment_manager") is not manager
+        ):
+            return
+        async_manage_repairs(hass, coordinator, manager)
+
     manager = HomeAssistantEnrichmentManager(
         hass,
         entry,
@@ -173,6 +187,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if coordinator.data is not None
             else EnrichmentContractState.UNAVAILABLE
         ),
+        on_diagnostics_changed=_handle_enrichment_diagnostics,
     )
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {

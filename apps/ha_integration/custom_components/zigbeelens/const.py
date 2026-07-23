@@ -42,6 +42,7 @@ ISSUE_DECISION_CONTRACT_MALFORMED = "decision_contract_malformed"
 ISSUE_DECISION_PAYLOAD_MALFORMED = "decision_payload_malformed"
 ISSUE_ENRICHMENT_UNSUPPORTED = "home_assistant_enrichment_unsupported"
 ISSUE_ENRICHMENT_SYNC_FAILED = "home_assistant_enrichment_sync_failed"
+ISSUE_ENRICHMENT_MATCH_INCOMPLETE = "home_assistant_enrichment_match_incomplete"
 
 UPDATE_INTERVAL = timedelta(seconds=DEFAULT_SCAN_INTERVAL)
 

@@ -22,6 +22,7 @@ from zigbeelens.const import (
     ISSUE_DECISION_CONTRACT_NEWER,
     ISSUE_DECISION_CONTRACT_OLDER,
     ISSUE_DECISION_PAYLOAD_MALFORMED,
+    ISSUE_ENRICHMENT_MATCH_INCOMPLETE,
     ISSUE_ENRICHMENT_SYNC_FAILED,
     ISSUE_ENRICHMENT_UNSUPPORTED,
     ISSUE_INCOMPATIBLE_VERSION,
@@ -274,6 +275,89 @@ async def test_diagnostics_never_projects_malformed_raw_core_version(
         "last_message_at": None,
         "last_error": "[redacted]",
     }
+
+
+@pytest.mark.asyncio
+async def test_enrichment_diagnostics_sanitize_every_projected_field(
+    sample_health,
+    sample_dashboard,
+    sample_config_status,
+):
+    sentinel = "Kitchen Lamp 0x00124b0001abcdef light.private ha-device-private"
+    coordinator = MagicMock(spec=ZigbeeLensDataUpdateCoordinator)
+    coordinator.data = ZigbeeLensCoordinatorData(
+        health=sample_health,
+        dashboard=sample_dashboard,
+        config_status=sample_config_status,
+        core_version="0.1.13",
+        collector_connected=True,
+        last_update_success=True,
+        capabilities_state=CapabilitiesState.ACCEPTED,
+        decision_contract_version=2,
+        decision_contract_state=DecisionContractState.SUPPORTED_EXACT,
+        decision_payload_state=DecisionPayloadState.VALID,
+        enrichment_contract_state=EnrichmentContractState.SUPPORTED,
+        core_version_state=CoreVersionState.COMPATIBLE,
+        shared_decisions_available=True,
+        core_version_compatible=True,
+    )
+    coordinator.last_update_success = True
+    coordinator.auth_failed = False
+    manager = MagicMock(
+        diagnostics={
+            "sync_state": sentinel,
+            "match_state": sentinel,
+            "last_attempt_at": sentinel,
+            "last_success_at": sentinel,
+            "submitted": sentinel,
+            "matched": sentinel,
+            "unmatched": sentinel,
+            "ambiguous": sentinel,
+            "stored": sentinel,
+            "failure_reason": sentinel,
+            "unreviewed_identity": sentinel,
+        }
+    )
+    hass = MagicMock()
+    entry = MagicMock()
+    entry.entry_id = "entry1"
+    entry.version = 2
+    entry.data = {"core_url": "http://localhost:8377", "api_token": ""}
+    hass.data = {
+        DOMAIN: {
+            "entry1": {
+                "coordinator": coordinator,
+                "enrichment_manager": manager,
+            }
+        }
+    }
+
+    with (
+        patch(
+            "zigbeelens.diagnostics.er.async_get",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "zigbeelens.diagnostics.er.async_entries_for_config_entry",
+            return_value=[],
+        ),
+    ):
+        payload = await async_get_config_entry_diagnostics(hass, entry)
+
+    enrichment = payload["home_assistant_enrichment"]
+    assert enrichment == {
+        "sync_state": "unknown",
+        "match_state": "unknown",
+        "last_attempt_at": None,
+        "last_success_at": None,
+        "submitted": None,
+        "matched": None,
+        "unmatched": None,
+        "ambiguous": None,
+        "stored": None,
+        "failure_reason": "unknown",
+    }
+    assert sentinel not in repr(payload)
 
 
 def test_repairs_collector_disconnected(sample_health, sample_dashboard, sample_config_status):
@@ -626,6 +710,33 @@ def test_payload_repair_is_deleted_after_valid_recovery(
     )
 
 
+def _enrichment_ready_coordinator(
+    sample_health,
+    sample_dashboard,
+    sample_config_status,
+):
+    coordinator = MagicMock(spec=ZigbeeLensDataUpdateCoordinator)
+    coordinator.data = ZigbeeLensCoordinatorData(
+        health=sample_health,
+        dashboard=sample_dashboard,
+        config_status=sample_config_status,
+        core_version="0.1.13",
+        collector_connected=True,
+        last_update_success=True,
+        capabilities_state=CapabilitiesState.ACCEPTED,
+        decision_contract_version=2,
+        decision_contract_state=DecisionContractState.SUPPORTED_EXACT,
+        decision_payload_state=DecisionPayloadState.VALID,
+        enrichment_contract_state=EnrichmentContractState.SUPPORTED,
+        core_version_state=CoreVersionState.COMPATIBLE,
+        shared_decisions_available=True,
+        core_version_compatible=True,
+    )
+    coordinator.last_update_success = True
+    coordinator.auth_failed = False
+    return coordinator
+
+
 @pytest.mark.parametrize(
     ("sync_state", "expected", "excluded"),
     [
@@ -677,6 +788,11 @@ def test_enrichment_repairs_distinguish_auth_route_and_terminal_sync_failure(
     manager = MagicMock(
         diagnostics={
             "sync_state": sync_state,
+            "match_state": (
+                "partial_unmatched"
+                if sync_state == "failed_authentication"
+                else "complete"
+            ),
             "failure_reason": "categorical-only",
         }
     )
@@ -689,6 +805,119 @@ def test_enrichment_repairs_distinguish_auth_route_and_terminal_sync_failure(
     created = {call.args[2] for call in create_issue.call_args_list}
     assert expected <= created
     assert not (excluded & created)
+    if sync_state == "failed_authentication":
+        assert ISSUE_ENRICHMENT_MATCH_INCOMPLETE not in created
+
+
+@pytest.mark.parametrize(
+    ("match_state", "counts", "expect_issue"),
+    [
+        ("no_candidates", (0, 0, 0, 0, 0), False),
+        ("complete", (1, 1, 0, 0, 1), False),
+        ("partial_unmatched", (2, 1, 1, 0, 1), True),
+        ("partial_ambiguous", (2, 1, 0, 1, 1), True),
+        ("no_matches", (1, 0, 1, 0, 0), True),
+        ("no_matches_ambiguous", (1, 0, 0, 1, 0), True),
+    ],
+)
+def test_enrichment_match_repairs_use_only_categorical_identity_free_state(
+    sample_health,
+    sample_dashboard,
+    sample_config_status,
+    match_state,
+    counts,
+    expect_issue,
+):
+    coord = _enrichment_ready_coordinator(
+        sample_health,
+        sample_dashboard,
+        sample_config_status,
+    )
+    submitted, matched, unmatched, ambiguous, stored = counts
+    manager = MagicMock(
+        diagnostics={
+            "sync_state": "successful",
+            "match_state": match_state,
+            "submitted": submitted,
+            "matched": matched,
+            "unmatched": unmatched,
+            "ambiguous": ambiguous,
+            "stored": stored,
+            "failure_reason": None,
+        }
+    )
+
+    with (
+        patch("zigbeelens.repairs.ir.async_create_issue") as create_issue,
+        patch("zigbeelens.repairs.ir.async_delete_issue"),
+    ):
+        async_manage_repairs(MagicMock(), coord, manager)
+
+    matching_calls = [
+        call
+        for call in create_issue.call_args_list
+        if call.args[2] == ISSUE_ENRICHMENT_MATCH_INCOMPLETE
+    ]
+    assert bool(matching_calls) is expect_issue
+    for call in matching_calls:
+        assert "translation_placeholders" not in call.kwargs
+        encoded = repr(call)
+        for identity in (
+            "0x00124b0001abcdef",
+            "light.private",
+            "ha-device-private",
+            "Kitchen Lamp",
+        ):
+            assert identity not in encoded
+
+
+def test_enrichment_match_repair_clears_immediately_after_full_recovery(
+    sample_health,
+    sample_dashboard,
+    sample_config_status,
+):
+    coord = _enrichment_ready_coordinator(
+        sample_health,
+        sample_dashboard,
+        sample_config_status,
+    )
+    manager = MagicMock(
+        diagnostics={
+            "sync_state": "successful",
+            "match_state": "no_matches",
+            "submitted": 1,
+            "matched": 0,
+            "unmatched": 1,
+            "ambiguous": 0,
+            "stored": 0,
+            "failure_reason": None,
+        }
+    )
+
+    with (
+        patch("zigbeelens.repairs.ir.async_create_issue") as create_issue,
+        patch("zigbeelens.repairs.ir.async_delete_issue") as delete_issue,
+    ):
+        async_manage_repairs(MagicMock(), coord, manager)
+        assert any(
+            call.args[2] == ISSUE_ENRICHMENT_MATCH_INCOMPLETE
+            for call in create_issue.call_args_list
+        )
+
+        manager.diagnostics = {
+            **manager.diagnostics,
+            "match_state": "complete",
+            "matched": 1,
+            "unmatched": 0,
+            "stored": 1,
+        }
+        delete_issue.reset_mock()
+        async_manage_repairs(MagicMock(), coord, manager)
+
+    assert any(
+        call.args[2] == ISSUE_ENRICHMENT_MATCH_INCOMPLETE
+        for call in delete_issue.call_args_list
+    )
 
 
 def test_clear_repairs():
