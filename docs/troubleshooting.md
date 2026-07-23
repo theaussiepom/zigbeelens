@@ -7,7 +7,7 @@ Common ZigbeeLens issues and fixes.
 1. Confirm Zigbee2MQTT is running and publishing to MQTT.
 2. Check `networks[].base_topic` matches Zigbee2MQTT exactly (case-sensitive).
 3. Verify Core is in **live mode** (`mode.mock: false`).
-4. Check `/api/health` — collector should show connected.
+4. Check `/api/v1/health` — collector should show connected.
 5. Wait for retained messages on first connect — large networks may take a minute.
 
 ## Wrong Zigbee2MQTT base topic
@@ -20,13 +20,17 @@ Multi-network: each Zigbee2MQTT instance needs its own `networks[]` entry with a
 
 ## MQTT authentication failure
 
-Symptoms: collector disconnected, `/api/health` shows MQTT error.
+Symptoms: collector disconnected, `/api/v1/health` shows MQTT error.
 
 Fix:
 
 - Verify `mqtt.server`, `mqtt.username`, `mqtt.password`
 - Test with `mosquitto_sub` from the same host
-- Check broker ACLs allow subscribe to `{base_topic}/#`
+- Check broker ACLs allow the [documented collector subscriptions](safety-audit.md#mqtt-collector)
+- If topology is enabled, allow the one diagnostic publish to
+  `{base_topic}/bridge/request/networkmap` and the response subscription
+- If MQTT Discovery is enabled, allow its configured ZigbeeLens-owned publish
+  prefixes separately
 
 ## Collector disconnected
 
@@ -59,7 +63,8 @@ Some devices never report availability by design (sleepy end devices).
 
 - Not all devices report link quality or battery via MQTT
 - Reporting intervals vary by device and configuration
-- ZigbeeLens shows "unknown" when data has not arrived — this is expected
+- ZigbeeLens shows "unknown" when data has not arrived. Unknown is not a
+  measured zero and does not establish that the device is healthy.
 
 ## Duplicate friendly names
 
@@ -77,17 +82,20 @@ If two devices share a name within one network, use IEEE address in the UI and r
 ## Reports redaction looks too aggressive
 
 - Try `standard` instead of `public_safe` or `strict` for local use
-- Check the report `redaction` status block for field counts
+- Check the report `redaction` status block for the profile and treatment modes
 - Narrow scope (single device/incident) for more detail
 
 See [redaction.md](redaction.md).
 
 ## HACS integration cannot connect
 
-1. Confirm ZigbeeLens Core is running (add-on or Docker).
-2. Use correct Core URL:
-   - HAOS add-on: `http://localhost:8377` (typical)
-   - Docker on another host: `http://<host>:8377`
+1. Confirm a standalone or otherwise Home-Assistant-reachable ZigbeeLens Core
+   service is running. The packaged add-on has no portable HACS backend origin.
+2. Use a Core URL that is reachable from the Home Assistant Core runtime, for
+   example `http://<zigbeelens-core-host>:8377` for a standalone/Compose
+   deployment. The add-on publishes no host port: its UI is reached through
+   Home Assistant Ingress, and `http://localhost:8377` is not a portable
+   HACS-to-add-on Core address.
 3. Check firewall from HA to Core.
 4. If Core requires bearer authentication, set the same Core API token in the
    HACS config flow / reauth form (leave blank only for trusted-open Core).
@@ -102,7 +110,8 @@ See [hacs.md](hacs.md).
 1. Confirm add-on is started and healthy.
 2. Check add-on log for Core startup errors.
 3. Verify MQTT config in add-on options.
-4. Try direct access on port 8377 if exposed for debugging.
+4. Open ZigbeeLens through the Home Assistant sidebar Ingress route; the
+   packaged manifest exposes no direct host port.
 5. Clear browser cache — static UI is bundled with Core.
 
 See [addon-dev.md](addon-dev.md).
@@ -123,7 +132,8 @@ See [docker.md](docker.md).
 
 Symptoms: dashboard stale, live indicator stuck.
 
-- SSE requires proxy buffering disabled for `/api/events/stream`
+- SSE requires proxy buffering disabled for `/api/v1/events/stream` (the
+  `/api/events/stream` alias remains compatible)
 - nginx example: `proxy_buffering off;` for the stream location
 - UI falls back to polling if SSE fails — may be slower
 
@@ -140,14 +150,15 @@ mqtt_discovery:
 
 1. Restart Core after config change.
 2. Confirm HA MQTT integration is connected to the same broker.
-3. Check `/api/health` for discovery status.
+3. Check `/api/v1/health` for discovery status.
 4. Discovery publishes summary entities only — not every Zigbee device.
 
 See [mqtt-discovery.md](mqtt-discovery.md).
 
 ## Topology capture disabled
 
-Topology is **enabled by default** with one startup scan after collector and bridge readiness. To disable entirely:
+Topology is **enabled by default**. In live mode, its startup scan waits for
+collector and bridge readiness. To disable entirely:
 
 ```yaml
 topology:
@@ -179,19 +190,26 @@ See [topology.md](topology.md).
 
 - Large networks may take 30+ seconds
 - Zigbee2MQTT must support network map requests
-- Only one capture at a time per network
+- Only one capture can be pending in a Core process at a time
 - Check Core logs for timeout or parse errors
+
+If a capture completes with no usable node/link layout, keep the result as
+limited evidence. Do not interpret zero displayed topology counts as proof that
+the network has no links.
 
 ## HA enrichment not matching devices
 
-- Enrichment requires POST to `/api/enrichment/homeassistant`
+- Enrichment requires POST to `/api/v1/enrichment/homeassistant` (or the
+  compatible `/api` alias)
 - IEEE address match is high confidence; friendly name match is medium
 - Duplicate friendly names reduce match quality
-- HACS auto-push is not wired in v0.1.0 — manual API or future integration update
+- The current HACS integration does not push registry enrichment automatically;
+  use a reviewed client/manual integration if this optional Core-local metadata
+  is needed
 
 ## Storage maintenance failed
 
-Symptoms: Settings shows a last maintenance error; `/api/storage/status` has `maintenance.last_error_code` / `failure_category`; logs mention storage maintenance.
+Symptoms: Settings shows a last maintenance error; `/api/v1/storage/status` has `maintenance.last_error_code` / `failure_category`; logs mention storage maintenance.
 
 | `last_error_code` | Meaning | What to do |
 |-------------------|---------|------------|
@@ -216,7 +234,7 @@ Symptoms: Core refuses to start destructive services; logs show storage integrit
 2. Keep the current DB as a rollback copy.
 3. Run `zigbeelens storage check --database /path/to/zigbeelens.sqlite` (add `--full` for a deeper check).
 4. If checks fail, restore a verified backup (online `storage backup` snapshot or HA add-on backup), then start Core so migrations + integrity + maintenance run in order.
-5. Confirm `/api/storage/status` integrity facts show `status: ok` after a healthy start.
+5. Confirm `/api/v1/storage/status` integrity facts show `status: ok` after a healthy start.
 
 ## Security configuration errors
 
@@ -230,14 +248,15 @@ Symptoms: Core refuses to start destructive services; logs show storage integrit
 | `api_token is required when mode is authenticated` | `security.mode=authenticated` without token | Set `ZIGBEELENS_SECURITY_API_TOKEN` or `_FILE` |
 | `ingress_trusted_proxies is required when mode is home_assistant_ingress` | Ingress mode without exact peer list | Add exact IP literals (add-on sets `172.30.32.2`) |
 | UI: “Open ZigbeeLens through Home Assistant” | Direct URL to add-on Core outside ingress | Open the ZigbeeLens add-on panel from Home Assistant |
-| HACS 401 against add-on Core | Optional bearer fallback not configured | Set the same token in add-on `security.api_token` and HACS credential (never in URLs) |
+| HACS 401 against protected standalone Core | Bearer credential missing or stale | Set the same Core `security.api_token` in the HACS credential (never in URLs) |
 | Warning: non-loopback bind with `mode=local` and no API token | Remotely reachable Core in trusted-open mode | Bind loopback, restrict network access, or configure an API token for bearer auth |
 
 Config validation errors intentionally omit rejected secret values. See [security.md](security.md).
 
 ## Still stuck?
 
-1. Generate a `public_safe` report from the Reports page
+1. Generate a contextual `public_safe` report from the affected Device,
+   Incident, Network, or Mesh surface, or a full report from Reports
 2. Open an issue using the [diagnostic report template](../.github/ISSUE_TEMPLATE/diagnostic_report.yml)
 3. Include Zigbee2MQTT version, install path, and symptom description
 

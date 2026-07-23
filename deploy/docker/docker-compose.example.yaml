@@ -1,14 +1,17 @@
 # Standalone ZigbeeLens — copy to docker-compose.yaml and adjust.
 #
-# Quick start:
-#   mkdir -p config data
-#   cp deploy/docker/config.example.yaml config/config.yaml
-#   docker compose -f deploy/docker/docker-compose.example.yaml up -d
+# From the repository root:
+#   mkdir -p zigbeelens/config zigbeelens/data
+#   cp deploy/docker/docker-compose.example.yaml zigbeelens/docker-compose.yaml
+#   cp deploy/docker/config.example.yaml zigbeelens/config/config.yaml
+#   cd zigbeelens
+#   docker compose up -d
 #
 # Port 8377 is published on the Docker host for convenient local/trusted-network access.
 # Core binds from AppConfig (Docker examples use server.host=0.0.0.0). Only the optional
-# bearer authentication when an API token is configured is available today; local/no-token remains trusted-open. If Core
-# is reachable beyond users or networks you trust, access-control decisions are yours.
+# bearer/session authentication you configure protects Core; local/no-token remains
+# trusted-open. If Core is reachable beyond users or networks you trust, access-control
+# decisions are yours. Use "127.0.0.1:8377:8377" for loopback-only host access.
 #
 # Image: replace ghcr.io/theaussiepom/zigbeelens with your registry path.
 

@@ -56,15 +56,21 @@ Database backups do **not** restore config YAML or secret files. Back those up s
 
 ## Docker / Compose file copy (Core stopped)
 
+Run these commands from the installation directory containing the copied
+`docker-compose.yaml`, `config/`, and `data/`:
+
 ```bash
-docker compose -f deploy/docker/docker-compose.example.yaml stop
+docker compose stop
 tar czf zigbeelens-backup-$(date +%F).tar.gz config/ data/
-docker compose -f deploy/docker/docker-compose.example.yaml start
+docker compose start
 ```
 
 ## Home Assistant add-on backup
 
 Use **Settings → System → Backups** and include the ZigbeeLens add-on. This remains the preferred add-on restore mechanism and captures `/data` inside the add-on.
+
+To restore, stop the add-on, restore a Home Assistant backup that includes
+ZigbeeLens, then start the add-on and check its log and Ingress dashboard.
 
 ## Retention policy (Track 6)
 

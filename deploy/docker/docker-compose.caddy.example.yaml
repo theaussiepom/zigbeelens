@@ -13,7 +13,7 @@
 #   # Edit Caddyfile hostname; add DNS/hosts entry → Docker host IP
 #   docker compose -f deploy/docker/docker-compose.caddy.example.yaml up -d
 #
-# Then in Home Assistant → ZigbeeLens integration options:
+# Then in Home Assistant → ZigbeeLens → Reconfigure:
 #   Core URL: https://zigbeelens.home.arpa:8443   (match your Caddyfile + port map)
 #
 # See docs/hacs-embedded-view.md for full setup, certificate trust, and security notes.

@@ -3,13 +3,13 @@
 ## Docker / Compose
 
 1. **Back up** `/data` (see [backups.md](backups.md))
-2. Pull the new image:
+2. From the installation directory containing `docker-compose.yaml`, pull the new image:
    ```bash
-   docker compose -f deploy/docker/docker-compose.example.yaml pull
+   docker compose pull
    ```
 3. Restart:
    ```bash
-   docker compose -f deploy/docker/docker-compose.example.yaml up -d
+   docker compose up -d
    ```
 
 SQLite migrations run automatically on startup. Check logs for `migration_version` if anything looks wrong.
@@ -27,7 +27,7 @@ Retention after upgrade (defaults):
 | Class | Default | Notes |
 |-------|---------|-------|
 | Telemetry (`storage.retention_days`) | 7 days | Age-purged on maintenance cycles |
-| Resolved incidents | 90 days | `null` / omit = kept indefinitely |
+| Resolved incidents | 90 days | Omission uses 90 days; explicit `null` keeps indefinitely |
 | Reports | until manually deleted | `report_retention_days` default `null`; not auto-purged |
 | Open / watching incidents, inventory, enrichment | keep | Never age-purged |
 
@@ -52,7 +52,7 @@ Before upgrading across major versions, prefer an online `zigbeelens storage bac
 Prefer pinning to a release tag in production:
 
 ```yaml
-image: ghcr.io/theaussiepom/zigbeelens:0.1.0
+image: ghcr.io/theaussiepom/zigbeelens:0.1.13
 ```
 
 Use `:latest` for convenience on trusted lab systems only.

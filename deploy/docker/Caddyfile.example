@@ -4,10 +4,9 @@
 # 2. Replace the hostname below with one that resolves to your Docker host
 #    (DNS A record, router DNS, or /etc/hosts on Home Assistant + your PC)
 # 3. Start: docker compose -f docker-compose.caddy.example.yaml up -d
-# 4. Trust Caddy's internal CA on devices that open Home Assistant:
-#      docker compose -f docker-compose.caddy.example.yaml exec caddy \
-#        caddy trust
-#    Or export the root cert from caddy_data and install manually (see docs).
+# 4. Export Caddy's internal root CA, then install it on Home Assistant and
+#    every browser device (running `caddy trust` inside the container does not
+#    trust those clients). See docs/hacs-embedded-view.md for the exact export.
 #
 # For a public domain with Let's Encrypt, replace "tls internal" with:
 #   tls you@example.com
