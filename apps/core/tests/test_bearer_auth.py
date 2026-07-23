@@ -86,6 +86,16 @@ def test_local_token_protects_reads_mutations_sse_downloads(tmp_path, monkeypatc
             ).status_code
             == 200
         )
+        enrichment = client.post(
+            "/api/v1/enrichment/homeassistant",
+            json={
+                "home_assistant_enrichment_contract_version": 1,
+                "devices": [],
+            },
+            headers=_bearer(),
+        )
+        assert enrichment.status_code == 200
+        assert enrichment.json()["stored"] == 0
 
         status = client.get("/api/config/status", headers=_bearer()).json()["security"]
         assert status["trusted_local_open"] is False
@@ -96,6 +106,22 @@ def test_local_token_protects_reads_mutations_sse_downloads(tmp_path, monkeypatc
         assert status["read_routes_require_bearer"] is True
         assert status["mutation_routes_require_bearer"] is True
         assert status["ingress_identity_enforced"] is False
+
+
+def test_trusted_local_accepts_exact_enrichment_without_browser_csrf(
+    tmp_path,
+    monkeypatch,
+):
+    with _client(tmp_path, monkeypatch) as client:
+        response = client.post(
+            "/api/enrichment/homeassistant",
+            json={
+                "home_assistant_enrichment_contract_version": 1,
+                "devices": [],
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["home_assistant_enrichment_contract_version"] == 1
 
 
 def test_authenticated_mode_requires_token_config(tmp_path, monkeypatch):
@@ -387,6 +413,13 @@ def test_openapi_security_contract(tmp_path, monkeypatch):
         mutation = _operation_security(schema, "/api/reports", "post")
         assert {"BearerAuth": []} in mutation
         assert {"BrowserSession": [], "CsrfToken": []} in mutation
+        for path in (
+            "/api/enrichment/homeassistant",
+            "/api/v1/enrichment/homeassistant",
+        ):
+            enrichment_security = _operation_security(schema, path, "post")
+            assert {"BearerAuth": []} in enrichment_security
+            assert {"BrowserSession": [], "CsrfToken": []} in enrichment_security
 
         for path in (
             "/api/version",
@@ -638,4 +671,3 @@ def test_malformed_json_trusted_open_keeps_validation(tmp_path, monkeypatch):
                 headers={"Content-Type": "application/json"},
             )
             assert res.status_code == 422, path
-

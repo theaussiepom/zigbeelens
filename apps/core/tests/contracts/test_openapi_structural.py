@@ -11,7 +11,12 @@ from fastapi.testclient import TestClient
 from zigbeelens.app.context import reset_context
 from zigbeelens.decisions.types import DecisionPriority, DecisionStatus
 from zigbeelens.main import create_app
-from zigbeelens.schemas import ReportDetailV3
+from zigbeelens.schemas import (
+    HOME_ASSISTANT_ENRICHMENT_MAX_DEVICES,
+    HomeAssistantEnrichmentRequestV1,
+    HomeAssistantEnrichmentResultV1,
+    ReportDetailV3,
+)
 
 
 def _resolve_schema(schema: dict[str, Any], components: dict[str, Any]) -> dict[str, Any]:
@@ -153,6 +158,55 @@ def test_openapi_report_v3_required_exact(openapi_schema: dict):
         "ReportDetailV2",
     ):
         assert banned not in components
+
+
+def test_openapi_home_assistant_enrichment_v1_is_exact(openapi_schema: dict):
+    components = openapi_schema["components"]["schemas"]
+    request = _resolve_schema(
+        components["HomeAssistantEnrichmentRequestV1"],
+        components,
+    )
+    result = _resolve_schema(
+        components["HomeAssistantEnrichmentResultV1"],
+        components,
+    )
+    device = _resolve_schema(
+        components["HomeAssistantEnrichmentDeviceV1"],
+        components,
+    )
+
+    assert request["additionalProperties"] is False
+    assert set(request["required"]) == set(HomeAssistantEnrichmentRequestV1.model_fields)
+    assert request["properties"]["home_assistant_enrichment_contract_version"][
+        "const"
+    ] == 1
+    devices = request["properties"]["devices"]
+    assert devices["maxItems"] == HOME_ASSISTANT_ENRICHMENT_MAX_DEVICES
+    assert _resolve_schema(devices["items"], components) == device
+
+    assert device["additionalProperties"] is False
+    assert set(device["required"]) == {
+        "network_id",
+        "ieee_address",
+        "ha_device_id",
+    }
+    assert device["properties"]["ieee_address"]["pattern"] == r"^0x[0-9a-f]{16}$"
+
+    assert result["additionalProperties"] is False
+    assert set(result["required"]) == set(HomeAssistantEnrichmentResultV1.model_fields)
+    assert result["properties"]["home_assistant_enrichment_contract_version"][
+        "const"
+    ] == 1
+    assert result["properties"]["last_push_at"]["format"] == "date-time"
+
+    for prefix in ("/api", "/api/v1"):
+        operation = openapi_schema["paths"][f"{prefix}/enrichment/homeassistant"]["post"]
+        body_schema = operation["requestBody"]["content"]["application/json"]["schema"]
+        response_schema = operation["responses"]["200"]["content"]["application/json"][
+            "schema"
+        ]
+        assert _resolve_schema(body_schema, components) == request
+        assert _resolve_schema(response_schema, components) == result
 
 
 def test_openapi_incident_and_security(openapi_schema: dict):

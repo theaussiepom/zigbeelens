@@ -14,7 +14,7 @@ from zigbeelens.decisions.router_area import (
     ha_area_context_for_members,
     observed_router_areas_for_network,
 )
-from zigbeelens.enrichment.ha import MatchResult, apply_ha_enrichment
+from zigbeelens.enrichment.ha import MatchResult
 from zigbeelens.storage.repository import DeviceRow, Repository
 
 NOW = datetime(2026, 7, 6, 12, 0, 0, tzinfo=timezone.utc)
@@ -263,17 +263,19 @@ def test_ha_area_context_describes_members_without_creating_membership(tmp_path:
         device_type="EndDevice",
         power_source="Mains",
     )
-    apply_ha_enrichment(
-        repo,
-        {
-            "devices": [
-                {
-                    "network_id": "home",
-                    "ieee_address": "0xa1",
-                    "area_name": "Kitchen",
-                }
-            ]
-        },
+    repo.replace_ha_device_enrichment(
+        [
+            MatchResult(
+                network_id="home",
+                ieee_address="0xa1",
+                ha_device_id="ha-a1",
+                ha_device_name=None,
+                area_id=None,
+                area_name="Kitchen",
+                entity_id=None,
+                match_confidence="high",
+            )
+        ]
     )
     devices = [_device("0xr1", device_type="Router"), _device("0xa1"), _device("0xb1")]
     result = observed_router_areas_for_network(

@@ -37,6 +37,8 @@ def test_device_summary_preserves_null_telemetry_through_serialization():
             "battery": None,
             "linkquality": None,
             "last_seen": None,
+            "home_assistant_name": None,
+            "home_assistant_area_name": None,
             "ha_area": None,
             "decision": {
                 "status": "data_unavailable",
@@ -50,6 +52,8 @@ def test_device_summary_preserves_null_telemetry_through_serialization():
     assert dumped["battery"] is None
     assert dumped["linkquality"] is None
     assert dumped["last_seen"] is None
+    assert dumped["home_assistant_name"] is None
+    assert dumped["home_assistant_area_name"] is None
     assert dumped["ha_area"] is None
     assert dumped["battery"] != 0
     assert dumped["linkquality"] != 0
@@ -59,7 +63,14 @@ def test_oracle_corpus_has_null_telemetry_preserved_in_json():
     null_hits = 0
     for scenario_id, body in oracle_scenarios(load_oracle_fixture()).items():
         for device in body["devices"]:
-            for field in ("linkquality", "battery", "last_seen", "ha_area"):
+            for field in (
+                "linkquality",
+                "battery",
+                "last_seen",
+                "home_assistant_name",
+                "home_assistant_area_name",
+                "ha_area",
+            ):
                 if field in device and device[field] is None:
                     null_hits += 1
                     assert device[field] is None, (scenario_id, field)

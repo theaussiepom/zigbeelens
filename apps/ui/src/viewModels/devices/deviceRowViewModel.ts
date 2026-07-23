@@ -53,6 +53,8 @@ export interface DeviceRowViewModel {
   networkId: string;
   ieeeAddress: string;
   name: string;
+  originalName: string;
+  sourceNameLabel: string | null;
   secondaryLabel: string;
   decisionStatus: DecisionStatus;
   decision: DeviceDecisionBadgeViewModel;
@@ -146,13 +148,22 @@ export function compareDevicesByDecision(
 
 export function buildDeviceRowViewModel(device: DeviceSummary): DeviceRowViewModel {
   const decision = buildDeviceDecisionBadgeViewModel(device.decision);
-  const area = device.ha_area?.trim() || null;
+  const originalName = device.friendly_name;
+  const homeAssistantName = device.home_assistant_name?.trim() || null;
+  const name = homeAssistantName || originalName;
+  const area =
+    device.home_assistant_area_name?.trim() || device.ha_area?.trim() || null;
 
   return {
     key: `${device.network_id}:${device.ieee_address}`,
     networkId: device.network_id,
     ieeeAddress: device.ieee_address,
-    name: device.friendly_name,
+    name,
+    originalName,
+    sourceNameLabel:
+      homeAssistantName && homeAssistantName !== originalName
+        ? `Zigbee2MQTT: ${originalName}`
+        : null,
     secondaryLabel: deviceTypeLabel(device.device_type),
     decisionStatus: device.decision.status,
     decision,
@@ -236,6 +247,7 @@ export function filterDeviceInventoryRows(
     if (q) {
       const parts = [
         row.name,
+        row.originalName,
         row.ieeeAddress,
         row.manufacturer ?? "",
         row.model ?? "",

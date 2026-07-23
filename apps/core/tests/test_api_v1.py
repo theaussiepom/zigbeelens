@@ -33,6 +33,7 @@ def test_v1_capabilities(mock_client: TestClient):
     assert body["product"] == "zigbeelens"
     assert "version" in body
     assert body["decision_contract_version"] == 2
+    assert body["home_assistant_enrichment_contract_version"] == 1
     caps = body["capabilities"]
     assert caps["dashboard"] is True
     assert caps["sse"] is True

@@ -42,6 +42,8 @@ from zigbeelens.schemas import (
     DashboardPayload,
     DeviceDetail,
     HealthResponse,
+    HomeAssistantEnrichmentRequestV1,
+    HomeAssistantEnrichmentResultV1,
     PaginatedResponse,
     RedactionOptions,
     RedactionProfile,
@@ -830,12 +832,15 @@ def enrichment_status(ctx: AppContext = Depends(ctx_dep)) -> dict:
     return enrichment_status_dict(ctx.repo)
 
 
-@mutation_router.post("/enrichment/homeassistant")
-def enrichment_homeassistant(body: dict, ctx: AppContext = Depends(ctx_dep)) -> dict:
-    try:
-        return apply_ha_enrichment(ctx.repo, body)
-    except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+@mutation_router.post(
+    "/enrichment/homeassistant",
+    response_model=HomeAssistantEnrichmentResultV1,
+)
+def enrichment_homeassistant(
+    body: HomeAssistantEnrichmentRequestV1,
+    ctx: AppContext = Depends(ctx_dep),
+) -> HomeAssistantEnrichmentResultV1:
+    return apply_ha_enrichment(ctx.repo, body)
 
 
 @mutation_router.delete("/enrichment/homeassistant")

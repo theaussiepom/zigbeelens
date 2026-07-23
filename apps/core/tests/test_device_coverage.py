@@ -16,7 +16,7 @@ from zigbeelens.decisions.device_coverage import (
     load_device_coverage_evidence,
 )
 from zigbeelens.decisions.types import CoverageDimension, CoverageLabelCode, CoverageState
-from zigbeelens.enrichment.ha import apply_ha_enrichment
+from zigbeelens.enrichment.ha import MatchResult
 from zigbeelens.storage.repository import Repository
 from zigbeelens.topology.device_compare import MAX_SNAPSHOT_HISTORY
 from zigbeelens.topology.parser import parse_networkmap_payload
@@ -210,20 +210,24 @@ def _apply_ha_device_enrichment(
     area_id: str | None = None,
     area_name: str | None = None,
 ) -> None:
-    apply_ha_enrichment(
-        repo,
-        {
-            "devices": [
-                {
-                    "network_id": "home",
-                    "ieee_address": ieee,
-                    "ha_device_name": f"Device {ieee}",
-                    "entity_id": f"light.{ieee.replace('0x', '')}",
-                    "area_id": area_id,
-                    "area_name": area_name,
-                }
-            ]
-        },
+    repo.replace_ha_device_enrichment(
+        [
+            MatchResult(
+                network_id="home",
+                ieee_address=ieee,
+                ha_device_id=f"ha-{ieee}",
+                ha_device_name=f"Device {ieee}",
+                area_id=area_id,
+                area_name=area_name,
+                entity_id=f"light.{ieee.replace('0x', '')}",
+                match_confidence="high",
+            )
+        ]
+    )
+    repo.update_ha_enrichment_status(
+        enabled=True,
+        matched_devices=1,
+        source="test",
     )
 
 

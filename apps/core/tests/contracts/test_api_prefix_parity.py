@@ -10,11 +10,13 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from zigbeelens.enrichment import ha as ha_module
 from zigbeelens.schemas import ReportDetailV3
 from zigbeelens.services import report_redaction as report_redaction_mod
 from zigbeelens.services import reports as reports_mod
 
 _FIXED_SALT = "zigbeelens-api-prefix-parity-v1"
+_FIXED_ENRICHMENT_TIME = "2026-07-13T12:00:00+00:00"
 NOW = datetime(2026, 7, 13, 12, 0, 0, tzinfo=timezone.utc)
 
 MEDIA_TYPES = {
@@ -73,6 +75,7 @@ def parity_client(mock_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> T
 
     monkeypatch.setattr(report_redaction_mod, "Redactor", _DeterministicRedactor)
     monkeypatch.setattr(reports_mod, "Redactor", _DeterministicRedactor)
+    monkeypatch.setattr(ha_module, "utc_now_iso", lambda: _FIXED_ENRICHMENT_TIME)
 
     ctx = mock_client.app.state.ctx
     ctx.repo.upsert_device(
@@ -117,6 +120,51 @@ def test_api_and_v1_read_parity_matrix(parity_client: TestClient):
         v1 = parity_client.get(f"/api/v1{suffix}")
         assert legacy.status_code == v1.status_code == 200, suffix
         assert legacy.json() == v1.json(), suffix
+
+
+def test_api_and_v1_enrichment_mutation_parity(parity_client: TestClient):
+    request = {
+        "home_assistant_enrichment_contract_version": 1,
+        "devices": [
+            {
+                "network_id": "home",
+                "ieee_address": "0X00158D0001A1B2C3",
+                "ha_device_id": "ha-motion",
+                "ha_device_name": "Living room motion",
+                "area_id": "living-room",
+                "area_name": "Living room",
+                "entity_id": "binary_sensor.living_room_motion",
+            }
+        ],
+    }
+    legacy = parity_client.post("/api/enrichment/homeassistant", json=request)
+    v1 = parity_client.post("/api/v1/enrichment/homeassistant", json=request)
+    assert legacy.status_code == v1.status_code == 200
+    assert legacy.json() == v1.json() == {
+        "home_assistant_enrichment_contract_version": 1,
+        "submitted": 1,
+        "matched": 1,
+        "unmatched": 0,
+        "ambiguous": 0,
+        "stored": 1,
+        "last_push_at": _FIXED_ENRICHMENT_TIME,
+    }
+
+    legacy_clear = parity_client.delete("/api/enrichment/homeassistant")
+    v1_clear = parity_client.delete("/api/v1/enrichment/homeassistant")
+    assert legacy_clear.status_code == v1_clear.status_code == 200
+    assert legacy_clear.json() == v1_clear.json() == {"cleared": True}
+
+
+def test_api_and_v1_malformed_enrichment_error_parity(parity_client: TestClient):
+    malformed = {
+        "home_assistant_enrichment_contract_version": True,
+        "devices": [],
+    }
+    legacy = parity_client.post("/api/enrichment/homeassistant", json=malformed)
+    v1 = parity_client.post("/api/v1/enrichment/homeassistant", json=malformed)
+    assert legacy.status_code == v1.status_code == 422
+    _assert_json_error_parity(legacy, v1)
 
 
 def test_api_and_v1_report_preview_full_body_parity(parity_client: TestClient):

@@ -216,6 +216,9 @@ function DeviceInventoryRow({ row }: { row: DeviceRowViewModel }) {
     <tr className="align-top">
       <td className="px-4 py-3">
         <div className="font-medium text-zl-text">{row.name}</div>
+        {row.sourceNameLabel && (
+          <div className="mt-0.5 text-xs text-zl-muted">{row.sourceNameLabel}</div>
+        )}
         <div className="mt-0.5 text-xs text-zl-muted">{row.secondaryLabel}</div>
         <div className="mt-2 space-y-1 md:hidden">
           <div className="text-xs text-zl-muted">
@@ -335,6 +338,10 @@ export function DeviceDetailPage() {
   const device = detail.data;
   const related = incidents.data ?? [];
   const decision = buildDeviceDecisionBadgeViewModel(device.decision);
+  const homeAssistantName = device.home_assistant_name?.trim() || null;
+  const homeAssistantAreaName =
+    device.home_assistant_area_name?.trim() || device.ha_area?.trim() || null;
+  const displayName = homeAssistantName || device.friendly_name;
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -343,7 +350,7 @@ export function DeviceDetailPage() {
           ← Devices
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold">{device.friendly_name}</h1>
+          <h1 className="text-2xl font-semibold">{displayName}</h1>
           <DeviceDecisionBadge decision={decision} />
           <button
             ref={reportButtonRef}
@@ -372,7 +379,7 @@ export function DeviceDetailPage() {
           scope: "device",
           networkId: device.network_id,
           deviceIeee: device.ieee_address,
-          subjectLabel: device.friendly_name,
+          subjectLabel: displayName,
         }}
       />
 
@@ -410,8 +417,16 @@ export function DeviceDetailPage() {
           <dl className="space-y-2 text-sm">
             <Row label="Network" value={device.network_id} mono />
             <Row label="IEEE address" value={device.ieee_address} mono />
-            <Row label="Friendly name" value={device.friendly_name} />
-            <Row label="Area" value={device.ha_area} />
+            {homeAssistantName && (
+              <Row label="Home Assistant name" value={homeAssistantName} />
+            )}
+            <Row
+              label="Zigbee2MQTT friendly name"
+              value={device.friendly_name}
+            />
+            {homeAssistantAreaName && (
+              <Row label="Home Assistant area" value={homeAssistantAreaName} />
+            )}
             <Row label="Manufacturer" value={device.manufacturer} />
             <Row label="Model" value={device.model} />
             <Row label="Device type" value={deviceTypeLabel(device.device_type)} />

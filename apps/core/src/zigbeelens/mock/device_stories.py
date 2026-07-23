@@ -105,7 +105,9 @@ def device_story_evidence(
             else [],
             topology_observed_snapshot_count=1 if latest_snapshot_id else 0,
             topology_snapshot_window_count=1 if latest_snapshot_id else 0,
-            ha_enrichment={"area_name": device.ha_area} if device.ha_area else None,
+            ha_enrichment={"area_name": device.home_assistant_area_name}
+            if device.home_assistant_area_name
+            else None,
         )
     )
 
@@ -128,7 +130,7 @@ def device_story_evidence(
         route_hints_available=route_hints_available,
         latest_snapshot_id=latest_snapshot_id,
         latest_snapshot_captured_at=latest_snapshot_captured_at,
-        ha_area=device.ha_area,
+        ha_area=device.home_assistant_area_name,
         network_has_usable_ha_areas=network_has_usable_ha_areas,
         reporting_rhythm=reporting_rhythm,
         lqi_trend=lqi_trend,

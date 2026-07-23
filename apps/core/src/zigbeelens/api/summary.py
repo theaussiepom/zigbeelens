@@ -9,6 +9,7 @@ from zigbeelens.app.context import AppContext
 from zigbeelens.mqtt.collector import collector_enabled
 from zigbeelens.mqtt.lifecycle import collector_status_dict
 from zigbeelens.mqtt_discovery import discovery_enabled
+from zigbeelens.schemas import HOME_ASSISTANT_ENRICHMENT_CONTRACT_VERSION
 from zigbeelens.services.storage_status import build_storage_policy_summary
 
 
@@ -30,6 +31,9 @@ def capabilities_dict(ctx: AppContext) -> dict[str, Any]:
         "product": "zigbeelens",
         "version": __version__,
         "decision_contract_version": DECISION_CONTRACT_VERSION,
+        "home_assistant_enrichment_contract_version": (
+            HOME_ASSISTANT_ENRICHMENT_CONTRACT_VERSION
+        ),
         "capabilities": {
             "dashboard": True,
             "sse": True,

@@ -374,7 +374,10 @@ def test_session_mutations_require_csrf(tmp_path, monkeypatch, path):
             elif "capture" in path:
                 kwargs["json"] = {"confirmed": True}
             else:
-                kwargs["json"] = {"devices": []}
+                kwargs["json"] = {
+                    "home_assistant_enrichment_contract_version": 1,
+                    "devices": [],
+                }
 
         _assert_origin_403(method(path, **kwargs))
         _assert_csrf_403(method(path, headers={"Origin": SAME_ORIGIN}, **kwargs))
@@ -402,6 +405,16 @@ def test_bearer_mutation_no_csrf(tmp_path, monkeypatch):
             headers=_bearer(),
         )
         assert res.status_code == 200
+        enrichment = client.post(
+            "/api/v1/enrichment/homeassistant",
+            json={
+                "home_assistant_enrichment_contract_version": 1,
+                "devices": [],
+            },
+            headers=_bearer(),
+        )
+        assert enrichment.status_code == 200
+        assert enrichment.json()["home_assistant_enrichment_contract_version"] == 1
 
 
 def test_csrf_before_body_and_zero_sql(tmp_path, monkeypatch):

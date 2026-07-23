@@ -34,7 +34,7 @@ function makeDevice(overrides: Partial<DeviceSummary> = {}): DeviceSummary {
       headline_code: "current_issue_present",
       coverage_label_codes: ["availability_tracking_off"],
     },
-    ha_area: "Kitchen",
+    home_assistant_area_name: "Kitchen",
     ...overrides,
   };
 }
@@ -144,7 +144,7 @@ describe("deviceRowViewModel", () => {
     const noArea = buildDeviceRowViewModel(
       makeDevice({
         friendly_name: "Laundry Sensor",
-        ha_area: null,
+        home_assistant_area_name: null,
         manufacturer: null,
         model: "XYZ",
       }),
@@ -154,15 +154,57 @@ describe("deviceRowViewModel", () => {
     expect(noArea.areaLabel).not.toBe("Laundry");
 
     const unknownModel = buildDeviceRowViewModel(
-      makeDevice({ manufacturer: null, model: null, ha_area: null }),
+      makeDevice({
+        manufacturer: null,
+        model: null,
+        home_assistant_area_name: null,
+      }),
     );
     expect(unknownModel.modelLabel).toBe("Model unknown");
+
+    const legacyAlias = buildDeviceRowViewModel(
+      makeDevice({
+        home_assistant_area_name: null,
+        ha_area: "Legacy Kitchen",
+      }),
+    );
+    expect(legacyAlias.areaLabel).toBe("Legacy Kitchen");
   });
 
   it("builds device and mesh hrefs from existing route helpers", () => {
     const row = buildDeviceRowViewModel(makeDevice());
     expect(row.deviceHref).toBe("/devices/home/0xa1");
     expect(row.meshHref).toBe("/investigate/home");
+  });
+
+  it("prefers the HA name while preserving and searching the Zigbee2MQTT name", () => {
+    const row = buildDeviceRowViewModel(
+      makeDevice({
+        friendly_name: "z2m_kitchen_lamp",
+        home_assistant_name: "Kitchen Lamp",
+      }),
+    );
+    expect(row.name).toBe("Kitchen Lamp");
+    expect(row.originalName).toBe("z2m_kitchen_lamp");
+    expect(row.sourceNameLabel).toBe("Zigbee2MQTT: z2m_kitchen_lamp");
+    expect(
+      filterDeviceInventoryRows([row], {
+        networkId: "",
+        decisionStatus: "",
+        availability: "",
+        coverageFilter: "",
+        search: "z2m_kitchen",
+      }),
+    ).toEqual([row]);
+
+    const fallback = buildDeviceRowViewModel(
+      makeDevice({
+        friendly_name: "z2m_kitchen_lamp",
+        home_assistant_name: "   ",
+      }),
+    );
+    expect(fallback.name).toBe("z2m_kitchen_lamp");
+    expect(fallback.sourceNameLabel).toBeNull();
   });
 
   it("sorts by decision priority then friendly name", () => {
@@ -245,7 +287,7 @@ describe("deviceRowViewModel", () => {
         availability: "offline",
         manufacturer: "Philips",
         model: "Hue",
-        ha_area: "Office",
+        home_assistant_area_name: "Office",
         decision: {
           status: "review_first",
           priority: "high",
@@ -263,7 +305,7 @@ describe("deviceRowViewModel", () => {
           headline_code: "no_notable_signals",
           coverage_label_codes: [],
         },
-        ha_area: "Kitchen",
+        home_assistant_area_name: "Kitchen",
       }),
     ]);
 

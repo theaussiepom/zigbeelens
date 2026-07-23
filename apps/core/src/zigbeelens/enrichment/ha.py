@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Any
 
+from zigbeelens.schemas import (
+    HOME_ASSISTANT_ENRICHMENT_CONTRACT_VERSION,
+    HomeAssistantEnrichmentDeviceV1,
+    HomeAssistantEnrichmentRequestV1,
+    HomeAssistantEnrichmentResultV1,
+)
 from zigbeelens.storage.repository import Repository, utc_now_iso
-
-IEEE_RE = re.compile(r"^0x[0-9a-f]+$", re.IGNORECASE)
-MAX_DEVICES = 5000
 
 
 @dataclass
 class MatchResult:
     network_id: str
     ieee_address: str
-    ha_device_id: str | None
+    ha_device_id: str
     ha_device_name: str | None
     area_id: str | None
     area_name: str | None
@@ -34,33 +36,58 @@ def enrichment_status_dict(repo: Repository) -> dict[str, Any]:
     }
 
 
-def apply_ha_enrichment(repo: Repository, payload: dict[str, Any]) -> dict[str, Any]:
-    devices = payload.get("devices") or []
-    if len(devices) > MAX_DEVICES:
-        raise ValueError("Enrichment payload too large")
+def apply_ha_enrichment(
+    repo: Repository,
+    request: HomeAssistantEnrichmentRequestV1,
+) -> HomeAssistantEnrichmentResultV1:
+    """Accept one fully validated complete snapshot and replace stored enrichment."""
+    if not isinstance(request, HomeAssistantEnrichmentRequestV1):
+        raise TypeError("request must be HomeAssistantEnrichmentRequestV1")
 
+    # Resolve every row before opening the replacement transaction. An absent
+    # exact Core identity is factual unmatched input, not a validation failure.
     matches: list[MatchResult] = []
-    for device in devices:
+    unmatched = 0
+    for device in request.devices:
         match = _match_device(repo, device)
-        if match:
+        if match is None:
+            unmatched += 1
+        else:
             matches.append(match)
 
-    repo.replace_ha_device_enrichment(matches)
-    repo.update_ha_enrichment_status(
-        enabled=True,
-        matched_devices=len(matches),
-        source="homeassistant",
-        last_push_at=utc_now_iso(),
+    last_push_at = utc_now_iso()
+    result = HomeAssistantEnrichmentResultV1(
+        home_assistant_enrichment_contract_version=(
+            HOME_ASSISTANT_ENRICHMENT_CONTRACT_VERSION
+        ),
+        submitted=len(request.devices),
+        matched=len(matches),
+        unmatched=unmatched,
+        ambiguous=0,
+        stored=len(matches),
+        last_push_at=last_push_at,
     )
-    return {
-        "matched_devices": len(matches),
-        "last_push_at": utc_now_iso(),
-    }
+    with repo.transaction():
+        repo.replace_ha_device_enrichment(matches, updated_at=last_push_at)
+        repo.update_ha_enrichment_status(
+            enabled=True,
+            matched_devices=len(matches),
+            source="homeassistant",
+            last_push_at=last_push_at,
+        )
+
+    return result
 
 
 def clear_ha_enrichment(repo: Repository) -> None:
-    repo.clear_ha_device_enrichment()
-    repo.update_ha_enrichment_status(enabled=False, matched_devices=0, source=None)
+    with repo.transaction():
+        repo.clear_ha_device_enrichment()
+        repo.update_ha_enrichment_status(
+            enabled=False,
+            matched_devices=0,
+            source=None,
+            last_push_at=None,
+        )
 
 
 def area_cluster_for_devices(
@@ -96,56 +123,24 @@ def area_cluster_for_devices(
     return {"matched": matched, "areas": areas, "area_count": len(areas)}
 
 
-def _match_device(repo: Repository, device: dict[str, Any]) -> MatchResult | None:
-    ieee = _extract_ieee(device)
-    network_id = device.get("network_id")
-    friendly_name = device.get("friendly_name") or device.get("name")
-
-    if ieee and network_id:
-        if repo.get_device(network_id, ieee):
-            return _result(device, network_id, ieee, "high")
+def _match_device(
+    repo: Repository,
+    device: HomeAssistantEnrichmentDeviceV1,
+) -> MatchResult | None:
+    """Match exact V1 identity only; user-assigned names are metadata, never identity."""
+    if repo.get_device(device.network_id, device.ieee_address) is None:
         return None
-
-    if ieee:
-        for row in repo.find_devices_by_ieee(ieee):
-            return _result(device, row.network_id, row.ieee_address, "high")
-
-    if network_id and friendly_name:
-        row = repo.get_device_by_friendly_name(network_id, friendly_name)
-        if row:
-            return _result(device, row.network_id, row.ieee_address, "medium")
-
-    return None
+    return _result(device)
 
 
-def _extract_ieee(device: dict[str, Any]) -> str | None:
-    for key in ("ieee_address", "ieee"):
-        if device.get(key):
-            text = str(device[key]).strip().lower()
-            if IEEE_RE.match(text):
-                return text
-    for ident in device.get("identifiers") or []:
-        if isinstance(ident, (list, tuple)) and len(ident) == 2:
-            domain, value = ident
-            if str(domain).lower() in {"zha", "zigbee2mqtt", "zigbee"} and IEEE_RE.match(str(value).lower()):
-                return str(value).lower()
-    connections = device.get("connections") or []
-    for conn in connections:
-        if isinstance(conn, (list, tuple)) and len(conn) == 2:
-            kind, value = conn
-            if str(kind).lower() == "zigbee" and IEEE_RE.match(str(value).lower()):
-                return str(value).lower()
-    return None
-
-
-def _result(device: dict[str, Any], network_id: str, ieee: str, confidence: str) -> MatchResult:
+def _result(device: HomeAssistantEnrichmentDeviceV1) -> MatchResult:
     return MatchResult(
-        network_id=network_id,
-        ieee_address=ieee,
-        ha_device_id=device.get("ha_device_id") or device.get("device_id"),
-        ha_device_name=device.get("ha_device_name") or device.get("name"),
-        area_id=device.get("area_id"),
-        area_name=device.get("area_name"),
-        entity_id=device.get("entity_id"),
-        match_confidence=confidence,
+        network_id=device.network_id,
+        ieee_address=device.ieee_address,
+        ha_device_id=device.ha_device_id,
+        ha_device_name=device.ha_device_name,
+        area_id=device.area_id,
+        area_name=device.area_name,
+        entity_id=device.entity_id,
+        match_confidence="high",
     )

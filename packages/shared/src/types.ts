@@ -165,7 +165,11 @@ export interface DeviceSummary {
   interview_state: InterviewState;
   incident_affected: boolean;
   decision: DeviceDecisionBadge;
-  /** Home Assistant area name when enrichment is linked */
+  /** Home Assistant user-assigned device name when enrichment is linked. */
+  home_assistant_name?: string | null;
+  /** Home Assistant area name when enrichment is linked. */
+  home_assistant_area_name?: string | null;
+  /** @deprecated Use home_assistant_area_name. */
   ha_area?: string | null;
 }
 
