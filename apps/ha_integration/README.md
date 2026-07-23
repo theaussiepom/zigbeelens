@@ -36,9 +36,20 @@ The Home Assistant add-on already provides the full Core UI through Ingress and
 does not require HACS. Its manifest publishes no direct port, and this
 repository does not define a portable HACS-to-add-on backend URL.
 
-## Install via HACS
+## Release status — pre-release testing only
 
-Published repository: **https://github.com/theaussiepom/zigbeelens-hacs**
+**Publication is blocked.** Use
+`https://github.com/theaussiepom/zigbeelens-hacs` as a custom repository only
+for deliberate pre-release testing. Docker/Compose is the current portable Core
+deployment route.
+
+Custom polling persistence, missing/malformed-version compatibility, exact-v2
+Dashboard-shape repair guidance, exact-minimum Home Assistant coverage,
+manifest `single_config_entry` metadata, and official HACS/hassfest validation
+remain open publication gates. Structural package validation does not close
+them.
+
+## Pre-release install via HACS
 
 Requires Home Assistant **2025.1.0 or newer** and HACS.
 

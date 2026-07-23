@@ -165,20 +165,28 @@ substitutes for that smoke test.
 
 ### 10. Post-release verification
 
-- [ ] Fresh Docker install from [docker.md](docker.md)
-- [ ] HAOS add-on install
-- [ ] HACS integration from packaged artifact
-- [ ] Generate `public_safe` report
+The current portable route is unconditional:
+
+- [ ] Fresh released Docker install from [docker.md](docker.md)
+- [ ] Generate a `public_safe` report
 - [ ] Confirm MQTT Discovery off by default
 - [ ] Confirm topology enabled with startup scan only (no periodic refresh by default)
+
+Companion checks are conditional on the artifacts actually included in this
+release:
+
+- [ ] **If an add-on artifact was included and published after its package/live
+  gates closed:** install that exact HAOS add-on artifact and verify Ingress.
+- [ ] **If the HACS integration was included and its publication gates
+  closed:** install that exact packaged HACS artifact and verify it against the
+  released Docker Core.
 
 ## Safety verification
 
 Before every release:
 
 ```bash
-cd apps/core
-uv run pytest -q tests/test_safety_guardrails.py
+./scripts/validate-safety-guardrails.sh
 ```
 
 Review [safety-audit.md](safety-audit.md).

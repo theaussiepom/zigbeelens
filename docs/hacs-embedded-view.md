@@ -174,9 +174,19 @@ Replace `192.168.100.5` with your Beast (or Docker host) LAN IP.
 
 ### 2. Start stack
 
+The Compose file defaults to `latest`, meaning the newest tagged release:
+
 ```bash
 cd ~/zigbeelens-https
 docker compose up -d
+```
+
+When following the current-main pre-release guide, keep the image aligned
+explicitly instead:
+
+```bash
+cd ~/zigbeelens-https
+ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge docker compose up -d
 ```
 
 Core is **not** published on `:8377` in this example — only Caddy on `:8443` (mapped to container 443).
@@ -230,7 +240,7 @@ If you still see blocked or certificate errors, see [Troubleshooting](#troublesh
 
 ---
 
-## Option B — Traefik (existing external proxy)
+## Option C — Traefik (existing external proxy)
 
 If you already run Traefik with TLS:
 
@@ -243,7 +253,7 @@ See [docker.md](docker.md#reverse-proxy--traefik) for SSE notes.
 
 ---
 
-## Option C — nginx (manual)
+## Option D — nginx (manual)
 
 Minimal location block (adjust hostname, cert paths, and upstream):
 

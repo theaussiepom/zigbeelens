@@ -6,9 +6,26 @@ It watches Zigbee2MQTT over MQTT, keeps local history in SQLite, runs the shared
 Decision Engine, and generates **redacted evidence reports** designed for
 sharing after you review the export.
 
-Open it from the Home Assistant sidebar after install — no extra ports, no Docker knowledge required.
+## Release status — generated repository publication blocked
 
-The add-on **runs ZigbeeLens Core itself**. Home Assistant Ingress shows the full canonical Core UI (Overview, Mesh investigations, Devices, Incidents, Reports). There is no separate add-on decision layer. HACS is not required for this UI. An optional HACS integration can add entities, repairs, and a companion panel only when Home Assistant can reach a separate Core HTTP origin; Ingress itself is not that origin.
+This repository contains two different add-on paths:
+
+- the **source-built add-on runner**, available for local/source development;
+- the **generated image-based repository**, which selects the standalone GHCR
+  image and is not publication-ready.
+
+Do not present the generated repository as a supported release install. Its
+open gates include the complete runner/option contract, optional API-token
+propagation, HAOS UID-1000 `/data` writability, Supervisor Ingress and spoof
+rejection, reporting schema/default/unused-control alignment, and a portable
+HACS-to-Core origin. Structural package validation does not close those live
+HAOS and runtime gates.
+
+The source-built runner is intended to run ZigbeeLens Core and show the
+canonical UI through Home Assistant Ingress. There is no separate add-on
+decision layer. HACS is not required for that UI. The optional HACS integration
+can add entities, repairs, and a companion panel only when Home Assistant can
+reach a separate Core HTTP origin; Ingress itself is not that origin.
 
 ## What it does
 
@@ -39,14 +56,17 @@ When topology policy allows it, Core may publish **only** the allowlisted Zigbee
 
 MQTT Discovery remains optional and **disabled by default**.
 
-## Install
+## Conditional public-repository install
+
+Use these steps only after the generated repository is published and every
+publication gate above is closed. For current source development, use
+[docs/addon-dev.md](../../../docs/addon-dev.md) instead.
 
 1. **Settings → Add-ons → Add-on store → ⋮ → Repositories**
-2. Add this repository URL (when published):
+2. Add this repository URL:
    ```
    https://github.com/theaussiepom/zigbeelens-addons
    ```
-   For local development, see [docs/addon-dev.md](../../../docs/addon-dev.md).
 3. Install **ZigbeeLens**.
 4. Configure MQTT and your Zigbee2MQTT network(s) (see below).
 5. **Start** the add-on.

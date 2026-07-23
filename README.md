@@ -24,8 +24,9 @@ ZigbeeLens does **not** repair, reset, remove, re-pair, or mutate Zigbee devices
 - Multi-network support (`network_id` + `ieee_address` identity)
 - Local SQLite history and stored reports
 - Redacted JSON, YAML, and Markdown exports
-- Docker/Compose and HACS integration; Home Assistant OS add-on source is
-  present but its packaged repository is not yet publication-ready
+- Docker/Compose as the current portable deployment route; HACS integration
+  and Home Assistant OS add-on source are present for pre-release testing, but
+  their publication gates remain open
 - Optional MQTT Discovery decision summary entities
 - Optional topology snapshots and Home Assistant enrichment
 
@@ -56,13 +57,13 @@ See [docs/safety-audit.md](docs/safety-audit.md) for the full safety audit.
 
 ## Install
 
-| Path | Repo |
-|------|------|
-| [Home Assistant OS add-on (pre-release source)](apps/addon/zigbeelens/README.md) | Packaged repository publication is currently blocked; see [release infrastructure](docs/release-infra.md) |
-| [Docker / Compose](docs/docker.md) | `ghcr.io/theaussiepom/zigbeelens` |
-| [HACS integration](docs/hacs.md) | [theaussiepom/zigbeelens-hacs](https://github.com/theaussiepom/zigbeelens-hacs) |
-| [MQTT Discovery](docs/mqtt-discovery.md) | Optional summary HA entities without HACS |
-| [Topology](docs/topology.md) | Optional mesh enrichment — enabled by default with one startup scan |
+| Path | Current status | Artifact |
+|------|----------------|----------|
+| [Docker / Compose](docs/docker.md) | **Current portable deployment route**; choose released `latest`/`X.Y.Z` or explicit pre-release `edge`/`sha-*` | `ghcr.io/theaussiepom/zigbeelens` |
+| [HACS integration](docs/hacs.md) | **Pre-release testing — publication blocked**; custom repository use is deliberate testing only | `theaussiepom/zigbeelens-hacs` staging repository |
+| [Home Assistant OS add-on](apps/addon/zigbeelens/README.md) | **Pre-release source — generated repository publication blocked** | Source-built runner and generated image-based package have different open gates |
+| [MQTT Discovery](docs/mqtt-discovery.md) | Optional summary HA entities without HACS | Core configuration |
+| [Topology](docs/topology.md) | Optional mesh enrichment — enabled by default with one startup scan | Core configuration |
 
 ## Using the UI
 
@@ -99,22 +100,29 @@ Details: [add-on user guide](apps/addon/zigbeelens/README.md) ·
 ### Docker
 
 ```bash
-./scripts/build-docker.sh
+ZIGBEELENS_IMAGE=zigbeelens:local ./scripts/build-docker.sh
 mkdir -p zigbeelens/config zigbeelens/data
 cp deploy/docker/docker-compose.example.yaml zigbeelens/docker-compose.yaml
 cp deploy/docker/config.example.yaml zigbeelens/config/config.yaml
 # Edit zigbeelens/config/config.yaml — set mqtt.server and networks[].base_topic
 cd zigbeelens
-docker compose up -d
+ZIGBEELENS_IMAGE=zigbeelens:local docker compose up -d
 ```
 
 Open **http://localhost:8377**
 
-Details: [docs/docker.md](docs/docker.md)
+This quick start builds the current checkout locally. For released or
+workflow-built images, choose the channel explicitly in
+[docs/docker.md](docs/docker.md).
 
 ### Home Assistant / HACS integration
 
-The HACS integration is optional. It gives Home Assistant:
+**Pre-release testing — publication blocked.** The custom HACS repository may
+be used only for deliberate pre-release testing while the polling,
+compatibility, repair, minimum-version, manifest, and official-validation gates
+in [docs/hacs.md](docs/hacs.md) remain open.
+
+The optional integration gives Home Assistant:
 
 - a native ZigbeeLens companion panel
 - summary sensors and binary sensors

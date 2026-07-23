@@ -18,7 +18,28 @@ Dashboard** href. Standalone browser login exists only when Core has both
 `security.api_token` and `security.session_secret`; bearer-only Core leaves the
 bundled browser UI locked.
 
-## Install via HACS (recommended)
+## Release status — pre-release testing only
+
+**Publication is blocked.** The custom repository may be used only for
+deliberate pre-release testing; it is neither a released install route nor the
+current default. Docker/Compose is the current portable Core deployment route.
+
+The HACS publication gates remain open:
+
+- Configure accepts a polling interval that the current OptionsFlow does not
+  persist.
+- Missing or malformed Core versions fail open as compatible.
+- Missing/malformed exact-v2 Dashboard surfaces receive incorrect
+  unsupported-contract/upgrade guidance.
+- Exact Home Assistant 2025.1.0 plus current-version coverage is missing.
+- Config flow enforces one entry, but manifest `single_config_entry` metadata is
+  missing.
+- The staged package has not passed official HACS and hassfest validation.
+
+Local structural packaging validation does not close any of those runtime,
+metadata, minimum-version, or official-publication gates.
+
+## Pre-release install via HACS
 
 Requires Home Assistant **2025.1.0 or newer** and HACS.
 
@@ -119,7 +140,7 @@ To use embedded view, use an **HTTPS Core URL**, such as one provided by your ex
 
 ## Deployment paths
 
-**Docker + HACS (normal path):**
+**Docker + HACS (pre-release companion test):**
 
 1. Run Core at `http://<host>:8377`.
 2. Install the HACS integration.
@@ -131,8 +152,9 @@ No reverse proxy is required for a good sidebar experience.
 
 **HAOS add-on:**
 
-- The add-on / Ingress is the supported full-dashboard path and needs no HACS
-  integration.
+- The source-built add-on runner is intended to provide the full Core UI
+  through Ingress without HACS. The generated image-based repository is
+  publication-blocked and is not a supported release route.
 - Do not enter `http://localhost:8377`; the add-on publishes no direct port and
   this repository does not define a portable HACS-to-add-on Core origin.
 
@@ -289,11 +311,11 @@ for them.
 
 | | HACS integration | MQTT Discovery |
 |---|------------------|----------------|
-| Install | HACS custom repository | Config flag in Core |
+| Current availability | Pre-release custom-repository testing; publication gates open | Optional Core feature |
+| Enablement | HACS custom repository | Config flag in Core |
 | Config flow / repairs | Yes | No |
 | Native companion panel | Yes | No |
 | Summary entities | Yes | Yes |
-| Recommended default | **Yes** | Optional |
 
 See [MQTT Discovery](mqtt-discovery.md). You generally do not need both.
 

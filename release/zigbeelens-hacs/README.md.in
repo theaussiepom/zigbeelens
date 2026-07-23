@@ -8,15 +8,29 @@ Read-only Home Assistant bridge to [ZigbeeLens Core](https://github.com/@GITHUB_
 
 Requires Home Assistant **2025.1.0 or newer** and HACS.
 
-The package declares that minimum, but exact 2025.1.0 plus current-version test
-matrix coverage remains a publication gate.
+## Release status — pre-release testing only
+
+**Publication is blocked.** Add this custom repository only for deliberate
+pre-release testing. Docker/Compose is the current portable Core deployment
+route.
+
+Open HACS publication gates:
+
+- custom polling does not persist through the current OptionsFlow;
+- missing/malformed Core versions fail open as compatible;
+- malformed/missing exact-v2 Dashboard surfaces get incorrect upgrade guidance;
+- exact Home Assistant 2025.1.0 plus current-version coverage is missing;
+- manifest `single_config_entry` metadata is missing; and
+- official HACS and hassfest validation has not passed.
+
+Local structural package validation does not close these gates.
 
 Run Core using one of:
 
 - **Docker** — `ghcr.io/@GITHUB_OWNER@/zigbeelens` (see main repo [docs/docker.md](https://github.com/@GITHUB_OWNER@/zigbeelens/blob/main/docs/docker.md))
 - Another Core deployment with an HTTP(S) origin reachable from Home Assistant
 
-## Install via HACS
+## Pre-release install via HACS
 
 1. **HACS → Integrations → Custom repositories**
 2. Add `https://github.com/@GITHUB_OWNER@/zigbeelens-hacs`

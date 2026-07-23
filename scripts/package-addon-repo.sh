@@ -53,7 +53,25 @@ Read-only observability and diagnostics for Zigbee2MQTT networks.
 
 Uses the published container image: \`${IMAGE}\`
 
-## Install
+## Release status — generated repository publication blocked
+
+This generated image-based package is **not a supported release install**.
+Structural repository validation does not close its live HAOS/runtime gates:
+
+- the standalone image entrypoint does not own the complete source-built add-on
+  runner contract or propagate the optional API token;
+- UID-1000 \`/data\` writability, Supervisor Ingress, bearer behavior, and
+  non-Supervisor spoof rejection require packaged HAOS smokes;
+- the \`reporting.max_*\` schema accepts \`0\` while Core requires at least
+  \`1\`;
+- \`reporting.default_profile\` is ineffective and other accepted reporting
+  controls have no current exact-v3 composition effect; and
+- the package publishes no portable HACS-to-Core origin.
+
+## Conditional install after publication
+
+Use these steps only after every publication gate above is closed and this
+repository is intentionally published.
 
 1. **Settings → Add-ons → Add-on store → ⋮ → Repositories**
 2. Add: \`https://github.com/${OWNER}/zigbeelens-addons\`
@@ -70,17 +88,8 @@ Uses the published container image: \`${IMAGE}\`
 
 For pre-release Docker testing, pull \`${IMAGE}:edge\` directly. Add-on version \`${ADDON_VERSION}\` pulls \`:${ADDON_VERSION}\` when that GHCR tag exists.
 
-## Current package limitations
-
-- Publication is blocked until the packaged HAOS artifact proves UID-1000
-  \`/data\` writability, Supervisor Ingress access, and rejection of spoofed
-  Ingress identity.
-- The image-based package does not currently propagate the optional add-on API
-  token into Core. Leave that option empty and use the admin-only Ingress UI.
-- Supervisor Ingress is the supported dashboard route. This package publishes
-  no portable Core origin for the optional HACS companion integration.
-- The three \`reporting.max_*\` options must be at least \`1\`; although the
-  current Supervisor schema accepts \`0\`, Core rejects it during startup.
+The source-built runner is intended to provide the full dashboard through
+Supervisor Ingress. That intent is not a generated-package release claim.
 
 ## Safety
 

@@ -37,5 +37,19 @@ else
   fail "topology defaults must set enabled and startup_scan true"
 fi
 
+README="$(tr '[:upper:]' '[:lower:]' < "${ADDON}/README.md")"
+for required in \
+  "generated repository publication blocked" \
+  "not a supported release install" \
+  "conditional install after publication" \
+  "source-built runner"
+do
+  if grep -Fq "${required}" <<<"${README}"; then
+    ok "README mentions: ${required}"
+  else
+    fail "README missing publication-status concept: ${required}"
+  fi
+done
+
 if [[ "${FAIL}" -ne 0 ]]; then exit 1; fi
 echo "Add-on repo validation passed."

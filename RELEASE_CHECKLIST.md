@@ -20,26 +20,32 @@ helper does not replace the Phase 7-specific checks or manual gates.
 - [ ] UI lint passes (`pnpm --filter @zigbeelens/ui lint`)
 - [ ] UI typecheck passes (`pnpm --filter @zigbeelens/ui typecheck`)
 - [ ] UI production build passes (`pnpm --filter @zigbeelens/ui build`)
-- [ ] HA integration validation passes (`./scripts/validate-ha-integration.sh`)
-- [ ] Add-on validation passes (`./scripts/validate-addon.sh`)
 - [ ] Compose validation passes (`./scripts/validate-compose.sh`)
-- [ ] HACS package builds (`./scripts/package-hacs-repo.sh`)
-- [ ] Add-on package builds (`./scripts/package-addon-repo.sh`)
 - [ ] Core smoke passes (`./scripts/smoke-core.sh`)
 - [ ] Version alignment check passes (`./scripts/check-version-alignment.sh`)
 - [ ] Storage retention policy v2: telemetry / resolved incidents / reports; startup + periodic maintenance
 - [ ] `zigbeelens storage check` / `backup` / `maintenance --dry-run` validated on a release candidate DB
+
+### Structural companion-package validation
+
+These checks validate source/package shape only. Passing them does **not**
+establish publication readiness or replace the artifact-specific live gates
+below.
+
+- [ ] HA integration source validates (`./scripts/validate-ha-integration.sh`)
+- [ ] HACS staging package generates and validates (`./scripts/package-hacs-repo.sh` then `bash dist/zigbeelens-hacs/scripts/validate-hacs-repo.sh`)
+- [ ] Add-on source structure validates (`./scripts/validate-addon.sh`)
+- [ ] Add-on staging package generates and validates (`./scripts/package-addon-repo.sh` then `bash dist/zigbeelens-addons/scripts/validate-addon-repo.sh`)
 
 The Core suite currently has one intentional non-strict xfail:
 `test_incident_badge_matches_device_story_for_model_pattern` (`watch` versus
 `informational` Decision-surface mismatch). Record it as **xfail**, not pass.
 Any additional skip, xfail, or warning requires an explicit release note.
 
-Current canonical-suite skips must also be recorded: the SQLite 3.34.1 test is
-expected to skip outside its dedicated container smoke, while
-`test_ui_has_no_repair_controls` currently skips because its `UI_SRC` path
-resolves outside `apps/ui`. The latter is an open release-test blocker, not a
-passing safety assertion.
+The canonical Core suite's SQLite 3.34.1 case is expected to skip outside its
+dedicated container smoke and must still be recorded. The UI safety owner runs
+against `apps/ui/src`; a missing production source directory is an assertion
+failure, never a skip.
 
 ## Phase 7 release status
 
@@ -83,7 +89,10 @@ close them.
 - [ ] `public_safe` redaction tested with real data (password / network_key scrubbed)
 - [ ] Docker logs secret-free
 
-## Manual gates — HACS integration
+## HACS publication readiness and live gates
+
+Required only when the HACS integration is included in the release. Structural
+package validation above is necessary but not sufficient.
 
 - [ ] HACS integration installed from custom repo (`theaussiepom/zigbeelens-hacs`)
 - [ ] Exact Home Assistant 2025.1.0 minimum and a current Home Assistant release both pass the integration suite
@@ -110,10 +119,15 @@ close them.
 
 - [ ] Core React UI pass at ~360–430px width (Overview, Mesh / Investigate, Devices, Incidents, Reports, Settings, Advanced menu)
 - [ ] No horizontal page overflow on phone-sized viewport
-- [ ] HACS native companion panel pass on phone/tablet HA web/app
-- [ ] Open Full Dashboard button obvious on mobile
+- [ ] If HACS is included, its native companion panel passes on phone/tablet HA web/app
+- [ ] If HACS is included, Open Full Dashboard is obvious on mobile
 
-## Manual gates — add-on publication blockers
+## Add-on publication readiness and live package gates
+
+Required only when an add-on artifact is included in the release. The
+source-built runner and generated image-based repository are separate
+artifacts; these checks apply to the generated package that would be
+published.
 
 - [ ] Add-on repo validates (`./scripts/validate-addon.sh` + packaged repo check)
 - [ ] No privileged mode, no host network, no Docker socket
@@ -157,10 +171,10 @@ close them.
 
 ## Safety
 
-- [ ] Safety guardrail tests pass (`test_safety_guardrails.py`)
+- [ ] Safety guardrail owner passes with zero skips (`./scripts/validate-safety-guardrails.sh`)
 - [ ] Collector remains subscribe-only (default path)
 - [ ] UI has no repair/reset/permit-join controls
-- [ ] HACS panel summary and diagnostics exclude secrets
+- [ ] If HACS is included, its panel summary and diagnostics exclude secrets
 
 ## Documentation
 
@@ -178,16 +192,21 @@ close them.
 ## Packaging and publish
 
 - [ ] Docker image builds (`./scripts/build-docker.sh`)
-- [ ] Release tag `v<version>` created **only after manual gates above pass**
+- [ ] Release tag `v<version>` created only after the Docker/Core gates and all
+      gates for companion artifacts included in this release pass
 - [ ] Versioned Docker image pushed to GHCR (`ghcr.io/theaussiepom/zigbeelens:<version>`)
-- [ ] HACS repo version coherent with integration manifest
-- [ ] HACS repo pushed (`theaussiepom/zigbeelens-hacs`)
+- [ ] If HACS is included after its publication gates close, its repo version
+      is coherent with the integration manifest
+- [ ] If HACS is included, its staged artifact is pushed to
+      `theaussiepom/zigbeelens-hacs`
 - [ ] GitHub release notes published
-- [ ] Add-on repository metadata updated only after every add-on publication blocker above is closed
+- [ ] If an add-on is included, repository metadata is updated only after every
+      generated-package publication blocker above is closed
 
 ## Post-release spot checks
 
-- [ ] Fresh Docker install from docs quick start
-- [ ] HACS install from published repo
+- [ ] Fresh released Docker install from the stable docs quick start
+- [ ] If HACS was included and published, install it from the published repo
+- [ ] If an add-on was included and published, install that exact HAOS artifact
 - [ ] Generate and download a `public_safe` report
 - [ ] Confirm SSE works when Core is behind reverse proxy (optional advanced Docker path — see [docs/hacs-embedded-view.md](docs/hacs-embedded-view.md) for Caddy example)

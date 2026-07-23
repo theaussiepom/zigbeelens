@@ -123,6 +123,9 @@ require_readme "fallback"
 require_readme "native companion summary (default)"
 require_readme "try embedded view"
 require_readme "back to summary"
+require_readme "pre-release testing only"
+require_readme "publication is blocked"
+require_readme "official hacs and hassfest"
 
 if grep -Eqi 'does \*\*not\*\* create per-priority or per-device-story entities|does not create per-priority or per-device-story entities' <<<"${README}"; then
   ok "README distinguishes summary entities from per-priority/device-story entities"
