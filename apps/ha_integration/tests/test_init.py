@@ -10,6 +10,7 @@ from homeassistant.components.sensor import SensorEntityDescription
 from homeassistant.exceptions import ConfigEntryAuthFailed
 
 from zigbeelens import (
+    CONFIG_SCHEMA,
     async_migrate_entry,
     async_remove_entry,
     async_reload_entry,
@@ -27,6 +28,19 @@ from zigbeelens.const import (
 )
 from zigbeelens.exceptions import ZigbeeLensConnectionError
 from zigbeelens.sensor import ZigbeeLensNetworkSensor, ZigbeeLensSensor
+
+
+def test_yaml_schema_is_explicitly_config_entry_only(caplog) -> None:
+    config = {DOMAIN: {}}
+    with (
+        patch(
+            "homeassistant.helpers.config_validation.async_create_issue",
+            create=True,
+        ),
+        patch("homeassistant.helpers.issue_registry.async_create_issue"),
+    ):
+        assert CONFIG_SCHEMA(config) is config
+    assert "does not support YAML setup" in caplog.text
 
 
 def _entry(*, panel_enabled: bool = True, api_token: str | None = None):

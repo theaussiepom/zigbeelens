@@ -7,6 +7,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ZigbeeLensApiClient
@@ -38,6 +39,8 @@ _LOGGER = logging.getLogger(__name__)
 
 _AUTH_FAILED_MESSAGE = "Core credentials need to be updated"
 _GLOBAL_OWNER_KEY = "_global_owner_entry_id"
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 def _panel_enabled(entry: ConfigEntry) -> bool:

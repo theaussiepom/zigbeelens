@@ -11,11 +11,25 @@ INTEGRATION_DIR = REPO_ROOT / "custom_components" / "zigbeelens"
 
 def test_manifest_parses_and_has_expected_fields() -> None:
     manifest = json.loads((INTEGRATION_DIR / "manifest.json").read_text(encoding="utf-8"))
+    keys = list(manifest)
+    assert keys[:2] == ["domain", "name"]
+    assert keys[2:] == sorted(keys[2:])
     assert manifest["domain"] == "zigbeelens"
     assert manifest["name"] == "ZigbeeLens"
     assert manifest["config_flow"] is True
     assert manifest["single_config_entry"] is True
     assert manifest["iot_class"] == "local_polling"
+
+
+def test_config_flow_strings_do_not_embed_urls() -> None:
+    strings = json.loads((INTEGRATION_DIR / "strings.json").read_text(encoding="utf-8"))
+    translations = json.loads(
+        (INTEGRATION_DIR / "translations" / "en.json").read_text(encoding="utf-8")
+    )
+    for payload in (strings, translations):
+        for step in ("user", "reconfigure"):
+            description = payload["config"]["step"][step]["data_description"]["core_url"]
+            assert "://" not in description
 
 
 def test_ha_branding_assets_exist() -> None:

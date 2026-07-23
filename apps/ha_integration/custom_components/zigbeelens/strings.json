@@ -11,7 +11,7 @@
           "panel_enabled": "Show ZigbeeLens companion panel in the sidebar"
         },
         "data_description": {
-          "core_url": "For example http://192.168.1.10:8377 or https://zigbeelens.example.com",
+        "core_url": "Enter the reachable Core origin, including its scheme and port when needed.",
           "api_token": "Required when ZigbeeLens Core protects its API with bearer authentication. Leave blank for trusted-open Core."
         }
       },
@@ -32,7 +32,7 @@
           "verify_ssl": "Verify SSL certificate"
         },
         "data_description": {
-          "core_url": "For example http://192.168.1.10:8377 or https://zigbeelens.example.com",
+        "core_url": "Enter the reachable Core origin, including its scheme and port when needed.",
           "api_token": "Enter a new token to replace the stored credential. Leave blank to keep the current token unless Remove API token is enabled."
         }
       }
