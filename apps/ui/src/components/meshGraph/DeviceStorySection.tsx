@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { api } from "@/lib/api";
 import { DrawerSection } from "@/components/meshGraph/DrawerShell";
 import { EvidenceCoverageStrip } from "@/components/meshGraph/EvidenceCoverageStrip";
+import { useLiveResource } from "@/hooks/useLiveResource";
+import { HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT } from "@/lib/events";
 import {
   buildDeviceStoryViewModel,
   errorDeviceStoryViewModel,
@@ -40,37 +42,21 @@ export function DeviceStorySection({
   deviceIeee: string;
   scenario?: string;
 }) {
-  const [story, setStory] = useState<Awaited<ReturnType<typeof api.deviceStory>> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setStory(null);
-    setLoading(true);
-    setError(false);
-    api.deviceStory(networkId, deviceIeee, scenario).then(
-      (data) => {
-        if (cancelled) return;
-        setStory(data);
-        setLoading(false);
-      },
-      () => {
-        if (cancelled) return;
-        setError(true);
-        setLoading(false);
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [networkId, deviceIeee, scenario]);
+  const storyResource = useLiveResource(
+    () => api.deviceStory(networkId, deviceIeee, scenario),
+    [networkId, deviceIeee, scenario],
+    {
+      enabled: Boolean(networkId && deviceIeee),
+      refetchOn: [HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT],
+    },
+  );
+  const story = storyResource.data;
 
   const viewModel = useMemo(() => {
-    if (loading) return loadingDeviceStoryViewModel();
-    if (error || !story) return errorDeviceStoryViewModel();
+    if (storyResource.loading && !story) return loadingDeviceStoryViewModel();
+    if (storyResource.error || !story) return errorDeviceStoryViewModel();
     return buildDeviceStoryViewModel(story);
-  }, [loading, error, story]);
+  }, [storyResource.error, storyResource.loading, story]);
 
   return (
     <DrawerSection title={viewModel.sectionTitle}>

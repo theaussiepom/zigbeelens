@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from zigbeelens.config import AppConfig, ConfigError, load_effective_config
 from zigbeelens.config.security_status import log_security_posture
@@ -63,6 +63,20 @@ class AppContext:
     def uptime_seconds(self) -> int:
         return int(time.time() - self.started_at)
 
+    def publish_event_and_schedule_dashboard(
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> None:
+        """Publish one invalidation and request one current Dashboard rebuild.
+
+        Mutation owners call this only after their repository transaction has
+        committed. Dashboard scheduling remains context-owned so API and service
+        layers do not import bootstrap-private helpers.
+        """
+        self.broadcaster.publish_sync(event_type, payload)
+        _schedule_dashboard_only(self)
+
     def close(self) -> None:
         # Stop storage maintenance first so its completion callback still sees a
         # coherent application context (topology/collector still available).
@@ -82,8 +96,7 @@ _context: AppContext | None = None
 
 
 def _schedule_dashboard(ctx: AppContext, event_type: str) -> None:
-    ctx.broadcaster.publish_sync(event_type, {"type": event_type})
-    _schedule_dashboard_only(ctx)
+    ctx.publish_event_and_schedule_dashboard(event_type, {"type": event_type})
 
 
 def _schedule_dashboard_only(ctx: AppContext) -> None:

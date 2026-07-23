@@ -185,6 +185,28 @@ payloads preserve `friendly_name` and add nullable `home_assistant_name` and
 `home_assistant_area_name` fields (`ha_area` remains a compatibility alias).
 HA metadata in reports follows the selected redaction profile.
 
+After a POST replacement or DELETE clear commits, Core emits exactly one
+`home_assistant_enrichment_updated` SSE event and requests exactly one current
+Dashboard rebuild. The event is an identity-free invalidation signal:
+
+```json
+{
+  "type": "home_assistant_enrichment_updated",
+  "home_assistant_enrichment_contract_version": 1,
+  "submitted": 1,
+  "matched": 1,
+  "unmatched": 0,
+  "ambiguous": 0,
+  "stored": 1
+}
+```
+
+DELETE emits the same shape with all five counts set to zero. The payload never
+contains an IEEE, HA device/entity ID, name, area, token, or URL. Authentication,
+validation, matching/transaction, and internal failures emit no event and
+schedule no Dashboard rebuild. These rules are identical through `/api` and
+`/api/v1`.
+
 ### Status
 
 `GET /api/v1/status` — high-level collector and storage status without sensitive configuration:
@@ -204,7 +226,8 @@ Optional query: `scenario` (mock mode only).
 
 ### Live updates
 
-`GET /api/v1/events/stream` — Server-Sent Events stream (heartbeat, dashboard updates, collector status).
+`GET /api/v1/events/stream` — Server-Sent Events stream (heartbeat, dashboard
+updates, collector status, and post-commit enrichment invalidation).
 
 ### Reports
 

@@ -33,8 +33,20 @@ import {
   type DeviceRowViewModel,
 } from "@/viewModels/devices/deviceRowViewModel";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
+import { HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT } from "@/lib/events";
 
 const DEVICE_EVENTS = [
+  "device_health_updated",
+  "health_updated",
+  "dashboard_updated",
+  "incidents_updated",
+  "incident_opened",
+  "incident_updated",
+  "incident_resolved",
+  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+];
+
+const RELATED_INCIDENT_EVENTS = [
   "device_health_updated",
   "health_updated",
   "dashboard_updated",
@@ -330,7 +342,7 @@ export function DeviceDetailPage() {
         })
         .then((r) => r.items),
     [networkId, ieee, scenario],
-    { refetchOn: DEVICE_EVENTS, enabled: Boolean(networkId && ieee) },
+    { refetchOn: RELATED_INCIDENT_EVENTS, enabled: Boolean(networkId && ieee) },
   );
 
   if (detail.error) return <ErrorState message={detail.error} onRetry={detail.refetch} />;

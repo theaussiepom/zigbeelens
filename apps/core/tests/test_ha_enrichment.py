@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,9 +14,11 @@ from zigbeelens.config.models import NetworkConfig
 from zigbeelens.db.connection import Database
 from zigbeelens.enrichment import ha as ha_module
 from zigbeelens.enrichment.ha import (
+    HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
     apply_ha_enrichment,
     area_cluster_for_devices,
     clear_ha_enrichment,
+    home_assistant_enrichment_updated_payload,
 )
 from zigbeelens.schemas import (
     HOME_ASSISTANT_ENRICHMENT_CONTRACT_VERSION,
@@ -85,6 +88,18 @@ def _request(*devices: dict) -> HomeAssistantEnrichmentRequestV1:
             "devices": list(devices),
         }
     )
+
+
+def _install_route_invalidation_spies(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[MagicMock, MagicMock]:
+    ctx = client.app.state.ctx
+    publish = MagicMock()
+    scheduler = MagicMock()
+    monkeypatch.setattr(ctx.broadcaster, "publish_sync", publish)
+    monkeypatch.setattr(ctx, "dashboard_scheduler", scheduler)
+    return publish, scheduler
 
 
 def test_exact_request_schema_normalizes_strings_and_ieee():
@@ -269,6 +284,28 @@ def test_exact_result_schema_preserves_aware_timestamp_string():
 
     assert result.last_push_at == last_push_at
     assert result.model_dump(mode="json")["last_push_at"] == last_push_at
+
+
+def test_enrichment_updated_payload_whitelists_only_categorical_counts():
+    result = HomeAssistantEnrichmentResultV1(
+        home_assistant_enrichment_contract_version=1,
+        submitted=2,
+        matched=1,
+        unmatched=1,
+        ambiguous=0,
+        stored=1,
+        last_push_at=ACCEPTED_AT,
+    )
+
+    assert home_assistant_enrichment_updated_payload(result) == {
+        "type": HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+        "home_assistant_enrichment_contract_version": 1,
+        "submitted": 2,
+        "matched": 1,
+        "unmatched": 1,
+        "ambiguous": 0,
+        "stored": 1,
+    }
 
 
 def test_exact_match_returns_factual_counts_and_one_timestamp(
@@ -478,6 +515,258 @@ def test_explicit_clear_resets_rows_and_status(tmp_path: Path):
     assert status["matched_devices"] == 0
     assert status["last_push_at"] is None
     assert status["source"] is None
+
+
+@pytest.mark.parametrize("prefix", ["/api", "/api/v1"])
+def test_route_post_publishes_one_private_safe_invalidation_after_commit(
+    mock_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    prefix: str,
+):
+    ctx = mock_client.app.state.ctx
+    ctx.repo.upsert_device(
+        network_id="home",
+        ieee_address=IEEE_1,
+        friendly_name="Core private name",
+        device_type="Router",
+        power_source="Mains",
+        interview_state="successful",
+    )
+    monkeypatch.setattr(ha_module, "utc_now_iso", lambda: ACCEPTED_AT)
+    publish, scheduler = _install_route_invalidation_spies(
+        mock_client,
+        monkeypatch,
+    )
+    transaction_depths: list[int] = []
+
+    def record_publish(_event: str, _payload: dict) -> None:
+        transaction_depths.append(ctx.repo.db.conn.transaction_depth)
+
+    publish.side_effect = record_publish
+    private_values = {
+        IEEE_1,
+        IEEE_MISSING,
+        "api-token-sentinel",
+        "Private HA name",
+        "private-area-id",
+        "Private area name",
+        "sensor.private_entity",
+    }
+    response = mock_client.post(
+        f"{prefix}/enrichment/homeassistant",
+        json=_request(
+            _device(
+                ieee_address=IEEE_1,
+                ha_device_id="api-token-sentinel",
+                ha_device_name="Private HA name",
+                area_id="private-area-id",
+                area_name="Private area name",
+                entity_id="sensor.private_entity",
+            ),
+            _device(
+                ieee_address=IEEE_MISSING,
+                ha_device_id="missing-private-device-id",
+                ha_device_name="Missing private name",
+                area_id="missing-private-area-id",
+                area_name="Missing private area",
+                entity_id="sensor.missing_private",
+            ),
+        ).model_dump(mode="json"),
+    )
+
+    assert response.status_code == 200
+    expected_payload = {
+        "type": HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+        "home_assistant_enrichment_contract_version": 1,
+        "submitted": 2,
+        "matched": 1,
+        "unmatched": 1,
+        "ambiguous": 0,
+        "stored": 1,
+    }
+    publish.assert_called_once_with(
+        HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+        expected_payload,
+    )
+    scheduler.schedule.assert_called_once_with()
+    assert transaction_depths == [0]
+    serialized_payload = json.dumps(publish.call_args.args[1])
+    assert all(private not in serialized_payload for private in private_values)
+    assert "last_push_at" not in publish.call_args.args[1]
+
+
+def test_route_empty_replacement_emits_once_and_rebuilds_dashboard_once(
+    mock_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    ctx = mock_client.app.state.ctx
+    assert ctx.dashboard_scheduler is None
+    current_dashboard = ctx.data.dashboard()
+    dashboard = MagicMock(return_value=current_dashboard)
+    publish = MagicMock()
+    monkeypatch.setattr(ctx.data, "dashboard", dashboard)
+    monkeypatch.setattr(ctx.broadcaster, "publish_sync", publish)
+    if ctx.discovery is not None:
+        monkeypatch.setattr(ctx.discovery, "schedule_update", MagicMock())
+
+    response = mock_client.post(
+        "/api/enrichment/homeassistant",
+        json=_request().model_dump(mode="json"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["submitted"] == 0
+    assert response.json()["stored"] == 0
+    assert [item.args[0] for item in publish.call_args_list] == [
+        HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+        "dashboard_updated",
+    ]
+    publish.assert_any_call(
+        HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+        home_assistant_enrichment_updated_payload(),
+    )
+    dashboard.assert_called_once_with()
+
+
+@pytest.mark.parametrize("prefix", ["/api", "/api/v1"])
+def test_route_delete_publishes_one_invalidation_and_schedules_once(
+    mock_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    prefix: str,
+):
+    ctx = mock_client.app.state.ctx
+    apply_ha_enrichment(ctx.repo, _request())
+    publish, scheduler = _install_route_invalidation_spies(
+        mock_client,
+        monkeypatch,
+    )
+
+    response = mock_client.delete(f"{prefix}/enrichment/homeassistant")
+
+    assert response.status_code == 200
+    assert response.json() == {"cleared": True}
+    publish.assert_called_once_with(
+        HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+        home_assistant_enrichment_updated_payload(),
+    )
+    scheduler.schedule.assert_called_once_with()
+
+
+@pytest.mark.parametrize("prefix", ["/api", "/api/v1"])
+def test_route_validation_failure_emits_and_schedules_nothing(
+    mock_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    prefix: str,
+):
+    publish, scheduler = _install_route_invalidation_spies(
+        mock_client,
+        monkeypatch,
+    )
+    malformed = _request().model_dump(mode="json")
+    malformed["unexpected"] = "forbidden"
+
+    response = mock_client.post(
+        f"{prefix}/enrichment/homeassistant",
+        json=malformed,
+    )
+
+    assert response.status_code == 422
+    publish.assert_not_called()
+    scheduler.schedule.assert_not_called()
+
+
+@pytest.mark.parametrize("prefix", ["/api", "/api/v1"])
+def test_route_matching_exception_emits_and_schedules_nothing(
+    mock_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    prefix: str,
+):
+    ctx = mock_client.app.state.ctx
+    publish, scheduler = _install_route_invalidation_spies(
+        mock_client,
+        monkeypatch,
+    )
+    monkeypatch.setattr(
+        ctx.repo,
+        "get_device",
+        MagicMock(side_effect=RuntimeError("injected matching failure")),
+    )
+
+    with pytest.raises(RuntimeError, match="injected matching failure"):
+        mock_client.post(
+            f"{prefix}/enrichment/homeassistant",
+            json=_request(_device()).model_dump(mode="json"),
+        )
+
+    publish.assert_not_called()
+    scheduler.schedule.assert_not_called()
+
+
+@pytest.mark.parametrize("prefix", ["/api", "/api/v1"])
+@pytest.mark.parametrize("mutation", ["post", "delete"])
+def test_route_transaction_rollback_emits_and_schedules_nothing(
+    mock_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    prefix: str,
+    mutation: str,
+):
+    ctx = mock_client.app.state.ctx
+    repo = ctx.repo
+    repo.upsert_device(
+        network_id="home",
+        ieee_address=IEEE_1,
+        friendly_name="Original Core name",
+        device_type="Router",
+        power_source="Mains",
+        interview_state="successful",
+    )
+    repo.upsert_device(
+        network_id="home",
+        ieee_address=IEEE_2,
+        friendly_name="Replacement Core name",
+        device_type="EndDevice",
+        power_source="Battery",
+        interview_state="successful",
+    )
+    apply_ha_enrichment(
+        repo,
+        _request(_device(ieee_address=IEEE_1, area_name="Original area")),
+    )
+    before_row = repo.get_ha_device_enrichment("home", IEEE_1)
+    before_status = repo.get_ha_enrichment_status()
+    original_update = repo.update_ha_enrichment_status
+
+    def fail_after_status_write(**kwargs) -> None:
+        original_update(**kwargs)
+        raise RuntimeError("injected status failure")
+
+    monkeypatch.setattr(repo, "update_ha_enrichment_status", fail_after_status_write)
+    publish, scheduler = _install_route_invalidation_spies(
+        mock_client,
+        monkeypatch,
+    )
+
+    with pytest.raises(RuntimeError, match="injected status failure"):
+        if mutation == "post":
+            mock_client.post(
+                f"{prefix}/enrichment/homeassistant",
+                json=_request(
+                    _device(
+                        ieee_address=IEEE_2,
+                        ha_device_id="replacement-ha-device",
+                        area_name="Replacement area",
+                        entity_id="sensor.replacement",
+                    )
+                ).model_dump(mode="json"),
+            )
+        else:
+            mock_client.delete(f"{prefix}/enrichment/homeassistant")
+
+    assert repo.get_ha_device_enrichment("home", IEEE_1) == before_row
+    assert repo.get_ha_device_enrichment("home", IEEE_2) is None
+    assert repo.get_ha_enrichment_status() == before_status
+    publish.assert_not_called()
+    scheduler.schedule.assert_not_called()
 
 
 def test_route_validation_failure_preserves_last_accepted_snapshot(

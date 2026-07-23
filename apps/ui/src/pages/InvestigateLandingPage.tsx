@@ -14,6 +14,7 @@ import {
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
 import { bridgeStateLabel, bridgeStateSeverity } from "@/lib/format";
+import { HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT } from "@/lib/events";
 
 const NETWORK_EVENTS = [
   "network_health_updated",
@@ -23,6 +24,7 @@ const NETWORK_EVENTS = [
   "incident_opened",
   "incident_updated",
   "incident_resolved",
+  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
 ];
 
 export function InvestigateLandingPage() {

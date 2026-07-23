@@ -42,8 +42,22 @@ import {
   writeOverviewLastViewedAt,
 } from "@/lib/overviewVisitStorage";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
+import { HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT } from "@/lib/events";
 
-const DASHBOARD_EVENTS = [
+const OVERVIEW_DASHBOARD_EVENTS = [
+  "dashboard_update",
+  "dashboard_updated",
+  "health_updated",
+  "network_health_updated",
+  "device_health_updated",
+  "incident_opened",
+  "incident_updated",
+  "incident_resolved",
+  "incidents_updated",
+  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+];
+
+const OVERVIEW_INCIDENT_EVENTS = [
   "dashboard_update",
   "dashboard_updated",
   "health_updated",
@@ -79,7 +93,7 @@ function OverviewPageForScope({
   visitScope: string;
 }) {
   const dashboard = useLiveResource(() => api.dashboard(scenario || undefined), [scenario], {
-    refetchOn: DASHBOARD_EVENTS,
+    refetchOn: OVERVIEW_DASHBOARD_EVENTS,
   });
   const storedLastViewedAt = useMemo(
     () => readOverviewLastViewedAt(visitScope),
@@ -117,7 +131,7 @@ function OverviewPageForScope({
         limit: 20,
       }).then((r) => r.items),
     [scenario],
-    { refetchOn: DASHBOARD_EVENTS },
+    { refetchOn: OVERVIEW_INCIDENT_EVENTS },
   );
   const recentIncidentsResource = useLiveResource(
     () => {
@@ -134,7 +148,7 @@ function OverviewPageForScope({
         .then((r) => r.items);
     },
     [scenario, previousLastViewedAt, visitTimestamp],
-    { enabled: Boolean(visitTimestamp), refetchOn: DASHBOARD_EVENTS },
+    { enabled: Boolean(visitTimestamp), refetchOn: OVERVIEW_INCIDENT_EVENTS },
   );
 
   useEffect(() => {

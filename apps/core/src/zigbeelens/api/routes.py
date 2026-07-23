@@ -28,9 +28,11 @@ from zigbeelens.app.context import AppContext, get_context
 from zigbeelens.config.redaction import redact_mqtt_server
 from zigbeelens.config.security_status import build_security_config_status
 from zigbeelens.enrichment.ha import (
+    HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
     apply_ha_enrichment,
     clear_ha_enrichment,
     enrichment_status_dict,
+    home_assistant_enrichment_updated_payload,
 )
 from zigbeelens.mqtt.lifecycle import collector_status_dict
 from zigbeelens.mqtt_discovery import discovery_status_dict
@@ -840,12 +842,21 @@ def enrichment_homeassistant(
     body: HomeAssistantEnrichmentRequestV1,
     ctx: AppContext = Depends(ctx_dep),
 ) -> HomeAssistantEnrichmentResultV1:
-    return apply_ha_enrichment(ctx.repo, body)
+    result = apply_ha_enrichment(ctx.repo, body)
+    ctx.publish_event_and_schedule_dashboard(
+        HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+        home_assistant_enrichment_updated_payload(result),
+    )
+    return result
 
 
 @mutation_router.delete("/enrichment/homeassistant")
 def enrichment_homeassistant_delete(ctx: AppContext = Depends(ctx_dep)) -> dict:
     clear_ha_enrichment(ctx.repo)
+    ctx.publish_event_and_schedule_dashboard(
+        HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+        home_assistant_enrichment_updated_payload(),
+    )
     return {"cleared": True}
 
 

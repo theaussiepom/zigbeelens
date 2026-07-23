@@ -19,7 +19,14 @@ vi.mock("@/lib/events", () => ({
     getState: () => "open",
     isAccessEnabled: () => true,
   },
-  LIVE_EVENTS: ["topology_updated", "dashboard_updated", "incidents_updated"],
+  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT:
+    "home_assistant_enrichment_updated",
+  LIVE_EVENTS: [
+    "topology_updated",
+    "dashboard_updated",
+    "incidents_updated",
+    "home_assistant_enrichment_updated",
+  ],
 }));
 
 vi.mock("@/context/ScenarioContext", () => ({
@@ -82,28 +89,36 @@ describe("useTopologyGraphData", () => {
     expect(topologyEvidenceGraph).toHaveBeenCalledTimes(2);
     expect(devices).toHaveBeenCalledTimes(1);
 
+    act(() => emit("home_assistant_enrichment_updated"));
+    act(() => vi.advanceTimersByTime(350));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(3);
+    expect(devices).toHaveBeenCalledTimes(2);
+
     act(() => emit("dashboard_updated"));
     act(() => vi.advanceTimersByTime(350));
     await act(async () => {
       await Promise.resolve();
     });
-    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(2);
-    expect(devices).toHaveBeenCalledTimes(2);
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(3);
+    expect(devices).toHaveBeenCalledTimes(3);
 
     act(() => emit("incidents_updated"));
     act(() => vi.advanceTimersByTime(350));
     await act(async () => {
       await Promise.resolve();
     });
-    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(2);
-    expect(devices).toHaveBeenCalledTimes(3);
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(3);
+    expect(devices).toHaveBeenCalledTimes(4);
 
     act(() => emit("collector_status"));
     act(() => vi.advanceTimersByTime(350));
     await act(async () => {
       await Promise.resolve();
     });
-    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(2);
-    expect(devices).toHaveBeenCalledTimes(3);
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(3);
+    expect(devices).toHaveBeenCalledTimes(4);
   });
 });

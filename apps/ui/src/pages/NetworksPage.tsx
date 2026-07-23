@@ -24,8 +24,20 @@ import { bridgeStateLabel, bridgeStateSeverity, compareDevices } from "@/lib/for
 import { investigatePath, topologySnapshotPath } from "@/lib/routes";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
 import { decisionStatusLabel } from "@/viewModels/decisionCopy";
+import { HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT } from "@/lib/events";
 
 const NETWORK_EVENTS = [
+  "network_health_updated",
+  "health_updated",
+  "dashboard_updated",
+  "incidents_updated",
+  "incident_opened",
+  "incident_updated",
+  "incident_resolved",
+  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+];
+
+const NETWORK_SUPPORTING_EVENTS = [
   "network_health_updated",
   "health_updated",
   "dashboard_updated",
@@ -117,7 +129,7 @@ export function NetworkDetailPage() {
         })
         .then((r) => r.items),
     [networkId, scenario],
-    { refetchOn: NETWORK_EVENTS, enabled: Boolean(networkId) },
+    { refetchOn: NETWORK_SUPPORTING_EVENTS, enabled: Boolean(networkId) },
   );
   const resolvedIncidentsResource = useLiveResource(
     () =>
@@ -130,12 +142,12 @@ export function NetworkDetailPage() {
         })
         .then((r) => r.items),
     [networkId, scenario],
-    { refetchOn: NETWORK_EVENTS, enabled: Boolean(networkId) },
+    { refetchOn: NETWORK_SUPPORTING_EVENTS, enabled: Boolean(networkId) },
   );
   const timeline = useLiveResource(
     () => api.timeline(s, networkId).then((r) => r.items),
     [networkId, scenario],
-    { refetchOn: NETWORK_EVENTS, enabled: Boolean(networkId) },
+    { refetchOn: NETWORK_SUPPORTING_EVENTS, enabled: Boolean(networkId) },
   );
 
   if (net.error) return <ErrorState message={net.error} onRetry={net.refetch} />;

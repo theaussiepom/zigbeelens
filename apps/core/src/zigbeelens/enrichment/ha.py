@@ -13,6 +13,8 @@ from zigbeelens.schemas import (
 )
 from zigbeelens.storage.repository import Repository, utc_now_iso
 
+HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT = "home_assistant_enrichment_updated"
+
 
 @dataclass
 class MatchResult:
@@ -33,6 +35,23 @@ def enrichment_status_dict(repo: Repository) -> dict[str, Any]:
         "last_push_at": row.get("last_push_at"),
         "matched_devices": int(row.get("matched_devices") or 0),
         "source": row.get("source"),
+    }
+
+
+def home_assistant_enrichment_updated_payload(
+    result: HomeAssistantEnrichmentResultV1 | None = None,
+) -> dict[str, str | int]:
+    """Return the identity-free invalidation payload for a committed mutation."""
+    return {
+        "type": HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+        "home_assistant_enrichment_contract_version": (
+            HOME_ASSISTANT_ENRICHMENT_CONTRACT_VERSION
+        ),
+        "submitted": result.submitted if result is not None else 0,
+        "matched": result.matched if result is not None else 0,
+        "unmatched": result.unmatched if result is not None else 0,
+        "ambiguous": result.ambiguous if result is not None else 0,
+        "stored": result.stored if result is not None else 0,
     }
 
 

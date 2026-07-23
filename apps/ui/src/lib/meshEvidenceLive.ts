@@ -387,10 +387,11 @@ function buildDevice(
 ): MeshEvidenceDevice {
   const role = summary ? roleFromType(summary.device_type) : roleFromType(node?.node_type);
   const sleepy = summary?.power_source === "Battery" && role === "end_device";
+  const homeAssistantName = summary?.home_assistant_name?.trim() || null;
   return {
     ieee_address: ieee,
     network_id: networkId,
-    friendly_name: summary?.friendly_name || node?.friendly_name || ieee,
+    friendly_name: homeAssistantName || summary?.friendly_name || node?.friendly_name || ieee,
     role,
     power:
       summary?.power_source === "Battery"
@@ -670,8 +671,10 @@ export function buildLiveMeshEvidence(
   const layoutAvailable = nodes.length > 0 || links.length > 0;
   const nameFor = (target: string): string => {
     const normalized = normalizeIeee(target);
+    const summary = summaryByIeee.get(normalized);
     return (
-      summaryByIeee.get(normalized)?.friendly_name ||
+      summary?.home_assistant_name?.trim() ||
+      summary?.friendly_name ||
       nodeByIeee.get(normalized)?.friendly_name ||
       target
     );

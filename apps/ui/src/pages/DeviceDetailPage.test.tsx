@@ -66,6 +66,14 @@ vi.mock("@/hooks/useLiveResource", () => ({
         refetch: vi.fn(),
       };
     }
+    if (source.includes("deviceStory")) {
+      return {
+        data: mockState.story,
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+    }
     if (source.includes("topologyDeviceSnapshotHistory")) {
       return {
         data: {

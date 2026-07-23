@@ -144,7 +144,9 @@ rename. The integration resolves a final exact `(network_id, ieee_address)`
 identity and omits ambiguous duplicate-IEEE candidates. A successfully
 accepted complete-empty snapshot clears enrichment, while unavailable registry
 or inventory data and transient HTTP failures retain the last accepted
-snapshot.
+snapshot. After an accepted rename, area change, metadata removal, or clear,
+Core invalidates the open dashboard's enrichment-derived projections so the UI
+shows the committed metadata without a manual reload.
 
 The full ZigbeeLens dashboard is served by ZigbeeLens Core.
 

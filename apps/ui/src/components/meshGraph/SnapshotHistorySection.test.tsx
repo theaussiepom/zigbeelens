@@ -169,6 +169,13 @@ describe("SnapshotHistorySection", () => {
       await Promise.resolve();
     });
     expect(topologyDeviceSnapshotHistory).toHaveBeenCalledTimes(3);
+
+    act(() => emit("home_assistant_enrichment_updated"));
+    act(() => vi.advanceTimersByTime(350));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(topologyDeviceSnapshotHistory).toHaveBeenCalledTimes(3);
   });
 
   it("rejects stale responses after device change and polls while disconnected", async () => {

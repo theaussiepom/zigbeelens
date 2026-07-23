@@ -14,6 +14,9 @@ export const eventSourceTestState = {
   constructs: [] as EventSourceConstruct[],
   closeCount: 0,
   instances: [] as StubEventSource[],
+  emit(eventName: string) {
+    this.instances.at(-1)?.emit(eventName);
+  },
   reset() {
     this.constructs = [];
     this.closeCount = 0;
@@ -32,6 +35,7 @@ class StubEventSource {
   readyState = StubEventSource.CONNECTING;
   url: string;
   withCredentials: boolean;
+  private listeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
 
   constructor(url: string | URL, init?: EventSourceInit) {
     this.url = String(url);
@@ -43,8 +47,29 @@ class StubEventSource {
     eventSourceTestState.instances.push(this);
   }
 
-  addEventListener() {}
-  removeEventListener() {}
+  addEventListener(eventName: string, listener: EventListenerOrEventListenerObject | null) {
+    if (!listener) return;
+    const listeners = this.listeners.get(eventName) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(eventName, listeners);
+  }
+  removeEventListener(eventName: string, listener: EventListenerOrEventListenerObject | null) {
+    if (!listener) return;
+    this.listeners.get(eventName)?.delete(listener);
+  }
+  registeredEventNames(): string[] {
+    return [...this.listeners.keys()];
+  }
+  emit(eventName: string) {
+    const event = new MessageEvent(eventName);
+    for (const listener of this.listeners.get(eventName) ?? []) {
+      if (typeof listener === "function") {
+        listener(event);
+      } else {
+        listener.handleEvent(event);
+      }
+    }
+  }
   close() {
     this.readyState = StubEventSource.CLOSED;
     eventSourceTestState.closeCount += 1;

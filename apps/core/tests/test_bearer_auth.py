@@ -530,6 +530,9 @@ def test_unauthorized_endpoints_do_zero_work(tmp_path, monkeypatch):
             "clear_ha_enrichment",
             MagicMock(side_effect=AssertionError("clear")),
         )
+        ctx.publish_event_and_schedule_dashboard = MagicMock(
+            side_effect=AssertionError("enrichment invalidation")
+        )
         monkeypatch.setattr(
             main_mod,
             "EventSourceResponse",
@@ -548,6 +551,8 @@ def test_unauthorized_endpoints_do_zero_work(tmp_path, monkeypatch):
             ),
             lambda: client.post("/api/enrichment/homeassistant", json={}),
             lambda: client.delete("/api/enrichment/homeassistant"),
+            lambda: client.post("/api/v1/enrichment/homeassistant", json={}),
+            lambda: client.delete("/api/v1/enrichment/homeassistant"),
             lambda: client.get("/api/events/stream"),
         ):
             _assert_uniform_401(call())

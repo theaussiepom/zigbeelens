@@ -21,6 +21,8 @@ import {
 import { DeviceDetailPage } from "./DevicesPage";
 
 vi.mock("@/lib/events", () => ({
+  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT:
+    "home_assistant_enrichment_updated",
   liveConnection: {
     subscribeEvents: () => () => {},
     subscribeState: () => () => {},

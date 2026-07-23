@@ -2,6 +2,9 @@ import { eventStreamUrl } from "@/lib/api";
 
 export type ConnectionState = "connecting" | "open" | "disconnected";
 
+export const HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT =
+  "home_assistant_enrichment_updated" as const;
+
 /** Known SSE event names emitted by ZigbeeLens Core. */
 export const LIVE_EVENTS = [
   "dashboard_update",
@@ -20,6 +23,7 @@ export const LIVE_EVENTS = [
   "timeline_updated",
   "reports_updated",
   "storage_maintenance_completed",
+  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
 ] as const;
 
 export type SessionProbeReason = "sse_error";

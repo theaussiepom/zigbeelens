@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { DrawerFact, DrawerSection, DrawerShell } from "@/components/meshGraph/DrawerShell";
@@ -6,13 +6,14 @@ import { DeviceStorySection } from "@/components/meshGraph/DeviceStorySection";
 import { EvidenceCoverageStrip } from "@/components/meshGraph/EvidenceCoverageStrip";
 import { devicePath } from "@/lib/format";
 import { DEVICE_DETAILS_OPEN_FULL_LABEL } from "@/lib/meshGraphCopy";
-import type { DataCoverageDto } from "@/types/decisions";
 import type { MeshEvidenceDevice } from "@/lib/meshEvidence";
 import {
   buildDeviceDetailsViewModel,
   type DeviceCoverageLoadState,
   type DeviceDetailsSectionViewModel,
 } from "@/viewModels/topology/deviceDetailsViewModel";
+import { useLiveResource } from "@/hooks/useLiveResource";
+import { HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT } from "@/lib/events";
 
 function DeviceDetailsSection({ section }: { section: DeviceDetailsSectionViewModel }) {
   switch (section.id) {
@@ -98,30 +99,23 @@ export function NodeDrawer({
   device: MeshEvidenceDevice;
   onClose: () => void;
 }) {
-  const [deviceCoverage, setDeviceCoverage] = useState<DataCoverageDto[]>([]);
-  const [deviceCoverageLoadState, setDeviceCoverageLoadState] =
-    useState<DeviceCoverageLoadState>("loading");
-
-  useEffect(() => {
-    let cancelled = false;
-    setDeviceCoverage([]);
-    setDeviceCoverageLoadState("loading");
-    api.deviceCoverage(device.network_id, device.ieee_address).then(
-      (data) => {
-        if (cancelled) return;
-        setDeviceCoverage(data);
-        setDeviceCoverageLoadState("loaded");
-      },
-      () => {
-        if (cancelled) return;
-        setDeviceCoverage([]);
-        setDeviceCoverageLoadState("unavailable");
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [device.network_id, device.ieee_address]);
+  const deviceCoverageResource = useLiveResource(
+    () => api.deviceCoverage(device.network_id, device.ieee_address),
+    [device.network_id, device.ieee_address],
+    { refetchOn: [HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT] },
+  );
+  const deviceCoverage =
+    deviceCoverageResource.error === null
+      ? (deviceCoverageResource.data ?? [])
+      : [];
+  const deviceCoverageLoadState: DeviceCoverageLoadState =
+    deviceCoverageResource.error !== null
+      ? "unavailable"
+      : deviceCoverageResource.data !== null
+      ? "loaded"
+      : deviceCoverageResource.loading
+        ? "loading"
+        : "unavailable";
 
   const viewModel = useMemo(
     () => buildDeviceDetailsViewModel(device, deviceCoverage, deviceCoverageLoadState),
