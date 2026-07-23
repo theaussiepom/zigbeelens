@@ -35,9 +35,18 @@ Before upgrading across major versions, prefer an online `zigbeelens storage bac
 
 ## Home Assistant add-on
 
-1. Back up the add-on (includes `/data`)
-2. Update the add-on from the store
-3. Restart
+This section applies to source-built/local pre-release testing now, or to a
+future published add-on artifact after publication gates close. The generated
+image-based repository is currently publication-blocked and is not an ordinary
+store upgrade route.
+
+For current source testing, back up `/data`, rebuild/reinstall through
+[addon-dev.md](addon-dev.md), and restart the local add-on. After an add-on
+artifact is intentionally published:
+
+1. Back up the add-on (includes `/data`).
+2. Update that published artifact from its configured store.
+3. Restart it.
 
 ## What to keep stable
 
@@ -61,7 +70,8 @@ current-main/pre-release validation.
 
 ## Rollback
 
-1. Stop the container / add-on
+1. Stop the container, source-built/local pre-release add-on, or future
+   published add-on artifact
 2. Restore `/data` from backup if needed
 3. Run the previous image tag
 4. Start again

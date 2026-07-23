@@ -13,7 +13,7 @@ YAML, environment variables, or secret files.
 |------------|---------------------|---------------|
 | Docker / Compose | ZigbeeLens Core | A YAML file mounted at `/config/config.yaml`, plus optional environment or secret-file overrides |
 | Direct Core | ZigbeeLens Core | `config/config.yaml`, `ZIGBEELENS_CONFIG`, or `zigbeelens --config PATH` |
-| Home Assistant add-on | Supervisor + add-on launcher | Add-on options; the launcher generates `/data/zigbeelens/config.yaml` |
+| Home Assistant add-on (source/local pre-release; packaged publication blocked) | Supervisor + source add-on launcher | Add-on options; the source launcher generates `/data/zigbeelens/config.yaml` |
 | HACS integration | Home Assistant config entry | Core URL, optional Core API token, TLS verification, panel visibility, and intended polling interval |
 
 The HACS integration does not configure or install Core. It connects to an
@@ -247,9 +247,14 @@ assets.
 
 ## Home Assistant add-on ownership
 
-The add-on exposes Supervisor options for MQTT, networks, storage, diagnostics,
-reporting, feature gates, MQTT Discovery, topology, and an optional
-`security.api_token`. It owns and does not expose these generated Core values:
+This section describes the source-built/local pre-release runner today and a
+future published add-on artifact only after publication gates close. The
+current generated image-based repository remains publication-blocked.
+
+The source add-on exposes Supervisor options for MQTT, networks, storage,
+diagnostics, reporting, feature gates, MQTT Discovery, topology, and an
+optional `security.api_token`. It owns and does not expose these generated Core
+values:
 
 - `server.host: 0.0.0.0` and `server.port: 8377`;
 - `mode.mock: false`;

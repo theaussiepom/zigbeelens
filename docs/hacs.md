@@ -91,12 +91,16 @@ The value must be an exact HTTP(S) origin: no path, query, fragment, embedded
 credentials, or trailing application route. Use `localhost` only when Home
 Assistant Core and ZigbeeLens Core truly share a network namespace.
 
-The shipped Home Assistant add-on exposes its full UI only through Supervisor
-Ingress and publishes no host port. Home Assistant Core does not share the
-add-on's network namespace, so `http://localhost:8377` is not a valid portable
-add-on URL. The repository currently defines no stable add-on backend hostname
-for HACS. Use the add-on's Ingress UI without HACS, or run standalone Core at a
-reachable origin when HACS entities and the companion panel are required.
+For source-built/local pre-release testing, the Home Assistant add-on runner
+serves the full UI through Supervisor Ingress and publishes no host port. The
+generated image-based repository is publication-blocked; a future published
+add-on artifact may provide that Ingress path only after its publication gates
+close. Home Assistant Core does not share the add-on's network namespace, so
+`http://localhost:8377` is not a valid portable add-on URL. The repository
+currently defines no stable add-on backend hostname for HACS. Use the
+source-built runner's Ingress UI without HACS during deliberate local testing,
+or run standalone Core at a reachable origin when HACS entities and the
+companion panel are required.
 
 The companion panel renders status from the integration (over the HA websocket) and does not require the browser to reach Core directly. The **Open Full Dashboard** button opens the configured Core URL in a new tab, so that URL must be reachable from your browser.
 

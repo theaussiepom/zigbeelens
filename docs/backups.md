@@ -67,10 +67,17 @@ docker compose start
 
 ## Home Assistant add-on backup
 
-Use **Settings → System → Backups** and include the ZigbeeLens add-on. This remains the preferred add-on restore mechanism and captures `/data` inside the add-on.
+This section applies to source-built/local pre-release testing now, or to a
+future published add-on artifact after publication gates close. The generated
+image-based repository remains publication-blocked.
 
-To restore, stop the add-on, restore a Home Assistant backup that includes
-ZigbeeLens, then start the add-on and check its log and Ingress dashboard.
+For an installed local add-on, use **Settings → System → Backups** and include
+ZigbeeLens; the backup captures `/data` inside that source-testing installation.
+The same mechanism applies to a future intentionally published artifact.
+
+To restore one of those scoped installations, stop it, restore a Home Assistant
+backup that includes ZigbeeLens, then start it and check its log and Ingress
+dashboard.
 
 ## Retention policy (Track 6)
 

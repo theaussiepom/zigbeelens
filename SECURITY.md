@@ -96,7 +96,7 @@ See [docs/redaction.md](docs/redaction.md) and [docs/security.md](docs/security.
 
 | Install | Notes |
 |---------|-------|
-| HAOS add-on | Full dashboard via Home Assistant Ingress; Core accepts the injected identity only from the exact Supervisor peer and uses proxy-only ingress mode |
+| HAOS add-on source/local pre-release | Full dashboard via Home Assistant Ingress; a future published artifact may use this path only after publication gates close |
 | Docker standalone | Publishing port 8377 exposes Core on the Docker host; convenient for local or trusted-network use |
 | HACS integration | Not an authentication layer for Core; HTTPS Core URLs are for embedded-view browser compatibility, not auth |
 

@@ -105,9 +105,14 @@ See [redaction.md](redaction.md).
 
 See [hacs.md](hacs.md).
 
-## Add-on Ingress blank page
+## Add-on Ingress blank page during scoped testing
 
-1. Confirm add-on is started and healthy.
+This section applies to source-built/local pre-release testing now, or to a
+future published add-on artifact after publication gates close. The generated
+image-based repository remains publication-blocked and is not a supported
+release installation.
+
+1. Confirm the scoped local or future-published add-on is started and healthy.
 2. Check add-on log for Core startup errors.
 3. Verify MQTT config in add-on options.
 4. Open ZigbeeLens through the Home Assistant sidebar Ingress route; the
@@ -230,10 +235,13 @@ Also remember:
 
 Symptoms: Core refuses to start destructive services; logs show storage integrity failure.
 
-1. Stop Core / add-on.
+1. Stop Core or the scoped source-built/local pre-release add-on (or future
+   published artifact).
 2. Keep the current DB as a rollback copy.
 3. Run `zigbeelens storage check --database /path/to/zigbeelens.sqlite` (add `--full` for a deeper check).
-4. If checks fail, restore a verified backup (online `storage backup` snapshot or HA add-on backup), then start Core so migrations + integrity + maintenance run in order.
+4. If checks fail, restore a verified backup (online `storage backup` snapshot,
+   or an HA backup for the scoped add-on paths above), then start Core so
+   migrations + integrity + maintenance run in order.
 5. Confirm `/api/v1/storage/status` integrity facts show `status: ok` after a healthy start.
 
 ## Security configuration errors

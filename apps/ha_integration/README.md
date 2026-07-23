@@ -32,9 +32,12 @@ Run ZigbeeLens Core using one of:
 - **Docker / Compose** — run the standalone container, e.g. `http://host:8377`
 - Another Core deployment with an HTTP(S) origin reachable from Home Assistant
 
-The Home Assistant add-on already provides the full Core UI through Ingress and
-does not require HACS. Its manifest publishes no direct port, and this
-repository does not define a portable HACS-to-add-on backend URL.
+For source-built/local pre-release testing, the Home Assistant add-on runner is
+intended to provide the full Core UI through Ingress without HACS. The
+generated image-based repository is publication-blocked; only a future
+published add-on artifact may provide that packaged route after its publication
+gates close. The add-on manifest publishes no direct port, and this repository
+does not define a portable HACS-to-add-on backend URL.
 
 ## Release status — pre-release testing only
 
@@ -132,9 +135,11 @@ storage. Diagnostics expose only `api_token_configured` (boolean).
 | Docker on LAN (pre-release) | `http://<docker-host-ip>:8377` |
 | Docker Compose same network | `http://zigbeelens:8377` |
 
-Do not use `http://localhost:8377` for the packaged add-on. Home Assistant Core
-does not share the add-on's network namespace, and the add-on exposes port 8377
-only to Supervisor Ingress.
+Do not use `http://localhost:8377` for source-built/local pre-release add-on
+testing or for a future published add-on artifact. Home Assistant Core does not
+share the add-on's network namespace, and the source runner exposes port 8377
+only to Supervisor Ingress. The generated image-based repository remains
+publication-blocked.
 
 ## Entities
 
@@ -238,8 +243,8 @@ To enable embedded view when Home Assistant is HTTPS, put Core behind an HTTPS r
 
 | Symptom | What to check |
 |---------|----------------|
-| Core unreachable | Core URL, container/add-on running, firewall |
-| Panel shows "not responding" | Core URL reachable from Home Assistant; container/add-on running; click Reload status |
+| Core unreachable | Core URL, standalone Core service running, firewall |
+| Panel shows "not responding" | Core URL reachable from Home Assistant; standalone Core service running; click Reload status |
 | Open Dashboard button | Opens Core in a new tab; if the tab fails, Core itself is unreachable from your browser/LAN |
 | Add-on vs Docker URL | Use a URL reachable from Home Assistant Core, not your browser only |
 | Collector disconnected | MQTT settings in Core; broker reachable from Core |
