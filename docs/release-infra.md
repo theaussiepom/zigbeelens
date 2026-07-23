@@ -64,6 +64,28 @@ with the locally generated package from `./scripts/package-hacs-repo.sh`.
 External synchronization or publication requires a separate explicitly
 authorized task.
 
+Reviewed public-satellite state (historical evidence):
+
+- commit: `050d118b3e1406343255594fe64cd569e2420888`
+- reviewed: `2026-07-23`
+
+That commit advertises integration version `0.1.13`, `@zigbeelens` ownership,
+and no Python requirements. Its README and integration implementation remain
+materially different from this stage. The satellite is not assumed to remain at
+that commit; re-check its current tree immediately before any publication
+decision.
+
+### Staged source provenance
+
+The source-tree integration manifest keeps a stable `main` documentation URL
+for direct source browsing. A generated local stage has a different ownership
+contract: `./scripts/package-hacs-repo.sh` records the exact monorepo source
+commit in `SOURCE_COMMIT`, includes that commit in the generated README, and
+rewrites the staged manifest Documentation URL to the immutable
+`zigbeelens/blob/<source-commit>/docs/hacs.md` page. The provenance file and URL
+must agree. This identifies the reviewed monorepo source; it does not establish
+satellite synchronization or publication readiness.
+
 The integration's OptionsFlow accepts a 15–900-second polling interval, manually
 updates the entry, and then returns an empty options result. Home Assistant
 persists that result over the intermediate update, so the custom interval is

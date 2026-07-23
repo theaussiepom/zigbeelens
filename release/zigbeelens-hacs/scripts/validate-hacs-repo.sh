@@ -11,6 +11,7 @@ ok() { echo "OK: $1"; }
 echo "=== ZigbeeLens HACS repo validation ==="
 
 REQUIRED=(
+  SOURCE_COMMIT
   hacs.json
   README.md
   LICENSE
@@ -48,11 +49,22 @@ for f in "${REQUIRED[@]}"; do
   if [[ -f "${ROOT}/${f}" ]]; then ok "$f"; else fail "missing $f"; fi
 done
 
-python3 - <<PY
+python3 - "${ROOT}" <<'PY'
 import json, re, sys
+from datetime import date
 from pathlib import Path
 
-root = Path("${ROOT}")
+root = Path(sys.argv[1])
+source_commit_path = root / "SOURCE_COMMIT"
+if not source_commit_path.is_file():
+    sys.exit("missing SOURCE_COMMIT")
+source_commit_raw = source_commit_path.read_text(encoding="utf-8")
+if re.fullmatch(r"[0-9a-f]{40}\n", source_commit_raw) is None:
+    sys.exit(
+        "SOURCE_COMMIT must contain exactly one normalized lowercase "
+        "40-character commit SHA followed by a newline"
+    )
+source_commit = source_commit_raw[:-1]
 hacs = json.loads((root / "hacs.json").read_text())
 if hacs.get("content_in_root") is not False:
     sys.exit("hacs.json content_in_root must be false for custom_components layout")
@@ -68,16 +80,74 @@ if manifest.get("iot_class") != "local_polling":
 if not manifest.get("codeowners"):
     sys.exit("manifest codeowners required")
 documentation = manifest.get("documentation")
-if not isinstance(documentation, str) or re.fullmatch(
-    r"https://github\.com/[^/]+/zigbeelens/blob/main/docs/hacs\.md",
-    documentation,
+documentation_match = (
+    re.fullmatch(
+        r"https://github\.com/"
+        r"(?P<owner>[A-Za-z0-9_.-]+)/zigbeelens/blob/"
+        r"(?P<commit>[0-9a-f]{40})/docs/hacs\.md",
+        documentation,
+    )
+    if isinstance(documentation, str)
+    else None
+)
+if documentation_match is None:
+    sys.exit(
+        "manifest documentation must be pinned to a normalized 40-character "
+        "monorepo commit for docs/hacs.md"
+    )
+if documentation_match.group("commit") != source_commit:
+    sys.exit(
+        "manifest documentation commit does not match SOURCE_COMMIT: "
+        f"{documentation_match.group('commit')} != {source_commit}"
+    )
+owner = documentation_match.group("owner")
+readme = (root / "README.md").read_text(encoding="utf-8")
+expected_commit_url = (
+    f"https://github.com/{owner}/zigbeelens/commit/{source_commit}"
+)
+expected_commit_link = f"[`{source_commit}`]({expected_commit_url})"
+local_heading = "## Local staged integration testing"
+future_heading = "## Conditional public HACS installation"
+local_start = readme.find(local_heading)
+future_start = readme.find(future_heading)
+if local_start < 0 or future_start <= local_start:
+    sys.exit(
+        "README must contain ordered local-stage and conditional-public-HACS sections"
+    )
+local_readme = readme[local_start:future_start]
+if local_readme.count(expected_commit_link) != 1:
+    sys.exit("README package source commit does not match SOURCE_COMMIT")
+if local_readme.count(documentation) != 1:
+    sys.exit(
+        "README pinned documentation URL does not match manifest documentation"
+    )
+if "@SOURCE_COMMIT@" in readme:
+    sys.exit("README contains an unresolved SOURCE_COMMIT placeholder")
+reviewed_state = re.search(
+    r"Reviewed public-satellite state \(historical evidence\):\s*"
+    r"- commit: `(?P<commit>[0-9a-f]{40})`\s*"
+    r"- reviewed: `(?P<reviewed>[0-9]{4}-[0-9]{2}-[0-9]{2})`",
+    readme,
+)
+if reviewed_state is None:
+    sys.exit(
+        "README reviewed public-satellite state must include a 40-character "
+        "commit SHA and ISO-format review date"
+    )
+try:
+    date.fromisoformat(reviewed_state.group("reviewed"))
+except ValueError as exc:
+    raise SystemExit(
+        "README public-satellite review date must be a valid ISO date"
+    ) from exc
+if re.search(
+    r"re-check its current tree(?: immediately)? before (?:any )?publication",
+    readme,
+    flags=re.IGNORECASE,
 ) is None:
     sys.exit(
-        "manifest documentation must point to the monorepo's current "
-        "docs/hacs.md status guide"
+        "README must require the public satellite to be re-checked before publication"
     )
-if "zigbeelens-hacs" in documentation.lower():
-    sys.exit("manifest documentation must not point to the public HACS satellite")
 strings = json.loads((root / "custom_components/zigbeelens/strings.json").read_text())
 translations = json.loads((root / "custom_components/zigbeelens/translations/en.json").read_text())
 if "issues" not in strings or "incompatible_core_version" not in strings["issues"]:
@@ -86,6 +156,9 @@ if "issues" not in translations or "incompatible_core_version" not in translatio
     sys.exit("translations/en.json missing incompatible_core_version")
 if strings != translations:
     sys.exit("English translation must match strings.json")
+print(
+    "OK: SOURCE_COMMIT agrees with README and pinned manifest documentation"
+)
 print("OK: hacs.json, manifest.json, strings.json, translations/en.json parse")
 PY
 
@@ -134,6 +207,8 @@ require_readme "fallback"
 require_readme "native companion summary (default)"
 require_readme "try embedded view"
 require_readme "back to summary"
+require_readme "package provenance"
+require_readme 'the generated `source_commit` file records the same commit'
 require_readme "release status — local/staged integration only"
 require_readme "public hacs installation is unavailable"
 require_readme "not synchronized"
@@ -141,7 +216,8 @@ require_readme "must not be used to validate"
 require_readme "local staged integration testing"
 require_readme "full home assistant restart"
 require_readme "conditional public hacs installation"
-require_readme "reviewed public-satellite state (**2026-07-23**)"
+require_readme "reviewed public-satellite state (historical evidence)"
+require_readme "re-check its current tree before publication"
 require_readme "staged tree must match the intended satellite tree"
 require_readme "version must uniquely identify that tree"
 require_readme "exact home assistant 2025.1.0 plus current-version coverage"
