@@ -10,12 +10,21 @@ REVIEWED_HACS_REPOSITORY="theaussiepom/zigbeelens-hacs"
 
 PACKAGE_INPUTS=(
   apps/ha_integration/custom_components/zigbeelens
+  apps/ha_integration/docs
+  apps/ha_integration/tests
+  apps/ha_integration/ha-test-matrix.json
+  apps/ha_integration/pytest.ini
+  apps/ha_integration/requirements-test.txt
+  apps/ha_integration/requirements-test-minimum.txt
+  apps/ha_integration/requirements-test-current.txt
+  apps/core/tests/fixtures/http_origin_vectors.json
   LICENSE
   CHANGELOG.md
   release/zigbeelens-hacs/README.md.in
   release/zigbeelens-hacs/.github/workflows
   release/zigbeelens-hacs/scripts/validate-hacs-repo.sh
   scripts/package-hacs-repo.sh
+  scripts/test-ha-integration-matrix.sh
 )
 
 fail() {
@@ -118,6 +127,17 @@ mkdir -p "${DIST}/custom_components"
 printf '%s\n' "${SOURCE_COMMIT_VALUE}" > "${DIST}/SOURCE_COMMIT"
 
 cp -R "${SRC}/custom_components/zigbeelens" "${DIST}/custom_components/"
+cp -R "${SRC}/docs" "${DIST}/docs"
+cp -R "${SRC}/tests" "${DIST}/tests"
+mkdir -p "${DIST}/tests/fixtures"
+cp \
+  "${SOURCE_SNAPSHOT}/apps/core/tests/fixtures/http_origin_vectors.json" \
+  "${DIST}/tests/fixtures/"
+cp "${SRC}/ha-test-matrix.json" "${DIST}/"
+cp "${SRC}/pytest.ini" "${DIST}/"
+cp "${SRC}/requirements-test.txt" "${DIST}/"
+cp "${SRC}/requirements-test-minimum.txt" "${DIST}/"
+cp "${SRC}/requirements-test-current.txt" "${DIST}/"
 cp "${SOURCE_SNAPSHOT}/LICENSE" "${DIST}/"
 cp "${SOURCE_SNAPSHOT}/CHANGELOG.md" "${DIST}/"
 
@@ -155,7 +175,10 @@ cp "${SOURCE_SNAPSHOT}/release/zigbeelens-hacs/.github/workflows/release.yml" \
   "${DIST}/.github/workflows/release.yml"
 cp "${SOURCE_SNAPSHOT}/release/zigbeelens-hacs/scripts/validate-hacs-repo.sh" \
   "${DIST}/scripts/validate-hacs-repo.sh"
+cp "${SOURCE_SNAPSHOT}/scripts/test-ha-integration-matrix.sh" \
+  "${DIST}/scripts/test-ha-integration-matrix.sh"
 chmod +x "${DIST}/scripts/validate-hacs-repo.sh"
+chmod +x "${DIST}/scripts/test-ha-integration-matrix.sh"
 
 echo "Packaged HACS repo at ${DIST}"
 find "${DIST}" -type f | sort

@@ -34,6 +34,9 @@ bash scripts/validate-safety-guardrails.sh
 echo "==> UI shared types"
 pnpm --filter @zigbeelens/shared build
 
+echo "==> UI shared types typecheck"
+pnpm --filter @zigbeelens/shared typecheck
+
 echo "==> UI lint + typecheck + tests + build"
 pnpm --filter @zigbeelens/ui lint
 pnpm --filter @zigbeelens/ui typecheck
@@ -41,7 +44,8 @@ pnpm --filter @zigbeelens/ui test
 pnpm --filter @zigbeelens/ui build
 
 echo "==> HA integration"
-bash scripts/validate-ha-integration.sh
+bash scripts/validate-ha-integration.sh --skip-matrix
+bash scripts/test-ha-integration-matrix.sh
 bash scripts/package-hacs-repo.sh
 bash dist/zigbeelens-hacs/scripts/validate-hacs-repo.sh
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -19,6 +20,9 @@ PACKAGE_VALIDATOR = (
 INTEGRATION_SOURCE = (
     ROOT / "apps" / "ha_integration" / "custom_components" / "zigbeelens"
 )
+INTEGRATION_ROOT = ROOT / "apps" / "ha_integration"
+INTEGRATION_TESTS = INTEGRATION_ROOT / "tests"
+MATRIX_RUNNER = ROOT / "scripts" / "test-ha-integration-matrix.sh"
 WORKFLOW_SOURCE = (
     ROOT / "release" / "zigbeelens-hacs" / ".github" / "workflows"
 )
@@ -28,6 +32,25 @@ DEFAULT_FUTURE_HACS_REPOSITORY = "theaussiepom/zigbeelens-hacs"
 REVIEWED_HACS_REPOSITORY = "theaussiepom/zigbeelens-hacs"
 REVIEWED_HACS_COMMIT = "050d118b3e1406343255594fe64cd569e2420888"
 REVIEWED_HACS_DATE = "2026-07-23"
+HASSFEST_COMMIT = "e3fb68ebda13d88a0d695082f471ba2c83d025fb"
+HACS_ACTION_COMMIT = "1ebf01c408f29afcb6406bd431bc98fd8cbb15aa"
+EXPECTED_HA_MATRIX = {
+    "reviewed_on": "2026-07-23",
+    "lanes": [
+        {
+            "name": "minimum",
+            "homeassistant": "2025.1.0",
+            "python": "3.12",
+            "requirements": "requirements-test-minimum.txt",
+        },
+        {
+            "name": "current",
+            "homeassistant": "2026.7.3",
+            "python": "3.14",
+            "requirements": "requirements-test-current.txt",
+        },
+    ],
+}
 
 
 def _copy_file(source: Path, destination: Path) -> None:
@@ -37,6 +60,10 @@ def _copy_file(source: Path, destination: Path) -> None:
 
 def _copy_fixture_files(repository: Path) -> None:
     _copy_file(PACKAGER, repository / "scripts" / "package-hacs-repo.sh")
+    _copy_file(
+        MATRIX_RUNNER,
+        repository / "scripts" / "test-ha-integration-matrix.sh",
+    )
     _copy_file(
         README_TEMPLATE,
         repository / "release" / "zigbeelens-hacs" / "README.md.in",
@@ -62,6 +89,28 @@ def _copy_fixture_files(repository: Path) -> None:
     _copy_file(ROOT / "LICENSE", repository / "LICENSE")
     _copy_file(ROOT / "CHANGELOG.md", repository / "CHANGELOG.md")
     _copy_file(ROOT / ".gitignore", repository / ".gitignore")
+    for name in (
+        "ha-test-matrix.json",
+        "pytest.ini",
+        "requirements-test.txt",
+        "requirements-test-minimum.txt",
+        "requirements-test-current.txt",
+    ):
+        _copy_file(
+            INTEGRATION_ROOT / name,
+            repository / "apps" / "ha_integration" / name,
+        )
+    for name in ("zigbeelens-icon.svg", "zigbeelens-logo.svg"):
+        _copy_file(
+            INTEGRATION_ROOT / "docs" / name,
+            repository / "apps" / "ha_integration" / "docs" / name,
+        )
+    _copy_file(
+        ROOT / "apps" / "core" / "tests" / "fixtures"
+        / "http_origin_vectors.json",
+        repository / "apps" / "core" / "tests" / "fixtures"
+        / "http_origin_vectors.json",
+    )
     shutil.copytree(
         INTEGRATION_SOURCE,
         repository
@@ -73,6 +122,17 @@ def _copy_fixture_files(repository: Path) -> None:
             "__pycache__",
             "*.pyc",
             "*.pyo",
+            ".DS_Store",
+        ),
+    )
+    shutil.copytree(
+        INTEGRATION_TESTS,
+        repository / "apps" / "ha_integration" / "tests",
+        ignore=shutil.ignore_patterns(
+            "__pycache__",
+            "*.pyc",
+            "*.pyo",
+            ".pytest_cache",
             ".DS_Store",
         ),
     )
@@ -214,6 +274,7 @@ def _assert_packaged_provenance(
     assert manifest["issue_tracker"] == (
         f"https://github.com/{source_repository}/issues"
     )
+    assert manifest["single_config_entry"] is True
 
     readme = (stage / "README.md").read_text(encoding="utf-8")
     local_heading = "## Local staged integration testing"
@@ -254,6 +315,99 @@ def _assert_packaged_provenance(
         assert placeholder not in readme
 
 
+def _assert_generated_release_contract(stage: Path) -> None:
+    matrix = json.loads(
+        (stage / "ha-test-matrix.json").read_text(encoding="utf-8")
+    )
+    assert matrix == EXPECTED_HA_MATRIX
+    assert (
+        stage / "requirements-test-minimum.txt"
+    ).read_text(encoding="utf-8").splitlines() == [
+        "-r requirements-test.txt",
+        "homeassistant==2025.1.0",
+    ]
+    assert (
+        stage / "requirements-test-current.txt"
+    ).read_text(encoding="utf-8").splitlines() == [
+        "-r requirements-test.txt",
+        "homeassistant==2026.7.3",
+    ]
+    common_requirements = (
+        stage / "requirements-test.txt"
+    ).read_text(encoding="utf-8")
+    assert re.search(
+        r"(?im)^homeassistant(?:$|[\s\[<>=!~;])",
+        common_requirements,
+    ) is None
+
+    ci = (stage / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert ci.count("workflow_call:") == 1
+    assert ci.count("bash scripts/validate-hacs-repo.sh") == 1
+    assert ci.count(
+        'bash scripts/test-ha-integration-matrix.sh "${{ matrix.lane }}"'
+    ) == 1
+    assert (
+        f"home-assistant/actions/hassfest@{HASSFEST_COMMIT}" in ci
+    )
+    assert f"hacs/action@{HACS_ACTION_COMMIT}" in ci
+    assert ci.count("category: integration") == 1
+    assert re.findall(
+        r"(?m)^\s+- lane:\s*(\S+)\s*\n"
+        r"\s+homeassistant:\s*[\"']([^\"']+)[\"']\s*\n"
+        r"\s+python:\s*[\"']([^\"']+)[\"']\s*$",
+        ci,
+    ) == [
+        ("minimum", "2025.1.0", "3.12"),
+        ("current", "2026.7.3", "3.14"),
+    ]
+    hassfest_job = re.search(
+        r"(?ms)^  hassfest:[ \t]*\n"
+        r"(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:[ \t]*$|\Z)",
+        ci,
+    )
+    assert hassfest_job is not None
+    assert hassfest_job.group("body").count(
+        "uses: actions/checkout@v4"
+    ) == 1
+    hacs_job = re.search(
+        r"(?ms)^  hacs:[ \t]*\n"
+        r"(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:[ \t]*$|\Z)",
+        ci,
+    )
+    assert hacs_job is not None
+    assert re.search(
+        r"(?m)^\s{4}permissions:\s*\{\}\s*$",
+        hacs_job.group("body"),
+    )
+
+    release = (
+        stage / ".github/workflows/release.yml"
+    ).read_text(encoding="utf-8")
+    assert release.count("uses: ./.github/workflows/ci.yml") == 1
+    validation_job = re.search(
+        r"(?ms)^  validation:[ \t]*\n"
+        r"(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:[ \t]*$|\Z)",
+        release,
+    )
+    assert validation_job is not None
+    assert re.search(
+        r"(?m)^\s{4}uses:\s*\./\.github/workflows/ci\.yml\s*$",
+        validation_job.group("body"),
+    )
+    assert re.search(r"(?m)^\s{4}needs:\s*validation\s*$", release)
+
+    runner = (
+        stage / "scripts/test-ha-integration-matrix.sh"
+    ).read_text(encoding="utf-8")
+    assert "mktemp -d" in runner
+    assert 'version("homeassistant")' in runner
+    assert (
+        '"${venv}/bin/python" -m pytest -q "${HA_DIR}"'
+        in runner
+    )
+    assert ".venv-test" not in runner
+
+
 def _assert_package_tree_matches_commit(
     repository: Path,
     expected_commit: str,
@@ -273,10 +427,34 @@ def _assert_package_tree_matches_commit(
         expected_commit,
         "apps/ha_integration/custom_components/zigbeelens",
     ).splitlines()
+    integration_test_sources = _git_text(
+        repository,
+        "ls-tree",
+        "-r",
+        "--name-only",
+        expected_commit,
+        "apps/ha_integration/tests",
+    ).splitlines()
+    integration_doc_sources = _git_text(
+        repository,
+        "ls-tree",
+        "-r",
+        "--name-only",
+        expected_commit,
+        "apps/ha_integration/docs",
+    ).splitlines()
     expected_stage_files = {
         source.removeprefix("apps/ha_integration/")
         for source in integration_sources
     }
+    expected_stage_files.update(
+        source.removeprefix("apps/ha_integration/")
+        for source in integration_test_sources
+    )
+    expected_stage_files.update(
+        source.removeprefix("apps/ha_integration/")
+        for source in integration_doc_sources
+    )
     expected_stage_files.update(
         {
             "SOURCE_COMMIT",
@@ -287,6 +465,13 @@ def _assert_package_tree_matches_commit(
             ".github/workflows/ci.yml",
             ".github/workflows/release.yml",
             "scripts/validate-hacs-repo.sh",
+            "scripts/test-ha-integration-matrix.sh",
+            "ha-test-matrix.json",
+            "pytest.ini",
+            "requirements-test.txt",
+            "requirements-test-minimum.txt",
+            "requirements-test-current.txt",
+            "tests/fixtures/http_origin_vectors.json",
         }
     )
     actual_stage_files = {
@@ -309,6 +494,22 @@ def _assert_package_tree_matches_commit(
             f"{expected_commit}:{source}",
         )
         assert source.startswith(integration_prefix)
+
+    for source in integration_test_sources:
+        destination = stage / source.removeprefix("apps/ha_integration/")
+        assert destination.read_bytes() == _git_bytes(
+            repository,
+            "show",
+            f"{expected_commit}:{source}",
+        )
+
+    for source in integration_doc_sources:
+        destination = stage / source.removeprefix("apps/ha_integration/")
+        assert destination.read_bytes() == _git_bytes(
+            repository,
+            "show",
+            f"{expected_commit}:{source}",
+        )
 
     expected_manifest = json.loads(
         _git_bytes(
@@ -343,6 +544,21 @@ def _assert_package_tree_matches_commit(
         (
             "release/zigbeelens-hacs/scripts/validate-hacs-repo.sh"
         ): "scripts/validate-hacs-repo.sh",
+        (
+            "scripts/test-ha-integration-matrix.sh"
+        ): "scripts/test-ha-integration-matrix.sh",
+        "apps/ha_integration/ha-test-matrix.json": "ha-test-matrix.json",
+        "apps/ha_integration/pytest.ini": "pytest.ini",
+        "apps/ha_integration/requirements-test.txt": "requirements-test.txt",
+        (
+            "apps/ha_integration/requirements-test-minimum.txt"
+        ): "requirements-test-minimum.txt",
+        (
+            "apps/ha_integration/requirements-test-current.txt"
+        ): "requirements-test-current.txt",
+        (
+            "apps/core/tests/fixtures/http_origin_vectors.json"
+        ): "tests/fixtures/http_origin_vectors.json",
     }
     for source, destination in static_files.items():
         assert (stage / destination).read_bytes() == _git_bytes(
@@ -407,6 +623,142 @@ def test_package_validator_accepts_matching_provenance(tmp_path: Path):
 
     assert validation.returncode == 0, validation.stderr
     assert "SOURCE_COMMIT" in validation.stdout
+
+
+def test_generated_release_infrastructure_is_sealed(tmp_path: Path):
+    repository = _fixture_repository(tmp_path)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    _assert_generated_release_contract(
+        repository / "dist" / "zigbeelens-hacs"
+    )
+
+
+def test_monorepo_release_paths_own_exact_ha_matrix_and_structure() -> None:
+    expected_lanes = [
+        ("minimum", "2025.1.0", "3.12"),
+        ("current", "2026.7.3", "3.14"),
+    ]
+    for workflow_name in ("ci.yml", "release-check.yml"):
+        workflow = (
+            ROOT / ".github" / "workflows" / workflow_name
+        ).read_text(encoding="utf-8")
+        assert re.findall(
+            r"(?m)^\s+- lane:\s*(\S+)\s*\n"
+            r"\s+homeassistant:\s*[\"']([^\"']+)[\"']\s*\n"
+            r"\s+python:\s*[\"']([^\"']+)[\"']\s*$",
+            workflow,
+        ) == expected_lanes
+        assert (
+            'bash scripts/test-ha-integration-matrix.sh "${{ matrix.lane }}"'
+            in workflow
+        )
+        assert "bash scripts/validate-ha-integration.sh --skip-matrix" in workflow
+
+    ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert re.search(
+        r"needs:\s*\[[^\]]*\bha-integration-matrix\b[^\]]*\]",
+        ci,
+    )
+    release_check = (
+        ROOT / ".github/workflows/release-check.yml"
+    ).read_text(encoding="utf-8")
+    assert re.search(
+        r"(?m)^\s{4}needs:\s*ha-integration-matrix\s*$",
+        release_check,
+    )
+
+    helper = (
+        ROOT / "scripts" / "run-release-checks.sh"
+    ).read_text(encoding="utf-8")
+    structural = helper.index(
+        "bash scripts/validate-ha-integration.sh --skip-matrix"
+    )
+    matrix = helper.index("bash scripts/test-ha-integration-matrix.sh")
+    package = helper.index("bash scripts/package-hacs-repo.sh")
+    assert structural < matrix < package
+    assert "pnpm --filter @zigbeelens/shared typecheck" in helper
+
+
+def test_package_validator_rejects_missing_single_config_entry(
+    tmp_path: Path,
+):
+    repository = _fixture_repository(tmp_path)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    manifest_path = (
+        repository
+        / "dist"
+        / "zigbeelens-hacs"
+        / "custom_components"
+        / "zigbeelens"
+        / "manifest.json"
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("single_config_entry")
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+    assert "single_config_entry must be true" in _combined_output(validation)
+
+
+def test_package_validator_rejects_moving_hassfest_reference(
+    tmp_path: Path,
+):
+    repository = _fixture_repository(tmp_path)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    workflow_path = (
+        repository
+        / "dist"
+        / "zigbeelens-hacs"
+        / ".github"
+        / "workflows"
+        / "ci.yml"
+    )
+    workflow = workflow_path.read_text(encoding="utf-8")
+    workflow_path.write_text(
+        workflow.replace(HASSFEST_COMMIT, "master", 1),
+        encoding="utf-8",
+    )
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+    assert "hassfest@" in _combined_output(validation)
+
+
+def test_package_validator_rejects_ungated_release(tmp_path: Path):
+    repository = _fixture_repository(tmp_path)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    workflow_path = (
+        repository
+        / "dist"
+        / "zigbeelens-hacs"
+        / ".github"
+        / "workflows"
+        / "release.yml"
+    )
+    workflow = workflow_path.read_text(encoding="utf-8")
+    workflow_path.write_text(
+        workflow.replace("    needs: validation\n", "", 1),
+        encoding="utf-8",
+    )
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+    assert "publish job must depend on validation" in _combined_output(validation)
 
 
 def test_generated_operational_documentation_is_pinned(tmp_path: Path):
@@ -531,7 +883,13 @@ def test_packager_rejects_dirty_readme_template(tmp_path: Path):
         "release/zigbeelens-hacs/.github/workflows/ci.yml",
         "release/zigbeelens-hacs/.github/workflows/release.yml",
         "release/zigbeelens-hacs/scripts/validate-hacs-repo.sh",
+        "apps/ha_integration/ha-test-matrix.json",
+        "apps/ha_integration/docs/zigbeelens-icon.svg",
+        "apps/ha_integration/requirements-test-current.txt",
+        "apps/ha_integration/tests/test_matrix_contract.py",
+        "apps/core/tests/fixtures/http_origin_vectors.json",
         "scripts/package-hacs-repo.sh",
+        "scripts/test-ha-integration-matrix.sh",
     ),
 )
 def test_packager_rejects_other_dirty_package_input(

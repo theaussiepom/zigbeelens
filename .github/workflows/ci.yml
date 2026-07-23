@@ -106,8 +106,12 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Validate HA integration
-        run: bash scripts/validate-ha-integration.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate HA integration structure and generated HACS repository
+        run: bash scripts/validate-ha-integration.sh --skip-matrix
 
       - name: Package HACS release layout
         run: bash scripts/package-hacs-repo.sh
@@ -115,10 +119,40 @@ jobs:
       - name: Verify HACS repo layout
         run: test -f dist/zigbeelens-hacs/custom_components/zigbeelens/manifest.json
 
+  ha-integration-matrix:
+    name: HA ${{ matrix.homeassistant }} / Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: minimum
+            homeassistant: "2025.1.0"
+            python: "3.12"
+          - lane: current
+            homeassistant: "2026.7.3"
+            python: "3.14"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run the exact Home Assistant compatibility lane
+        env:
+          ZIGBEELENS_HA_TEST_PYTHON: python
+        run: bash scripts/test-ha-integration-matrix.sh "${{ matrix.lane }}"
+
   packaging:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [contracts, backend, ui, ha-integration]
+    needs: [contracts, backend, ui, ha-integration, ha-integration-matrix]
     steps:
       - uses: actions/checkout@v4
 
