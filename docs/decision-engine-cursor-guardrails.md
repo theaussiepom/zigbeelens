@@ -9,6 +9,13 @@ It exists for two reasons:
 
 This document is stricter than the general implementation plan. If there is a conflict, follow this document.
 
+**Current status:** This file is an execution record for completed
+decision-engine phases. Phase 7A merged in PR #100 and Phase 7B merged in PR
+#101 from approved tip `03c12d4`. Phase 7C1 documentation truth is current;
+Phase 7C2 screenshots and Phase 7D live Beast validation remain deferred.
+Completed-phase branch and model prompts below are historical and must not be
+used to reopen those phases.
+
 ## Required starting prompt
 
 Use this prompt at the start of every Cursor session for the decision-engine programme.
@@ -568,7 +575,7 @@ Preferred PRs:
 
 ### Phase 7A — Query/index performance
 
-Must be split by area.
+**Complete (PR #100).** Historical preferred slices:
 
 Preferred PRs:
 
@@ -583,7 +590,7 @@ Preferred PRs:
 
 ### Phase 7B — Test architecture
 
-Preferred PRs:
+**Complete (PR #101).** Historical preferred slices:
 
 ```text
 7B-1 Decision/coverage/reason test helpers
@@ -592,19 +599,28 @@ Preferred PRs:
 7B-4 Forbidden wording sweeps
 ```
 
-### Phase 7C — Documentation/screenshots
+### Phase 7C1 — Documentation truth
 
-Preferred PRs:
+Current scope:
 
 ```text
-7C-1 README and architecture updates
-7C-2 Topology / Mesh docs update
-7C-3 Screenshots and add-on/HACS docs update
+7C1-1 Product, installation and configuration truth
+7C1-2 API, reports, safety and evidence semantics
+7C1-3 Companion packages, release status and documentation validation
 ```
+
+Do not modify screenshots or image assets in Phase 7C1. Do not mark the phase
+complete while the runtime/document contradictions in
+[RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md) remain under review.
+
+### Phase 7C2 — Screenshot and visual evidence
+
+Deferred until Phase 7C1 is complete. Capture current Decision-led workflows
+without changing runtime behaviour.
 
 ### Phase 7D — Deployment validation
 
-Preferred PRs or release checklist entries:
+Deferred. Preferred validation slices or release checklist entries:
 
 ```text
 7D-1 Beast validation checklist

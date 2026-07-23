@@ -7,6 +7,13 @@ SRC="${ROOT}/apps/addon/zigbeelens"
 DIST="${ROOT}/dist/zigbeelens-addons"
 OWNER="${GITHUB_OWNER:-theaussiepom}"
 IMAGE="ghcr.io/${OWNER}/zigbeelens"
+ADDON_VERSION="$(
+  sed -nE 's/^version: "?([^"]+)"?/\1/p' "${SRC}/config.yaml" | head -1
+)"
+if [[ -z "${ADDON_VERSION}" ]]; then
+  echo "FAIL: add-on version not found in ${SRC}/config.yaml" >&2
+  exit 1
+fi
 
 rm -rf "${DIST}"
 mkdir -p "${DIST}/zigbeelens/translations"
@@ -46,28 +53,53 @@ Read-only observability and diagnostics for Zigbee2MQTT networks.
 
 Uses the published container image: \`${IMAGE}\`
 
-## Install
+## Release status — generated repository publication blocked
+
+This generated image-based package is **not a supported release install**.
+Structural repository validation does not close its live HAOS/runtime gates:
+
+- the standalone image entrypoint does not own the complete source-built add-on
+  runner contract or propagate the optional API token;
+- UID-1000 \`/data\` writability, Supervisor Ingress, bearer behavior, and
+  non-Supervisor spoof rejection require packaged HAOS smokes;
+- the \`reporting.max_*\` schema accepts \`0\` while Core requires at least
+  \`1\`;
+- \`reporting.default_profile\` is ineffective and other accepted reporting
+  controls have no current exact-v3 composition effect; and
+- the package publishes no portable HACS-to-Core origin.
+
+## Conditional install after publication
+
+Use these steps only after every publication gate above is closed and this
+repository is intentionally published.
 
 1. **Settings → Add-ons → Add-on store → ⋮ → Repositories**
 2. Add: \`https://github.com/${OWNER}/zigbeelens-addons\`
 3. Install **ZigbeeLens**, configure MQTT and networks, start the add-on
-4. Open **ZigbeeLens** from the sidebar (Ingress on port 8377)
+4. Open **ZigbeeLens** from the sidebar (Supervisor Ingress; no host port is published)
 
 ## Image tags
 
 | Tag | When |
 |-----|------|
 | \`edge\` / \`main\` | Latest \`main\` branch build |
-| \`0.1.0\` | Release tag (matches add-on version) |
+| \`${ADDON_VERSION}\` | Release tag (matches add-on version) |
 | \`latest\` | Latest release |
 
-For pre-release Docker testing, pull \`${IMAGE}:edge\` directly. Add-on version \`0.1.0\` pulls \`:0.1.0\` when that GHCR tag exists.
+For pre-release Docker testing, pull \`${IMAGE}:edge\` directly. Add-on version \`${ADDON_VERSION}\` pulls \`:${ADDON_VERSION}\` when that GHCR tag exists.
+
+The source-built runner is intended to provide the full dashboard through
+Supervisor Ingress. That intent is not a generated-package release claim.
 
 ## Safety
 
-Read-only. No permit join, remove, reset, bind, unbind, OTA, or channel changes.
+Read-only for Zigbee device control: no permit join, remove, reset, bind,
+unbind, OTA, channel changes, or device \`/set\` commands. The default add-on
+policy may publish one exact allowlisted
+\`{base_topic}/bridge/request/networkmap\` diagnostic request after startup;
+periodic/manual/incident capture is off, and MQTT Discovery is off.
 
-Documentation: https://github.com/${OWNER}/zigbeelens/blob/main/docs/addon-dev.md
+Documentation: https://github.com/${OWNER}/zigbeelens/blob/main/apps/addon/zigbeelens/README.md
 EOF
 
 # Satellite repo CI

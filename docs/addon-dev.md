@@ -2,7 +2,11 @@
 
 This document covers building, testing, and installing the ZigbeeLens Home Assistant add-on from the monorepo.
 
-The add-on packages **ZigbeeLens Core**. Ingress serves the full canonical Core UI and Decision Engine. There is no separate add-on decision layer. HACS remains optional for entities/repairs/companion panel and talks to Core over HTTP using the companion decision contract.
+The add-on packages **ZigbeeLens Core**. Ingress serves the full canonical Core
+UI and Decision Engine. There is no separate add-on decision layer. HACS can
+add entities, repairs, and a companion panel only when Home Assistant has a
+real Core HTTP origin to call; Supervisor Ingress is not that origin, and the
+current packaged add-on defines no portable HACS backend URL.
 
 ## Layout
 
@@ -18,7 +22,7 @@ apps/addon/
     translations/en.yaml
 ```
 
-## Build the add-on image (recommended)
+## Build the add-on image
 
 From the **repository root**:
 
@@ -33,7 +37,14 @@ This runs:
 docker build -f apps/addon/zigbeelens/Dockerfile -t zigbeelens-addon:local .
 ```
 
-### Run locally (without Home Assistant)
+The resulting image always starts Core in `home_assistant_ingress` mode with
+`ingress_proxy_only: true` and trusts only the exact Supervisor peer. It is not
+a direct `localhost:8377` development server: publishing its port and opening
+the UI from the host returns `401`. Use `./scripts/dev.sh` for direct browser
+development, or install the image as a local HAOS add-on for an authentic
+Ingress test.
+
+### Prepare a local options fixture
 
 ```bash
 mkdir -p data/ha-addon/zigbeelens
@@ -63,13 +74,10 @@ cat > data/ha-addon/options.json <<'EOF'
   }
 }
 EOF
-
-docker run --rm -p 8377:8377 \
-  -v "$(pwd)/data/ha-addon:/data" \
-  zigbeelens-addon:local
 ```
 
-Open http://localhost:8377 — Core serves the bundled UI and API from one port.
+This fixture is consumed by the configuration-generation example below. It
+does not emulate Supervisor's trusted source address or Ingress identity.
 
 ## Validate packaging
 
@@ -101,7 +109,7 @@ For rapid UI iteration without rebuilding the image, continue using `./scripts/d
 
 ## Config generation
 
-`run.sh` reads `/data/options.json` (written by the Supervisor from add-on options) and generates `/data/zigbeelens/config.yaml` using `zigbeelens.config.addon`. Generated security is always `home_assistant_ingress` with trusted peer `172.30.32.2` and `ingress_proxy_only: true`. Optional `security.api_token` is written to `/data/zigbeelens/secrets/api_token` (mode `0600`) and exposed via `ZIGBEELENS_SECURITY_API_TOKEN_FILE` — never embedded in the YAML.
+`run.sh` reads `/data/options.json` (written by the Supervisor from add-on options) and generates `/data/zigbeelens/config.yaml` using `zigbeelens.config.addon`. Generated security is always `home_assistant_ingress` with trusted peer `172.30.32.2` and `ingress_proxy_only: true`. Optional `security.api_token` is written to `/data/zigbeelens/secrets/api_token` (mode `0600`) and exposed via `ZIGBEELENS_SECURITY_API_TOKEN_FILE` — never embedded in the YAML. This behavior belongs to the add-on `run.sh`; release packaging must use the add-on image/runner rather than the standalone Docker entrypoint.
 
 Test generation locally:
 
@@ -132,20 +140,18 @@ React Router detects HA Ingress basename automatically.
 
 SSE connects via relative `api/events/stream`. If EventSource fails (some proxies), `useLiveResource` polls every 30 seconds and the connection dot shows **disconnected**.
 
-## Testing Ingress locally
+## Testing Ingress
 
-Simulate an Ingress basename in the browser devtools console before loading routes, or proxy with nginx:
+Use a local HAOS add-on installation and open it through Supervisor Ingress.
+Changing only the URL basename or putting nginx in front of the container is
+not an equivalent test: generated configuration trusts only
+`172.30.32.2`, strips remote-user headers from every other peer, and rejects
+direct UI/API access in proxy-only mode.
 
-```nginx
-location /api/hassio_ingress/test/ {
-    proxy_pass http://127.0.0.1:8377/;
-    proxy_http_version 1.1;
-    proxy_set_header Connection "";
-    proxy_buffering off;  # helps SSE
-}
-```
-
-Then open `http://localhost/api/hassio_ingress/test/`.
+For fast frontend work that does not exercise the Ingress trust boundary, use
+`./scripts/dev.sh`. The add-on configuration and trust behavior are covered by
+`./scripts/validate-addon.sh`; the packaged HAOS smoke remains a manual release
+gate.
 
 ## MQTT sample messages
 
@@ -173,13 +179,21 @@ Report downloads use relative URLs (`api/reports/{id}/download`). Copy Markdown 
 |------|--------|
 | `amd64` | Supported |
 | `aarch64` | Supported (Raspberry Pi 4/5, HA Green/Yellow) |
-| `armv7` | Listed in manifest; may require dependency verification on older 32-bit boards |
+
+No other architectures are declared in the add-on manifest.
 
 ## Publishing checklist
 
 - [ ] `./scripts/validate-addon.sh` passes
 - [ ] `./scripts/build-addon.sh` succeeds on amd64 and aarch64
 - [ ] `./scripts/prepare-addon.sh` for Supervisor repo if not using pre-built images
+- [ ] The packaged image uses the add-on runner, or equivalently installs and
+      exports the optional API-token file
+- [ ] The packaged HAOS artifact writes `/data`, opens through Ingress, and
+      rejects spoofed ingress identity from non-Supervisor peers
+- [ ] Add-on `reporting.max_*` schema minimums match Core (`>= 1`)
+- [ ] HACS interoperability has a tested Home-Assistant-reachable Core origin,
+      or the package explicitly documents Ingress-only UI ownership
 - [ ] Update `apps/addon/zigbeelens/config.yaml` version
 - [ ] Update `CHANGELOG.md`
 - [ ] Tag release and publish repository / container images

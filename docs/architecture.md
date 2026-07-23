@@ -1,6 +1,9 @@
 # Architecture
 
-ZigbeeLens is a read-only observability stack for Zigbee2MQTT. Core owns the canonical dashboard and data model. Home Assistant paths are optional access and enrichment layers.
+ZigbeeLens is a read-only, decision-led diagnostics and observability stack for
+Zigbee2MQTT. Core owns the canonical evidence model, decisions, API, reports,
+and bundled UI. Home Assistant paths are optional deployment and companion
+layers.
 
 ## Components
 
@@ -13,7 +16,7 @@ ZigbeeLens is a read-only observability stack for Zigbee2MQTT. Core owns the can
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                     ZigbeeLens Core                              │
-│  normalizer → SQLite → health → incidents → dashboard/reports   │
+│ normalizer → SQLite → evidence → decisions → incidents/reports │
 └───┬──────────────┬──────────────┬──────────────┬──────────────────┘
     │              │              │              │
     ▼              ▼              ▼              ▼
@@ -27,31 +30,39 @@ ZigbeeLens is a read-only observability stack for Zigbee2MQTT. Core owns the can
 
 | Component | Role |
 |-----------|------|
-| **Core** | MQTT collector, SQLite, health/incident engines, API, bundled UI |
-| **UI** | React dashboard served by Core in production |
-| **HAOS add-on** | Wraps Core+UI with Supervisor options and Ingress |
+| **Core** | MQTT collector, SQLite, evidence/decision services, incident engine, API, reports, bundled UI |
+| **UI** | Decision-led React application served by Core in production |
+| **HAOS add-on source** | Runner designed to wrap Core+UI with Supervisor options and Ingress; generated repository is not yet publication-ready |
 | **Docker** | Standalone Core+UI container with `/config` + `/data` volumes |
 | **HACS integration** | HA config flow, summary entities, native companion panel, repairs |
-| **MQTT Discovery** | Optional summary HA entities via `homeassistant/` topics |
+| **MQTT Discovery** | Optional summary HA entities via configured Discovery and ZigbeeLens-owned state topics |
 | **Topology** | Optional point-in-time network map enrichment |
 | **HA enrichment** | Optional POST of HA device registry for area/name context |
 
-## Decision engine programme
+## Decision-led product
 
-ZigbeeLens is evolving from a dashboard/graph product into a shared decision-engine investigation product. The decision-engine docs define the architecture contract for that work:
+ZigbeeLens uses one shared decision contract across Core, UI, reports, HACS,
+and MQTT Discovery. The decision-engine documents record the architecture and
+migration that produced the current product:
 
 - [decision-engine.md](decision-engine.md) — decision engine charter, ownership rules and guardrails
 - [ux-pruning.md](ux-pruning.md) — UX pruning and surface-role contract
 - [decision-engine-migration.md](decision-engine-migration.md) — master phases and sub-phases
 - [decision-engine-phase-0.md](decision-engine-phase-0.md) — Phase 0 surface, data, compatibility and rollout governance
-- [decision-engine-implementation-plan.md](decision-engine-implementation-plan.md) — Cursor-ready implementation plan for the remaining phases
-- [decision-engine-cursor-guardrails.md](decision-engine-cursor-guardrails.md) — stricter Cursor model selection, phase splitting and prompt guardrails
+- [decision-engine-implementation-plan.md](decision-engine-implementation-plan.md) — implementation record and remaining release phases
+- [decision-engine-cursor-guardrails.md](decision-engine-cursor-guardrails.md) — historical execution guardrails and remaining release-phase boundaries
 
-Public product surfaces (UI, reports v3, HACS, MQTT Discovery) consume the
+Public product surfaces (UI, exact reports v3, HACS, MQTT Discovery) consume the
 **decision contract v2** vocabulary. The internal health classifier and
 `health_snapshots` storage remain evaluation inputs; they are not a parallel
 public diagnostic authority. Operational liveness remains `/api/health` and
 `/healthz`.
+
+The primary UI journey is **Overview** → **Mesh / Investigate** or
+**Devices** → contextual evidence and reports. **Incidents**, **Reports**, and
+**Settings** remain primary destinations. **Networks**, **Timeline**,
+**Topology snapshots**, and **How it works** live under **Advanced & support**.
+The removed standalone Routers page is only a compatibility redirect.
 
 ## Event pipeline
 
@@ -81,11 +92,19 @@ SQLite database (default `data/zigbeelens.sqlite`):
 | Telemetry | `events`, `metric_samples`, `availability_changes` |
 | Health (internal) | `health_snapshots` — evaluation history; not public diagnostic DTO fields |
 | Incidents | `incidents` |
-| Reports | `reports` (JSON body inline; new writes are report v3) |
+| Reports | `reports` (redacted exact `ReportDetailV3` body inline) |
 | Topology | `topology_snapshots`, `topology_nodes`, `topology_links` |
 | HA enrichment | `ha_device_enrichment`, `ha_enrichment_status` |
 
-Reports are stored **in SQLite**, already redacted. See [backups.md](backups.md).
+Reports are stored **in SQLite**, already redacted. Migration 014 removed
+development-era v1/v2 rows once; current list, detail, and download paths accept
+exact `ReportDetailV3` only. See [reports.md](reports.md) and
+[backups.md](backups.md).
+
+The browser also stores local presentation state such as Mesh layout positions,
+connection-display preferences, and the last accepted Overview visit boundary.
+That browser-local state is not network evidence and is not included in Core
+reports.
 
 ### Storage maintenance ownership
 
@@ -109,15 +128,20 @@ Each configured `networks[]` entry maps to one Zigbee2MQTT `base_topic`. Core su
 
 ## Safety boundaries
 
-### MQTT collector (always on in live mode)
+### MQTT collector (enabled by default in live mode)
 
-- **Subscribe-only** — no publish to Zigbee2MQTT topics
+- Runs when `features.mqtt_collector` is true
+- **Subscribe-only collector path** — no publish to Zigbee2MQTT topics
 - Ingests bridge state, devices, events, logging, health, device payloads, availability
 
 ### MQTT Discovery (optional, off by default)
 
-- Publishes only `homeassistant/...` discovery configs and `zigbeelens/state/...`
-- Rejects `/set`, `/bridge/request/`, configured base topics, wildcards
+- Normal publishes use the configured discovery prefix and validated
+  ZigbeeLens-owned state roots
+- Normal publishes reject `/set`, `/bridge/request/`, configured base topics,
+  and wildcards
+- The broker last-will registration currently precedes normal validation; keep
+  the default state prefix and broker ACLs until that release blocker is fixed
 
 ### Topology (enabled by default)
 
@@ -146,6 +170,12 @@ Full audit: [safety-audit.md](safety-audit.md)
 | Docker | `deploy/docker/docker-compose.example.yaml` | 8377 |
 | HAOS add-on | Supervisor Ingress | 8377 internal |
 | HACS | Native companion panel (HA websocket summary) + Open Full Dashboard in new tab | via HA |
+
+The HAOS row describes the source runner's intended architecture. The current
+generated add-on repository points at the standalone GHCR entrypoint, which
+still generates Ingress configuration but omits optional token-file
+installation; `/data` writability and Ingress also remain packaged HAOS smoke
+gates. See [release-infra.md](release-infra.md).
 
 ## Live updates
 

@@ -30,9 +30,12 @@ src/viewModels/
   README.md
   types.ts
   decisionCopy.ts
-  topology/     # topology ViewModel builders (snapshot history, device details)
-  devices/      # future device story ViewModel builders
-  reports/      # future report ViewModel builders
+  coverage/     # reusable evidence-coverage presentation
+  devices/      # decision badges and device rows
+  incidents/    # incident list and detail presentation
+  overview/     # priorities, recent changes, model patterns, coverage
+  reports/      # exact-v3 report decision presentation
+  topology/     # investigation, Device Story, snapshots, raw-detail presentation
 ```
 
 Keep ViewModels at the product-surface level. Do not create ViewModels for generic UI atoms such as buttons or badges.
@@ -43,23 +46,14 @@ Keep ViewModels at the product-surface level. Do not create ViewModels for gener
 - Reason, limitation and suggested-check copy lives in `decisionCopy.ts`.
 - Unknown reason codes fall back safely — they must not crash rendering.
 - Status pill tone is deterministic from `decisionStatusTone()`.
-- Major screen migrations belong to later phases; this folder defines the contract only.
+- ViewModels present the shared Decision Engine; they do not add diagnosis or
+  data collection.
 
-## Phase 1 scope
+## Current scope
 
-Phase 1 provides:
-
-- backend decision DTO primitives (`zigbeelens.decisions`);
-- frontend mirrored DTO types (`src/types/decisions.ts`);
-- copy, status and coverage mapping (`decisionCopy.ts`);
-- ViewModel ownership conventions (`types.ts`, this README).
-
-Phase 1 does **not** yet provide:
-
-- migration of existing UI sections (e.g. `SnapshotHistorySection`);
-- topology-specific ViewModel builders;
-- report ViewModel builders;
-- new diagnosis logic;
-- new data collection.
+The current UI uses ViewModels across Overview, Mesh / Investigate, Devices,
+Incidents, Reports, Device Story, and topology snapshot/detail surfaces.
+Backend decision DTO primitives live under `zigbeelens.decisions`; mirrored
+frontend DTOs live under `src/types/decisions.ts`.
 
 Unknown API codes must fall back safely in `decisionCopy.ts` — never expose raw internal codes in user-facing copy.

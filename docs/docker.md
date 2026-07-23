@@ -2,29 +2,77 @@
 
 Run ZigbeeLens as a standalone container with Docker or Compose — no Home Assistant required.
 
-ZigbeeLens serves the **same diagnostic console** as the HAOS add-on: Core API + bundled UI on port **8377**, SQLite persistence under `/data`, read-only MQTT collection, and redacted reports.
+ZigbeeLens serves Core API + bundled UI on port **8377**, SQLite persistence
+under `/data`, read-only MQTT collection, and redacted reports. Docker/Compose
+is the current portable deployment route.
 
-## Quick start
+## Choose an image channel
+
+| Use | Image | Ownership |
+|-----|-------|-----------|
+| Released/stable | `ghcr.io/theaussiepom/zigbeelens:latest` | Latest tagged release; it can lag the current `main` documentation |
+| Reproducible release | `ghcr.io/theaussiepom/zigbeelens:X.Y.Z` | One tagged release version |
+| Current-main/pre-release | `ghcr.io/theaussiepom/zigbeelens:edge` or `:main` | Rolling current `main`; not a tagged release or evidence that remote release validation passed |
+| Traceable pre-release | `ghcr.io/theaussiepom/zigbeelens:sha-<short-git-sha>` | One workflow-built commit |
+| Current local checkout | A locally built tag such as `zigbeelens:local` | Source and validation are owned by your checkout |
+
+The general-purpose Compose examples default to `latest`; the Beast
+current-main/pre-release example intentionally defaults to `edge`. Override
+the ZigbeeLens image in a general-purpose example without copying the file by
+setting `ZIGBEELENS_IMAGE`.
+
+## Released/stable install
 
 ```bash
 mkdir -p zigbeelens/config zigbeelens/data
+cp deploy/docker/docker-compose.example.yaml zigbeelens/docker-compose.yaml
 cp deploy/docker/config.example.yaml zigbeelens/config/config.yaml
 # Edit zigbeelens/config/config.yaml — set mqtt.server and networks[].base_topic
 
 cd zigbeelens
-docker compose -f ../deploy/docker/docker-compose.example.yaml up -d
+docker compose up -d
+```
+
+The command above runs `latest`, meaning the newest tagged release. To pin the
+current release instead, set the selector before `docker compose up`:
+
+```bash
+export ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:0.1.13
+docker compose up -d
 ```
 
 Open **http://localhost:8377**
 
-Or build locally:
+Compose resolves `./config` and `./data` relative to the Compose file, so keep the
+copied `docker-compose.yaml` beside those directories.
+
+## Current-main/pre-release validation
+
+Use `edge`, `main`, or a `sha-*` tag only when deliberately validating
+pre-release code. Starting from the copied installation above:
 
 ```bash
-./scripts/build-docker.sh
+export ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge
+docker compose pull
+docker compose up -d
+```
+
+Keep the selector set for later `pull`/`up` commands, or copy
+`deploy/docker/.env.example` beside `docker-compose.yaml` and change its image
+tag to `edge`. The edge image is a rolling `main` artifact; do not record it as
+a remotely validated release merely because it pulled or started.
+
+## Build the current checkout locally
+
+From the repository root, build a distinct local tag, then run it with explicit
+bind mounts:
+
+```bash
+ZIGBEELENS_IMAGE=zigbeelens:local ./scripts/build-docker.sh
 docker run --rm -p 8377:8377 \
-  -v "$(pwd)/config:/config:ro" \
-  -v "$(pwd)/data:/data" \
-  ghcr.io/theaussiepom/zigbeelens:latest
+  -v "$(pwd)/zigbeelens/config:/config:ro" \
+  -v "$(pwd)/zigbeelens/data:/data" \
+  zigbeelens:local
 ```
 
 ## Configuration
@@ -40,7 +88,7 @@ Copy `deploy/docker/config.example.yaml` to `config/config.yaml`.
 | `networks[].base_topic` | Zigbee2MQTT base topic (must match exactly) |
 | `storage.path` | Use `/data/zigbeelens.sqlite` in containers |
 | `storage.retention_days` | Telemetry history retention in days (default **7**; startup + periodic maintenance) |
-| `storage.resolved_incident_retention_days` | Resolved incident retention (default **90**; omit/null to keep) |
+| `storage.resolved_incident_retention_days` | Resolved incident retention (default/omitted **90**; set explicit `null` to keep indefinitely) |
 | `storage.report_retention_days` | Optional report auto-retention (default **null** = until manually deleted) |
 | `storage.maintenance_interval_hours` | Periodic maintenance interval (default **24**) |
 
@@ -79,7 +127,6 @@ sudo chown -R 1000:1000 data
 | `ZIGBEELENS_SECURITY_MODE` | — | Override `security.mode` (`local`, `authenticated`, `home_assistant_ingress`) |
 | `ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` | — | API bearer token (prefer over YAML) |
 | `ZIGBEELENS_SECURITY_SESSION_SECRET` / `_FILE` | — | Browser-session signing secret (with API token) |
-| `ZIGBEELENS_SECURITY_SESSION_SECRET` / `_FILE` | — | Session secret (configured only; unused by HTTP layer yet) |
 | `ZIGBEELENS_MQTT_USERNAME` | — | MQTT username override |
 | `ZIGBEELENS_MQTT_PASSWORD` / `_FILE` | — | MQTT password override |
 | `ZIGBEELENS_API_KEY` | — | Temporary alias for the API token (conflicts with canonical token vars) |
@@ -87,7 +134,36 @@ sudo chown -R 1000:1000 data
 
 Secrets may come from environment or `*_FILE` paths. They are **never logged**. See [security.md](security.md).
 
-Core’s process default bind is loopback (`127.0.0.1`). The `zigbeelens` launcher binds exactly `AppConfig.server.host` / `server.port` (including `ZIGBEELENS_PORT` when set). Docker example configs explicitly set `server.host: 0.0.0.0` inside the container. Publishing `8377` on the host is **not** fully authenticated yet — prefer `127.0.0.1:8377:8377` or a trusted authenticated reverse proxy. See [security.md](security.md).
+The production Compose example uses one host-side substitution:
+`ZIGBEELENS_IMAGE` selects the container image. Compose can read that value
+from the shell or a sibling `.env` file. It is not passed into the container.
+The example does not declare an `env_file` for Core runtime settings; put
+non-secret runtime overrides explicitly under the service `environment`, and
+prefer secret files for credentials.
+
+Core’s process default bind is loopback (`127.0.0.1`). The `zigbeelens` launcher binds exactly `AppConfig.server.host` / `server.port` (including `ZIGBEELENS_PORT` when set). Docker example configs explicitly set `server.host: 0.0.0.0` inside the container. The example uses trusted-open `security.mode: local` with no token, so publishing `8377:8377` exposes Core on all Docker-host interfaces. For a loopback-only host route use `127.0.0.1:8377:8377`; for remote access configure Core authentication and appropriate network or reverse-proxy controls. See [security.md](security.md).
+
+Configuration is loaded only at process startup. After editing the mounted
+YAML or changing environment/secret files, restart the Core service:
+
+```bash
+docker compose restart zigbeelens
+```
+
+## Logs, stop, and uninstall
+
+Run these commands from the installation directory containing
+`docker-compose.yaml`:
+
+```bash
+docker compose logs -f zigbeelens
+docker compose stop
+docker compose start
+```
+
+`docker compose down` removes the Compose containers and network but leaves the
+bind-mounted `config/` and `data/` directories in place. Back up those
+directories before deliberately removing an installation or its history.
 
 ## Health check
 
@@ -112,19 +188,19 @@ Healthy means:
 
 ## Compose examples
 
-| File | Use case |
-|------|----------|
-| `docker-compose.example.yaml` | Standalone ZigbeeLens (most users) |
-| `docker-compose.mosquitto.example.yaml` | Local broker for testing — **most HA users already have Mosquitto** |
-| `docker-compose.traefik.example.yaml` | Subdomain reverse proxy |
-| `docker-compose.beast-traefik.example.yaml` | Beast Traefik HTTPS route for optional embedded view |
-| `docker-compose.caddy.example.yaml` | **Optional:** HTTPS reverse proxy for HACS embedded view (see [hacs-embedded-view.md](../hacs-embedded-view.md)) |
-| `Caddyfile.example` | Caddy config for the example above (SSE-friendly) |
+| File | Use case | Default ZigbeeLens channel |
+|------|----------|---------------------------|
+| `docker-compose.example.yaml` | Standalone ZigbeeLens (most users) | `latest` release |
+| `docker-compose.mosquitto.example.yaml` | Local broker for testing — **most HA users already have Mosquitto** | `latest` release |
+| `docker-compose.traefik.example.yaml` | Subdomain reverse proxy | `latest` release |
+| `docker-compose.beast-traefik.example.yaml` | Beast Traefik HTTPS route for current-main testing and optional embedded view | `edge` pre-release |
+| `docker-compose.caddy.example.yaml` | **Optional:** HTTPS reverse proxy for HACS embedded view (see [hacs-embedded-view.md](hacs-embedded-view.md)) | `latest` release; overrideable with `ZIGBEELENS_IMAGE` |
+| `Caddyfile.example` | Caddy config for the example above (SSE-friendly) | — |
 
 Validate examples:
 
 ```bash
-./scripts/validate-compose.sh
+ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 ./scripts/validate-compose.sh
 ```
 
 ## Reverse proxy / Traefik
@@ -141,7 +217,7 @@ If the UI is behind Authentik, **do not** protect `/api` with the same middlewar
 
 | Use | URL |
 |-----|-----|
-| Default HACS / LAN | `http://192.168.100.5:8377` |
+| Native companion / LAN | `http://192.168.100.5:8377` |
 | Optional HTTPS / iframe | `https://zigbeelens.theaussiepom.me` |
 | **Wrong** | `https://zigbeelens.theaussiepom.me:8377` |
 
@@ -167,7 +243,7 @@ Full setup, certificate trust, and security notes: **[HACS embedded view — opt
 
 ZigbeeLens Core may require `Authorization: Bearer` for protected API routes when an API token is configured. See [security.md](security.md).
 
-- ZigbeeLens is **read-only** toward Zigbee2MQTT — no device commands, permit join, remove, reset, bind/unbind, or OTA
+- ZigbeeLens is **read-only for Zigbee device control** — no device commands, permit join, remove, reset, bind/unbind, or OTA. Optional MQTT Discovery and allowlisted topology network-map requests are the only supported publishes.
 - Some API routes modify **ZigbeeLens local data only** (reports, topology snapshots, HA enrichment metadata)
 - Reports are redacted before storage/download
 - Publishing `8377:8377` exposes Core on the Docker host — convenient for local or trusted-network use
@@ -177,15 +253,12 @@ ZigbeeLens Core may require `Authorization: Bearer` for protected API routes whe
 
 ## Image tags
 
-Published images (when available):
+- `latest` — latest tagged release.
+- `X.Y.Z` — the matching tagged release.
+- `edge` / `main` — rolling current `main` for pre-release validation.
+- `sha-*` — a traceable workflow-built commit.
 
-```
-ghcr.io/theaussiepom/zigbeelens:latest
-ghcr.io/theaussiepom/zigbeelens:0.1.0
-ghcr.io/theaussiepom/zigbeelens:<git-sha>
-```
-
-Replace `zigbeelens` with your GHCR owner when using a fork.
+Replace `theaussiepom` with your GHCR owner when using a fork.
 
 ## Troubleshooting
 

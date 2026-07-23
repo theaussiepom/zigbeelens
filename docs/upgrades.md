@@ -3,13 +3,13 @@
 ## Docker / Compose
 
 1. **Back up** `/data` (see [backups.md](backups.md))
-2. Pull the new image:
+2. From the installation directory containing `docker-compose.yaml`, pull the new image:
    ```bash
-   docker compose -f deploy/docker/docker-compose.example.yaml pull
+   docker compose pull
    ```
 3. Restart:
    ```bash
-   docker compose -f deploy/docker/docker-compose.example.yaml up -d
+   docker compose up -d
    ```
 
 SQLite migrations run automatically on startup. Check logs for `migration_version` if anything looks wrong.
@@ -27,7 +27,7 @@ Retention after upgrade (defaults):
 | Class | Default | Notes |
 |-------|---------|-------|
 | Telemetry (`storage.retention_days`) | 7 days | Age-purged on maintenance cycles |
-| Resolved incidents | 90 days | `null` / omit = kept indefinitely |
+| Resolved incidents | 90 days | Omission uses 90 days; explicit `null` keeps indefinitely |
 | Reports | until manually deleted | `report_retention_days` default `null`; not auto-purged |
 | Open / watching incidents, inventory, enrichment | keep | Never age-purged |
 
@@ -35,9 +35,18 @@ Before upgrading across major versions, prefer an online `zigbeelens storage bac
 
 ## Home Assistant add-on
 
-1. Back up the add-on (includes `/data`)
-2. Update the add-on from the store
-3. Restart
+This section applies to source-built/local pre-release testing now, or to a
+future published add-on artifact after publication gates close. The generated
+image-based repository is currently publication-blocked and is not an ordinary
+store upgrade route.
+
+For current source testing, back up `/data`, rebuild/reinstall through
+[addon-dev.md](addon-dev.md), and restart the local add-on. After an add-on
+artifact is intentionally published:
+
+1. Back up the add-on (includes `/data`).
+2. Update that published artifact from its configured store.
+3. Restart it.
 
 ## What to keep stable
 
@@ -52,14 +61,17 @@ Before upgrading across major versions, prefer an online `zigbeelens storage bac
 Prefer pinning to a release tag in production:
 
 ```yaml
-image: ghcr.io/theaussiepom/zigbeelens:0.1.0
+image: ghcr.io/theaussiepom/zigbeelens:0.1.13
 ```
 
-Use `:latest` for convenience on trusted lab systems only.
+`latest` means the newest tagged release. Pin `X.Y.Z` when the deployment must
+stay on one reproducible release; use `edge`/`main` only for deliberate
+current-main/pre-release validation.
 
 ## Rollback
 
-1. Stop the container / add-on
+1. Stop the container, source-built/local pre-release add-on, or future
+   published add-on artifact
 2. Restore `/data` from backup if needed
 3. Run the previous image tag
 4. Start again

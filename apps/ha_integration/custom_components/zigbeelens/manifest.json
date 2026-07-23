@@ -1,10 +1,10 @@
 {
   "domain": "zigbeelens",
   "name": "ZigbeeLens",
-  "codeowners": ["@zigbeelens"],
+  "codeowners": ["@theaussiepom"],
   "config_flow": true,
   "dependencies": ["http", "frontend"],
-  "documentation": "https://github.com/theaussiepom/zigbeelens-hacs",
+  "documentation": "https://github.com/theaussiepom/zigbeelens/blob/main/docs/hacs.md",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/theaussiepom/zigbeelens/issues",
   "requirements": ["idna>=3.4"],

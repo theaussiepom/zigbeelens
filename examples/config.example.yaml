@@ -47,9 +47,9 @@ networks:
 storage:
   path: ./data/zigbeelens.sqlite
   retention_days: 7
-  # resolved_incident_retention_days: 90
-  # report_retention_days: null   # until manually deleted
-  # maintenance_interval_hours: 24
+  resolved_incident_retention_days: 90
+  report_retention_days: null   # until manually deleted
+  maintenance_interval_hours: 24
 
 diagnostics:
   incident_window_seconds: 180
@@ -72,10 +72,10 @@ diagnostics:
 
 features:
   mqtt_collector: true
-  mqtt_discovery: true
+  mqtt_discovery: false
   bridge_logs: true
   device_payload_history: true
-  manual_network_map: true
+  manual_network_map: false
   automatic_network_map: false
 
 reporting:
@@ -84,3 +84,24 @@ reporting:
   max_availability_changes_per_device: 50
   include_raw_payloads: false
   default_profile: standard
+
+mqtt_discovery:
+  # Effective only when features.mqtt_discovery is also true.
+  enabled: true
+  topic_prefix: homeassistant
+  state_topic_prefix: zigbeelens
+  retain: true
+  device_name: ZigbeeLens
+  object_id_prefix: zigbeelens
+
+topology:
+  enabled: true
+  # Startup scan may publish the allowlisted Zigbee2MQTT network-map request.
+  startup_scan: true
+  startup_stable_delay_seconds: 60
+  refresh_interval_seconds: 0
+  manual_capture_enabled: false
+  automatic_capture_enabled: false
+  capture_on_incident: false
+  max_snapshots_per_network: 30
+  warn_before_capture: true

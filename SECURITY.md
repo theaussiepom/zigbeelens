@@ -64,6 +64,11 @@ store the same optional Core API token for server-side bearer reads. HTTPS may
 help with the optional embedded dashboard view, but **HTTPS is not
 authentication**.
 
+The source add-on implements that Ingress contract. Its current image-based
+release package is not publication-ready: optional token-file propagation is
+missing and the packaged HAOS artifact still needs `/data` writability and
+Ingress smoke validation.
+
 See [docs/security.md](docs/security.md).
 
 ## Design principles
@@ -73,7 +78,9 @@ ZigbeeLens is **local-first**:
 - No cloud sync or telemetry backhaul
 - Data stored in local SQLite on your host
 - MQTT collector is subscribe-only by default
-- Optional publishers (MQTT Discovery, topology) are restricted to allowlisted topic prefixes
+- Topology is restricted to the exact allowlisted network-map request; MQTT
+  Discovery normal publishes are topic-validated, but its broker last-will
+  registration ordering remains an open release blocker
 
 ## Secrets and redaction
 
@@ -89,7 +96,7 @@ See [docs/redaction.md](docs/redaction.md) and [docs/security.md](docs/security.
 
 | Install | Notes |
 |---------|-------|
-| HAOS add-on | Full dashboard via Home Assistant Ingress — inherits your HA access controls; Core ingress-identity enforcement is not active yet |
+| HAOS add-on source/local pre-release | Full dashboard via Home Assistant Ingress; a future published artifact may use this path only after publication gates close |
 | Docker standalone | Publishing port 8377 exposes Core on the Docker host; convenient for local or trusted-network use |
 | HACS integration | Not an authentication layer for Core; HTTPS Core URLs are for embedded-view browser compatibility, not auth |
 

@@ -1,7 +1,8 @@
 # Test architecture (Phase 7B)
 
 Narrow ownership map for Decision, report, and public-contract confidence.
-This is not broad contributor documentation (Phase 7C).
+Phase 7B merged in PR #101 from approved branch tip `03c12d4`. Broader
+contributor and product documentation belongs to Phase 7C1.
 
 ## Layers
 
@@ -115,6 +116,30 @@ Python resolution in `validate-contracts.sh`:
 3. `python3`;
 4. `python`;
 5. otherwise fail clearly.
+
+## Intentional xfail
+
+The full Core suite currently has one intentional non-strict xfail:
+
+`test_incident_badge_matches_device_story_for_model_pattern`
+
+It records a pre-existing Decision-surface mismatch (`watch` versus
+`informational`) for model-pattern badges. Release evidence must report it as
+**xfail**, not pass. Any additional xfail or skip is a new result that requires
+review.
+
+The canonical Core suite's SQLite 3.34.1 case is intentionally delegated to
+`scripts/smoke-sqlite-3.34.1.sh`. The release UI safety owner resolves the
+repository root once and keeps two corpus diagnostics separate. It scans Core
+UI production `.ts` and `.tsx` under `apps/ui/src`, excluding declarations plus
+test, contract, fixture, and generated paths relative to that source root. It
+also scans the canonical Home Assistant companion-panel JavaScript under
+`apps/ha_integration/custom_components/zigbeelens/panel` and requires
+`zigbeelens-panel.js`. Either missing source or an empty corpus is a failure,
+and both corpora use the same Zigbee mutation-control phrase policy.
+`scripts/validate-safety-guardrails.sh` remains the single release wrapper and
+fails on zero collected tests or any skipped test. Its release output reports
+the production file count for each corpus so path or discovery drift is visible.
 
 ## Adding a new Decision code
 

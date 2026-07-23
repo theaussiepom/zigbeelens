@@ -4,6 +4,13 @@ This document is the working implementation plan for the ZigbeeLens decision-eng
 
 It is written so Cursor can work through the remaining phases strategically without repeatedly checking back for product direction.
 
+**Status:** This is now primarily an implementation record. Phases 1–6 are
+implemented, Phase 7A merged in PR #100, and Phase 7B merged in PR #101 from
+approved tip `03c12d4`. Phase 7C1 is the current documentation-truth phase.
+Phase 7C2 screenshot work and Phase 7D live Beast validation remain deferred.
+Older branch/model instructions below describe how completed phases were
+executed; they do not override this status.
+
 Use it together with:
 
 - [decision-engine.md](decision-engine.md)
@@ -1743,7 +1750,7 @@ Phase 6 removes/demotes old paths after replacements exist.
 
 ### Status
 
-Implemented on `refactor/navigation-consolidation` (awaiting review): shared
+Merged in PR #96: shared
 primary/advanced navigation model, canonical `/investigate` routes, legacy
 graph redirect, Advanced & support disclosure.
 
@@ -1779,7 +1786,7 @@ Composer 2.5 is sufficient.
 
 ### Status
 
-Implemented on `refactor/router-area-ux` (awaiting review): standalone router
+Merged in PR #97: standalone router
 page removed; `/routers` compatibility redirect; Mesh router-area focus and
 existing NodeDrawer integration; Core/API/HACS/report router facts retained.
 
@@ -1865,13 +1872,14 @@ Make Beast-sized networks fast and predictable.
 
 ### Status
 
-Implemented on `perf/release-query-bounds` (awaiting review; no PR until requested).
+**Merged in PR #100.** Final evidence is recorded in
+`phase-7a-investigation.md` and `performance-baseline.md`.
 
 ### Delivered
 
 - additive incident `order=lifecycle|recent` with Overview `order=recent` (PR #83);
-- bulk latest topology snapshots for overview/status;
-- SQL-limited device snapshot-history window + bulk links;
+- per-network indexed latest-topology seeks for overview/status;
+- target-row/link-bounded device snapshot-history window;
 - EXPLAIN-proven indexes in migration `013_query_performance_indexes.sql`;
 - metric `sampled_at DESC, id DESC` + device-time index;
 - offline-only availability read for shared-availability instability events;
@@ -1891,7 +1899,8 @@ Composer 2.5 for indexing/query changes. Use 4.5 for performance investigation i
 
 ### Status
 
-**Implemented on `test/release-quality-architecture` (corrective pass).** See `docs/test-architecture.md`.
+**Merged in PR #101 from approved tip `03c12d4`.** See
+`docs/test-architecture.md`.
 
 ### Goal
 
@@ -1925,26 +1934,50 @@ Add tests at the right layers.
 
 Composer 2.5 is sufficient.
 
-## Phase 7C — Documentation/screenshots
+## Phase 7C1 — Documentation truth
 
 ### Goal
 
-Update docs and screenshots to match the new product.
+Align all current documentation and user-facing metadata with the implemented
+product without modifying runtime behaviour or image assets.
 
 ### Work
 
 - README positioning;
 - architecture docs;
 - topology docs;
-- screenshots;
 - safety docs;
 - add-on/HACS docs if affected.
 
 ### Acceptance criteria
 
 - Docs reflect current defaults.
-- Screenshots show central workflows.
 - Decision-engine wording appears in user-facing docs.
+- Installation, configuration, API/report, companion, and release documents do
+  not contradict their implementation owners.
+
+### Status
+
+Current phase; incomplete while the runtime/document contradictions in
+[RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md) remain under review.
+
+## Phase 7C2 — Screenshot and visual evidence
+
+### Goal
+
+Capture current central workflows after Phase 7C1 prose is stable.
+
+### Work
+
+- Decision-led Overview;
+- Mesh / Investigate;
+- Device Detail and Snapshot history;
+- Saved reports / contextual report creation;
+- HACS contract-v2 companion and configuration flow.
+
+### Status
+
+Deferred. Phase 7C1 must not modify image assets.
 
 ### Composer model
 
@@ -1955,6 +1988,10 @@ Composer 2.5 is sufficient.
 ### Goal
 
 Validate on the live Beast network.
+
+### Status
+
+Deferred. Documentation and local validation do not complete Phase 7D.
 
 ### Smoke scenarios
 

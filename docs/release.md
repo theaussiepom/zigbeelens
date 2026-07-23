@@ -20,25 +20,65 @@ Align these on release:
 |------|-------|
 | `apps/core/pyproject.toml` | `version` |
 | `apps/core/src/zigbeelens/__init__.py` | `__version__` |
-| `package.json` (root, ui, shared, core) | `version` |
+| `package.json`, `apps/ui/package.json`, `apps/core/package.json`, `packages/shared/package.json` | `version` |
 | `apps/addon/zigbeelens/config.yaml` | `version` |
 | `apps/ha_integration/.../manifest.json` | `version` |
 | `deploy/docker/Dockerfile` | `ARG VERSION` default |
 | `CHANGELOG.md` | release section |
 
-Use `./scripts/bump-version.sh X.Y.Z` to sync.
+Use `./scripts/bump-version.sh X.Y.Z` (which also updates the Dockerfile
+metadata default), then run `./scripts/check-version-alignment.sh`.
 
 ## Release steps
 
 ### 1. Prepare branch
 
-Ensure `main` is green in CI.
+Ensure the release commit is based on current `main`. Confirm required remote CI
+is green for that exact commit; local validation is separate evidence.
+
+Before tagging, all release phases must be complete:
+
+- Phase 7A query/cardinality/runtime baseline (merged in PR #100)
+- Phase 7B test architecture and exact-v3 report reset (merged in PR #101)
+- Phase 7C1 documentation truth
+- Phase 7C2 current screenshots
+- Phase 7D live Beast deployment validation
+
+The add-on is a separate publication gate. Do not publish the packaged add-on
+until its image entrypoint implements the complete add-on startup contract,
+including optional `security.api_token` export and verified `/data`
+writability; its `reporting.max_*` minimums align with Core;
+`reporting.default_profile` is effective (or removed); and a portable
+HACS-to-Core origin is defined.
+`ports: {}` plus a separate Home Assistant namespace does not make
+`localhost:8377` a portable HACS URL.
+
+The documentation audit also found release gates outside add-on packaging:
+unused report controls, unknown report targets producing an empty plan,
+Discovery last-will validation order, disabled-topology scheduler/status
+drift, parsed topology `raw_json` retention, and the HACS OptionsFlow
+overwriting custom polling intervals with an empty options result. The HACS
+compatibility helper also treats missing/malformed Core versions as compatible,
+violating the documented Unknown tri-state and shared-decision gate, while
+exact-v2 Dashboard payload-shape failure is misreported as an unsupported
+contract requiring a Core upgrade. Track them in
+[RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md); truthful documentation does
+not close those runtime contracts.
+
+The HACS satellite is a separate publication gate. Its public `main` is not the
+reviewed staged tree, and both materially different trees currently advertise
+`0.1.13`. Use only the locally generated custom component for branch testing.
+Do not synchronize or publish the external satellite without a separate
+explicitly authorized task.
 
 ### 2. Update version
 
 ```bash
-./scripts/bump-version.sh 0.1.0
+export ZIGBEELENS_RELEASE_VERSION=X.Y.Z
+./scripts/bump-version.sh "$ZIGBEELENS_RELEASE_VERSION"
 ```
+
+Replace `X.Y.Z` with the intended version. Do not reuse an existing tag.
 
 ### 3. Update CHANGELOG
 
@@ -47,18 +87,35 @@ Add release section to [CHANGELOG.md](../CHANGELOG.md).
 ### 4. Run full validation
 
 ```bash
-source apps/core/.venv/bin/activate
-pip install -e "apps/core[dev]"
-PYTHONPATH=apps/core/src pytest apps/core/tests -q
+bash scripts/validate-contracts.sh
+./scripts/validate-docs.sh
+
+cd apps/core
+uv run pytest -q
+uv run pytest -q tests/performance
+uv run ruff check src tests
+cd ../..
+
+./scripts/smoke-sqlite-3.34.1.sh
+pnpm --filter @zigbeelens/shared build
 pnpm --filter @zigbeelens/ui test
 pnpm --filter @zigbeelens/ui typecheck
+pnpm --filter @zigbeelens/ui lint
 pnpm --filter @zigbeelens/ui build
 ./scripts/validate-ha-integration.sh
 ./scripts/validate-addon.sh
-./scripts/validate-compose.sh
+ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 ./scripts/validate-compose.sh
 ./scripts/package-hacs-repo.sh
+./scripts/package-addon-repo.sh
 ./scripts/smoke-core.sh
+./scripts/check-version-alignment.sh
+git diff --check
 ```
+
+Record exact test counts, skips, xfails, and warnings. The known non-strict
+xfail is
+`test_incident_badge_matches_device_story_for_model_pattern` (`watch` versus
+`informational` Decision-surface mismatch); it is not a pass.
 
 ### 5. Build artifacts
 
@@ -68,49 +125,84 @@ pnpm --filter @zigbeelens/ui build
 ./scripts/package-hacs-repo.sh
 ```
 
+The generated HACS directory is a local stage, not a publication instruction.
+Before public HACS guidance or publication is restored:
+
+- the complete staged tree must match the intended satellite tree;
+- the manifest/package version must uniquely identify that exact tree;
+- exact Home Assistant 2025.1.0 plus current-version coverage must pass;
+- official HACS and hassfest validation must pass; and
+- explicit publication authorization must be recorded before the external
+  repository is modified.
+
 ### 6. Tag and push
 
 ```bash
-git add -A
-git commit -m "Release v0.1.0"
-git tag v0.1.0
+git status --short
+git add \
+  package.json \
+  apps/ui/package.json \
+  apps/core/package.json \
+  packages/shared/package.json \
+  apps/core/pyproject.toml \
+  apps/core/src/zigbeelens/__init__.py \
+  apps/addon/zigbeelens/config.yaml \
+  deploy/docker/Dockerfile \
+  apps/ha_integration/custom_components/zigbeelens/manifest.json \
+  CHANGELOG.md
+git diff --cached --check
+git diff --cached --stat
+git commit -m "Release v${ZIGBEELENS_RELEASE_VERSION}"
+git tag "v${ZIGBEELENS_RELEASE_VERSION}"
 git push origin main
-git push origin v0.1.0
+git push origin "v${ZIGBEELENS_RELEASE_VERSION}"
 ```
 
 ### 7. Publish Docker image
 
-The [Docker workflow](../.github/workflows/docker.yml) builds on `v*` tags and pushes to GHCR when configured.
-
-Update `IMAGE` in `docker.yml` when the GHCR namespace is finalized.
+The [Docker workflow](../.github/workflows/docker.yml) builds on `v*` tags and
+publishes the versioned image and `latest` tag to
+`ghcr.io/theaussiepom/zigbeelens`.
 
 ### 8. GitHub release
 
-Create a GitHub release from tag `v0.1.0`:
+Create a GitHub release from tag `v${ZIGBEELENS_RELEASE_VERSION}`:
 
-- Title: `v0.1.0`
+- Title: `v${ZIGBEELENS_RELEASE_VERSION}`
 - Body: CHANGELOG section
 - Attach HACS zip if distributing manually
 
 ### 9. Add-on repository
 
-Update add-on repository metadata if using a separate HA add-on repo.
+Update add-on repository metadata only after the add-on publication gates in
+[RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md) pass against the packaged HAOS
+artifact. Structural validation and a standalone `:edge` container are not
+substitutes for that smoke test.
 
 ### 10. Post-release verification
 
-- [ ] Fresh Docker install from [docker.md](docker.md)
-- [ ] HAOS add-on install
-- [ ] HACS integration from packaged artifact
-- [ ] Generate `public_safe` report
+The current portable route is unconditional:
+
+- [ ] Fresh released Docker install from [docker.md](docker.md)
+- [ ] Generate a `public_safe` report
 - [ ] Confirm MQTT Discovery off by default
 - [ ] Confirm topology enabled with startup scan only (no periodic refresh by default)
+
+Companion checks are conditional on the artifacts actually included in this
+release:
+
+- [ ] **If an add-on artifact was included and published after its package/live
+  gates closed:** install that exact HAOS add-on artifact and verify Ingress.
+- [ ] **If the HACS integration was synchronized and published after its
+  tree/version/validation/authorization gates closed:** install that exact
+  published HACS artifact and verify it against the released Docker Core.
 
 ## Safety verification
 
 Before every release:
 
 ```bash
-PYTHONPATH=apps/core/src pytest apps/core/tests/test_safety_guardrails.py -q
+./scripts/validate-safety-guardrails.sh
 ```
 
 Review [safety-audit.md](safety-audit.md).
@@ -120,7 +212,7 @@ Review [safety-audit.md](safety-audit.md).
 1. Branch from tag
 2. Fix + test
 3. Bump patch version
-4. Tag `v0.1.1`, publish
+4. Tag the new patch version and publish
 
 ## Related
 

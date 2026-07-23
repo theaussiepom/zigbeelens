@@ -94,10 +94,10 @@ if [[ -d "${ROOT}/apps/core/.venv" ]]; then
   # shellcheck disable=SC1091
   source "${ROOT}/apps/core/.venv/bin/activate"
   PYTHONPATH="${ROOT}/apps/core/src" python3 -m pytest -q "${ROOT}/apps/core/tests/test_addon_config.py" || FAIL=1
+elif PYTHONPATH="${ROOT}/apps/core/src" python3 -c 'import pytest' >/dev/null 2>&1; then
+  PYTHONPATH="${ROOT}/apps/core/src" python3 -m pytest -q "${ROOT}/apps/core/tests/test_addon_config.py" || FAIL=1
 else
-  PYTHONPATH="${ROOT}/apps/core/src" python3 -m pytest -q "${ROOT}/apps/core/tests/test_addon_config.py" 2>/dev/null || {
-    echo "SKIP: add-on config tests (install apps/core dev deps to run)"
-  }
+  echo "SKIP: add-on config tests (pytest is unavailable; install apps/core dev dependencies)"
 fi
 
 if [[ "${FAIL}" -ne 0 ]]; then

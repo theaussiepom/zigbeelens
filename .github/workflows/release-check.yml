@@ -36,32 +36,59 @@ jobs:
       - name: Version alignment
         run: bash scripts/check-version-alignment.sh
 
+      - name: Verify release tag matches package version
+        run: |
+          version="$(sed -nE 's/.*\"version\": \"([^\"]+)\".*/\1/p' package.json | head -1)"
+          test "${GITHUB_REF_NAME}" = "v${version}"
+
+      - name: Cross-surface contracts and documentation
+        run: bash scripts/validate-contracts.sh
+
+      - name: Ruff
+        run: ruff check apps/core/src apps/core/tests
+
       - name: Backend tests
         run: pytest apps/core/tests -q
         env:
           PYTHONPATH: apps/core/src
 
-      - name: UI tests and build
+      - name: Performance baselines
+        run: pytest apps/core/tests/performance -q
+        env:
+          PYTHONPATH: apps/core/src
+
+      - name: SQLite 3.34.1 runtime smoke
+        run: bash scripts/smoke-sqlite-3.34.1.sh
+
+      - name: UI tests, typecheck, lint, and build
         run: |
           pnpm --filter @zigbeelens/ui test
+          pnpm --filter @zigbeelens/ui typecheck
+          pnpm --filter @zigbeelens/ui lint
           pnpm --filter @zigbeelens/ui build
 
       - name: HA integration validation
         run: bash scripts/validate-ha-integration.sh
 
       - name: HACS repo packaging
-        run: bash scripts/package-hacs-repo.sh
+        run: |
+          bash scripts/package-hacs-repo.sh
+          bash dist/zigbeelens-hacs/scripts/validate-hacs-repo.sh
 
-      - name: Add-on validation
-        run: bash scripts/validate-addon.sh
+      - name: Add-on validation and packaged-repository validation
+        run: |
+          bash scripts/validate-addon.sh
+          bash scripts/package-addon-repo.sh
+          bash dist/zigbeelens-addons/scripts/validate-addon-repo.sh
 
       - name: Compose validation
-        run: bash scripts/validate-compose.sh
+        run: ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 bash scripts/validate-compose.sh
 
       - name: Core smoke
         run: bash scripts/smoke-core.sh
 
       - name: Safety guardrails
-        run: pytest apps/core/tests/test_safety_guardrails.py -q
+        run: bash scripts/validate-safety-guardrails.sh
         env:
+          CORE_PYTHON: python3
           PYTHONPATH: apps/core/src

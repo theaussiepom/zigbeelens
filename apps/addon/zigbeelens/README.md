@@ -2,11 +2,30 @@
 
 ZigbeeLens is a **read-only observability console** for Zigbee2MQTT.
 
-It watches Zigbee2MQTT over MQTT, keeps local history in SQLite, runs the shared Decision Engine, and generates **redacted evidence reports** you can share safely.
+It watches Zigbee2MQTT over MQTT, keeps local history in SQLite, runs the shared
+Decision Engine, and generates **redacted evidence reports** designed for
+sharing after you review the export.
 
-Open it from the Home Assistant sidebar after install — no extra ports, no Docker knowledge required.
+## Release status — generated repository publication blocked
 
-The add-on **runs ZigbeeLens Core itself**. Home Assistant Ingress shows the full canonical Core UI (Overview, Mesh investigations, Devices, Incidents, Reports). There is no separate add-on decision layer. The optional HACS integration can sit alongside the add-on for entities, repairs, and the companion panel; its decision contract talks to Core over HTTP and is not an internal add-on presentation path.
+This repository contains two different add-on paths:
+
+- the **source-built add-on runner**, available for local/source development;
+- the **generated image-based repository**, which selects the standalone GHCR
+  image and is not publication-ready.
+
+Do not present the generated repository as a supported release install. Its
+open gates include the complete runner/option contract, optional API-token
+propagation, HAOS UID-1000 `/data` writability, Supervisor Ingress and spoof
+rejection, reporting schema/default/unused-control alignment, and a portable
+HACS-to-Core origin. Structural package validation does not close those live
+HAOS and runtime gates.
+
+The source-built runner is intended to run ZigbeeLens Core and show the
+canonical UI through Home Assistant Ingress. There is no separate add-on
+decision layer. HACS is not required for that UI. The optional HACS integration
+can add entities, repairs, and a companion panel only when Home Assistant can
+reach a separate Core HTTP origin; Ingress itself is not that origin.
 
 ## What it does
 
@@ -37,14 +56,17 @@ When topology policy allows it, Core may publish **only** the allowlisted Zigbee
 
 MQTT Discovery remains optional and **disabled by default**.
 
-## Install
+## Conditional public-repository install
+
+Use these steps only after the generated repository is published and every
+publication gate above is closed. For current source development, use
+[docs/addon-dev.md](../../../docs/addon-dev.md) instead.
 
 1. **Settings → Add-ons → Add-on store → ⋮ → Repositories**
-2. Add this repository URL (when published):
+2. Add this repository URL:
    ```
    https://github.com/theaussiepom/zigbeelens-addons
    ```
-   For local development, see [docs/addon-dev.md](../../../docs/addon-dev.md).
 3. Install **ZigbeeLens**.
 4. Configure MQTT and your Zigbee2MQTT network(s) (see below).
 5. **Start** the add-on.
@@ -54,14 +76,14 @@ MQTT Discovery remains optional and **disabled by default**.
 
 ### MQTT
 
-| Option | Description |
-|--------|-------------|
-| `mqtt.host` | MQTT broker hostname. Use `core-mosquitto` for the official Mosquitto add-on. |
-| `mqtt.port` | Broker port (usually `1883`). |
-| `mqtt.username` | Optional username. |
-| `mqtt.password` | Optional password (stored in add-on config, never logged). |
-| `mqtt.tls.enabled` | Use `mqtts://` when `true`. |
-| `mqtt.tls.reject_unauthorized` | Reject invalid TLS certificates when `true`. |
+| Option | Default | Description |
+|--------|---------|-------------|
+| `mqtt.host` | `core-mosquitto` | MQTT broker hostname. Use `core-mosquitto` for the official Mosquitto add-on. |
+| `mqtt.port` | `1883` | Broker port. |
+| `mqtt.username` | blank | Optional username. |
+| `mqtt.password` | blank | Optional password (stored in add-on config, never logged). |
+| `mqtt.tls.enabled` | `false` | Generates an `mqtts://` broker URI when `true`. |
+| `mqtt.tls.reject_unauthorized` | `true` | Reject invalid TLS certificates when `true`. |
 
 ### Networks
 
@@ -95,13 +117,82 @@ networks:
     base_topic: zigbee2mqtt-shed
 ```
 
-### Advanced options
+### Diagnostics and reporting defaults
 
-Diagnostics thresholds, report limits, and feature flags are available under **Diagnostics**, **Reporting**, and **Features** in the add-on configuration UI. Defaults are sensible for most homes.
+| Option | Default |
+|--------|---------|
+| `diagnostics.incident_window_seconds` | `180` |
+| `diagnostics.stale_after_hours` | `24` |
+| `diagnostics.low_battery_percent` | `20` |
+| `diagnostics.weak_link_threshold` | `40` |
+| `diagnostics.flapping_threshold` | `3` |
+| `diagnostics.recently_unstable_window_hours` | `24` |
+| `diagnostics.bridge_stale_after_minutes` | `10` |
+| `diagnostics.mains_stale_after_hours` | `12` |
+| `diagnostics.battery_stale_after_hours` | `48` |
+| `diagnostics.incident_watch_window_minutes` | `30` |
+| `diagnostics.incident_resolution_grace_minutes` | `5` |
+| `diagnostics.network_wide_device_percent` | `25` |
+| `diagnostics.network_wide_min_devices` | `5` |
+| `diagnostics.correlated_min_devices` | `2` |
+| `diagnostics.stale_cluster_min_devices` | `3` |
+| `diagnostics.low_battery_cluster_min_devices` | `3` |
+| `diagnostics.interview_failure_min_devices` | `2` |
+| `reporting.default_profile` | `standard` |
+| `reporting.max_recent_events` | `100` |
+| `reporting.max_metric_samples_per_device` | `50` |
+| `reporting.max_availability_changes_per_device` | `50` |
+| `reporting.include_raw_payloads` | `false` |
 
-- `features.mqtt_discovery` — leave **off** unless you want optional Home Assistant MQTT Discovery entities (see [docs/mqtt-discovery.md](../../../docs/mqtt-discovery.md)). The HACS integration is recommended for native HA entities.
-- `features.manual_network_map` — leave **off** unless you use manual topology snapshots.
-- `features.automatic_network_map` — leave **off** (not supported).
+Use values of at least `1` for all three `reporting.max_*` limits. The current
+Supervisor schema incorrectly accepts `0`, but Core rejects it at startup.
+`reporting.default_profile` is accepted by the schema, but the current report
+request path defaults to `standard` independently; select a non-standard
+redaction profile explicitly when generating a report.
+`reporting.max_metric_samples_per_device`,
+`reporting.max_availability_changes_per_device`, and
+`reporting.include_raw_payloads` are also accepted but have no current
+exact-v3 composition effect.
+
+### Feature, discovery, and topology defaults
+
+| Option | Default | Notes |
+|--------|---------|-------|
+| `features.mqtt_collector` | `true` | Collect Zigbee2MQTT telemetry. |
+| `features.mqtt_discovery` | `false` | First of two required discovery switches. |
+| `features.bridge_logs` | `true` | Observe bridge log messages. |
+| `features.device_payload_history` | `true` | Retain device payload history. |
+| `features.manual_network_map` | `false` | Also required for manual topology capture. |
+| `features.automatic_network_map` | `false` | Legacy automatic-map gate; keep off unless deliberately enabling periodic capture. |
+| `mqtt_discovery.enabled` | `false` | Second required discovery switch. |
+| `mqtt_discovery.topic_prefix` | `homeassistant` | Discovery topic prefix. |
+| `mqtt_discovery.state_topic_prefix` | `zigbeelens` | Entity state topic prefix. |
+| `mqtt_discovery.retain` | `true` | Retain discovery messages. |
+| `mqtt_discovery.device_name` | `ZigbeeLens` | Home Assistant device label. |
+| `mqtt_discovery.object_id_prefix` | `zigbeelens` | Compatibility option; the current summary publisher ignores custom values and uses fixed `zigbeelens_<entity-key>` object IDs. |
+| `topology.enabled` | `true` | Enables topology policy. |
+| `topology.startup_scan` | `true` | Requests one allowlisted network map after startup delay. |
+| `topology.startup_stable_delay_seconds` | `60` | Delay before startup scan. |
+| `topology.refresh_interval_seconds` | `0` | Periodic refresh disabled. |
+| `topology.manual_capture_enabled` | `false` | Also requires `features.manual_network_map`. |
+| `topology.automatic_capture_enabled` | `false` | Periodic automatic capture disabled. |
+| `topology.automatic_capture_interval_hours` | `24` | Legacy periodic interval when both automatic gates are enabled and `refresh_interval_seconds` is `0`. |
+| `topology.capture_on_incident` | `false` | Reserved in the current runtime; leave disabled. |
+| `topology.max_snapshots_per_network` | `30` | Per-network snapshot cap. |
+| `topology.warn_before_capture` | `true` | Compatibility setting; the manual confirmation flow remains enforced. |
+
+MQTT Discovery publishes only when both discovery switches are true. Periodic
+topology capture requires the corresponding feature and topology gates; the
+default startup scan is independent and may publish the allowlisted
+Zigbee2MQTT network-map request.
+
+Keep the Discovery state prefix at its default: the broker last will is
+currently registered before normal topic validation. Also keep the topology
+refresh interval at `0` if topology is disabled; a positive interval can make
+scheduler status appear active while the capture service rejects requests.
+
+Add-on option changes are read at process startup. Restart the add-on after
+changing configuration.
 
 ### Storage retention
 
@@ -145,6 +236,14 @@ All persistent data lives under `/data/zigbeelens/` inside the add-on:
 
 Include the add-on in your **Home Assistant backup** so history and stored reports are preserved. For online SQLite snapshots from a running Core process, use `zigbeelens storage backup` (symlink-safe atomic publish); see [docs/backups.md](../../../docs/backups.md).
 
+### Upgrade or remove
+
+- Before an upgrade, create a Home Assistant backup that includes ZigbeeLens.
+  Update from the add-on store, restart, and check the add-on log.
+- Before uninstalling, create a backup if you may need the SQLite history or
+  generated configuration later. Removing the add-on also removes its
+  Supervisor-managed runtime data.
+
 ## Troubleshooting
 
 ### MQTT collector disconnected
@@ -185,13 +284,33 @@ If Zigbee2MQTT has just started, wait for telemetry to arrive. An empty network 
 ## Architecture notes
 
 - Single container: Core API + bundled UI on port **8377**
-- Home Assistant **Ingress** proxies the UI into the sidebar
-- Read-only MQTT subscriber by default — the collector does not publish to Zigbee2MQTT topics. Optional MQTT Discovery and topology capture can publish when explicitly enabled in options.
+- Home Assistant **Ingress** proxies the UI into the sidebar; the manifest
+  publishes no host port (`ports: {}`), so `http://localhost:8377` is not a
+  supported Home Assistant browser or HACS route
+- The collector path subscribes only. MQTT Discovery publishes only when its
+  two gates are enabled; topology performs the default delayed startup
+  network-map request and can make further allowlisted requests when configured.
 - Same codebase as the Docker Compose / dev path
 
 ## Security
 
-The add-on dashboard is served through Home Assistant **Ingress** (admin-only panel). Supervisor injects a validated user identity; ZigbeeLens Core trusts it only from the exact Supervisor ingress peer. No API token is required to open the ingress UI. An optional add-on `security.api_token` enables HACS/direct bearer API access and is stored in a secret file (never in generated `config.yaml`). Direct browser access outside ingress is denied. See [docs/security.md](../../../docs/security.md).
+The add-on dashboard is served through Home Assistant **Ingress** (admin-only
+panel). Supervisor injects a validated user identity; ZigbeeLens Core trusts it
+only from the exact Supervisor ingress peer (`172.30.32.2`) and rejects
+non-ingress browser access. No API token is required for Ingress.
+
+An API token does not create a network route. HACS pairing requires an actual
+Core HTTP origin reachable from Home Assistant, and this repository does not
+define a portable direct URL for the packaged add-on. Use the add-on's full
+Ingress UI by itself, or use the documented standalone Docker + HACS route.
+See [docs/security.md](../../../docs/security.md) and
+[docs/hacs.md](../../../docs/hacs.md).
+
+The source add-on runner can install the optional `security.api_token` as a
+secret file. The current generated add-on repository instead references the
+standalone image entrypoint, which does not install that option. Treat bearer
+fallback in generated-repository installs as release-blocked until packaging
+uses the add-on runner.
 
 ## Support
 

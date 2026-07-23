@@ -16,7 +16,7 @@ body:
         - Home Assistant OS add-on
         - Docker / Compose
         - Local development
-        - HACS integration only
+        - HACS companion connected to Core
         - Other
     validations:
       required: true
@@ -25,7 +25,7 @@ body:
     id: version
     attributes:
       label: ZigbeeLens version
-      placeholder: "0.1.0"
+      placeholder: "0.1.13"
     validations:
       required: true
 

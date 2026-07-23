@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sync version across ZigbeeLens packages.
-# Usage: ./scripts/bump-version.sh 0.1.0
+# Usage: ./scripts/bump-version.sh <version>
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
@@ -37,6 +37,12 @@ echo "  apps/core/src/zigbeelens/__init__.py"
 sed -i.bak "s/^version: .*/version: ${VERSION}/" "${ROOT}/apps/addon/zigbeelens/config.yaml"
 rm -f "${ROOT}/apps/addon/zigbeelens/config.yaml.bak"
 echo "  apps/addon/zigbeelens/config.yaml"
+
+# Standalone Docker image metadata default
+sed -i.bak "s/^ARG VERSION=.*/ARG VERSION=${VERSION}/" \
+  "${ROOT}/deploy/docker/Dockerfile"
+rm -f "${ROOT}/deploy/docker/Dockerfile.bak"
+echo "  deploy/docker/Dockerfile"
 
 # HACS manifest
 sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" \

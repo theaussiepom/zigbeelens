@@ -19,6 +19,9 @@ CORE_INIT="$(
 UI_PKG="$(
   grep -E '"version"' "${ROOT}/apps/ui/package.json" | head -1 | sed -E 's/.*"version": "([^"]+)".*/\1/'
 )"
+CORE_PKG="$(
+  grep -E '"version"' "${ROOT}/apps/core/package.json" | head -1 | sed -E 's/.*"version": "([^"]+)".*/\1/'
+)"
 SHARED_PKG="$(
   grep -E '"version"' "${ROOT}/packages/shared/package.json" | head -1 | sed -E 's/.*"version": "([^"]+)".*/\1/'
 )"
@@ -30,6 +33,9 @@ HACS_MANIFEST="$(
 )"
 ADDON_CONFIG="$(
   grep -E '^version:' "${ROOT}/apps/addon/zigbeelens/config.yaml" | sed -E 's/version: "?([^"]+)"?.*/\1/'
+)"
+DOCKERFILE="$(
+  grep -E '^ARG VERSION=' "${ROOT}/deploy/docker/Dockerfile" | head -1 | sed -E 's/^ARG VERSION=//'
 )"
 
 EXPECTED="${CORE_PYPROJECT}"
@@ -46,11 +52,13 @@ check() {
 
 check "apps/core/pyproject.toml" "$CORE_PYPROJECT"
 check "apps/core/__init__" "$CORE_INIT"
+check "apps/core/package.json" "$CORE_PKG"
 check "apps/ui/package.json" "$UI_PKG"
 check "packages/shared/package.json" "$SHARED_PKG"
 check "package.json" "$ROOT_PKG"
 check "HACS manifest" "$HACS_MANIFEST"
 check "add-on config.yaml" "$ADDON_CONFIG"
+check "deploy/docker/Dockerfile" "$DOCKERFILE"
 
 if [[ "$MISMATCH" -ne 0 ]]; then
   exit 1

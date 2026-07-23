@@ -8,6 +8,9 @@
 # - Authentik on the UI router returns 302 for /api/* and breaks HACS setup.
 # - API router: LAN-only (local@file), no Authentik, higher priority.
 # - UI router: keep Authentik on the Docker-label router (see beast-traefik example).
+# - This bypass exposes every /api route to clients admitted by local@file, not
+#   only GET /api/health. Configure a Core API token (and the matching HACS
+#   token) or explicitly accept LAN-wide read and ZigbeeLens-local mutation access.
 #
 # Correct HACS Core URLs (no :8377 on HTTPS):
 #   http://192.168.100.5:8377              — default LAN

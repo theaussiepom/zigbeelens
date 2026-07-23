@@ -14,6 +14,6 @@ Dashboard collections, Lens MQTT entities).
 |-------|------------------------|
 | Decision / API contract | [api.md](api.md), [decision-engine.md](decision-engine.md) |
 | MQTT summary entities | [mqtt-discovery.md](mqtt-discovery.md) |
-| Reports (v3 + legacy readers) | [reports.md](reports.md) |
+| Reports (exact v3 only after migration 014) | [reports.md](reports.md) |
 | HACS companion (contract v2) | [hacs.md](hacs.md) |
 | Alignment history | [lens-alignment-status.md](lens-alignment-status.md) |

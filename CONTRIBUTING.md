@@ -8,19 +8,22 @@ Read:
 
 - [README.md](README.md) — product scope and safety promises
 - [docs/architecture.md](docs/architecture.md) — system design
+- [docs/configuration.md](docs/configuration.md) — canonical configuration reference
 - [docs/safety-audit.md](docs/safety-audit.md) — non-negotiable guardrails
 
 **Do not add Zigbee mutation, permit join, device removal, OTA, or root-cause claims.**
 
 ## Development setup
 
+Install Node.js, pnpm, Python 3.11+, and `uv`, then:
+
 ```bash
 git clone https://github.com/theaussiepom/zigbeelens.git
 cd zigbeelens
 pnpm install
-python3 -m venv apps/core/.venv
-source apps/core/.venv/bin/activate
-pip install -e "apps/core[dev]"
+cd apps/core
+uv sync --extra dev
+cd ../..
 pnpm --filter @zigbeelens/shared build
 export ZIGBEELENS_CONFIG=config/config.yaml
 ./scripts/dev.sh
@@ -32,12 +35,25 @@ See [docs/development.md](docs/development.md) for mock vs live mode and MQTT te
 
 ```bash
 # Backend
-source apps/core/.venv/bin/activate
-PYTHONPATH=apps/core/src pytest apps/core/tests -q
+cd apps/core
+uv run pytest -q
+uv run pytest -q tests/performance
+uv run ruff check src tests
+cd ../..
+
+# Shared package (build/typecheck; no dedicated shared package test suite)
+pnpm --filter @zigbeelens/shared build
+pnpm --filter @zigbeelens/shared typecheck
 
 # UI
 pnpm --filter @zigbeelens/ui test
 pnpm --filter @zigbeelens/ui typecheck
+pnpm --filter @zigbeelens/ui lint
+pnpm --filter @zigbeelens/ui build
+
+# Documentation and cross-surface contracts
+./scripts/validate-docs.sh
+./scripts/validate-contracts.sh
 
 # HA integration
 ./scripts/validate-ha-integration.sh
@@ -79,9 +95,9 @@ When changing MQTT-related code, verify:
 
 | Component | Rule |
 |-----------|------|
-| Collector | Subscribe-only — no publish to Zigbee2MQTT topics |
-| MQTT Discovery | Publish only `homeassistant/` and `zigbeelens/` |
-| Topology | Only `{base_topic}/bridge/request/networkmap`, feature-gated + confirmed |
+| Collector | The collector path subscribes only; it does not publish |
+| MQTT Discovery | Normal publishes must pass topic validation; preserve the documented release blocker until broker last-will registration is validated too |
+| Topology | Publish only `{base_topic}/bridge/request/networkmap`; the default delayed startup scan is bounded, while manual capture is feature-gated and confirmed |
 | Reports | Redact before storage and download |
 
 Add or update tests in:
@@ -107,8 +123,9 @@ Add or update tests in:
 ## Adding MQTT topics safely
 
 - **Collector:** subscribe patterns only — review `mqtt/topics.py`
-- **Discovery:** validate with `mqtt_discovery/topics.py` — must pass `validate_publish_topic`
-- **Topology:** validate with `topology/topics.py` — single allowlisted request topic
+- **Discovery:** validate normal publishes with `mqtt_discovery/topics.py`; also
+  close or preserve the safety-audit blocker for broker last-will registration
+- **Topology:** validate with `topology/topics.py` — single allowlisted request topic; preserve startup/manual capture gates
 
 Never publish to `{base_topic}/set`, `{base_topic}/bridge/request/*` (except networkmap), or wildcards on Zigbee2MQTT topics.
 
@@ -130,4 +147,5 @@ Use the PR template checklist. Ensure:
 
 ## Questions
 
-Open a [discussion](https://github.com/theaussiepom/zigbeelens/discussions) or issue for design questions before large changes.
+Open an [issue](https://github.com/theaussiepom/zigbeelens/issues) for design
+questions before large changes.

@@ -9,12 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Phase 7B test architecture:** canonical oracle contract fixtures (`oracle_contract_version: 2` with Core-owned vocabulary manifest), Core/UI contract lanes, self-contained `scripts/validate-contracts.sh` (no `uv` requirement), Core→UI→ReportDetailV3 exact parity, unknown-not-zero and primary-copy guardrails, `/api`↔`/api/v1` decision/report matrix, OpenAPI structural checks; see `docs/test-architecture.md`
+- **Phase 7B test architecture (merged in PR #101):** canonical oracle contract fixtures (`oracle_contract_version: 2` with Core-owned vocabulary manifest), Core/UI contract lanes, self-contained `scripts/validate-contracts.sh` (no `uv` requirement), Core→UI→ReportDetailV3 exact parity, unknown-not-zero and primary-copy guardrails, `/api`↔`/api/v1` decision/report matrix, OpenAPI structural checks; see `docs/test-architecture.md`
+- **Phase 7C1 documentation truth (in progress):** current Decision-led product identity and navigation, exact-v3 report ownership, configuration source-of-truth links, deployment/companion boundaries, and release-phase status are aligned. The audit now records unresolved runtime/configuration contradictions, so Phase 7C1 is not complete. Screenshot capture remains Phase 7C2; live Beast validation remains Phase 7D.
 
 ### Changed
 
 - **Pre-release report reset:** migration `014` deletes all stored development reports once (schema 13 → 14); after schema 14 only exact `ReportDetailV3` is supported for list/detail/download — no v1/v2 compatibility branch remains
-- **Phase 7A query bounds (final):** additive incident `order=recent` closes Overview PR #83; latest topology uses per-network indexed seeks (not history-wide `ROW_NUMBER`); device snapshot-history endpoint is target-row/link-bounded (no complete device inventory; network tracking via existence probe; `UNION ALL` + `idx_topology_links_snapshot_target`) with deep topology_facts parity; metric windows use deterministic `id` tie-break; shared-availability instability reads offline transitions in SQL; cursor versions accept only exact `int` `{1,2}`; History full/network report ops measured; migration `013` index-only and runtime-smoked on SQLite 3.34.1; Track 5 baselines frozen
+- **Phase 7A query bounds (merged in PR #100):** additive incident `order=recent` closes Overview PR #83; latest topology uses per-network indexed seeks (not history-wide `ROW_NUMBER`); device snapshot-history endpoint is target-row/link-bounded (no complete device inventory; network tracking via existence probe; `UNION ALL` + `idx_topology_links_snapshot_target`) with deep topology_facts parity; metric windows use deterministic `id` tie-break; shared-availability instability reads offline transitions in SQL; cursor versions accept only exact `int` `{1,2}`; History full/network report ops measured; migration `013` index-only and runtime-smoked on SQLite 3.34.1; Track 5 baselines frozen
 - **Phase 6A navigation:** primary workflows are Overview, Mesh / Investigate, Devices, Incidents, Reports, Settings; supporting Networks / Timeline / Topology snapshots / How it works live under Advanced & support; canonical investigation routes are `/investigate` and `/investigate/:networkId` with legacy `/topology/:networkId/graph` redirect compatibility
 - **Phase 6B router UX:** observed router areas are investigated in Mesh / Investigate; standalone Router diagnostics page removed; `/routers` remains a compatibility redirect; Core/HACS/report router facts retained; router-area cards can focus graph evidence and open the existing device drawer without changing layout or presets
 - **Phase 6B corrective:** Overview/Network Detail no longer render RouterRisk DiagnosticConclusion cards; Mesh remains the router-area authority via `investigation_priorities` / `router_neighbourhood_review`; manual topology capture encodes the network path segment; investigation actions use contextual accessible names
@@ -25,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Phase 6D contextual reports:** Create device/incident/network reports from their detail pages and Mesh; Reports is Saved reports history with Create full report; shared dialog uses Core `ReportDetailV3`; client-only Mesh evidence export removed from production *(superseded for storage: migration 014 / exact-v3-only reads)*
 - **Phase 6D corrections:** stable semantic request identity; separate preview/mutation ownership; one-report post-save download; modal focus trap and launcher return; radiogroup format/profile selection; collision-safe saved-row action names; retained Saved reports list on refresh failure
 - **Phase 6D seal:** per-report Saved row operation ownership; refresh warning for accepted empty lists; dialog focus trap excludes closed Advanced controls; format/profile use `aria-pressed` button groups
+- **Add-on publication status:** source-runner Ingress/token support is implemented, but the generated add-on repository selects the standalone image entrypoint, which omits optional token-file propagation; publication remains blocked on packaged `/data`/Ingress/bearer smokes, reporting schema/default behavior, and HACS reachability
 
 ### Added
 
@@ -59,9 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Security:** allowlisted environment and `*_FILE` resolution for security and MQTT secrets (plus temporary `ZIGBEELENS_API_KEY` config-source alias)
 - **Security:** secret-free `security` block on `/api/config/status` and startup posture logging
 - **Capabilities:** `bearer_authentication`, `browser_session_authentication`, `csrf_protection`, `home_assistant_ingress_identity` advertisement flags
-- **HACS companion:** exact decision contract v1 negotiation and native panel decision display (Phase 5E)
 - **Capabilities:** `shared_decisions`, `companion_decision_summary`, and decision-surface advertisement for companion consumers
-- **Reports:** Lens-family aligned sections on stored report detail (`executive_summary`, `health_summary`, `active_incidents`, `collector_status`, `limitations`, `domain_details`, `events_or_timeline`); legacy fields retained
 - **Validation:** release-surface version synchronisation helper; stronger HACS/add-on packaging checks for Phase 5E artefacts
 
 ### Changed
@@ -76,7 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Security:** canonical `zigbeelens` launcher owns the Uvicorn bind from one effective AppConfig (including `ZIGBEELENS_PORT`)
 - **Docker:** HEALTHCHECK probes `ZIGBEELENS_PORT` (default 8377) via `/healthz` without loading AppConfig or secrets
 - **Redaction:** MQTT/connection URI query and fragment parameters use the same `is_secret_key()` policy as nested secret keys
-- **HACS:** companion decision mode uses Core Dashboard priorities with soft fallback for missing/unsupported/malformed contracts; Core compatibility is Compatible / Incompatible / Unknown
+- **HACS:** companion decision mode requires exact contract v2 and valid Core Dashboard decision surfaces; missing/unsupported/malformed contracts disable decision mode without restoring Health/Lens diagnostic fallback; Core compatibility is Compatible / Incompatible / Unknown
 - **Topology:** enabled by default with a single startup network map scan after MQTT collector and bridge readiness (`startup_stable_delay_seconds`, default 60); passive MQTT updates thereafter; periodic active scans disabled unless `refresh_interval_seconds` > 0
 - **Docs:** deployment live-state and alignment status refreshed; BenBeast uses rolling `:edge`, not pinned semver; HACS/add-on/release-test docs updated for Decision Engine companion behaviour
 

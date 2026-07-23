@@ -50,6 +50,9 @@ main() {
   core_python="$(resolve_core_python)"
   export PYTHONPATH="${ROOT}/apps/core/src${PYTHONPATH:+:${PYTHONPATH}}"
 
+  echo "==> Documentation contract suite"
+  CORE_PYTHON="${core_python}" bash "${ROOT}/scripts/validate-docs.sh"
+
   echo "==> Core contract suite (oracle freshness owner; Python=${core_python})"
   (
     cd "${ROOT}/apps/core"

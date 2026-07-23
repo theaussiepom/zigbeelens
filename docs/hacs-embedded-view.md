@@ -1,5 +1,15 @@
 # HACS embedded view — optional HTTPS dashboard address
 
+## Release status — local/staged integration only
+
+This guide currently applies to a locally installed integration generated from
+the reviewed monorepo stage. The public HACS satellite is not the reviewed
+staged package and must not be used for this branch test. A future public HACS
+artifact may use these instructions only after the synchronization, version,
+validation, and explicit-publication gates close. See
+[HACS integration release status](hacs.md#release-status--localstaged-integration-only)
+for the authoritative blocker list.
+
 ## Lens family — embedded view decision tree
 
 Shared across [ZigbeeLens](https://github.com/theaussiepom/zigbeelens) and [ThreadLens](https://github.com/theaussiepom/threadlens). See [lens-family.md](lens-family.md).
@@ -25,11 +35,15 @@ Product-specific URLs and Traefik examples follow below.
 
 ---
 
-The embedded dashboard view is **optional**. Most users do not need it. The default HACS experience is the native companion panel plus the **Open Full Dashboard** button.
+The embedded dashboard view is **optional**. Most users do not need it. The
+native companion experience is the companion panel plus the **Open Full
+Dashboard** button.
 
 Embedded view is useful if you want the full ZigbeeLens dashboard to appear inside the Home Assistant sidebar. For browser security reasons, this usually requires Home Assistant and ZigbeeLens Core to **both be served over HTTPS**.
 
-**HTTP is fine** for the native Home Assistant panel and the **Open Full Dashboard** button. You do not need a reverse proxy for normal HACS use.
+**HTTP is fine** for the native Home Assistant panel and the **Open Full
+Dashboard** button. You do not need a reverse proxy for the non-embedded
+companion path.
 
 An HTTPS Core URL may be **required** for the optional embedded dashboard view, but **HTTPS is not authentication**. If the HTTPS route is reachable by users or networks you do not trust, access-control decisions remain your responsibility.
 
@@ -47,7 +61,7 @@ An HTTPS Core URL may be **required** for the optional embedded dashboard view, 
 
 | Use | URL |
 |-----|-----|
-| Default HACS / LAN | `http://192.168.100.5:8377` |
+| Native companion / LAN | `http://192.168.100.5:8377` |
 | Optional HTTPS / iframe | `https://zigbeelens.theaussiepom.me` |
 | **Wrong** | `https://zigbeelens.theaussiepom.me:8377` |
 
@@ -57,24 +71,27 @@ If Home Assistant uses HTTPS and Core uses `http://192.168.100.5:8377`, the pane
 
 ## When to use HTTPS in front of Core
 
-Use an HTTPS dashboard address only if you **want** embedded view inside the HACS sidebar and accept the extra setup.
+Use an HTTPS dashboard address only if you **want** embedded view inside the
+Home Assistant companion sidebar and accept the extra setup.
 
 You do **not** need HTTPS or a reverse proxy for:
 
 - Native companion panel (status, incidents, networks)
-- HACS sensors, repairs, diagnostics
+- Home Assistant companion sensors, repairs, diagnostics
 - **Open Full Dashboard** in a new tab
 
 Alternatives to reverse proxy for embedded full UI:
 
-- **HAOS add-on + Ingress** — designed embedded path (same-origin through Home Assistant)
+- **HAOS add-on + Ingress (source-built/local pre-release testing)** —
+  same-origin path through Home Assistant today; treat it as a packaged route
+  only for a future published add-on artifact after publication gates close
 - **Open Full Dashboard** — no proxy
 
 ## Overview
 
 ```text
 Home Assistant (HTTPS)
-  └── HACS companion panel
+  └── ZigbeeLens companion panel
         └── Try Embedded View
               └── https://zigbeelens.yourname.example  (HTTPS Core URL)
                         └── reverse proxy (TLS)
@@ -84,11 +101,11 @@ Home Assistant (HTTPS)
 After setup:
 
 1. Core is reachable at an **HTTPS** URL from the browser running Home Assistant.
-2. **Settings → Devices & services → ZigbeeLens → Configure** — set Core URL to that HTTPS address.
+2. **Settings → Devices & services → ZigbeeLens → Reconfigure** — set Core URL to that HTTPS address.
 3. **Try Embedded View** renders the dashboard.
 
-Core defaults to same-origin framing (`frame-ancestors 'self'`). For a HACS
-direct iframe behind HTTPS, configure Core with the exact roles separated:
+Core defaults to same-origin framing (`frame-ancestors 'self'`). For a direct
+companion iframe behind HTTPS, configure Core with the exact roles separated:
 
 ```yaml
 security:
@@ -103,8 +120,9 @@ the browser while Core itself still sees `http` + `Host` (Core does not trust
 `X-Forwarded-Proto`). `frame_ancestor_origins` grants framing only — not CORS,
 not API access, and not authentication. Do not copy one list into the other.
 Your reverse proxy must not override Core with wildcard CORS or
-`frame-ancestors *`. The Core URL stored in HACS must be a canonical absolute
-HTTP/HTTPS origin (no path, query, fragment, or userinfo).
+`frame-ancestors *`. The Core URL stored in the integration config entry must
+be a canonical absolute HTTP/HTTPS origin (no path, query, fragment, or
+userinfo).
 
 ---
 
@@ -132,10 +150,27 @@ For Beast-style Traefik stacks, see:
 
 These follow existing conventions (`local@file`, `authentik@file`, `securityHeadersZigbeeLens@file`, Cloudflare cert resolver, `underground` network). Create a matching Authentik provider for `zigbeelens.${DOMAIN}` before enabling the UI route.
 
-**API bypass (required for HACS over HTTPS):** Home Assistant config flow calls `GET /api/health` (legacy; `GET /api/v1/health` is equivalent). If Authentik protects all paths, those requests get `302` and setup fails. Mirror the ThreadLens split:
+The Beast template deliberately hardcodes
+`ghcr.io/theaussiepom/zigbeelens:edge` for current-main/pre-release testing.
+That rolling image is not remote release validation. For a future compatible
+published companion/Core pair, use the overrideable generic Traefik template in
+Option C or replace the Beast service's image entry with the matching `X.Y.Z`;
+released users are not required to use `edge`. Replace that same hardcoded
+entry with a compatible `sha-*` or local build when testing one exact
+current-main revision.
+
+**API bypass (required for the integration over HTTPS):** Home Assistant config flow calls `GET /api/health` (legacy; `GET /api/v1/health` is equivalent). If Authentik protects all paths, those requests get `302` and setup fails. Mirror the ThreadLens split:
 
 - **`zigbeelens-api`** — `PathPrefix(/api)`, priority 100, `local@file` + security headers, **no Authentik**
 - **`zigbeelens`** — UI/dashboard, Authentik on Docker labels or a second file router
+
+This bypass covers every `/api` route, not only the setup health read. With
+Core's default trusted-open/no-token security, every client admitted by
+`local@file` can read protected evidence and call ZigbeeLens-local mutations
+such as report, topology-snapshot, and enrichment routes. Configure
+`security.api_token` and enter the same token in the ZigbeeLens integration, or
+explicitly accept that LAN-wide API access. Authentik on the UI router does not
+protect this API router.
 
 Example HTTPS Core URL: `https://zigbeelens.theaussiepom.me` (no port suffix).
 
@@ -166,10 +201,25 @@ Replace `192.168.100.5` with your Beast (or Docker host) LAN IP.
 
 ### 2. Start stack
 
+The Compose file defaults to `latest`, meaning the newest tagged release:
+
 ```bash
 cd ~/zigbeelens-https
 docker compose up -d
 ```
+
+When following the current-main pre-release guide, keep the image aligned
+explicitly instead:
+
+```bash
+cd ~/zigbeelens-https
+export ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge
+docker compose up -d
+```
+
+Keep `ZIGBEELENS_IMAGE` set for later `docker compose pull` and
+`docker compose up -d` commands in that shell. `edge` is a rolling
+current-main test image, not remote release-validation evidence.
 
 Core is **not** published on `:8377` in this example — only Caddy on `:8443` (mapped to container 443).
 
@@ -183,26 +233,34 @@ curl -k https://zigbeelens.home.arpa:8443/api/health
 
 The example uses `tls internal` (Caddy local CA). Browsers must trust that CA or the iframe will fail for certificate reasons even after mixed content is fixed.
 
-On the Docker host (installs into system trust store — adjust for your OS):
+Export the generated root certificate:
 
 ```bash
-docker compose exec caddy caddy trust
+docker compose cp \
+  caddy:/data/caddy/pki/authorities/local/root.crt \
+  ./caddy-local-root.crt
 ```
 
-On other machines, export and install the root CA, or use a publicly trusted certificate (Let's Encrypt) instead — see below.
+Install `caddy-local-root.crt` into the trust store of every browser/device that
+will embed Core and into the Home Assistant host/container trust store when
+**Verify SSL** is enabled. `docker compose exec caddy caddy trust` changes trust
+inside the Caddy container only; it does not trust the certificate on the
+Docker host, Home Assistant, or a browser device. Trust-store commands are
+platform-specific. Prefer a publicly trusted certificate (for example Let's
+Encrypt) when possible — see below.
 
 Home Assistant must also reach `https://zigbeelens.home.arpa:8443/api/health` (integration backend), not only your browser.
 
-### 4. Update HACS integration
+### 4. Reconfigure the companion integration
 
-**Settings → Devices & services → ZigbeeLens → Configure**
+**Settings → Devices & services → ZigbeeLens → Reconfigure**
 
 | Field | Value |
 |-------|--------|
 | Core URL | `https://zigbeelens.home.arpa:8443` |
 | Verify SSL | On if cert is trusted; off only for testing with self-signed |
 
-Restart Home Assistant if prompted.
+The integration validates the new URL and reloads the config entry.
 
 ### 5. Test embedded view
 
@@ -214,20 +272,88 @@ If you still see blocked or certificate errors, see [Troubleshooting](#troublesh
 
 ---
 
-## Option B — Traefik (existing external proxy)
+## Option C — Traefik (existing external proxy)
 
 If you already run Traefik with TLS:
 
-1. Use `deploy/docker/docker-compose.traefik.example.yaml` as a template.
-2. Point DNS at your host (`zigbeelens.example.com`).
-3. Ensure the Traefik service disables response buffering if live SSE updates stall.
-4. Set HACS Core URL to `https://zigbeelens.example.com` (no port if 443).
+1. From the ZigbeeLens repository root, create a dedicated installation
+   directory and copy the maintained Compose and Core configuration examples:
+
+   ```bash
+   mkdir -p ~/zigbeelens-traefik/{config,data}
+   cp deploy/docker/docker-compose.traefik.example.yaml \
+     ~/zigbeelens-traefik/docker-compose.yaml
+   cp deploy/docker/config.example.yaml \
+     ~/zigbeelens-traefik/config/config.yaml
+   ```
+
+2. Before starting Core, edit the copied files:
+
+   - In `config/config.yaml`, set `mqtt.server`, each network's ID and
+     `base_topic`, and the required security settings. In particular, set the
+     browser-visible origin in `security.cors_allowed_origins` and the Home
+     Assistant origin in `security.frame_ancestor_origins` for embedded view.
+   - In `docker-compose.yaml`, replace `zigbeelens.example.com` with your
+     Traefik hostname.
+   - If the external proxy-network name is not `proxy`, change it in both the
+     service's `networks` list and the top-level `networks` definition.
+
+3. Change into the copied installation directory:
+
+   ```bash
+   cd ~/zigbeelens-traefik
+   ```
+
+4. For the current local/staged integration procedure, select a compatible
+   current-main image explicitly, validate the rendered configuration, pull
+   it, and start it:
+
+   ```bash
+   export ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge
+   docker compose config
+   docker compose pull
+   docker compose up -d
+   ```
+
+   Keep `ZIGBEELENS_IMAGE` set for later `docker compose pull` and
+   `docker compose up -d` commands. An export lasts only for the current shell;
+   for later shells, export it again or persist the same assignment in
+   `~/zigbeelens-traefik/.env`:
+
+   ```dotenv
+   ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge
+   ```
+
+   A compatible published `sha-*` image may replace `edge` and use the same
+   pull/start sequence. A locally built tag may also replace `edge`, but omit
+   `docker compose pull` for that local-only image and run `docker compose
+   config` followed by `docker compose up -d`. These local/staged paths are not
+   remote release-validation evidence.
+
+5. For a future compatible published companion/Core pair, do not force
+   `edge`. Either remove the selector from `.env` and unset
+   `ZIGBEELENS_IMAGE` to use the default `latest` tagged release, or set it to
+   the exact matching `ghcr.io/theaussiepom/zigbeelens:X.Y.Z` release. Then
+   run `docker compose config`, `docker compose pull`, and
+   `docker compose up -d` from `~/zigbeelens-traefik`.
+6. Point DNS at your host (`zigbeelens.example.com`).
+7. Ensure the Traefik service disables response buffering if live SSE updates stall.
+8. Set the ZigbeeLens integration Core URL to
+   `https://zigbeelens.example.com` (no port if 443).
 
 See [docker.md](docker.md#reverse-proxy--traefik) for SSE notes.
 
 ---
 
-## Option C — nginx (manual)
+## Option D — nginx (manual)
+
+nginx does not select or start a ZigbeeLens Core image; it only proxies an
+already-running upstream. For the current local/staged integration procedure,
+first start that upstream with `edge`, a compatible `sha-*`, or a local build
+by following
+[Current-main/pre-release validation](docker.md#current-mainpre-release-validation).
+For a future compatible published companion/Core pair, proxy its compatible
+pinned `X.Y.Z` or released `latest` image instead.
 
 Minimal location block (adjust hostname, cert paths, and upstream):
 
@@ -253,7 +379,8 @@ server {
 }
 ```
 
-Set HACS Core URL to `https://zigbeelens.home.arpa`.
+Set the ZigbeeLens integration Core URL to
+`https://zigbeelens.home.arpa`.
 
 ---
 
@@ -263,9 +390,20 @@ For a domain with public DNS:
 
 1. Use Caddy with `tls you@example.com` instead of `tls internal`, **or** Traefik with ACME.
 2. Map `443:443` on the host.
-3. HACS Core URL: `https://zigbeelens.example.com` (no port).
+3. ZigbeeLens integration Core URL:
+   `https://zigbeelens.example.com` (no port).
 
-**Security:** Core may require `Authorization: Bearer` when an API token is configured. The HACS integration sends that token only from Home Assistant’s server-side client for entities/panel summary/repairs — never into the iframe URL or browser storage. **Try Embedded View** and **Open Full Dashboard** remain standalone browser clients and use session login when `session_secret` is set. HTTPS adds TLS, not authentication. If Core is reachable beyond users or networks you trust, consider firewall rules, network isolation, VPN, or authentication at the proxy (Authelia, OAuth2 proxy, Authentik, etc.).
+**Security:** Core may require `Authorization: Bearer` when an API token is
+configured. The ZigbeeLens Home Assistant integration sends that token only
+from Home Assistant’s server-side client for entities/panel summary/repairs —
+never into the iframe URL or browser storage. **Try Embedded View** and **Open
+Full Dashboard** remain standalone browser clients. Browser-session login
+requires both
+`security.api_token` and `security.session_secret`; bearer-only Core
+deliberately leaves the browser UI locked. HTTPS adds TLS, not authentication.
+If Core is reachable beyond users or networks you trust, consider firewall
+rules, network isolation, VPN, or authentication at the proxy (Authelia,
+OAuth2 proxy, Authentik, etc.).
 
 ---
 
@@ -289,7 +427,7 @@ For a domain with public DNS:
 | Integration "cannot connect" after switching to HTTPS | HA backend can't reach HTTPS URL; or Authentik blocking `/api` | Fix DNS/firewall; add API bypass router (see Option A); test `curl -sk https://host/api/health` returns JSON |
 | Used `https://host:8377` | Wrong URL — Traefik is on 443, `:8377` is direct HTTP | Use `http://host:8377` or `https://host` (no port) |
 | Dashboard loads but "Reconnecting" / stale live data | Proxy buffering SSE | `flush_interval -1` (Caddy) or `proxy_buffering off` (nginx) |
-| Open Full Dashboard works, embed doesn't | Mixed content or cert | Check Core URL scheme is `https://` in integration options |
+| Open Full Dashboard works, embed doesn't | Mixed content or cert | Use Reconfigure and check that the Core URL scheme is `https://` |
 
 **Open Full Dashboard** should continue to work even when embedded view fails — use it as the fallback.
 

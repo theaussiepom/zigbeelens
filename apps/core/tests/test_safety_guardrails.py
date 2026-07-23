@@ -10,10 +10,19 @@ import pytest
 from zigbeelens.mqtt_discovery.topics import UnsafeMqttTopicError, validate_publish_topic
 from zigbeelens.topology.topics import UnsafeTopologyTopicError, validate_topology_request_topic
 
-CORE_SRC = Path(__file__).resolve().parents[1] / "src" / "zigbeelens"
-MQTT_PKG = CORE_SRC / "mqtt"
-UI_SRC = Path(__file__).resolve().parents[3] / "ui" / "src"
 REPO_ROOT = Path(__file__).resolve().parents[3]
+CORE_SRC = REPO_ROOT / "apps" / "core" / "src" / "zigbeelens"
+MQTT_PKG = CORE_SRC / "mqtt"
+UI_SRC = REPO_ROOT / "apps" / "ui" / "src"
+COMPANION_PANEL_SRC = (
+    REPO_ROOT
+    / "apps"
+    / "ha_integration"
+    / "custom_components"
+    / "zigbeelens"
+    / "panel"
+)
+COMPANION_PANEL_ENTRYPOINT = COMPANION_PANEL_SRC / "zigbeelens-panel.js"
 
 UNSAFE_UI_PATTERNS = (
     "permit join",
@@ -43,6 +52,70 @@ def _find_publish_calls_in_tree(directory: Path) -> list[tuple[str, int]]:
                     rel = path.relative_to(CORE_SRC.parents[1])
                     hits.append((str(rel), node.lineno))
     return hits
+
+
+def _production_ui_files(directory: Path) -> list[Path]:
+    excluded_parts = {
+        "__fixtures__",
+        "__tests__",
+        "contract",
+        "contracts",
+        "fixture",
+        "fixtures",
+        "generated",
+        "test",
+        "tests",
+    }
+    files: list[Path] = []
+    for path in directory.rglob("*"):
+        if not path.is_file() or path.suffix not in {".ts", ".tsx"}:
+            continue
+        relative = path.relative_to(directory)
+        if any(part in excluded_parts for part in relative.parts[:-1]):
+            continue
+        if path.name.endswith(
+            (".d.ts", ".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx")
+        ):
+            continue
+        files.append(path)
+    return sorted(files)
+
+
+def _assert_ui_has_no_repair_controls(directory: Path) -> None:
+    assert directory.is_dir(), f"Required production UI source is missing: {directory}"
+    files = _production_ui_files(directory)
+    assert files, (
+        f"UI safety guard discovered zero production .ts/.tsx files under {directory}"
+    )
+    hits: list[tuple[str, str]] = []
+    for path in files:
+        text = path.read_text(encoding="utf-8").lower()
+        for pattern in UNSAFE_UI_PATTERNS:
+            if pattern in text:
+                hits.append((str(path.relative_to(directory)), pattern))
+    assert not hits, f"Unsafe UI controls found: {hits}"
+
+
+def _production_companion_panel_files(directory: Path) -> list[Path]:
+    return sorted(path for path in directory.rglob("*.js") if path.is_file())
+
+
+def _assert_companion_panel_has_no_repair_controls(directory: Path) -> None:
+    assert directory.is_dir(), (
+        f"Required Home Assistant companion panel source is missing: {directory}"
+    )
+    files = _production_companion_panel_files(directory)
+    assert files, (
+        "Home Assistant companion panel safety guard discovered zero "
+        f"production .js files under {directory}"
+    )
+    hits: list[tuple[str, str]] = []
+    for path in files:
+        text = path.read_text(encoding="utf-8").lower()
+        for pattern in UNSAFE_UI_PATTERNS:
+            if pattern in text:
+                hits.append((str(path.relative_to(directory)), pattern))
+    assert not hits, f"Unsafe Home Assistant companion panel controls found: {hits}"
 
 
 def test_collector_package_has_no_publish_calls():
@@ -86,13 +159,184 @@ def test_topology_allows_networkmap_only():
 
 def test_ui_has_no_repair_controls():
     """UI must not expose Zigbee mutation controls."""
-    if not UI_SRC.exists():
-        pytest.skip("UI source not available")
-    combined = ""
-    for path in UI_SRC.rglob("*.tsx"):
-        combined += path.read_text(encoding="utf-8").lower() + "\n"
-    for pattern in UNSAFE_UI_PATTERNS:
-        assert pattern not in combined, f"Unsafe UI pattern found: {pattern}"
+    _assert_ui_has_no_repair_controls(UI_SRC)
+    files = _production_ui_files(UI_SRC)
+    ts_count = sum(path.suffix == ".ts" for path in files)
+    tsx_count = sum(path.suffix == ".tsx" for path in files)
+    print(
+        "Core UI safety corpus: "
+        f"{len(files)} production files ({ts_count} .ts, {tsx_count} .tsx) "
+        "under apps/ui/src."
+    )
+
+
+def test_ui_source_path_matches_monorepo_layout():
+    """The release owner must scan production TS and TSX inside apps/ui."""
+    assert UI_SRC.relative_to(REPO_ROOT) == Path("apps/ui/src")
+    assert UI_SRC.is_dir(), f"Required production UI source is missing: {UI_SRC}"
+    files = set(_production_ui_files(UI_SRC))
+    expected = (
+        UI_SRC / "main.tsx",
+        UI_SRC / "navigation" / "model.ts",
+    )
+    for path in expected:
+        assert path.is_file(), f"Expected production UI source is missing: {path}"
+        assert path in files, (
+            f"Production UI source was excluded from the safety corpus: {path}"
+        )
+
+
+def test_ui_guard_fails_when_source_is_missing(tmp_path: Path):
+    missing = tmp_path / "apps" / "ui" / "src"
+    with pytest.raises(AssertionError, match="Required production UI source is missing"):
+        _assert_ui_has_no_repair_controls(missing)
+
+
+def test_ui_guard_fails_when_production_corpus_is_empty(tmp_path: Path):
+    ui_src = tmp_path / "apps" / "ui" / "src"
+    ui_src.mkdir(parents=True)
+    with pytest.raises(
+        AssertionError,
+        match=r"UI safety guard discovered zero production \.ts/\.tsx files",
+    ):
+        _assert_ui_has_no_repair_controls(ui_src)
+
+
+@pytest.mark.parametrize(
+    ("filename", "source"),
+    (
+        ("UnsafeDeviceActions.ts", 'export const deviceActionLabel = "Remove device";\n'),
+        ("UnsafeDeviceActions.tsx", "<button>Remove device</button>\n"),
+    ),
+)
+def test_ui_guard_rejects_deliberate_unsafe_control(
+    tmp_path: Path,
+    filename: str,
+    source: str,
+):
+    ui_src = tmp_path / "apps" / "ui" / "src"
+    ui_src.mkdir(parents=True)
+    (ui_src / filename).write_text(source, encoding="utf-8")
+    with pytest.raises(AssertionError, match="remove device"):
+        _assert_ui_has_no_repair_controls(ui_src)
+
+
+def test_ui_file_enumerator_excludes_test_sources(tmp_path: Path):
+    ui_src = tmp_path / "apps" / "ui" / "src"
+    production_ts = ui_src / "navigation" / "model.ts"
+    production_ts.parent.mkdir(parents=True)
+    production_ts.write_text(
+        'export const deviceActionLabel = "Evidence only";\n',
+        encoding="utf-8",
+    )
+    production_tsx = ui_src / "components" / "DeviceActions.tsx"
+    production_tsx.parent.mkdir(parents=True)
+    production_tsx.write_text("<div>Evidence only</div>\n", encoding="utf-8")
+
+    excluded = (
+        ui_src / "test" / "authTestUtils.tsx",
+        ui_src / "tests" / "authTestUtils.ts",
+        ui_src / "contract" / "unsafe.ts",
+        ui_src / "contracts" / "unsafe.tsx",
+        ui_src / "fixture" / "deviceFixture.ts",
+        ui_src / "fixtures" / "deviceFixture.tsx",
+        ui_src / "__tests__" / "unsafe.ts",
+        ui_src / "__fixtures__" / "unsafe.tsx",
+        ui_src / "generated" / "unsafe.ts",
+        ui_src / "components" / "DeviceActions.test.ts",
+        ui_src / "components" / "DeviceActions.test.tsx",
+        ui_src / "components" / "DeviceActions.spec.ts",
+        ui_src / "components" / "DeviceActions.spec.tsx",
+        ui_src / "components" / "types.d.ts",
+    )
+    for path in excluded:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('export const unsafe = "Factory reset";\n', encoding="utf-8")
+
+    assert _production_ui_files(ui_src) == [production_tsx, production_ts]
+
+
+def test_ui_file_enumerator_ignores_excluded_checkout_ancestors(tmp_path: Path):
+    ui_src = tmp_path / "tests" / "generated" / "checkout" / "apps" / "ui" / "src"
+    production = ui_src / "components" / "DeviceActions.tsx"
+    production.parent.mkdir(parents=True)
+    production.write_text("<div>Evidence only</div>\n", encoding="utf-8")
+
+    assert _production_ui_files(ui_src) == [production]
+    _assert_ui_has_no_repair_controls(ui_src)
+
+
+def test_companion_panel_has_no_repair_controls():
+    """Home Assistant companion panel must not expose Zigbee mutation controls."""
+    _assert_companion_panel_has_no_repair_controls(COMPANION_PANEL_SRC)
+    files = _production_companion_panel_files(COMPANION_PANEL_SRC)
+    names = ", ".join(path.name for path in files)
+    print(
+        "Home Assistant companion panel safety corpus: "
+        f"{len(files)} production .js file(s) ({names})."
+    )
+
+
+def test_companion_panel_source_path_matches_monorepo_layout():
+    """The release owner must scan the canonical companion panel JavaScript."""
+    expected_src = (
+        REPO_ROOT
+        / "apps"
+        / "ha_integration"
+        / "custom_components"
+        / "zigbeelens"
+        / "panel"
+    )
+    assert COMPANION_PANEL_SRC == expected_src
+    assert COMPANION_PANEL_SRC.is_dir(), (
+        f"Required Home Assistant companion panel source is missing: {COMPANION_PANEL_SRC}"
+    )
+    assert COMPANION_PANEL_ENTRYPOINT.is_file(), (
+        "Expected Home Assistant companion panel entrypoint is missing: "
+        f"{COMPANION_PANEL_ENTRYPOINT}"
+    )
+    assert COMPANION_PANEL_ENTRYPOINT in _production_companion_panel_files(
+        COMPANION_PANEL_SRC
+    ), (
+        "Home Assistant companion panel entrypoint was excluded from the safety corpus: "
+        f"{COMPANION_PANEL_ENTRYPOINT}"
+    )
+
+
+def test_companion_panel_guard_fails_when_source_is_missing(tmp_path: Path):
+    missing = tmp_path / "custom_components" / "zigbeelens" / "panel"
+    with pytest.raises(
+        AssertionError,
+        match="Required Home Assistant companion panel source is missing",
+    ):
+        _assert_companion_panel_has_no_repair_controls(missing)
+
+
+def test_companion_panel_guard_fails_when_production_corpus_is_empty(tmp_path: Path):
+    panel_src = tmp_path / "custom_components" / "zigbeelens" / "panel"
+    panel_src.mkdir(parents=True)
+    with pytest.raises(
+        AssertionError,
+        match=(
+            "Home Assistant companion panel safety guard discovered zero "
+            r"production \.js files"
+        ),
+    ):
+        _assert_companion_panel_has_no_repair_controls(panel_src)
+
+
+def test_companion_panel_guard_rejects_deliberate_unsafe_control(tmp_path: Path):
+    panel_src = tmp_path / "custom_components" / "zigbeelens" / "panel"
+    panel_src.mkdir(parents=True)
+    (panel_src / "zigbeelens-panel.js").write_text(
+        'const deviceActionLabel = "Remove device";\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        AssertionError,
+        match="Unsafe Home Assistant companion panel controls found.*remove device",
+    ):
+        _assert_companion_panel_has_no_repair_controls(panel_src)
 
 
 def test_topology_startup_defaults_in_example_configs():

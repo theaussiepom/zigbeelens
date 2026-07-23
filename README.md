@@ -4,7 +4,12 @@
 
 Understand your Zigbee mesh before you change it.
 
-ZigbeeLens is a read-only observability and diagnostic console for Zigbee2MQTT networks. It watches Zigbee2MQTT over MQTT, keeps local history, evaluates stored evidence into a shared **decision** vocabulary (what to review, with evidence and limitations), and generates redacted reports for troubleshooting.
+ZigbeeLens is a read-only observability and diagnostic console for Zigbee2MQTT
+networks. It watches Zigbee2MQTT over MQTT, keeps local history, evaluates
+stored evidence into a shared **decision** vocabulary, and generates redacted
+reports for troubleshooting. Its job is to show what is worth reviewing, why,
+which evidence supports that judgement, and what the available data cannot
+prove.
 
 ZigbeeLens is part of the **Lens family** of read-only home-network observability tools, alongside [ThreadLens](https://github.com/theaussiepom/threadlens). The active public diagnostic contract is **decision contract v2** (not retired Lens-bucket fields); see [docs/api.md](docs/api.md) and [docs/lens-family.md](docs/lens-family.md).
 
@@ -13,12 +18,15 @@ ZigbeeLens does **not** repair, reset, remove, re-pair, or mutate Zigbee devices
 ## What it is
 
 - Read-only observability for Zigbee2MQTT
-- Incident-first diagnostic dashboard
+- Decision-led Overview with priorities, recent changes, and coverage limits
+- Mesh / Investigate workspace for evidence-led network investigation
+- Device Story and snapshot history on Device Detail
 - Multi-network support (`network_id` + `ieee_address` identity)
-- Router and mesh risk visibility
 - Local SQLite history and stored reports
 - Redacted JSON, YAML, and Markdown exports
-- Home Assistant OS add-on, Docker/Compose, HACS integration
+- Docker/Compose as the current portable deployment route; HACS integration
+  and Home Assistant OS add-on source are present for pre-release testing, but
+  their publication gates remain open
 - Optional MQTT Discovery decision summary entities
 - Optional topology snapshots and Home Assistant enrichment
 
@@ -38,87 +46,85 @@ ZigbeeLens does **not** repair, reset, remove, re-pair, or mutate Zigbee devices
 - Does not change channels
 - Does not configure, bind, or unbind devices
 - Does not run OTA
-- Does not publish Zigbee2MQTT `set` or request topics (except one optional, confirmed network-map request)
-- Topology capture is optional and explicitly confirmed
+- Does not publish Zigbee2MQTT `set` or device-control requests; the only
+  allowlisted Zigbee2MQTT request is `bridge/request/networkmap`
+- Topology is enabled by default for one startup scan after collector/bridge
+  readiness; periodic capture stays off unless configured, and manual capture
+  requires confirmation
 - Reports are redacted before storage and download
 
 See [docs/safety-audit.md](docs/safety-audit.md) for the full safety audit.
 
-## Screenshots
-
-Real screenshots from a live Beast deployment (`home` + `home2` networks). See [docs/screenshots/](docs/screenshots/) for source files.
-
-### ZigbeeLens Core dashboard
-
-![ZigbeeLens Overview dashboard](docs/screenshots/overview-dashboard.png)
-
-The Overview page is the default entry point: live collector status, active incidents, network summaries, and evidence-backed findings.
-
-### Home Assistant HACS companion panel
-
-![HACS native companion panel](docs/screenshots/hacs-companion-panel.png)
-
-The HACS integration provides a native companion panel plus **Open Full Dashboard** (new tab). HTTP Core URLs work for this path — no reverse proxy required.
-
-![HACS embedded view blocked explanation](docs/screenshots/hacs-embedded-blocked.png)
-
-When Home Assistant uses HTTPS and Core uses HTTP, the panel shows a calm explanation instead of a broken iframe. Use an HTTPS Core URL only if you want embedded view — see [docs/hacs-embedded-view.md](docs/hacs-embedded-view.md).
-
-### HACS config flow
-
-![HACS config flow — Core URL and companion panel](docs/screenshots/hacs-config-flow.png)
-
-The setup dialog explains HTTP vs HTTPS Core URLs, optional SSL verification, and the sidebar companion panel toggle.
-
-### More views
-
-| Overview | Incidents |
-|----------|-----------|
-| _Add `docs/screenshots/incidents-page.png`_ | _Screenshot placeholder — Incident detail_ |
-
-| Devices | Reports |
-|---------|---------|
-| _Screenshot placeholder — Device drilldown_ | _Add `docs/screenshots/reports-page.png`_ |
-
 ## Install
 
-| Path | Repo |
-|------|------|
-| [Home Assistant OS add-on](docs/addon-dev.md) | [theaussiepom/zigbeelens-addons](https://github.com/theaussiepom/zigbeelens-addons) |
-| [Docker / Compose](docs/docker.md) | `ghcr.io/theaussiepom/zigbeelens` |
-| [HACS integration](docs/hacs.md) | [theaussiepom/zigbeelens-hacs](https://github.com/theaussiepom/zigbeelens-hacs) |
-| [MQTT Discovery](docs/mqtt-discovery.md) | Optional summary HA entities without HACS |
-| [Topology](docs/topology.md) | Optional mesh enrichment — enabled by default with one startup scan |
+| Path | Current status | Artifact |
+|------|----------------|----------|
+| [Docker / Compose](docs/docker.md) | **Current portable deployment route**; choose released `latest`/`X.Y.Z` or explicit pre-release `edge`/`sha-*` | `ghcr.io/theaussiepom/zigbeelens` |
+| [Home Assistant integration](docs/hacs.md) | **Local/staged source testing only — public HACS satellite unsynchronized and publication blocked** | Generated `dist/zigbeelens-hacs/custom_components/zigbeelens` package |
+| [Home Assistant OS add-on](apps/addon/zigbeelens/README.md) | **Pre-release source — generated repository publication blocked** | Source-built runner and generated image-based package have different open gates |
+| [MQTT Discovery](docs/mqtt-discovery.md) | Optional summary HA entities without HACS | Core configuration |
+| [Topology](docs/topology.md) | Optional mesh enrichment — enabled by default with one startup scan | Core configuration |
+
+## Using the UI
+
+The primary navigation follows the normal investigation journey:
+
+1. **Overview** — start with what needs review first, what changed, and where
+   evidence coverage is limited.
+2. **Mesh / Investigate** — explore one network around the evidence ZigbeeLens
+   identified.
+3. **Devices** — find a device and open its Device Story and snapshot history.
+4. **Incidents** — review correlated issue records without treating them as
+   root-cause proof.
+5. **Reports** — manage saved reports and create a full-estate report.
+6. **Settings** — inspect Core, collector, storage, and feature status.
+
+**Advanced & support** contains **Networks**, **Timeline**, **Topology
+snapshots**, and **How it works**. Those surfaces retain useful raw or
+operational detail without competing with the primary investigation flow.
 
 ## Quick start
 
 ### Home Assistant OS
 
-1. Add the ZigbeeLens add-on repository.
-2. Install and configure the ZigbeeLens add-on (MQTT broker, network `base_topic` values).
-3. Start the add-on.
-4. Open ZigbeeLens via Ingress.
+The source add-on and Ingress runner exist, but the current image-based package
+does not propagate its optional API-token option and has additional
+configuration/reachability blockers. Do not publish or present that package as
+a supported install until the gates in
+[the release checklist](RELEASE_CHECKLIST.md) pass against HAOS. Use the Docker
+path below for current deployment testing.
 
-Details: [docs/addon-dev.md](docs/addon-dev.md)
+Details: [add-on user guide](apps/addon/zigbeelens/README.md) ·
+[add-on development](docs/addon-dev.md)
 
 ### Docker
 
 ```bash
-mkdir -p config data
-cp deploy/docker/config.example.yaml config/config.yaml
-# Edit config/config.yaml — set mqtt.server and networks[].base_topic
-
-./scripts/build-docker.sh
-docker compose -f deploy/docker/docker-compose.example.yaml up -d
+ZIGBEELENS_IMAGE=zigbeelens:local ./scripts/build-docker.sh
+mkdir -p zigbeelens/config zigbeelens/data
+cp deploy/docker/docker-compose.example.yaml zigbeelens/docker-compose.yaml
+cp deploy/docker/config.example.yaml zigbeelens/config/config.yaml
+# Edit zigbeelens/config/config.yaml — set mqtt.server and networks[].base_topic
+cd zigbeelens
+ZIGBEELENS_IMAGE=zigbeelens:local docker compose up -d
 ```
 
 Open **http://localhost:8377**
 
-Details: [docs/docker.md](docs/docker.md)
+This quick start builds the current checkout locally. For released or
+workflow-built images, choose the channel explicitly in
+[docs/docker.md](docs/docker.md).
 
-### Home Assistant / HACS integration
+### Home Assistant integration
 
-The HACS integration is optional. It gives Home Assistant:
+**Local/staged source testing only.** The public HACS satellite is not
+synchronized with the reviewed package and must not be used to validate this
+branch. Generate and manually install the integration from this checkout as
+described in [docs/hacs.md](docs/hacs.md). Synchronizing or publishing the
+satellite requires a separate explicitly authorized task after its runtime,
+version-identity, compatibility, and official-validation gates close.
+
+The optional integration gives Home Assistant:
 
 - a native ZigbeeLens companion panel
 - summary sensors and binary sensors
@@ -131,46 +137,18 @@ For Docker users, an HTTP Core URL such as `http://192.168.1.10:8377` is fine. T
 
 The optional **Try Embedded View** button can show the full dashboard inside Home Assistant only when browser security allows it. In practice, if Home Assistant is served over HTTPS, the ZigbeeLens Core URL also needs to be HTTPS for embedded view to work.
 
-You do not need HTTPS or a reverse proxy for normal HACS use. Change the Core URL anytime under **Settings → Devices & services → ZigbeeLens → Configure**.
+You do not need HTTPS or a reverse proxy for the native, non-embedded companion
+path. Change the Core URL under **Settings → Devices & services → ZigbeeLens →
+Reconfigure**.
 
 Details: [docs/hacs.md](docs/hacs.md) · [docs/hacs-embedded-view.md](docs/hacs-embedded-view.md)
 
-### Development (mock scenarios)
-
-```bash
-pnpm install
-python3 -m venv apps/core/.venv && source apps/core/.venv/bin/activate
-pip install -e "apps/core[dev]"
-pnpm --filter @zigbeelens/shared build
-export ZIGBEELENS_CONFIG=config/config.yaml
-./scripts/dev.sh
-```
-
-Open http://localhost:5173 and switch mock scenarios from the header dropdown.
-
-Details: [docs/development.md](docs/development.md)
-
 ## Configuration
 
-Key settings in `config.yaml`:
-
-| Setting | Description |
-|---------|-------------|
-| `mqtt.server` | MQTT broker URI |
-| `networks[].id` | Stable network identifier — do not change casually |
-| `networks[].name` | Display label only |
-| `networks[].base_topic` | Zigbee2MQTT base topic (must match exactly) |
-| `storage.path` | SQLite database path |
-| `storage.retention_days` | Telemetry history retention (default 7 days; startup + periodic maintenance) |
-| `storage.resolved_incident_retention_days` | Resolved-incident retention (default 90; null = keep) |
-| `storage.report_retention_days` | Report auto-retention (default null = until manually deleted) |
-| `storage.maintenance_interval_hours` | Periodic maintenance interval (default 24) |
-| `diagnostics.*` | Health and incident thresholds |
-| `reports.*` | Report limits and defaults |
-| `topology.enabled` | **false** by default |
-| `features.mqtt_discovery` + `mqtt_discovery.enabled` | **false** by default |
-
-See [deploy/docker/config.example.yaml](deploy/docker/config.example.yaml) for a full example.
+Use the canonical [configuration reference](docs/configuration.md) for exact
+option names, types, defaults, secret handling, and deployment-specific
+availability. Installation examples link back to that reference instead of
+maintaining separate option tables.
 
 ## Reports
 
@@ -187,7 +165,8 @@ Details: [docs/reports.md](docs/reports.md) · [docs/redaction.md](docs/redactio
 ## Known limitations
 
 - ZigbeeLens observes MQTT and Zigbee2MQTT data — it cannot prove RF interference.
-- It cannot prove the current physical route without an optional topology snapshot.
+- It cannot prove the current physical route. A topology snapshot is
+  capture-time neighbour-table and route-hint evidence, not a live route map.
 - Topology is point-in-time and may be slow or unavailable on large networks.
 - Battery and LQI reporting vary by device firmware and configuration.
 - Availability depends on Zigbee2MQTT `availability` feature being enabled.
@@ -196,7 +175,19 @@ Details: [docs/reports.md](docs/reports.md) · [docs/redaction.md](docs/redactio
 
 ## Security model
 
-ZigbeeLens Core includes typed security configuration and secret loading (environment / `*_FILE`). When an API token is configured, protected API routes (reads, mutations, SSE, downloads) require `Authorization: Bearer <token>` and/or a valid browser session. With `session_secret` also configured, browsers can create an HttpOnly session cookie (exact `Origin` + CSRF required for cookie mutations). The Home Assistant add-on UI authenticates through Supervisor ingress identity (exact trusted peer + user ID); no API token is required to open that UI. An optional add-on API token enables HACS/direct bearer fallback and is never written into generated YAML. The HACS integration may store the same token for server-side bearer reads (never in panel/iframe URLs). Exact `cors_allowed_origins` / `frame_ancestor_origins` allowlists and HTML Content-Security-Policy are supported. `local` mode without a token remains deliberately trusted-open. Generic `X-Forwarded-*` trust remains disabled.
+ZigbeeLens Core includes typed security configuration and secret loading
+(environment / `*_FILE`). When an API token is configured, protected API
+routes (reads, mutations, SSE, downloads) require `Authorization: Bearer
+<token>` and/or a valid browser session. With `session_secret` also configured,
+browsers can create an HttpOnly session cookie (exact `Origin` + CSRF required
+for cookie mutations). The image-based add-on package generates Supervisor
+Ingress configuration, but its current entrypoint omits optional token-file
+installation; token-enabled behavior is therefore not a packaged-release
+claim. The HACS integration may store a Core token for server-side bearer reads
+(never in panel/iframe URLs). Exact `cors_allowed_origins` /
+`frame_ancestor_origins` allowlists and HTML Content-Security-Policy are
+supported. `local` mode without a token remains deliberately trusted-open.
+Generic `X-Forwarded-*` trust remains disabled.
 
 ZigbeeLens is read-only with respect to Zigbee control. It does not perform device-control actions such as permit join, remove, reset, bind/unbind, OTA, or channel changes.
 
@@ -211,6 +202,7 @@ Details: [docs/security.md](docs/security.md) · [SECURITY.md](SECURITY.md)
 | Topic | Doc |
 |-------|-----|
 | Architecture | [docs/architecture.md](docs/architecture.md) |
+| Configuration | [docs/configuration.md](docs/configuration.md) |
 | Development | [docs/development.md](docs/development.md) |
 | HAOS add-on | [docs/addon-dev.md](docs/addon-dev.md) |
 | Docker | [docs/docker.md](docs/docker.md) |
@@ -226,29 +218,6 @@ Details: [docs/security.md](docs/security.md) · [SECURITY.md](SECURITY.md)
 | Release | [docs/release.md](docs/release.md) |
 | Pre-release smoke test | [docs/release-test.md](docs/release-test.md) |
 | Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
-
-## Mock scenarios
-
-Fourteen regression fixtures are available in mock mode:
-
-| Scenario | Description |
-|----------|-------------|
-| `all_ok_single_network` | Healthy single network |
-| `all_ok_multi_network` | Healthy multi-network |
-| `single_device_unavailable` | Isolated device outage |
-| `four_devices_same_room_unavailable` | Correlated mesh segment incident (default) |
-| `bridge_offline` | Bridge offline |
-| `one_network_incident_other_network_ok` | Multi-network isolation |
-| `router_risk_candidate` | Router risk with correlated devices |
-| `stale_battery_devices` | Stale battery device |
-| `low_battery_cluster` | Low battery cluster |
-| `interview_failures` | Interview failure |
-| `unknown_insufficient_data` | Insufficient telemetry |
-| `multiple_networks_unstable` | Multi-network instability |
-| `weak_link_devices` | Weak link quality |
-| `stale_reporting_cluster` | Stale reporting cluster |
-
-Set `ZIGBEELENS_MOCK_SCENARIO` or use `?scenario=` in the UI.
 
 ## API overview
 

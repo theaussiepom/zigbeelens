@@ -19,10 +19,13 @@
 # security.frame_ancestor_origins separately (see docs/security.md).
 #
 # SSE/WebSocket: enable buffering off on the Traefik service if live updates stall.
+#
+# The default image is the latest tagged release. Set ZIGBEELENS_IMAGE to
+# `...:edge` only for deliberate current-main/pre-release validation.
 
 services:
   zigbeelens:
-    image: ghcr.io/theaussiepom/zigbeelens:latest
+    image: ${ZIGBEELENS_IMAGE:-ghcr.io/theaussiepom/zigbeelens:latest}
     container_name: zigbeelens
     restart: unless-stopped
     environment:

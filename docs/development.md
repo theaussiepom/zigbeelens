@@ -2,22 +2,25 @@
 
 Guide for working on ZigbeeLens locally.
 
-For architecture overview see [architecture.md](architecture.md). For MQTT broker testing see [mqtt-dev.md](mqtt-dev.md).
+For architecture overview see [architecture.md](architecture.md), for the full
+configuration contract see [configuration.md](configuration.md), and for MQTT
+broker testing see [mqtt-dev.md](mqtt-dev.md).
 
 ## Prerequisites
 
 - Node.js 20+
 - pnpm 9+ (`corepack enable`)
 - Python 3.11+
+- `uv`
 
 ## First-time setup
 
 ```bash
 cd zigbeelens
 pnpm install
-python3 -m venv apps/core/.venv
-source apps/core/.venv/bin/activate
-pip install -e "apps/core[dev]"
+cd apps/core
+uv sync --extra dev
+cd ../..
 pnpm --filter @zigbeelens/shared build
 ```
 
@@ -39,7 +42,10 @@ mode:
   default_scenario: four_devices_same_room_unavailable
 ```
 
-All 14 diagnostic stories are available via `?scenario=` on API calls and the UI dropdown.
+All 14 deterministic fixtures are available through the API `scenario` query
+parameter in mock-mode development. The UI selector is a testing aid: it is
+shown by the Vite development server, or by a build explicitly created with
+`VITE_ENABLE_SCENARIOS=true`; published images do not include it.
 
 ### Live mode
 
@@ -108,13 +114,24 @@ docker compose -f deploy/compose/docker-compose.dev.yaml up --build
 ```bash
 source apps/core/.venv/bin/activate
 PYTHONPATH=apps/core/src pytest apps/core/tests -q
+PYTHONPATH=apps/core/src pytest apps/core/tests/performance -q
 pnpm --filter @zigbeelens/ui test
 pnpm --filter @zigbeelens/ui typecheck
 ruff check apps/core/src apps/core/tests
+./scripts/validate-docs.sh
+./scripts/validate-contracts.sh
 ./scripts/validate-ha-integration.sh
 ./scripts/validate-addon.sh
 ./scripts/validate-compose.sh
 ./scripts/smoke-core.sh
+```
+
+The no-environment Compose command is a developer source-check lane: it renders
+when Docker Compose is available and otherwise reports a partial result.
+Release-equivalent validation is fail-closed:
+
+```bash
+ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 ./scripts/validate-compose.sh
 ```
 
 ## Repository layout
@@ -142,6 +159,7 @@ docs/                Documentation
 | MQTT Discovery | `apps/core/src/zigbeelens/mqtt_discovery/` |
 | Topology | `apps/core/src/zigbeelens/topology/` |
 | API | `apps/core/src/zigbeelens/api/routes.py` |
+| Configuration | `apps/core/src/zigbeelens/config/models.py` |
 
 ## Contributing
 
