@@ -43,6 +43,10 @@ below.
 - [ ] Exact HA current lane passes
       (`bash scripts/test-ha-integration-matrix.sh current`:
       Home Assistant `2026.7.3`, Python `3.14`)
+- [ ] Live enrichment convergence passes
+      (`./scripts/test-enrichment-live-e2e.sh`: official HA registry →
+      manager/client → Core SQLite/SSE/projection → mounted UI rename, area,
+      and metadata-removal fallback on the exact minimum lane)
 - [ ] HACS staging package generates and validates (`./scripts/package-hacs-repo.sh` then `bash dist/zigbeelens-hacs/scripts/validate-hacs-repo.sh`)
 - [ ] Generated HACS CI owns both exact HA lanes plus pinned official hassfest
       and HACS validation; generated release publication depends on that CI

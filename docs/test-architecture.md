@@ -128,11 +128,22 @@ HACS invariants have narrow production-test owners:
 | Official HA registry extraction, deterministic entity/area choice, and fail-closed IEEE ambiguity | `test_ha_enrichment.py` |
 | Exact Core inventory resolution and duplicate-network behavior | `test_ha_enrichment.py` |
 | Strict request/response route and allowed-mutation architecture | `test_api_enrichment.py` |
-| Initial/event/retry/periodic reconciliation, complete-empty vs unavailable, and cleanup | `test_enrichment_manager.py` |
+| Initial/event/retry/periodic reconciliation, exact builder/Core count aggregation, partial-acceptance recovery, complete-empty vs unavailable, and cleanup | `test_enrichment_manager.py` |
+| Identity-free coverage states, immediate owner-aware repair transitions, reauth precedence, promotion, and unload safety | `test_enrichment_manager.py`, setup/repair/diagnostics tests |
 | Core version, capabilities, Decision contract/payload, enrichment contract, repairs, and panel projection states | compatibility/coordinator/repairs/panel tests |
 | Durable options and exactly one effective reload | `test_config_flow.py`, setup tests |
 | Runtime plus declarative single-entry ownership | manifest/config-flow/setup/package tests |
-| Core storage/projection/report/redaction lifecycle | Core `test_ha_enrichment.py` and report tests |
+| Core storage/projection/report/redaction lifecycle plus post-commit, prefix-parity SSE/Dashboard invalidation | Core `test_ha_enrichment.py`, `test_bearer_auth.py`, and report tests |
+| Precise UI enrichment refresh ownership, projection rename/area/removal, and raw-resource negative scope | UI `events.test.ts`, `EnrichmentLiveRefresh.test.tsx`, and topology refresh tests |
+| Live official HA registry → manager/client → Core SQLite/SSE/projection → mounted UI rename/area/removal convergence | `scripts/test-enrichment-live-e2e.sh` on exact HA `2025.1.0` / Python `3.12` |
+
+The production convergence chain has an owner at every boundary: HA manager
+tests prove the exact snapshot and retry decision, Core route tests prove
+commit-before-event plus the identity-free payload and Dashboard scheduling,
+and UI live-resource tests prove the event refetches only enrichment-derived
+projections. Integration coverage must exercise rename/area and removal through
+those production schemas and hooks; a test-only shortcut may not publish the
+event, rewrite the payload, or project display names independently.
 
 The exact compatibility matrix is checked in at
 `apps/ha_integration/ha-test-matrix.json`:

@@ -46,6 +46,8 @@ pnpm --filter @zigbeelens/ui build
 echo "==> HA integration"
 bash scripts/validate-ha-integration.sh --skip-matrix
 bash scripts/test-ha-integration-matrix.sh
+echo "==> Live Home Assistant enrichment convergence"
+bash scripts/test-enrichment-live-e2e.sh
 bash scripts/package-hacs-repo.sh
 bash dist/zigbeelens-hacs/scripts/validate-hacs-repo.sh
 
