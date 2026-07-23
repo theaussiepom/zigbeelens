@@ -7,10 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-07-23
+
 ### Added
 
 - **Phase 7B test architecture (merged in PR #101):** canonical oracle contract fixtures (`oracle_contract_version: 2` with Core-owned vocabulary manifest), Core/UI contract lanes, self-contained `scripts/validate-contracts.sh` (no `uv` requirement), Core→UI→ReportDetailV3 exact parity, unknown-not-zero and primary-copy guardrails, `/api`↔`/api/v1` decision/report matrix, OpenAPI structural checks; see `docs/test-architecture.md`
-- **Phase 7C1 documentation truth (in progress):** current Decision-led product identity and navigation, exact-v3 report ownership, configuration source-of-truth links, deployment/companion boundaries, and release-phase status are aligned. The audit now records unresolved runtime/configuration contradictions, so Phase 7C1 is not complete. Screenshot capture remains Phase 7C2; live Beast validation remains Phase 7D.
+- **Phase 7C1 documentation truth (merged):** current Decision-led product identity and navigation, exact-v3 report ownership, configuration source-of-truth links, deployment/companion boundaries, and release-phase status are aligned. Screenshot capture remains deferred to Phase 7C2; live Beast validation remains deferred to Phase 7D.
+- **Home Assistant enrichment contract v1:** strict bounded Core request/result models, exact network+IEEE matching, atomic full replacement, accepted complete-empty clearing, failure retention, HA registry name/area projection alongside preserved Zigbee2MQTT names, and report-profile redaction
+- **HACS enrichment manager:** official device/entity/area registry snapshots, fail-closed IEEE/network ambiguity, deterministic representative entities, debounced registry events, bounded retries, forced 15-minute reconciliation, complete lifecycle cleanup, and exact Core-local POST/optional explicit-removal clear ownership
+- **HACS release-readiness contracts:** durable OptionsFlow settings with one effective reload; fail-closed Core/capabilities/Decision/enrichment states and distinct repairs; `single_config_entry` metadata plus runtime guards; exact Home Assistant 2025.1.0/Python 3.12 and 2026.7.3/Python 3.14 lanes; generated pinned hassfest/HACS validation with release publication dependent on CI
 
 ### Changed
 
@@ -27,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Phase 6D corrections:** stable semantic request identity; separate preview/mutation ownership; one-report post-save download; modal focus trap and launcher return; radiogroup format/profile selection; collision-safe saved-row action names; retained Saved reports list on refresh failure
 - **Phase 6D seal:** per-report Saved row operation ownership; refresh warning for accepted empty lists; dialog focus trap excludes closed Advanced controls; format/profile use `aria-pressed` button groups
 - **Add-on publication status:** source-runner Ingress/token support is implemented, but the generated add-on repository selects the standalone image entrypoint, which omits optional token-file propagation; publication remains blocked on packaged `/data`/Ingress/bearer smokes, reporting schema/default behavior, and HACS reachability
+- **Companion publication boundary:** public HACS installation remains unavailable until the satellite tree/version is synchronized, generated exact-matrix and official checks pass remotely, and publication is explicitly authorized; the add-on is deferred from this release
 
 ### Added
 

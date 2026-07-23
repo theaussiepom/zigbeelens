@@ -4,7 +4,7 @@
 #
 # Home Assistant add-on uses apps/addon/zigbeelens/Dockerfile (options.json → config).
 
-ARG VERSION=0.1.13
+ARG VERSION=0.1.14
 ARG IMAGE_SOURCE=https://github.com/theaussiepom/zigbeelens
 
 FROM node:22-bookworm AS ui-build
