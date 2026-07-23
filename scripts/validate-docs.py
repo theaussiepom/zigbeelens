@@ -247,6 +247,231 @@ def validate_data_files() -> tuple[int, int]:
     return parsed, config_count
 
 
+def normalized_document(relative: str) -> str:
+    return " ".join((ROOT / relative).read_text(encoding="utf-8").split())
+
+
+def require_document_fragments(relative: str, fragments: tuple[str, ...]) -> int:
+    normalized = normalized_document(relative)
+    missing = [
+        fragment
+        for fragment in fragments
+        if " ".join(fragment.split()).lower() not in normalized.lower()
+    ]
+    if missing:
+        raise DocumentationError(
+            f"{relative}: missing documentation contract(s): " + ", ".join(missing)
+        )
+    return len(fragments)
+
+
+def validate_docker_install_truth() -> int:
+    expected = "${ZIGBEELENS_IMAGE:-ghcr.io/theaussiepom/zigbeelens:latest}"
+    overrideable_examples = (
+        "deploy/docker/docker-compose.example.yaml",
+        "deploy/docker/docker-compose.mosquitto.example.yaml",
+        "deploy/docker/docker-compose.traefik.example.yaml",
+        "deploy/docker/docker-compose.caddy.example.yaml",
+    )
+    for relative in overrideable_examples:
+        compose = yaml.safe_load((ROOT / relative).read_text(encoding="utf-8"))
+        image = compose.get("services", {}).get("zigbeelens", {}).get("image")
+        if image != expected:
+            raise DocumentationError(
+                f"{relative}: ZigbeeLens image must remain overrideable with "
+                f"released default {expected!r}"
+            )
+
+    assertions = len(overrideable_examples)
+    assertions += require_document_fragments(
+        "docs/docker.md",
+        (
+            "## Released/stable install",
+            "## Current-main/pre-release validation",
+            "`latest` — latest tagged release",
+            "`edge` / `main` — rolling current `main`",
+            "`sha-*` — a traceable workflow-built commit",
+            "`ZIGBEELENS_IMAGE` selects the container image",
+        ),
+    )
+    assertions += require_document_fragments(
+        "deploy/docker/README.md",
+        (
+            "## Released/stable run",
+            "## Current-main/pre-release",
+            "`latest` — latest tagged release",
+            "`edge` / `main` — rolling current `main`",
+            "`sha-*` — a traceable workflow-built commit",
+        ),
+    )
+
+    release_test = (ROOT / "docs/release-test.md").read_text(encoding="utf-8")
+    if re.search(
+        r"ghcr\.io/theaussiepom/zigbeelens:latest\b",
+        release_test,
+        flags=re.IGNORECASE,
+    ):
+        raise DocumentationError(
+            "docs/release-test.md: current-main guide must not use the released "
+            "latest image"
+        )
+    if "ghcr.io/theaussiepom/zigbeelens:edge" not in release_test:
+        raise DocumentationError(
+            "docs/release-test.md: current-main guide must retain the edge image"
+        )
+    assertions += 2
+
+    root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    build_index = root_readme.find(
+        "ZIGBEELENS_IMAGE=zigbeelens:local ./scripts/build-docker.sh"
+    )
+    compose_index = root_readme.find(
+        "ZIGBEELENS_IMAGE=zigbeelens:local docker compose up -d"
+    )
+    if build_index < 0 or compose_index < 0 or build_index >= compose_index:
+        raise DocumentationError(
+            "README.md: local Docker quick start must build the selected local "
+            "image before Compose runs it"
+        )
+    return assertions + 1
+
+
+def validate_companion_publication_truth() -> int:
+    assertions = 0
+    ordered_sections = (
+        (
+            "docs/hacs.md",
+            "## Release status — pre-release testing only",
+            "## Pre-release install via HACS",
+        ),
+        (
+            "apps/ha_integration/README.md",
+            "## Release status — pre-release testing only",
+            "## Pre-release install via HACS",
+        ),
+        (
+            "release/zigbeelens-hacs/README.md.in",
+            "## Release status — pre-release testing only",
+            "## Pre-release install via HACS",
+        ),
+        (
+            "apps/addon/zigbeelens/README.md",
+            "## Release status — generated repository publication blocked",
+            "## Conditional public-repository install",
+        ),
+        (
+            "scripts/package-addon-repo.sh",
+            "## Release status — generated repository publication blocked",
+            "## Conditional install after publication",
+        ),
+    )
+    for relative, status_heading, install_heading in ordered_sections:
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        status_index = text.find(status_heading)
+        install_index = text.find(install_heading)
+        if status_index < 0 or install_index < 0 or status_index >= install_index:
+            raise DocumentationError(
+                f"{relative}: publication status must precede install procedure"
+            )
+        assertions += 1
+
+    hacs_blockers = (
+        "OptionsFlow",
+        "missing or malformed Core versions",
+        "exact-v2 Dashboard",
+        "2025.1.0",
+        "`single_config_entry`",
+        "official HACS and hassfest",
+    )
+    assertions += require_document_fragments("docs/hacs.md", hacs_blockers)
+    assertions += require_document_fragments(
+        "release/zigbeelens-hacs/README.md.in",
+        (
+            "OptionsFlow",
+            "missing/malformed Core versions",
+            "exact-v2 Dashboard",
+            "2025.1.0",
+            "`single_config_entry`",
+            "official HACS and hassfest",
+        ),
+    )
+    assertions += require_document_fragments(
+        "README.md",
+        (
+            "Current portable deployment route",
+            "Pre-release testing — publication blocked",
+            "Pre-release source — generated repository publication blocked",
+        ),
+    )
+    assertions += require_document_fragments(
+        "apps/addon/zigbeelens/README.md",
+        (
+            "source-built add-on runner",
+            "generated image-based repository",
+            "optional API-token propagation",
+            "UID-1000 `/data` writability",
+            "reporting schema/default/unused-control alignment",
+            "portable HACS-to-Core origin",
+        ),
+    )
+    assertions += require_document_fragments(
+        "scripts/package-addon-repo.sh",
+        (
+            "generated repository publication blocked",
+            "not a supported release install",
+            "conditional install after publication",
+            "source-built runner",
+        ),
+    )
+    generator = (ROOT / "scripts/package-addon-repo.sh").read_text(encoding="utf-8")
+    if re.search(
+        r"(?:the add-on / Ingress|Supervisor Ingress) is the supported",
+        generator,
+        flags=re.IGNORECASE,
+    ):
+        raise DocumentationError(
+            "scripts/package-addon-repo.sh: generated add-on README contains "
+            "an unqualified supported-route claim while publication is blocked"
+        )
+    assertions += 1
+    return assertions
+
+
+def validate_release_document_ownership() -> int:
+    embedded = (ROOT / "docs/hacs-embedded-view.md").read_text(encoding="utf-8")
+    option_labels = re.findall(
+        r"^## Option ([A-Z])\b", embedded, flags=re.MULTILINE
+    )
+    if option_labels != ["A", "B", "C", "D"]:
+        raise DocumentationError(
+            "docs/hacs-embedded-view.md: option headings must be unique and "
+            f"sequential A-D, found {option_labels}"
+        )
+
+    assertions = 1
+    assertions += require_document_fragments(
+        "docs/release.md",
+        (
+            "The current portable route is unconditional",
+            "Fresh released Docker install",
+            "If an add-on artifact was included and published",
+            "If the HACS integration was included",
+        ),
+    )
+    assertions += require_document_fragments(
+        "RELEASE_CHECKLIST.md",
+        (
+            "### Structural companion-package validation",
+            "does **not** establish publication readiness",
+            "## HACS publication readiness and live gates",
+            "## Add-on publication readiness and live package gates",
+            "If HACS was included and published",
+            "If an add-on was included and published",
+        ),
+    )
+    return assertions
+
+
 CURRENT_CONTRACT_DOCS = (
     "README.md",
     "CONTRIBUTING.md",
@@ -293,6 +518,16 @@ def validate_current_contract_copy() -> int:
         "retired report overview scope": r"report scope[^\n]*overview|scope:\s*overview",
         "retired HACS decision contract v1": r"decision_contract_version\s*=\s*1",
         "retired HACS auto-embed": r"\bauto-embed\b|\bsame-protocol auto",
+        "recommended HACS install heading": (
+            r"^## Install via HACS \(recommended\)\s*$"
+        ),
+        "recommended HACS comparison row": r"^\|\s*Recommended default\s*\|",
+        "stale UI safety skip claim": (
+            r"`test_ui_has_no_repair_controls` (?:currently|unintentionally) skips"
+        ),
+        "unqualified blocked add-on support claim": (
+            r"(?:the add-on / Ingress|Supervisor Ingress) is the supported"
+        ),
         "blanket MQTT no-publish claim": r"\bnever publishes MQTT\b|\bno MQTT writes\b",
         "retired root scenario catalogue": r"^## Mock scenarios\s*$",
     }
@@ -362,7 +597,8 @@ def validate_current_contract_copy() -> int:
             "parsed node/link `raw_json`",
         ),
         "RELEASE_CHECKLIST.md": (
-            "`test_ui_has_no_repair_controls` currently skips",
+            "`apps/ui/src`",
+            "never a skip",
             "Missing or malformed Core versions project compatibility Unknown",
         ),
     }
@@ -396,6 +632,9 @@ def validate_current_contract_copy() -> int:
         + 12
         + truth_assertions
         + len(model_leaf_paths(AppConfig))
+        + validate_docker_install_truth()
+        + validate_companion_publication_truth()
+        + validate_release_document_ownership()
     )
 
 
