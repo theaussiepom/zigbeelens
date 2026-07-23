@@ -126,6 +126,14 @@ ruff check apps/core/src apps/core/tests
 ./scripts/smoke-core.sh
 ```
 
+The no-environment Compose command is a developer source-check lane: it renders
+when Docker Compose is available and otherwise reports a partial result.
+Release-equivalent validation is fail-closed:
+
+```bash
+ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 ./scripts/validate-compose.sh
+```
+
 ## Repository layout
 
 ```

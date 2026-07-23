@@ -82,7 +82,7 @@ jobs:
           bash dist/zigbeelens-addons/scripts/validate-addon-repo.sh
 
       - name: Compose validation
-        run: bash scripts/validate-compose.sh
+        run: ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 bash scripts/validate-compose.sh
 
       - name: Core smoke
         run: bash scripts/smoke-core.sh

@@ -143,7 +143,7 @@ jobs:
         run: bash scripts/validate-addon.sh
 
       - name: Validate Docker compose examples
-        run: bash scripts/validate-compose.sh
+        run: ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 bash scripts/validate-compose.sh
 
       - name: Package add-on repository layout
         run: |

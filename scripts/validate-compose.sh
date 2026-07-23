@@ -5,6 +5,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DOCKER="${ROOT}/deploy/docker"
 FAIL=0
+REQUIRE_DOCKER_COMPOSE="${ZIGBEELENS_REQUIRE_DOCKER_COMPOSE:-0}"
+
+if [[ "${REQUIRE_DOCKER_COMPOSE}" != "0" && "${REQUIRE_DOCKER_COMPOSE}" != "1" ]]; then
+  echo "FAIL: ZIGBEELENS_REQUIRE_DOCKER_COMPOSE must be 0 or 1" >&2
+  exit 2
+fi
 
 fail() {
   echo "FAIL: $1" >&2
@@ -99,7 +105,17 @@ if [[ -d "${ROOT}/apps/core/.venv" ]]; then
 fi
 PYTHONPATH="${ROOT}/apps/core/src" python3 -m pytest -q "${ROOT}/apps/core/tests/test_docker_deploy.py" || FAIL=1
 
-if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+COMPOSE_AVAILABLE=0
+COMPOSE_UNAVAILABLE_REASON=""
+if ! command -v docker >/dev/null 2>&1; then
+  COMPOSE_UNAVAILABLE_REASON="docker command not found"
+elif ! docker compose version >/dev/null 2>&1; then
+  COMPOSE_UNAVAILABLE_REASON="docker compose version check failed"
+else
+  COMPOSE_AVAILABLE=1
+fi
+
+if [[ "${COMPOSE_AVAILABLE}" -eq 1 ]]; then
   for compose in \
     "${DOCKER}/docker-compose.example.yaml" \
     "${DOCKER}/docker-compose.mosquitto.example.yaml" \
@@ -155,7 +171,11 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
     fail "canonical Compose did not accept ZIGBEELENS_IMAGE=edge override"
   fi
 else
-  echo "SKIP: docker compose config (docker not available)"
+  if [[ "${REQUIRE_DOCKER_COMPOSE}" -eq 1 ]]; then
+    fail "Docker Compose rendering is required: ${COMPOSE_UNAVAILABLE_REASON}"
+  else
+    echo "SKIP: Docker Compose rendering not run (${COMPOSE_UNAVAILABLE_REASON})"
+  fi
 fi
 
 if [[ "${FAIL}" -ne 0 ]]; then
@@ -163,4 +183,8 @@ if [[ "${FAIL}" -ne 0 ]]; then
   exit 1
 fi
 
-echo "Docker/Compose validation passed."
+if [[ "${COMPOSE_AVAILABLE}" -eq 1 ]]; then
+  echo "Docker/Compose validation passed."
+else
+  echo "Docker/Compose source checks passed; rendering not run."
+fi

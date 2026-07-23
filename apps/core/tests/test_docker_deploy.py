@@ -152,3 +152,16 @@ def test_docker_docs_mention_security():
     docker_md = (ROOT / "docs" / "docker.md").read_text(encoding="utf-8")
     assert "trusted" in docker_md.lower() or "reverse proxy" in docker_md.lower()
     assert "read-only" in docker_md.lower()
+
+
+def test_release_and_ci_require_compose_rendering():
+    strict_command = (
+        "ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 bash scripts/validate-compose.sh"
+    )
+    owners = (
+        ROOT / "scripts" / "run-release-checks.sh",
+        ROOT / ".github" / "workflows" / "ci.yml",
+        ROOT / ".github" / "workflows" / "release-check.yml",
+    )
+    for path in owners:
+        assert strict_command in path.read_text(encoding="utf-8"), path

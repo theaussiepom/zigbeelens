@@ -51,7 +51,7 @@ bash scripts/package-addon-repo.sh
 bash dist/zigbeelens-addons/scripts/validate-addon-repo.sh
 
 echo "==> Compose validation"
-bash scripts/validate-compose.sh
+ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 bash scripts/validate-compose.sh
 
 echo "==> Core smoke"
 bash scripts/smoke-core.sh

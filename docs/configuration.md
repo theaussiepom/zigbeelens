@@ -312,7 +312,7 @@ uv run python -c \
 Validate all maintained deployment/package examples with:
 
 ```bash
-./scripts/validate-compose.sh
+ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 ./scripts/validate-compose.sh
 ./scripts/validate-addon.sh
 ./scripts/validate-ha-integration.sh
 ```

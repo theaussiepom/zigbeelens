@@ -200,7 +200,7 @@ Healthy means:
 Validate examples:
 
 ```bash
-./scripts/validate-compose.sh
+ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 ./scripts/validate-compose.sh
 ```
 
 ## Reverse proxy / Traefik
@@ -217,7 +217,7 @@ If the UI is behind Authentik, **do not** protect `/api` with the same middlewar
 
 | Use | URL |
 |-----|-----|
-| Default HACS / LAN | `http://192.168.100.5:8377` |
+| Native companion / LAN | `http://192.168.100.5:8377` |
 | Optional HTTPS / iframe | `https://zigbeelens.theaussiepom.me` |
 | **Wrong** | `https://zigbeelens.theaussiepom.me:8377` |
 

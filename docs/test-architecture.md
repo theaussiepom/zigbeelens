@@ -130,8 +130,9 @@ review.
 
 The canonical Core suite's SQLite 3.34.1 case is intentionally delegated to
 `scripts/smoke-sqlite-3.34.1.sh`. The UI safety owner resolves the repository
-root once, scans production `.tsx` files under `apps/ui/src`, and fails if that
-expected source path is absent.
+root once, scans production `.ts` and `.tsx` files under `apps/ui/src`, excludes
+declarations plus test, contract, fixture, and generated paths relative to that
+source root, and fails if the source directory or production corpus is absent.
 
 ## Adding a new Decision code
 

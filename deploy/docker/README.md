@@ -115,7 +115,7 @@ view) is not authentication. See [docs/security.md](../../docs/security.md).
 ## Validation
 
 ```bash
-./scripts/validate-compose.sh
+ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 ./scripts/validate-compose.sh
 ```
 
 ## Documentation
