@@ -16,8 +16,18 @@ README_TEMPLATE = ROOT / "release" / "zigbeelens-hacs" / "README.md.in"
 PACKAGE_VALIDATOR = (
     ROOT / "release" / "zigbeelens-hacs" / "scripts" / "validate-hacs-repo.sh"
 )
-INTEGRATION_SOURCE = ROOT / "apps" / "ha_integration" / "custom_components" / "zigbeelens"
-WORKFLOW_SOURCE = ROOT / "release" / "zigbeelens-hacs" / ".github" / "workflows"
+INTEGRATION_SOURCE = (
+    ROOT / "apps" / "ha_integration" / "custom_components" / "zigbeelens"
+)
+WORKFLOW_SOURCE = (
+    ROOT / "release" / "zigbeelens-hacs" / ".github" / "workflows"
+)
+
+DEFAULT_SOURCE_REPOSITORY = "theaussiepom/zigbeelens"
+DEFAULT_FUTURE_HACS_REPOSITORY = "theaussiepom/zigbeelens-hacs"
+REVIEWED_HACS_REPOSITORY = "theaussiepom/zigbeelens-hacs"
+REVIEWED_HACS_COMMIT = "050d118b3e1406343255594fe64cd569e2420888"
+REVIEWED_HACS_DATE = "2026-07-23"
 
 
 def _copy_file(source: Path, destination: Path) -> None:
@@ -25,8 +35,7 @@ def _copy_file(source: Path, destination: Path) -> None:
     shutil.copy2(source, destination)
 
 
-def _fixture_repository(tmp_path: Path) -> Path:
-    repository = tmp_path / "repository"
+def _copy_fixture_files(repository: Path) -> None:
     _copy_file(PACKAGER, repository / "scripts" / "package-hacs-repo.sh")
     _copy_file(
         README_TEMPLATE,
@@ -52,38 +61,95 @@ def _fixture_repository(tmp_path: Path) -> Path:
         )
     _copy_file(ROOT / "LICENSE", repository / "LICENSE")
     _copy_file(ROOT / "CHANGELOG.md", repository / "CHANGELOG.md")
+    _copy_file(ROOT / ".gitignore", repository / ".gitignore")
     shutil.copytree(
         INTEGRATION_SOURCE,
-        repository / "apps" / "ha_integration" / "custom_components" / "zigbeelens",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        repository
+        / "apps"
+        / "ha_integration"
+        / "custom_components"
+        / "zigbeelens",
+        ignore=shutil.ignore_patterns(
+            "__pycache__",
+            "*.pyc",
+            "*.pyo",
+            ".DS_Store",
+        ),
     )
 
-    subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
-    subprocess.run(["git", "add", "."], cwd=repository, check=True)
+
+def _run_git(repository: Path, *arguments: str) -> None:
     subprocess.run(
-        [
-            "git",
-            "-c",
-            "user.name=ZigbeeLens Tests",
-            "-c",
-            "user.email=tests@zigbeelens.invalid",
-            "commit",
-            "-qm",
-            "fixture",
-        ],
+        ["git", *arguments],
         cwd=repository,
         check=True,
+        capture_output=True,
     )
+
+
+def _git_text(repository: Path, *arguments: str) -> str:
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _git_bytes(repository: Path, *arguments: str) -> bytes:
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+    ).stdout
+
+
+def _commit_all(repository: Path, message: str) -> None:
+    _run_git(repository, "add", ".")
+    _run_git(repository, "commit", "-qm", message)
+
+
+def _fixture_repository(tmp_path: Path) -> Path:
+    repository = tmp_path / "repository"
+    _copy_fixture_files(repository)
+
+    _run_git(repository, "init", "-q")
+    _run_git(repository, "config", "user.name", "ZigbeeLens Tests")
+    _run_git(repository, "config", "user.email", "tests@zigbeelens.invalid")
+    _commit_all(repository, "fixture")
     return repository
 
 
+def _head(repository: Path) -> str:
+    return _git_text(repository, "rev-parse", "HEAD")
+
+
 def _run_packager(
-    repository: Path, *, source_commit: str | None = None
+    repository: Path,
+    *,
+    source_commit: str | None = None,
+    source_repository: str | None = None,
+    future_hacs_repository: str | None = None,
+    legacy_github_owner: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    env.pop("ZIGBEELENS_SOURCE_COMMIT", None)
+    for variable in (
+        "ZIGBEELENS_SOURCE_COMMIT",
+        "ZIGBEELENS_SOURCE_REPOSITORY",
+        "ZIGBEELENS_FUTURE_HACS_REPOSITORY",
+        "GITHUB_OWNER",
+    ):
+        env.pop(variable, None)
     if source_commit is not None:
         env["ZIGBEELENS_SOURCE_COMMIT"] = source_commit
+    if source_repository is not None:
+        env["ZIGBEELENS_SOURCE_REPOSITORY"] = source_repository
+    if future_hacs_repository is not None:
+        env["ZIGBEELENS_FUTURE_HACS_REPOSITORY"] = future_hacs_repository
+    if legacy_github_owner is not None:
+        env["GITHUB_OWNER"] = legacy_github_owner
     return subprocess.run(
         ["bash", "scripts/package-hacs-repo.sh"],
         cwd=repository,
@@ -92,35 +158,6 @@ def _run_packager(
         capture_output=True,
         text=True,
     )
-
-
-def _assert_packaged_provenance(repository: Path, expected_commit: str) -> None:
-    stage = repository / "dist" / "zigbeelens-hacs"
-    assert (stage / "SOURCE_COMMIT").read_bytes() == (
-        f"{expected_commit}\n".encode()
-    )
-    manifest = json.loads(
-        (
-            stage / "custom_components" / "zigbeelens" / "manifest.json"
-        ).read_text(encoding="utf-8")
-    )
-    documentation = (
-        "https://github.com/theaussiepom/zigbeelens/blob/"
-        f"{expected_commit}/docs/hacs.md"
-    )
-    assert manifest["documentation"] == documentation
-
-    readme = (stage / "README.md").read_text(encoding="utf-8")
-    local_section = readme.split("## Local staged integration testing", 1)[1].split(
-        "## Conditional public HACS installation", 1
-    )[0]
-    expected_commit_link = (
-        f"[`{expected_commit}`](https://github.com/theaussiepom/zigbeelens/"
-        f"commit/{expected_commit})"
-    )
-    assert local_section.count(expected_commit_link) == 1
-    assert local_section.count(documentation) == 1
-    assert "@SOURCE_COMMIT@" not in readme
 
 
 def _run_package_validator(repository: Path) -> subprocess.CompletedProcess[str]:
@@ -133,45 +170,262 @@ def _run_package_validator(repository: Path) -> subprocess.CompletedProcess[str]
     )
 
 
+def _combined_output(result: subprocess.CompletedProcess[str]) -> str:
+    return f"{result.stdout}\n{result.stderr}"
+
+
+def _assert_packager_failed_before_staging(
+    repository: Path,
+    result: subprocess.CompletedProcess[str],
+    *required_messages: str,
+) -> None:
+    assert result.returncode != 0
+    combined = _combined_output(result)
+    for message in required_messages:
+        assert message in combined
+    assert not (repository / "dist" / "zigbeelens-hacs").exists()
+
+
+def _assert_packaged_provenance(
+    repository: Path,
+    expected_commit: str,
+    *,
+    source_repository: str = DEFAULT_SOURCE_REPOSITORY,
+    future_hacs_repository: str = DEFAULT_FUTURE_HACS_REPOSITORY,
+) -> None:
+    stage = repository / "dist" / "zigbeelens-hacs"
+    assert (stage / "SOURCE_COMMIT").read_bytes() == (
+        f"{expected_commit}\n".encode()
+    )
+    manifest = json.loads(
+        (
+            stage / "custom_components" / "zigbeelens" / "manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    hacs_documentation = (
+        f"https://github.com/{source_repository}/blob/"
+        f"{expected_commit}/docs/hacs.md"
+    )
+    docker_documentation = (
+        f"https://github.com/{source_repository}/blob/"
+        f"{expected_commit}/docs/docker.md"
+    )
+    assert manifest["documentation"] == hacs_documentation
+    assert manifest["issue_tracker"] == (
+        f"https://github.com/{source_repository}/issues"
+    )
+
+    readme = (stage / "README.md").read_text(encoding="utf-8")
+    local_heading = "## Local staged integration testing"
+    future_heading = "## Conditional public HACS installation"
+    current_section, future_section = readme.split(future_heading, 1)
+    local_section = current_section.split(local_heading, 1)[1]
+    expected_commit_link = (
+        f"[`{expected_commit}`](https://github.com/{source_repository}/"
+        f"commit/{expected_commit})"
+    )
+
+    assert readme.count(
+        f"[ZigbeeLens Core](https://github.com/{source_repository})"
+    ) == 1
+    assert f"ghcr.io/{source_repository}" in current_section
+    assert local_section.count(expected_commit_link) == 1
+    assert local_section.count(hacs_documentation) == 1
+    assert current_section.count(docker_documentation) == 1
+    assert "/blob/main/docs/" not in current_section
+    assert (
+        f"https://github.com/{future_hacs_repository}"
+        in future_section
+    )
+    assert f"Issues: https://github.com/{source_repository}/issues" in readme
+    assert (
+        "Reviewed public-satellite state (historical evidence):\n\n"
+        f"- repository: `{REVIEWED_HACS_REPOSITORY}`\n"
+        f"- commit: `{REVIEWED_HACS_COMMIT}`\n"
+        f"- reviewed: `{REVIEWED_HACS_DATE}`"
+    ) in readme
+    for placeholder in {
+        "@SOURCE_COMMIT@",
+        "@SOURCE_REPOSITORY@",
+        "@FUTURE_HACS_REPOSITORY@",
+        "@REVIEWED_HACS_REPOSITORY@",
+        "@GITHUB_OWNER@",
+    }:
+        assert placeholder not in readme
+
+
+def _assert_package_tree_matches_commit(
+    repository: Path,
+    expected_commit: str,
+    *,
+    source_repository: str = DEFAULT_SOURCE_REPOSITORY,
+    future_hacs_repository: str = DEFAULT_FUTURE_HACS_REPOSITORY,
+) -> None:
+    stage = repository / "dist" / "zigbeelens-hacs"
+    integration_prefix = (
+        "apps/ha_integration/custom_components/zigbeelens/"
+    )
+    integration_sources = _git_text(
+        repository,
+        "ls-tree",
+        "-r",
+        "--name-only",
+        expected_commit,
+        "apps/ha_integration/custom_components/zigbeelens",
+    ).splitlines()
+    expected_stage_files = {
+        source.removeprefix("apps/ha_integration/")
+        for source in integration_sources
+    }
+    expected_stage_files.update(
+        {
+            "SOURCE_COMMIT",
+            "hacs.json",
+            "README.md",
+            "LICENSE",
+            "CHANGELOG.md",
+            ".github/workflows/ci.yml",
+            ".github/workflows/release.yml",
+            "scripts/validate-hacs-repo.sh",
+        }
+    )
+    actual_stage_files = {
+        path.relative_to(stage).as_posix()
+        for path in stage.rglob("*")
+        if path.is_file() or path.is_symlink()
+    }
+    assert actual_stage_files == expected_stage_files
+
+    manifest_source = (
+        "apps/ha_integration/custom_components/zigbeelens/manifest.json"
+    )
+    for source in integration_sources:
+        if source == manifest_source:
+            continue
+        destination = stage / source.removeprefix("apps/ha_integration/")
+        assert destination.read_bytes() == _git_bytes(
+            repository,
+            "show",
+            f"{expected_commit}:{source}",
+        )
+        assert source.startswith(integration_prefix)
+
+    expected_manifest = json.loads(
+        _git_bytes(
+            repository,
+            "show",
+            f"{expected_commit}:{manifest_source}",
+        )
+    )
+    expected_manifest["documentation"] = (
+        f"https://github.com/{source_repository}/blob/"
+        f"{expected_commit}/docs/hacs.md"
+    )
+    expected_manifest["issue_tracker"] = (
+        f"https://github.com/{source_repository}/issues"
+    )
+    actual_manifest = json.loads(
+        (stage / "custom_components/zigbeelens/manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert actual_manifest == expected_manifest
+
+    static_files = {
+        "LICENSE": "LICENSE",
+        "CHANGELOG.md": "CHANGELOG.md",
+        (
+            "release/zigbeelens-hacs/.github/workflows/ci.yml"
+        ): ".github/workflows/ci.yml",
+        (
+            "release/zigbeelens-hacs/.github/workflows/release.yml"
+        ): ".github/workflows/release.yml",
+        (
+            "release/zigbeelens-hacs/scripts/validate-hacs-repo.sh"
+        ): "scripts/validate-hacs-repo.sh",
+    }
+    for source, destination in static_files.items():
+        assert (stage / destination).read_bytes() == _git_bytes(
+            repository,
+            "show",
+            f"{expected_commit}:{source}",
+        )
+
+    template = _git_bytes(
+        repository,
+        "show",
+        (
+            f"{expected_commit}:"
+            "release/zigbeelens-hacs/README.md.in"
+        ),
+    ).decode()
+    expected_readme = template
+    for placeholder, value in (
+        ("@SOURCE_REPOSITORY@", source_repository),
+        ("@FUTURE_HACS_REPOSITORY@", future_hacs_repository),
+        ("@REVIEWED_HACS_REPOSITORY@", REVIEWED_HACS_REPOSITORY),
+        ("@SOURCE_COMMIT@", expected_commit),
+    ):
+        expected_readme = expected_readme.replace(placeholder, value)
+    assert (stage / "README.md").read_text(encoding="utf-8") == expected_readme
+    assert json.loads((stage / "hacs.json").read_text(encoding="utf-8")) == {
+        "name": "ZigbeeLens",
+        "content_in_root": False,
+        "render_readme": True,
+        "homeassistant": "2025.1.0",
+    }
+
+
 def test_packager_derives_source_commit_from_git_head(tmp_path: Path):
     repository = _fixture_repository(tmp_path)
-    head = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=repository,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
+    head = _head(repository)
 
     result = _run_packager(repository)
 
     assert result.returncode == 0, result.stderr
     _assert_packaged_provenance(repository, head)
+    _assert_package_tree_matches_commit(repository, head)
 
 
 def test_packager_normalizes_source_commit_override(tmp_path: Path):
     repository = _fixture_repository(tmp_path)
-    override = "A1" * 20
+    head = _head(repository)
 
-    result = _run_packager(repository, source_commit=override)
+    result = _run_packager(repository, source_commit=head.upper())
 
     assert result.returncode == 0, result.stderr
-    _assert_packaged_provenance(repository, override.lower())
+    _assert_packaged_provenance(repository, head)
 
 
 def test_package_validator_accepts_matching_provenance(tmp_path: Path):
     repository = _fixture_repository(tmp_path)
-    source_commit = "b" * 40
-    package_result = _run_packager(repository, source_commit=source_commit)
+    head = _head(repository)
+    package_result = _run_packager(repository, source_commit=head)
     assert package_result.returncode == 0, package_result.stderr
 
     validation = _run_package_validator(repository)
 
     assert validation.returncode == 0, validation.stderr
-    assert (
-        "OK: SOURCE_COMMIT agrees with README and pinned manifest documentation"
-        in validation.stdout
-    )
+    assert "SOURCE_COMMIT" in validation.stdout
+
+
+def test_generated_operational_documentation_is_pinned(tmp_path: Path):
+    repository = _fixture_repository(tmp_path)
+    head = _head(repository)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    readme = (
+        repository / "dist" / "zigbeelens-hacs" / "README.md"
+    ).read_text(encoding="utf-8")
+    current_section = readme.split(
+        "## Conditional public HACS installation",
+        1,
+    )[0]
+
+    assert f"/blob/{head}/docs/hacs.md" in current_section
+    assert f"/blob/{head}/docs/docker.md" in current_section
+    assert "/blob/main/docs/" not in current_section
 
 
 @pytest.mark.parametrize(
@@ -184,27 +438,314 @@ def test_package_validator_accepts_matching_provenance(tmp_path: Path):
     ),
 )
 def test_packager_rejects_invalid_source_commit_override(
-    tmp_path: Path, invalid: str
+    tmp_path: Path,
+    invalid: str,
 ):
     repository = _fixture_repository(tmp_path)
 
     result = _run_packager(repository, source_commit=invalid)
 
-    assert result.returncode == 1
-    assert (
-        "ZIGBEELENS_SOURCE_COMMIT must be exactly 40 hexadecimal characters"
-        in result.stderr
+    _assert_packager_failed_before_staging(
+        repository,
+        result,
+        "must be exactly 40 hexadecimal characters",
     )
 
 
-@pytest.mark.parametrize("mismatch_surface", ("manifest", "readme", "source_file"))
-def test_package_validator_rejects_source_commit_mismatch(
-    tmp_path: Path, mismatch_surface: str
+def test_packager_rejects_nonexistent_source_commit(tmp_path: Path):
+    repository = _fixture_repository(tmp_path)
+
+    result = _run_packager(repository, source_commit="b" * 40)
+
+    _assert_packager_failed_before_staging(
+        repository,
+        result,
+        "does not identify an existing commit",
+    )
+
+
+def test_packager_rejects_different_existing_source_commit(tmp_path: Path):
+    repository = _fixture_repository(tmp_path)
+    previous_commit = _head(repository)
+    (repository / "unrelated-marker.txt").write_text(
+        "second commit\n",
+        encoding="utf-8",
+    )
+    _commit_all(repository, "second fixture commit")
+
+    result = _run_packager(repository, source_commit=previous_commit)
+
+    _assert_packager_failed_before_staging(
+        repository,
+        result,
+        "does not match checked-out HEAD",
+    )
+
+
+def test_packager_rejects_dirty_integration_source(tmp_path: Path):
+    repository = _fixture_repository(tmp_path)
+    integration = (
+        repository
+        / "apps"
+        / "ha_integration"
+        / "custom_components"
+        / "zigbeelens"
+        / "api.py"
+    )
+    integration.write_text(
+        integration.read_text(encoding="utf-8") + "\n# dirty source\n",
+        encoding="utf-8",
+    )
+
+    result = _run_packager(repository)
+
+    _assert_packager_failed_before_staging(
+        repository,
+        result,
+        "tracked package inputs differ from SOURCE_COMMIT",
+    )
+
+
+def test_packager_rejects_dirty_readme_template(tmp_path: Path):
+    repository = _fixture_repository(tmp_path)
+    template = repository / "release" / "zigbeelens-hacs" / "README.md.in"
+    template.write_text(
+        template.read_text(encoding="utf-8") + "\nDirty template.\n",
+        encoding="utf-8",
+    )
+
+    result = _run_packager(repository)
+
+    _assert_packager_failed_before_staging(
+        repository,
+        result,
+        "tracked package inputs differ from SOURCE_COMMIT",
+    )
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "LICENSE",
+        "CHANGELOG.md",
+        "release/zigbeelens-hacs/.github/workflows/ci.yml",
+        "release/zigbeelens-hacs/.github/workflows/release.yml",
+        "release/zigbeelens-hacs/scripts/validate-hacs-repo.sh",
+        "scripts/package-hacs-repo.sh",
+    ),
+)
+def test_packager_rejects_other_dirty_package_input(
+    tmp_path: Path,
+    relative: str,
 ):
     repository = _fixture_repository(tmp_path)
-    source_commit = "b" * 40
+    package_input = repository / relative
+    package_input.write_text(
+        package_input.read_text(encoding="utf-8") + "\n# dirty input\n",
+        encoding="utf-8",
+    )
+
+    result = _run_packager(repository)
+
+    _assert_packager_failed_before_staging(
+        repository,
+        result,
+        "tracked package inputs differ from SOURCE_COMMIT",
+    )
+
+
+def test_packager_rejects_untracked_integration_source(tmp_path: Path):
+    repository = _fixture_repository(tmp_path)
+    untracked = (
+        repository
+        / "apps"
+        / "ha_integration"
+        / "custom_components"
+        / "zigbeelens"
+        / "debug-secret.py"
+    )
+    untracked.write_text("DEBUG_TOKEN = 'must-not-ship'\n", encoding="utf-8")
+
+    result = _run_packager(repository)
+
+    _assert_packager_failed_before_staging(
+        repository,
+        result,
+        "untracked package inputs are not present in SOURCE_COMMIT",
+    )
+
+
+def test_ignored_generated_source_is_not_packaged(tmp_path: Path):
+    repository = _fixture_repository(tmp_path)
+    ignored = (
+        repository
+        / "apps"
+        / "ha_integration"
+        / "custom_components"
+        / "zigbeelens"
+        / "__pycache__"
+        / "debug.cpython-312.pyc"
+    )
+    ignored.parent.mkdir(parents=True)
+    ignored.write_bytes(b"not bytecode")
+
+    result = _run_packager(repository)
+
+    assert result.returncode == 0, result.stderr
+    stage = repository / "dist" / "zigbeelens-hacs"
+    assert not list(stage.rglob("__pycache__"))
+    assert not list(stage.rglob("*.pyc"))
+
+
+def test_packager_requires_git_checkout(tmp_path: Path):
+    repository = tmp_path / "not-a-git-checkout"
+    _copy_fixture_files(repository)
+
+    result = _run_packager(repository)
+
+    _assert_packager_failed_before_staging(
+        repository,
+        result,
+        "package source root must be the exact root of a Git checkout",
+    )
+
+
+def test_package_validator_rejects_moving_current_documentation_link(
+    tmp_path: Path,
+):
+    repository = _fixture_repository(tmp_path)
+    head = _head(repository)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    readme_path = repository / "dist" / "zigbeelens-hacs" / "README.md"
+    pinned = f"/blob/{head}/docs/docker.md"
+    readme = readme_path.read_text(encoding="utf-8")
+    assert pinned in readme
+    readme_path.write_text(
+        readme.replace(pinned, "/blob/main/docs/docker.md", 1),
+        encoding="utf-8",
+    )
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+    assert (
+        "README pinned Docker documentation URL does not match "
+        "SOURCE_COMMIT/source repository"
+    ) in _combined_output(validation)
+
+
+@pytest.mark.parametrize(
+    "surface",
+    ("hacs_documentation", "docker_documentation", "docker_image", "issues"),
+)
+def test_package_validator_rejects_operational_url_suffix(
+    tmp_path: Path,
+    surface: str,
+):
+    repository = _fixture_repository(tmp_path)
+    head = _head(repository)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    expected_values = {
+        "hacs_documentation": (
+            f"https://github.com/{DEFAULT_SOURCE_REPOSITORY}/blob/"
+            f"{head}/docs/hacs.md"
+        ),
+        "docker_documentation": (
+            f"https://github.com/{DEFAULT_SOURCE_REPOSITORY}/blob/"
+            f"{head}/docs/docker.md"
+        ),
+        "docker_image": f"ghcr.io/{DEFAULT_SOURCE_REPOSITORY}",
+        "issues": f"https://github.com/{DEFAULT_SOURCE_REPOSITORY}/issues",
+    }
+    expected = expected_values[surface]
+    readme_path = repository / "dist" / "zigbeelens-hacs" / "README.md"
+    readme = readme_path.read_text(encoding="utf-8")
+    assert expected in readme
+    readme_path.write_text(
+        readme.replace(expected, f"{expected}.evil", 1),
+        encoding="utf-8",
+    )
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+
+
+@pytest.mark.parametrize(
+    "surface",
+    (
+        "core_repository",
+        "docker_image",
+        "issues",
+        "package_commit",
+        "historical_evidence",
+    ),
+)
+def test_package_validator_rejects_conflicting_source_identity_decoy(
+    tmp_path: Path,
+    surface: str,
+):
+    repository = _fixture_repository(tmp_path)
+    head = _head(repository)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    decoys = {
+        "core_repository": (
+            "[ZigbeeLens Core](https://github.com/impostor/zigbeelens)"
+        ),
+        "docker_image": "`ghcr.io/impostor/zigbeelens`",
+        "issues": "Issues: https://github.com/impostor/zigbeelens/issues",
+        "package_commit": (
+            f"[`{head}`](https://github.com/impostor/zigbeelens/"
+            f"commit/{head})"
+        ),
+        "historical_evidence": (
+            "Reviewed public-satellite state (historical evidence):\n\n"
+            "- repository: `impostor/zigbeelens-hacs`\n"
+            f"- commit: `{REVIEWED_HACS_COMMIT}`\n"
+            f"- reviewed: `{REVIEWED_HACS_DATE}`"
+        ),
+    }
+    decoy = decoys[surface]
+    readme_path = repository / "dist" / "zigbeelens-hacs" / "README.md"
+    readme = readme_path.read_text(encoding="utf-8")
+    future_heading = "## Conditional public HACS installation"
+    assert future_heading in readme
+    readme_path.write_text(
+        readme.replace(
+            future_heading,
+            "Conflicting source identity decoy:\n\n"
+            f"{decoy}\n\n{future_heading}",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+
+
+@pytest.mark.parametrize(
+    "mismatch_surface",
+    ("manifest", "readme", "source_file"),
+)
+def test_package_validator_rejects_source_commit_mismatch(
+    tmp_path: Path,
+    mismatch_surface: str,
+):
+    repository = _fixture_repository(tmp_path)
+    source_commit = _head(repository)
     mismatched_commit = "c" * 40
-    package_result = _run_packager(repository, source_commit=source_commit)
+    package_result = _run_packager(
+        repository,
+        source_commit=source_commit,
+    )
     assert package_result.returncode == 0, package_result.stderr
 
     stage = repository / "dist" / "zigbeelens-hacs"
@@ -214,30 +755,167 @@ def test_package_validator_rejects_source_commit_mismatch(
         )
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["documentation"] = manifest["documentation"].replace(
-            source_commit, mismatched_commit
+            source_commit,
+            mismatched_commit,
         )
         manifest_path.write_text(
-            json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+            json.dumps(manifest, indent=2) + "\n",
+            encoding="utf-8",
         )
     elif mismatch_surface == "readme":
         readme_path = stage / "README.md"
         readme = readme_path.read_text(encoding="utf-8").replace(
-            source_commit, mismatched_commit
+            source_commit,
+            mismatched_commit,
         )
         readme += (
             "\nDecoy package provenance outside the local-stage section:\n"
-            f"[`{source_commit}`](https://github.com/theaussiepom/zigbeelens/"
-            f"commit/{source_commit})\n"
-            "https://github.com/theaussiepom/zigbeelens/blob/"
+            f"[`{source_commit}`](https://github.com/"
+            f"{DEFAULT_SOURCE_REPOSITORY}/commit/{source_commit})\n"
+            f"https://github.com/{DEFAULT_SOURCE_REPOSITORY}/blob/"
             f"{source_commit}/docs/hacs.md\n"
         )
         readme_path.write_text(readme, encoding="utf-8")
     else:
         (stage / "SOURCE_COMMIT").write_text(
-            f"{mismatched_commit}\n", encoding="utf-8"
+            f"{mismatched_commit}\n",
+            encoding="utf-8",
         )
 
     validation = _run_package_validator(repository)
 
     assert validation.returncode != 0
-    assert "SOURCE_COMMIT" in f"{validation.stdout}\n{validation.stderr}"
+    assert "SOURCE_COMMIT" in _combined_output(validation)
+
+
+def test_package_validator_rejects_reviewed_satellite_identity_mismatch(
+    tmp_path: Path,
+):
+    repository = _fixture_repository(tmp_path)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    readme_path = repository / "dist" / "zigbeelens-hacs" / "README.md"
+    readme = readme_path.read_text(encoding="utf-8")
+    readme_path.write_text(
+        readme.replace(
+            f"- repository: `{REVIEWED_HACS_REPOSITORY}`",
+            "- repository: `different-owner/different-satellite`",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+    assert "repository actually inspected" in _combined_output(validation)
+
+
+def test_packager_separates_nondefault_repository_identities(
+    tmp_path: Path,
+):
+    repository = _fixture_repository(tmp_path)
+    head = _head(repository)
+    source_repository = "fork-owner/zigbeelens-fork"
+    future_hacs_repository = "destination/zigbeelens-hacs-next"
+
+    result = _run_packager(
+        repository,
+        source_repository=source_repository,
+        future_hacs_repository=future_hacs_repository,
+    )
+
+    assert result.returncode == 0, result.stderr
+    _assert_packaged_provenance(
+        repository,
+        head,
+        source_repository=source_repository,
+        future_hacs_repository=future_hacs_repository,
+    )
+    _assert_package_tree_matches_commit(
+        repository,
+        head,
+        source_repository=source_repository,
+        future_hacs_repository=future_hacs_repository,
+    )
+    readme = (
+        repository / "dist" / "zigbeelens-hacs" / "README.md"
+    ).read_text(encoding="utf-8")
+    current_section, future_section = readme.split(
+        "## Conditional public HACS installation",
+        1,
+    )
+    assert f"https://github.com/{future_hacs_repository}" not in current_section
+    assert f"https://github.com/{future_hacs_repository}" in future_section
+    assert REVIEWED_HACS_REPOSITORY in current_section
+
+    validation = _run_package_validator(repository)
+    assert validation.returncode == 0, validation.stderr
+
+
+@pytest.mark.parametrize(
+    ("variable", "invalid"),
+    (
+        ("source", ""),
+        ("source", "owner-only"),
+        ("source", "/repository"),
+        ("source", "owner/"),
+        ("source", "owner/repository/extra"),
+        ("source", "https://github.com/owner/repository"),
+        ("source", "owner name/repository"),
+        ("source", "owner/repository name"),
+        ("future", ""),
+        ("future", "owner-only"),
+        ("future", "/repository"),
+        ("future", "owner/"),
+        ("future", "owner/repository/extra"),
+        ("future", "https://github.com/owner/repository"),
+        ("future", "owner name/repository"),
+        ("future", "owner/repository name"),
+    ),
+)
+def test_packager_rejects_invalid_repository_identifier(
+    tmp_path: Path,
+    variable: str,
+    invalid: str,
+):
+    repository = _fixture_repository(tmp_path)
+
+    if variable == "source":
+        result = _run_packager(repository, source_repository=invalid)
+        variable_name = "ZIGBEELENS_SOURCE_REPOSITORY"
+    else:
+        result = _run_packager(
+            repository,
+            future_hacs_repository=invalid,
+        )
+        variable_name = "ZIGBEELENS_FUTURE_HACS_REPOSITORY"
+
+    _assert_packager_failed_before_staging(
+        repository,
+        result,
+        variable_name,
+        "must be an exact owner/repository identifier",
+    )
+
+
+@pytest.mark.parametrize("legacy_owner", ("", "legacy-owner"))
+def test_packager_rejects_legacy_github_owner(
+    tmp_path: Path,
+    legacy_owner: str,
+):
+    repository = _fixture_repository(tmp_path)
+
+    result = _run_packager(
+        repository,
+        legacy_github_owner=legacy_owner,
+    )
+
+    _assert_packager_failed_before_staging(
+        repository,
+        result,
+        "GITHUB_OWNER is no longer supported",
+        "ZIGBEELENS_SOURCE_REPOSITORY",
+        "ZIGBEELENS_FUTURE_HACS_REPOSITORY",
+    )

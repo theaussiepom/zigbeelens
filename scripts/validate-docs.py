@@ -674,6 +674,7 @@ def validate_companion_publication_truth() -> int:
             "<home-assistant-config>/custom_components/zigbeelens/",
             "full Home Assistant restart",
             "Do not use the unsynchronized public satellite",
+            "@SOURCE_REPOSITORY@",
             "@SOURCE_COMMIT@",
             "generated `SOURCE_COMMIT` file records the same commit",
             "blob/@SOURCE_COMMIT@/docs/hacs.md",
@@ -700,6 +701,7 @@ def validate_companion_publication_truth() -> int:
             "2025.1.0 plus current-version coverage",
             "official HACS and hassfest validation",
             "explicit publication authorization",
+            "https://github.com/@FUTURE_HACS_REPOSITORY@",
         ),
     }
     for relative in hacs_documents:
@@ -719,6 +721,37 @@ def validate_companion_publication_truth() -> int:
                 f"{relative}: current guidance directs users to the "
                 "unsynchronized public HACS satellite"
             )
+        if relative == "release/zigbeelens-hacs/README.md.in":
+            expected_operational_docs = {
+                "https://github.com/@SOURCE_REPOSITORY@/blob/"
+                "@SOURCE_COMMIT@/docs/docker.md",
+                "https://github.com/@SOURCE_REPOSITORY@/blob/"
+                "@SOURCE_COMMIT@/docs/hacs.md",
+            }
+            operational_docs = set(
+                re.findall(
+                    r"https://github\.com/[^\s`)\]]+/blob/"
+                    r"[^\s`)\]]+/docs/[^\s`)\]]+",
+                    current_guidance,
+                )
+            )
+            if operational_docs != expected_operational_docs:
+                raise DocumentationError(
+                    f"{relative}: current operational documentation must be "
+                    "the exact SOURCE_REPOSITORY/SOURCE_COMMIT Docker and "
+                    f"HACS URLs, found {sorted(operational_docs)}"
+                )
+            if "/blob/main/docs/" in current_guidance:
+                raise DocumentationError(
+                    f"{relative}: current/local-stage guidance must not use "
+                    "moving blob/main documentation"
+                )
+            if "@FUTURE_HACS_REPOSITORY@" in current_guidance:
+                raise DocumentationError(
+                    f"{relative}: future HACS repository identity must remain "
+                    "inside the conditional publication section"
+                )
+            assertions += 3
         local_guidance = text[indexes[1] : indexes[2]]
         future_guidance = text[indexes[2] :]
         assertions += require_text_fragments(
@@ -832,20 +865,32 @@ def validate_companion_publication_truth() -> int:
     )
     reviewed_state_pattern = re.compile(
         r"Reviewed public-satellite state \(historical evidence\):\s*"
+        r"- repository: `(?P<repository>@REVIEWED_HACS_REPOSITORY@|"
+        r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)`\s*"
         r"- commit: `(?P<commit>[0-9a-f]{40})`\s*"
         r"- reviewed: `(?P<reviewed>[0-9]{4}-[0-9]{2}-[0-9]{2})`"
     )
-    reviewed_evidence: list[tuple[str, str]] = []
+    reviewed_evidence: list[tuple[str, str, str]] = []
     for relative in (
         "docs/release-infra.md",
         "release/zigbeelens-hacs/README.md.in",
     ):
         text = (ROOT / relative).read_text(encoding="utf-8")
-        reviewed_state = reviewed_state_pattern.search(text)
-        if reviewed_state is None:
+        reviewed_states = list(reviewed_state_pattern.finditer(text))
+        if len(reviewed_states) != 1:
             raise DocumentationError(
-                f"{relative}: reviewed public-satellite state must contain a "
-                "40-character commit SHA and ISO-format review date"
+                f"{relative}: reviewed public-satellite state must contain "
+                "exactly one repository, 40-character commit SHA, and "
+                "ISO-format review date block"
+            )
+        reviewed_state = reviewed_states[0]
+        reviewed_repository = reviewed_state.group("repository")
+        if reviewed_repository == "@REVIEWED_HACS_REPOSITORY@":
+            reviewed_repository = "theaussiepom/zigbeelens-hacs"
+        if reviewed_repository != "theaussiepom/zigbeelens-hacs":
+            raise DocumentationError(
+                f"{relative}: reviewed public-satellite repository must remain "
+                "theaussiepom/zigbeelens-hacs"
             )
         try:
             date.fromisoformat(reviewed_state.group("reviewed"))
@@ -864,17 +909,28 @@ def validate_companion_publication_truth() -> int:
             )
         reviewed_evidence.append(
             (
+                reviewed_repository,
                 reviewed_state.group("commit"),
                 reviewed_state.group("reviewed"),
             )
         )
-        assertions += 4
+        assertions += 5
     if len(set(reviewed_evidence)) != 1:
         raise DocumentationError(
-            "public-satellite reviewed commit and date must agree between "
+            "public-satellite reviewed repository, commit, and date must agree between "
             "release infrastructure and the generated HACS README template"
         )
-    assertions += 1
+    expected_reviewed_evidence = (
+        "theaussiepom/zigbeelens-hacs",
+        "050d118b3e1406343255594fe64cd569e2420888",
+        "2026-07-23",
+    )
+    if reviewed_evidence[0] != expected_reviewed_evidence:
+        raise DocumentationError(
+            "public-satellite historical evidence must remain coupled to the "
+            "repository, commit, and review date actually inspected"
+        )
+    assertions += 2
     manifest = json.loads(
         (
             ROOT
@@ -893,19 +949,104 @@ def validate_companion_publication_truth() -> int:
         encoding="utf-8"
     )
     assertions += require_text_fragments(
-        "scripts/package-hacs-repo.sh immutable staged-package provenance",
+        "scripts/package-hacs-repo.sh tree-exact staged-package provenance",
         hacs_generator,
         (
             "ZIGBEELENS_SOURCE_COMMIT",
-            'git -C "${ROOT}" rev-parse',
+            "ZIGBEELENS_SOURCE_REPOSITORY",
+            "ZIGBEELENS_FUTURE_HACS_REPOSITORY",
+            'rev-parse --show-toplevel',
+            "rev-parse --verify 'HEAD^{commit}'",
+            "cat-file -e",
+            "diff --quiet",
+            "ls-files --others --exclude-standard",
+            "git -C",
+            "archive",
             "SOURCE_COMMIT_VALUE",
             '${#SOURCE_COMMIT_VALUE}',
             "*[!0-9a-f]*",
             '"${DIST}/SOURCE_COMMIT"',
+            "@SOURCE_REPOSITORY@",
+            "@FUTURE_HACS_REPOSITORY@",
+            "@REVIEWED_HACS_REPOSITORY@",
             "@SOURCE_COMMIT@",
-            "zigbeelens/blob/${SOURCE_COMMIT_VALUE}/docs/hacs.md",
+            "docs/hacs.md",
         ),
     )
+    hacs_template = (
+        ROOT / "release/zigbeelens-hacs/README.md.in"
+    ).read_text(encoding="utf-8")
+    if "@GITHUB_OWNER@" in hacs_template:
+        raise DocumentationError(
+            "release/zigbeelens-hacs/README.md.in: GITHUB_OWNER must not "
+            "conflate source, destination, and reviewed repository identities"
+        )
+    assertions += require_text_fragments(
+        "release/zigbeelens-hacs/README.md.in repository identities",
+        hacs_template,
+        (
+            "@SOURCE_REPOSITORY@",
+            "@FUTURE_HACS_REPOSITORY@",
+            "@REVIEWED_HACS_REPOSITORY@",
+        ),
+    )
+    template_future_start = hacs_template.index(
+        "## Conditional public HACS installation"
+    )
+    template_current = hacs_template[:template_future_start]
+    template_future = hacs_template[template_future_start:]
+    identity_classes = (
+        (
+            "Core repository link",
+            re.findall(
+                r"\[ZigbeeLens Core\]\((https://github\.com/[^)]+)\)",
+                template_current,
+            ),
+            ["https://github.com/@SOURCE_REPOSITORY@"],
+        ),
+        (
+            "Docker image",
+            re.findall(r"`(ghcr\.io/[^`]+)`", template_current),
+            ["ghcr.io/@SOURCE_REPOSITORY@"],
+        ),
+        (
+            "package commit link",
+            re.findall(
+                r"\[[^\]]+\]\((https://github\.com/[^)\s]+/"
+                r"commit/[^)\s]+)\)",
+                template_current,
+            ),
+            [
+                "https://github.com/@SOURCE_REPOSITORY@/"
+                "commit/@SOURCE_COMMIT@"
+            ],
+        ),
+        (
+            "Issues link",
+            re.findall(
+                r"^Issues:\s*(\S+)\s*$",
+                hacs_template,
+                flags=re.MULTILINE,
+            ),
+            ["https://github.com/@SOURCE_REPOSITORY@/issues"],
+        ),
+        (
+            "future HACS repository link",
+            re.findall(
+                r"`(https://github\.com/[^`\s]+)` as a HACS Integration",
+                template_future,
+            ),
+            ["https://github.com/@FUTURE_HACS_REPOSITORY@"],
+        ),
+    )
+    for label, actual, expected in identity_classes:
+        if actual != expected:
+            raise DocumentationError(
+                "release/zigbeelens-hacs/README.md.in: expected exactly "
+                f"one {label} owned by its declared identity; found {actual}"
+            )
+        assertions += 1
+    assertions += 1
     assertions += require_document_fragments(
         "release/zigbeelens-hacs/scripts/validate-hacs-repo.sh",
         (
@@ -914,6 +1055,10 @@ def validate_companion_publication_truth() -> int:
             'documentation_match.group("commit") != source_commit',
             "README package source commit does not match SOURCE_COMMIT",
             "README pinned documentation URL does not match manifest documentation",
+            "README current/local guidance must not use blob/main documentation",
+            "README pinned Docker documentation URL does not match",
+            "theaussiepom/zigbeelens-hacs",
+            "unresolved template placeholder",
         ),
     )
     assertions += require_document_fragments(
@@ -922,7 +1067,21 @@ def validate_companion_publication_truth() -> int:
             "test_packager_derives_source_commit_from_git_head",
             "test_packager_normalizes_source_commit_override",
             "test_packager_rejects_invalid_source_commit_override",
+            "test_packager_rejects_nonexistent_source_commit",
+            "test_packager_rejects_different_existing_source_commit",
+            "test_packager_rejects_dirty_integration_source",
+            "test_packager_rejects_dirty_readme_template",
+            "test_packager_rejects_untracked_integration_source",
+            "test_packager_separates_nondefault_repository_identities",
             "test_package_validator_rejects_source_commit_mismatch",
+        ),
+    )
+    assertions += require_document_fragments(
+        "scripts/run-release-checks.sh",
+        (
+            "set -euo pipefail",
+            "bash scripts/package-hacs-repo.sh",
+            "bash dist/zigbeelens-hacs/scripts/validate-hacs-repo.sh",
         ),
     )
     assertions += 1
