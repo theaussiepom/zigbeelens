@@ -100,6 +100,14 @@ def test_compose_exposes_port_8377():
     assert "8377:8377" in ports
 
 
+def test_canonical_compose_image_is_overrideable():
+    data = yaml.safe_load((DOCKER / "docker-compose.example.yaml").read_text(encoding="utf-8"))
+    image = data["services"]["zigbeelens"]["image"]
+    assert image == (
+        "${ZIGBEELENS_IMAGE:-ghcr.io/theaussiepom/zigbeelens:latest}"
+    )
+
+
 def test_dockerfile_defaults():
     dockerfile = (DOCKER / "Dockerfile").read_text(encoding="utf-8")
     assert "EXPOSE 8377" in dockerfile

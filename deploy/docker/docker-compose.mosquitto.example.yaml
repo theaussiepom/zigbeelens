@@ -7,10 +7,13 @@
 #   mkdir -p config data mosquitto/config mosquitto/data mosquitto/log
 #   cp deploy/docker/config.example.yaml config/config.yaml
 #   docker compose -f deploy/docker/docker-compose.mosquitto.example.yaml up -d
+#
+# The default image is the latest tagged release. Set ZIGBEELENS_IMAGE to
+# `...:edge` only for deliberate current-main/pre-release validation.
 
 services:
   zigbeelens:
-    image: ghcr.io/theaussiepom/zigbeelens:latest
+    image: ${ZIGBEELENS_IMAGE:-ghcr.io/theaussiepom/zigbeelens:latest}
     container_name: zigbeelens
     restart: unless-stopped
     ports:

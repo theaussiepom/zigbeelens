@@ -6,6 +6,9 @@
 # Normal Docker + HACS does NOT require this. Open Full Dashboard (new tab) works
 # with plain http://<host>:8377.
 #
+# The default image is the latest tagged release. Set ZIGBEELENS_IMAGE to
+# `...:edge` only for deliberate current-main/pre-release validation.
+#
 # Quick start:
 #   mkdir -p config data
 #   cp deploy/docker/config.example.yaml config/config.yaml
@@ -25,7 +28,7 @@
 
 services:
   zigbeelens:
-    image: ghcr.io/theaussiepom/zigbeelens:latest
+    image: ${ZIGBEELENS_IMAGE:-ghcr.io/theaussiepom/zigbeelens:latest}
     container_name: zigbeelens
     restart: unless-stopped
     expose:

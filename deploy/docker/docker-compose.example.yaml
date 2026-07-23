@@ -7,6 +7,9 @@
 #   cd zigbeelens
 #   docker compose up -d
 #
+# The default image is the latest tagged release. For current-main/pre-release
+# validation, set ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge.
+#
 # Port 8377 is published on the Docker host for convenient local/trusted-network access.
 # Core binds from AppConfig (Docker examples use server.host=0.0.0.0). Only the optional
 # bearer/session authentication you configure protects Core; local/no-token remains
@@ -17,7 +20,7 @@
 
 services:
   zigbeelens:
-    image: ghcr.io/theaussiepom/zigbeelens:latest
+    image: ${ZIGBEELENS_IMAGE:-ghcr.io/theaussiepom/zigbeelens:latest}
     container_name: zigbeelens
     restart: unless-stopped
     ports:

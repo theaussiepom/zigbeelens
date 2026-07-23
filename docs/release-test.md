@@ -404,7 +404,7 @@ provide a portable HACS Core URL; its documented access path is the Ingress UI.
 - [ ] Settings → Devices & services → ZigbeeLens → Reconfigure can change Core URL / token without delete/re-add
 - [ ] Configure adjusts panel visibility and durably persists a 15–900-second polling interval (currently blocked: the empty OptionsFlow result overwrites the intermediate interval update)
 - [ ] If using an HTTPS Core URL, Try Embedded View displays the full dashboard inside Home Assistant
-- [ ] *(Optional advanced)* Caddy HTTPS stack from [hacs-embedded-view.md](hacs-embedded-view.md): Core URL updated, cert trusted, embedded view works
+- [ ] *(Optional advanced)* Caddy HTTPS stack from [hacs-embedded-view.md](hacs-embedded-view.md), started with `ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge`: Core URL updated, cert trusted, embedded view works
 - [ ] Core connected state appears
 - [ ] Active incident count appears
 - [ ] Network count appears

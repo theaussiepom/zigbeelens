@@ -135,6 +135,25 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
       fail "docker compose config failed: $(basename "$compose")"
     fi
   done
+
+  CANONICAL_COMPOSE="${DOCKER}/docker-compose.example.yaml"
+  if DEFAULT_RENDER="$(
+    env -u ZIGBEELENS_IMAGE \
+      docker compose --env-file /dev/null -f "${CANONICAL_COMPOSE}" config 2>/dev/null
+  )" \
+    && grep -q 'image: ghcr.io/theaussiepom/zigbeelens:latest' <<<"${DEFAULT_RENDER}"; then
+    ok "canonical Compose default resolves to latest tagged release"
+  else
+    fail "canonical Compose default image did not resolve to latest"
+  fi
+  if EDGE_RENDER="$(
+    env ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge \
+      docker compose --env-file /dev/null -f "${CANONICAL_COMPOSE}" config 2>/dev/null
+  )" && grep -q 'image: ghcr.io/theaussiepom/zigbeelens:edge' <<<"${EDGE_RENDER}"; then
+    ok "canonical Compose accepts explicit edge override"
+  else
+    fail "canonical Compose did not accept ZIGBEELENS_IMAGE=edge override"
+  fi
 else
   echo "SKIP: docker compose config (docker not available)"
 fi

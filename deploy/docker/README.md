@@ -1,25 +1,20 @@
 # Standalone Docker deployment
 
-Production container image for ZigbeeLens Core + bundled UI.
+Current portable deployment route for ZigbeeLens Core + bundled UI.
 
-## Build
+## Image channels
 
-From repository root:
+- `latest` — latest tagged release.
+- `X.Y.Z` — the matching tagged release.
+- `edge` / `main` — rolling current `main` for pre-release validation.
+- `sha-*` — a traceable workflow-built commit.
 
-```bash
-chmod +x scripts/build-docker.sh scripts/validate-compose.sh deploy/docker/entrypoint.sh
-./scripts/build-docker.sh
-```
+An `edge` image is not a tagged release and does not prove that remote release
+validation passed.
 
-Image tags:
+## Released/stable run
 
-- `ghcr.io/theaussiepom/zigbeelens:latest`
-- `ghcr.io/theaussiepom/zigbeelens:0.1.13`
-- `ghcr.io/theaussiepom/zigbeelens:sha-<short-git-sha>`
-
-Replace `theaussiepom` with your GHCR owner when using a fork.
-
-## Run
+The default below is `latest`, the newest tagged release:
 
 ```bash
 mkdir -p config data
@@ -32,7 +27,9 @@ docker run --rm -p 8377:8377 \
   ghcr.io/theaussiepom/zigbeelens:latest
 ```
 
-## Compose
+Pin `:0.1.13` instead of `:latest` for a reproducible released install.
+
+### Compose
 
 ```bash
 mkdir -p zigbeelens/config zigbeelens/data
@@ -45,6 +42,34 @@ docker compose up -d
 
 Keep the copied Compose file beside `config/` and `data/`: relative bind mounts
 are resolved from the Compose file's directory.
+
+## Current-main/pre-release
+
+The same maintained Compose file accepts an explicit image override:
+
+```bash
+cd zigbeelens
+export ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge
+docker compose pull
+docker compose up -d
+```
+
+Use `main` as the equivalent rolling alias or `sha-*` when one exact workflow
+artifact is required. Keep the selector set for future Compose operations.
+
+## Build the current checkout locally
+
+From the repository root:
+
+```bash
+chmod +x scripts/build-docker.sh scripts/validate-compose.sh deploy/docker/entrypoint.sh
+ZIGBEELENS_IMAGE=zigbeelens:local ./scripts/build-docker.sh
+```
+
+Set `ZIGBEELENS_IMAGE=zigbeelens:local` when using the maintained Compose
+example, or use that exact local tag with `docker run`.
+
+Replace `theaussiepom` with your GHCR owner when using a fork.
 
 See also:
 

@@ -55,7 +55,9 @@ Prefer pinning to a release tag in production:
 image: ghcr.io/theaussiepom/zigbeelens:0.1.13
 ```
 
-Use `:latest` for convenience on trusted lab systems only.
+`latest` means the newest tagged release. Pin `X.Y.Z` when the deployment must
+stay on one reproducible release; use `edge`/`main` only for deliberate
+current-main/pre-release validation.
 
 ## Rollback
 
