@@ -28,34 +28,45 @@ Synchronizing or publishing that repository requires a separate explicitly
 authorized publication task. Docker/Compose is the current portable Core
 deployment route.
 
-The public satellite and the materially different staged package both
-advertise version `0.1.13`. Until a publication task makes the trees identical
-and assigns a version that uniquely identifies that tree, the version collision
-is itself a publication blocker.
+The candidate stage advertises the previously unused version `0.1.14`; the
+materially different public satellite still advertises `0.1.13` at the latest
+re-check. The candidate version therefore identifies the staged tree uniquely,
+but the tree mismatch remains a publication blocker until a separately
+authorized publication task makes the intended satellite tree identical.
 
-The HACS publication gates remain open:
+Phase 7C1 is merged. The runtime package now owns durable options, fail-closed
+Core/Decision compatibility, distinct Decision payload repairs, declarative and
+runtime single-entry enforcement, exact Home Assistant compatibility lanes,
+and generated official-validation workflows. Phase 7C2 screenshots and Phase
+7D live Beast validation remain deferred.
 
-- Configure accepts a polling interval that the current OptionsFlow does not
-  persist.
-- Missing or malformed Core versions fail open as compatible.
-- Missing/malformed exact-v2 Dashboard surfaces receive incorrect
-  unsupported-contract/upgrade guidance.
-- Exact Home Assistant 2025.1.0 plus current-version coverage is missing.
-- Config flow enforces one entry, but manifest `single_config_entry` metadata is
-  missing.
-- The staged package has not passed official HACS and hassfest validation.
+Public installation remains unavailable until a separately authorized
+publication task:
 
-Local structural packaging validation does not close any of those runtime,
-metadata, minimum-version, or official-publication gates.
+- makes the complete staged and satellite trees identical;
+- assigns a version that uniquely identifies that tree;
+- runs the generated exact Home Assistant matrix and official HACS/hassfest
+  checks on the synchronized satellite; and
+- records and inspects those remote results before publication.
+
+Local structural packaging and local matrix results are not substitutes for
+those remote satellite checks.
 
 ## Local staged integration testing
 
-Use a clean, disposable Home Assistant test instance running **2025.1.0 or
-newer**. HACS is not used for this branch test.
+Use a clean, disposable Home Assistant test instance. HACS is not used for this
+branch test. The canonical compatibility matrix is exact and reviewed on
+2026-07-23:
 
-That minimum is declared in package metadata, but the current test dependency
-uses `homeassistant>=2025.1.0` and resolves a newer release. Exact 2025.1.0 plus
-current-Home-Assistant matrix coverage remains a HACS publication gate.
+| Lane | Home Assistant | Python |
+|------|----------------|--------|
+| Minimum | `2025.1.0` | `3.12` |
+| Current | `2026.7.3` | `3.14` |
+
+`apps/ha_integration/ha-test-matrix.json`, the two exact requirements files,
+monorepo CI, and the generated HACS CI use those same pins. Run either lane
+locally with `bash scripts/test-ha-integration-matrix.sh minimum` or
+`bash scripts/test-ha-integration-matrix.sh current`.
 
 1. From the monorepo root, generate and validate the reviewed staged package:
 
@@ -89,10 +100,9 @@ current-Home-Assistant matrix coverage remains a HACS publication gate.
 
 Do not add the public satellite as a HACS custom repository for this test.
 
-Only one ZigbeeLens config entry/Core target is supported. The config flow
-rejects a second entry. The manifest does not yet declare Home Assistant's
-`single_config_entry` metadata, so that declarative alignment remains a package
-gate rather than a claimed runtime feature in this phase.
+Only one ZigbeeLens config entry/Core target is supported. The manifest declares
+`single_config_entry: true`; config-flow concurrency checks and setup-time
+singleton ownership remain as runtime defenses.
 
 ![HACS config flow](../docs/screenshots/hacs-config-flow.png)
 
@@ -108,7 +118,7 @@ Setup defaults:
 | API token | blank |
 | Verify SSL | `false` |
 | Panel enabled | `true` |
-| Poll interval | `60` seconds; Configure accepts `15` to `900`, but custom values currently do not persist |
+| Poll interval | `60` seconds; Configure accepts and persists `15` to `900` |
 
 ## Core URL
 
@@ -124,16 +134,10 @@ The value must be an exact HTTP(S) origin: no path, query, fragment, embedded
 credentials, or trailing application route. Use `localhost` only when Home
 Assistant Core and ZigbeeLens Core truly share a network namespace.
 
-For source-built/local pre-release testing, the Home Assistant add-on runner
-serves the full UI through Supervisor Ingress and publishes no host port. The
-generated image-based repository is publication-blocked; a future published
-add-on artifact may provide that Ingress path only after its publication gates
-close. Home Assistant Core does not share the add-on's network namespace, so
-`http://localhost:8377` is not a valid portable add-on URL. The repository
-currently defines no stable add-on backend hostname for HACS. Use the
-source-built runner's Ingress UI without HACS during deliberate local testing,
-or run standalone Core at a reachable origin when HACS entities and the
-companion panel are required.
+The Home Assistant add-on is deferred and defines no portable HACS backend
+origin. Do not use `http://localhost:8377` as an add-on URL. Run standalone Core
+at a Home-Assistant-reachable origin when testing HACS entities and the
+companion panel.
 
 The companion panel renders status from the integration (over the HA websocket) and does not require the browser to reach Core directly. The **Open Full Dashboard** button opens the configured Core URL in a new tab, so that URL must be reachable from your browser.
 
@@ -142,13 +146,10 @@ or API token. Use **Configure** (options) for panel visibility and polling
 interval. When Core rejects credentials, Home Assistant offers linked
 **reauthentication**.
 
-Current polling limitation: the OptionsFlow manually updates
-`scan_interval`, reloads the entry, and then returns an empty options result.
-Home Assistant persists that empty result over the intermediate update, so a
-custom 15–900-second interval is not durable and polling returns to the
-60-second default. Treat this as a release blocker until the chosen options are
-returned and a reload/persistence test passes. Panel visibility is stored
-separately and is not subject to this specific overwrite.
+The OptionsFlow returns panel visibility and the selected 15–900-second
+`scan_interval` as the authoritative options result. Home Assistant persists
+that result and the registered update listener performs one effective reload,
+so the coordinator is recreated with the selected interval.
 
 Home Assistant reloads the config entry after Configure, Reconfigure, or
 successful reauthentication changes. Integration logs are in Home Assistant's
@@ -190,9 +191,7 @@ No reverse proxy is required for a good sidebar experience.
 
 **HAOS add-on:**
 
-- The source-built add-on runner is intended to provide the full Core UI
-  through Ingress without HACS. The generated image-based repository is
-  publication-blocked and is not a supported release route.
+- The add-on is deferred and is not part of the current HACS release.
 - Do not enter `http://localhost:8377`; the add-on publishes no direct port and
   this repository does not define a portable HACS-to-add-on Core origin.
 
@@ -214,6 +213,42 @@ If your Core URL is reachable by users or networks you do not trust, consider fi
 
 ZigbeeLens remains read-only for Zigbee control. Some Core API routes modify ZigbeeLens local data only (reports, topology snapshots, HA enrichment metadata). See [security.md](security.md).
 
+## Home Assistant enrichment
+
+The integration's normal coordinator reads Core health/diagnostic data,
+configuration status, the Decision Dashboard, and capabilities. A separate
+enrichment manager reads the bounded `/api/v1/devices` inventory and owns the
+only integration write: exact contract-v1
+`POST /api/v1/enrichment/homeassistant`. Explicit config-entry removal may call
+the exact DELETE for that same resource. The client exposes no generic mutation
+method and does not publish MQTT.
+
+For each complete HA registry snapshot the integration:
+
+1. reads the official device, entity, and area registries;
+2. prefers the HA user-facing device name, resolves a device or unanimous
+   entity area, and chooses one deterministic representative entity;
+3. extracts exactly one reviewed Zigbee IEEE candidate;
+4. resolves it against Core inventory to a final exact
+   `(network_id, ieee_address)` identity; and
+5. sends a bounded, strict snapshot sorted deterministically.
+
+HA names and areas are additional display metadata. Core preserves the
+Zigbee2MQTT `friendly_name`, and the HA user rename is never identity evidence.
+When one IEEE exists in multiple Core networks, reviewed original registry-name
+evidence may select a row only when exactly one Core friendly name matches;
+otherwise the candidate is ambiguous and omitted. Conflicting HA device or
+representative entity ownership also fails closed.
+
+A complete accepted empty snapshot is a real replacement and clears
+enrichment. An unavailable HA registry, incomplete/invalid Core inventory,
+unsupported capability, or transient HTTP/auth/server failure sends no
+replacement, so Core retains the last accepted snapshot. The manager owns the
+initial sync, debounced official registry listeners, bounded retry, and forced
+15-minute reconciliation. Unload cancels those owners; reload does not clear
+Core. Explicit config-entry removal attempts the exact clear without preventing
+removal if Core is unavailable.
+
 ## Architecture
 
 ```mermaid
@@ -226,7 +261,7 @@ flowchart LR
 
   HA --> HACS
   HACS --> Panel
-  HACS -->|HTTP read-only| Core
+  HACS -->|HTTP reads + exact HA enrichment snapshot| Core
   Panel -. Open Full Dashboard new tab .-> Core
   MQTT -->|observed Zigbee2MQTT topics| Core
   Core -. allowlisted network-map request when topology policy enables it .-> MQTT
@@ -279,7 +314,10 @@ Semantics:
 | Valid empty priority list | Decision mode on; empty state: “No current investigation priorities from stored evidence.” |
 | Valid priorities | Decision mode on; show up to three Core priorities, then “+N more…” |
 | Missing / non-list surface | Soft disable decision mode; no Health/Lens fallback |
-| Unsupported / malformed / older / newer contract | Soft disable decision mode; repair `core_decision_contract_incompatible`; no reauth |
+| Missing/older contract or required capability | Soft disable; older-contract repair recommends updating Core |
+| Newer contract | Soft disable; newer-contract repair recommends updating the integration, not Core |
+| Malformed capabilities/contract | Soft disable; malformed-contract repair, with no guessed upgrade |
+| Exact v2 with missing/malformed Dashboard Decision data | Soft disable; payload-specific repair that does not prescribe a Core upgrade |
 | Core below minimum version | Decision mode off; Home Assistant repair for incompatible Core |
 
 Malformed individual priority rows are skipped calmly during panel projection. A malformed
@@ -296,20 +334,20 @@ Diagnostics and the native panel report Core compatibility as:
 Unknown must never be rendered as Compatible. Decision mode requires explicit
 `shared_decisions_available === true` and `core_version_compatible === true`.
 
-Current release blocker: `core_version_compatible()` returns `true` when the
-health version is missing or malformed. The coordinator consumes that boolean,
-so an unobserved version can render as Compatible and can contribute to
-enabling shared decisions. Do not publish the HACS integration as satisfying
-the tri-state contract until unknown/malformed versions fail closed and tests
-cover the panel/coordinator projection.
+The explicit internal states are:
 
-The coordinator also collapses two different states into
-`shared_decisions_available: false`: an unsupported contract and an exact-v2
-contract whose Dashboard decision surfaces are missing/malformed. Repairs maps
-both to `core_decision_contract_incompatible`, whose copy says the reported
-version is unsupported and tells the operator to upgrade Core. That repair is
-factually wrong for a payload-shape failure. Preserve a distinct failure reason
-or issue before claiming the soft payload fallback above is release-ready.
+- Core version: `compatible`, `incompatible`, `unknown`;
+- capabilities response: `accepted`, `unavailable`, `malformed`;
+- Decision contract: `supported_exact`, `missing`, `older`, `newer`,
+  `malformed`, `missing_required_capability`;
+- Decision payload: `valid`, `missing`, `malformed`; and
+- enrichment contract: `supported`, `unsupported`, `missing`, `malformed`,
+  `unavailable`.
+
+Missing or malformed Core versions fail closed as `unknown`. Decision mode
+requires a compatible Core, exact supported contract, and valid Dashboard
+Decision payload. Repairs preserve the older/newer/malformed/payload distinction
+described above; authentication alone owns reauthentication.
 
 ### Native panel projection
 
@@ -393,10 +431,12 @@ These are future instructions, not a current branch-validation route. Restore
 public custom-repository installation only after all of these gates close:
 
 - the staged tree matches the intended satellite tree exactly;
-- the manifest/package version uniquely identifies that tree, resolving the
-  current same-version/different-tree collision;
-- exact Home Assistant 2025.1.0 plus current-version coverage passes;
-- official HACS and hassfest validation passes; and
+- the manifest/package version uniquely identifies that tree, remains unused,
+  and has not already been published;
+- exact Home Assistant `2025.1.0` / Python `3.12` and Home Assistant
+  `2026.7.3` / Python `3.14` coverage passes;
+- generated official HACS and hassfest validation passes remotely on the
+  synchronized satellite; and
 - explicit publication authorization is recorded.
 
 Only then may an operator add
@@ -427,8 +467,8 @@ Source: `apps/ha_integration/`. Generate the local staging tree with:
 Output: `dist/zigbeelens-hacs/`. This is a generated staging directory, not a
 Git checkout or publication authorization. Do not push it from this workflow.
 A separate authorized publication task must compare the complete staged and
-satellite trees, resolve the version collision, and pass the synchronization
-gates above.
+satellite trees, preserve the candidate's unique version identity, and pass the
+synchronization gates above.
 
 ## Validation
 

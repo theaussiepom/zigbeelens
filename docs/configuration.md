@@ -13,8 +13,8 @@ YAML, environment variables, or secret files.
 |------------|---------------------|---------------|
 | Docker / Compose | ZigbeeLens Core | A YAML file mounted at `/config/config.yaml`, plus optional environment or secret-file overrides |
 | Direct Core | ZigbeeLens Core | `config/config.yaml`, `ZIGBEELENS_CONFIG`, or `zigbeelens --config PATH` |
-| Home Assistant add-on (source/local pre-release; packaged publication blocked) | Supervisor + source add-on launcher | Add-on options; the source launcher generates `/data/zigbeelens/config.yaml` |
-| HACS integration | Home Assistant config entry | Core URL, optional Core API token, TLS verification, panel visibility, and intended polling interval |
+| Home Assistant add-on (deferred; not in the current HACS release) | Supervisor + source add-on launcher | Retained for non-regression validation only |
+| HACS integration | Home Assistant config entry | Core URL, optional Core API token, TLS verification, panel visibility, and polling interval |
 
 The HACS integration does not configure or install Core. It connects to an
 already-running Core service.
@@ -247,9 +247,9 @@ assets.
 
 ## Home Assistant add-on ownership
 
-This section describes the source-built/local pre-release runner today and a
-future published add-on artifact only after publication gates close. The
-current generated image-based repository remains publication-blocked.
+The add-on is deferred and is not part of the current HACS release. This section
+records its source configuration boundary for non-regression purposes; it is
+not current installation guidance.
 
 The source add-on exposes Supervisor options for MQTT, networks, storage,
 diagnostics, reporting, feature gates, MQTT Discovery, topology, and an
@@ -286,18 +286,29 @@ These are Home Assistant integration settings, not Core configuration:
 | `api_token` | empty | Initial setup, Reconfigure, or Reauthenticate |
 | `verify_ssl` | `false` | Initial setup or Reconfigure |
 | `panel_enabled` | `true` | Initial setup or Configure |
-| `scan_interval` | `60` seconds; Configure accepts `15..900` | Configure, but see the persistence blocker below |
+| `scan_interval` | `60` seconds; Configure accepts `15..900` | Configure |
 
-Home Assistant reloads the config entry after option changes. The current
-OptionsFlow manually writes `scan_interval`, then returns an empty options
-result; Home Assistant persists that result over the manual write. Consequently
-a changed interval is not durable and polling returns to the 60-second default.
-Treat configurable polling as a release blocker until the flow returns the
-chosen options and a reload/persistence test proves the behavior. Panel
-visibility is stored separately in config-entry data.
+The OptionsFlow returns both selected values in its result. Home Assistant
+persists them and the registered update listener performs one effective reload;
+the recreated coordinator uses the selected interval. The enrichment manager's
+forced 15-minute reconciliation is separate from this configurable coordinator
+poll.
 
 The integration never installs Core and does not inherit the add-on token
 automatically.
+
+The server-side integration reads Core health/diagnostic, configuration status,
+Decision Dashboard, capabilities, and bounded `/api/v1/devices` inventory.
+Its only write is the strict complete Home Assistant enrichment snapshot to
+Core-local storage, with an exact clear allowed on explicit config-entry
+removal. HA names and areas supplement—not replace—the Core/Zigbee2MQTT
+friendly name. Matching resolves to exact `(network_id, ieee_address)` and
+fails closed on ambiguity; unavailable source/inventory or transient failure
+retains the prior accepted snapshot, while an accepted complete-empty snapshot
+clears it.
+
+The reviewed compatibility lanes are exact Home Assistant `2025.1.0` on Python
+`3.12` and Home Assistant `2026.7.3` on Python `3.14`.
 
 ## Validate a configuration
 

@@ -2,7 +2,9 @@
 
 Narrow ownership map for Decision, report, and public-contract confidence.
 Phase 7B merged in PR #101 from approved branch tip `03c12d4`. Broader
-contributor and product documentation belongs to Phase 7C1.
+contributor and product documentation was completed and merged in Phase 7C1.
+Phase 7C2 screenshot evidence and Phase 7D live Beast validation remain
+deferred.
 
 ## Layers
 
@@ -16,7 +18,7 @@ contributor and product documentation belongs to Phase 7C1.
 | UI component | Accessibility, interaction, stale-work, transport ownership | `apps/ui/src/components/**`, `pages/**` |
 | Cross-surface contract | Core DTO ↔ UI ViewModel ↔ ReportDetailV3 semantic parity | `apps/ui/src/test/contracts/*parity*` |
 | Performance | Query/cardinality bounds (not prose correctness) | `apps/core/tests/performance/` |
-| HACS | Exact companion contract | `apps/ha_integration/tests/` |
+| HACS | Exact companion, enrichment, lifecycle, compatibility, matrix, and package contracts | `apps/ha_integration/tests/` |
 
 Each behaviour should have **one primary owner**. Higher layers may integrate; they must not re-own lower-layer logic.
 
@@ -116,6 +118,41 @@ Python resolution in `validate-contracts.sh`:
 3. `python3`;
 4. `python`;
 5. otherwise fail clearly.
+
+## Home Assistant release-readiness lanes
+
+HACS invariants have narrow production-test owners:
+
+| Invariant | Primary owner |
+|-----------|---------------|
+| Official HA registry extraction, deterministic entity/area choice, and fail-closed IEEE ambiguity | `test_ha_enrichment.py` |
+| Exact Core inventory resolution and duplicate-network behavior | `test_ha_enrichment.py` |
+| Strict request/response route and allowed-mutation architecture | `test_api_enrichment.py` |
+| Initial/event/retry/periodic reconciliation, complete-empty vs unavailable, and cleanup | `test_enrichment_manager.py` |
+| Core version, capabilities, Decision contract/payload, enrichment contract, repairs, and panel projection states | compatibility/coordinator/repairs/panel tests |
+| Durable options and exactly one effective reload | `test_config_flow.py`, setup tests |
+| Runtime plus declarative single-entry ownership | manifest/config-flow/setup/package tests |
+| Core storage/projection/report/redaction lifecycle | Core `test_ha_enrichment.py` and report tests |
+
+The exact compatibility matrix is checked in at
+`apps/ha_integration/ha-test-matrix.json`:
+
+| Lane | Home Assistant | Python |
+|------|----------------|--------|
+| Minimum | `2025.1.0` | `3.12` |
+| Current | `2026.7.3` | `3.14` |
+
+Both requirements files use `homeassistant==...`, and
+`scripts/test-ha-integration-matrix.sh` verifies the imported version before
+running the same integration suite. Monorepo CI/release-check and generated
+HACS CI use those exact pins.
+
+The generated HACS `ci.yml` owns structural/provenance validation, both exact
+matrix lanes, the pinned official `home-assistant/actions/hassfest` action, and
+the pinned official `hacs/action`. Generated `release.yml` calls that CI
+workflow and makes publication depend on it. Structural contract tests verify
+that ownership; only execution on the synchronized satellite is remote
+publication evidence.
 
 ## Intentional xfail
 

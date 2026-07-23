@@ -360,14 +360,14 @@ def validate_docker_install_truth() -> int:
 def validate_addon_operational_truth() -> int:
     required: dict[str, tuple[str, ...]] = {
         "docs/hacs.md": (
-            "source-built/local pre-release testing",
-            "future published add-on artifact",
-            "publication gates close",
+            "add-on is deferred and is not part of the current HACS release",
+            "does not define a portable HACS-to-add-on Core origin",
+            "Do not use `http://localhost:8377` as an add-on URL",
         ),
         "apps/ha_integration/README.md": (
-            "source-built/local pre-release testing",
-            "future published add-on artifact",
-            "publication gates close",
+            "add-on is deferred and is not part of this HACS release",
+            "does not define a portable HACS-to-add-on backend URL",
+            "Do not use `http://localhost:8377` as an add-on backend URL",
         ),
         "docs/hacs-embedded-view.md": (
             "source-built/local pre-release testing",
@@ -390,14 +390,14 @@ def validate_addon_operational_truth() -> int:
             "publication gates close",
         ),
         "release/zigbeelens-hacs/README.md.in": (
-            "source-built/local pre-release testing",
-            "future published add-on artifact",
-            "publication gates close",
+            "add-on is deferred and is not part of this HACS release",
+            "`http://localhost:8377` is not a portable add-on URL",
+            "Run standalone Core at a reachable origin",
         ),
         "docs/configuration.md": (
-            "source-built/local pre-release runner",
-            "future published add-on artifact",
-            "publication gates close",
+            "add-on is deferred and is not part of the current HACS release",
+            "source configuration boundary for non-regression purposes",
+            "not current installation guidance",
         ),
         "SECURITY.md": (
             "HAOS add-on source/local pre-release",
@@ -650,7 +650,7 @@ def validate_companion_publication_truth() -> int:
         r"pre-release install via HACS|HACS is required|"
         r"requires[^\n.]{0,120}\bHACS\b|"
         r"\b(?:install|add|use)\b[^\n]{0,160}"
-        r"\b(?:[A-Za-z0-9_.-]+/)?zigbeelens-hacs\b)",
+        r"(?<!dist/)\b(?:(?!dist/)[A-Za-z0-9_.-]+/)?zigbeelens-hacs\b)",
         flags=re.IGNORECASE,
     )
     local_install_contracts: dict[str, tuple[str, ...]] = {
@@ -682,25 +682,28 @@ def validate_companion_publication_truth() -> int:
     }
     future_install_contracts: dict[str, tuple[str, ...]] = {
         "docs/hacs.md": (
-            "staged tree matches the intended satellite tree",
-            "version uniquely identifies that tree",
-            "2025.1.0 plus current-version coverage",
-            "official HACS and hassfest validation",
-            "explicit publication authorization",
+            "staged tree matches the intended satellite tree exactly",
+            "manifest/package version uniquely identifies that tree",
+            "Home Assistant `2025.1.0` / Python `3.12` and Home Assistant "
+            "`2026.7.3` / Python `3.14` coverage passes",
+            "official HACS and hassfest validation passes remotely",
+            "explicit publication authorization is recorded",
         ),
         "apps/ha_integration/README.md": (
             "staged tree must match the intended satellite tree",
             "version must uniquely identify that tree",
-            "2025.1.0 plus current coverage",
-            "official HACS and hassfest validation",
-            "explicit publication authorization",
+            "Home Assistant `2025.1.0` / Python `3.12` and Home Assistant "
+            "`2026.7.3` / Python `3.14` coverage must pass",
+            "official HACS and hassfest validation must pass remotely",
+            "explicit publication authorization must be recorded",
         ),
         "release/zigbeelens-hacs/README.md.in": (
             "staged tree must match the intended satellite tree",
             "version must uniquely identify that tree",
-            "2025.1.0 plus current-version coverage",
-            "official HACS and hassfest validation",
-            "explicit publication authorization",
+            "Home Assistant `2025.1.0` / Python `3.12` and Home Assistant "
+            "`2026.7.3` / Python `3.14` coverage must pass",
+            "official HACS and hassfest validation must pass remotely",
+            "explicit publication authorization must be recorded",
             "https://github.com/@FUTURE_HACS_REPOSITORY@",
         ),
     }
@@ -807,24 +810,29 @@ def validate_companion_publication_truth() -> int:
         )
     assertions += len(current_guidance_owners)
 
-    hacs_blockers = (
-        "OptionsFlow",
-        "missing or malformed Core versions",
-        "exact-v2 Dashboard",
-        "2025.1.0",
-        "`single_config_entry`",
-        "official HACS and hassfest",
+    hacs_release_truth = (
+        "OptionsFlow returns panel visibility and the selected 15–900-second",
+        "missing or malformed Core versions fail closed as `unknown`",
+        "Exact v2 with missing/malformed Dashboard Decision data",
+        "Home Assistant `2025.1.0` / Python `3.12` and Home Assistant "
+        "`2026.7.3` / Python `3.14`",
+        "`single_config_entry: true`",
+        "official HACS and hassfest validation passes remotely",
+        "add-on is deferred and is not part of the current HACS release",
     )
-    assertions += require_document_fragments("docs/hacs.md", hacs_blockers)
+    assertions += require_document_fragments("docs/hacs.md", hacs_release_truth)
     assertions += require_document_fragments(
         "release/zigbeelens-hacs/README.md.in",
         (
-            "OptionsFlow",
-            "missing/malformed Core versions",
-            "exact-v2 Dashboard",
-            "2025.1.0",
-            "`single_config_entry`",
-            "official HACS and hassfest",
+            "OptionsFlow behind **Configure** persists a selected "
+            "15–900-second interval",
+            "missing/malformed Core versions fail closed as **Unknown**",
+            "missing/malformed exact-v2 Dashboard Decision data",
+            "Home Assistant `2025.1.0` / Python `3.12` and Home Assistant "
+            "`2026.7.3` / Python `3.14`",
+            "`single_config_entry: true`",
+            "official HACS and hassfest validation must pass remotely",
+            "add-on is deferred and is not part of this HACS release",
         ),
     )
     assertions += require_document_fragments(
@@ -832,31 +840,35 @@ def validate_companion_publication_truth() -> int:
         (
             "Current portable deployment route",
             "Local/staged source testing only",
-            "public HACS satellite unsynchronized",
-            "Pre-release source — generated repository publication blocked",
+            "public install unavailable until satellite synchronization "
+            "and remote official checks pass",
+            "Deferred — not part of the current HACS release",
         ),
     )
     synchronization_gates: dict[str, tuple[str, ...]] = {
         "RELEASE_CHECKLIST.md": (
             "complete staged tree matches the intended",
-            "version uniquely identifies that tree",
-            "Exact Home Assistant 2025.1.0 minimum and a current",
-            "official HACS/hassfest checks",
-            "Explicit authorization",
+            "manifest/package version uniquely identifies that tree",
+            "Home Assistant `2025.1.0` / Python `3.12` and Home Assistant "
+            "`2026.7.3` / Python `3.14`",
+            "generated remote official HACS/hassfest checks",
+            "Explicit authorization to synchronize and publish",
         ),
         "docs/release-infra.md": (
             "complete staged tree matches the intended satellite tree",
-            "version that uniquely identifies that exact tree",
-            "2025.1.0 plus current-version coverage",
-            "official HACS and hassfest validation",
-            "explicit publication authorization",
+            "manifest/package version that uniquely identifies that exact tree",
+            "Home Assistant 2025.1.0/Python 3.12 and "
+            "2026.7.3/Python 3.14 lanes remotely",
+            "generated official HACS and hassfest validation remotely",
+            "explicit publication authorization before modifying",
         ),
         "docs/release.md": (
             "complete staged tree must match the intended satellite tree",
-            "version must uniquely identify that exact tree",
-            "2025.1.0 plus current-version coverage",
-            "official HACS and hassfest validation",
-            "explicit publication authorization",
+            "manifest/package version must uniquely identify that exact tree",
+            "Home Assistant 2025.1.0/Python 3.12 and "
+            "2026.7.3/Python 3.14 lanes must pass",
+            "generated official HACS and hassfest validation must pass remotely",
+            "explicit publication authorization must be recorded",
         ),
     }
     assertions += sum(
@@ -1316,13 +1328,18 @@ def validate_current_contract_copy() -> int:
             "not an equivalent test",
         ),
         "docs/configuration.md": (
-            "a changed interval is not durable",
+            "Home Assistant persists them and the registered update listener "
+            "performs one effective reload",
+            "Home Assistant `2025.1.0` on Python `3.12` and Home Assistant "
+            "`2026.7.3` on Python `3.14`",
             "`reporting.default_profile`",
             "`mqtt_discovery.object_id_prefix`",
         ),
         "docs/hacs.md": (
-            "`core_version_compatible()` returns `true`",
-            "factually wrong for a payload-shape failure",
+            "`shared_decisions_available === true` and "
+            "`core_version_compatible === true`",
+            "payload-specific repair that does not prescribe a Core upgrade",
+            "Decision payload: `valid`, `missing`, `malformed`",
             "`capabilities.report_contract_v3`",
             "Only one ZigbeeLens config entry/Core target is supported",
         ),
@@ -1333,7 +1350,10 @@ def validate_current_contract_copy() -> int:
         ),
         "docs/release-test.md": (
             "freshly generated staging directory",
-            "currently blocked: the empty OptionsFlow result",
+            "Configure adjusts panel visibility and durably persists a "
+            "15–900-second polling interval through one effective reload",
+            "Exact minimum lane passed: Home Assistant `2025.1.0` / Python `3.12`",
+            "Exact current lane passed: Home Assistant `2026.7.3` / Python `3.14`",
         ),
         "docs/safety-audit.md": (
             "Current release blocker: the MQTT client last will",

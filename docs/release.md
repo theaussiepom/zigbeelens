@@ -40,36 +40,35 @@ Before tagging, all release phases must be complete:
 
 - Phase 7A query/cardinality/runtime baseline (merged in PR #100)
 - Phase 7B test architecture and exact-v3 report reset (merged in PR #101)
-- Phase 7C1 documentation truth
-- Phase 7C2 current screenshots
-- Phase 7D live Beast deployment validation
+- Phase 7C1 documentation truth (merged)
+- Phase 7C2 current screenshots (deferred)
+- Phase 7D live Beast deployment validation (deferred)
 
-The add-on is a separate publication gate. Do not publish the packaged add-on
-until its image entrypoint implements the complete add-on startup contract,
-including optional `security.api_token` export and verified `/data`
-writability; its `reporting.max_*` minimums align with Core;
-`reporting.default_profile` is effective (or removed); and a portable
-HACS-to-Core origin is defined.
-`ports: {}` plus a separate Home Assistant namespace does not make
-`localhost:8377` a portable HACS URL.
+The add-on is deferred and is not part of the current HACS release. Keep its
+non-regression checks green, but do not publish or advertise it as a supported
+route.
 
 The documentation audit also found release gates outside add-on packaging:
 unused report controls, unknown report targets producing an empty plan,
 Discovery last-will validation order, disabled-topology scheduler/status
-drift, parsed topology `raw_json` retention, and the HACS OptionsFlow
-overwriting custom polling intervals with an empty options result. The HACS
-compatibility helper also treats missing/malformed Core versions as compatible,
-violating the documented Unknown tri-state and shared-decision gate, while
-exact-v2 Dashboard payload-shape failure is misreported as an unsupported
-contract requiring a Core upgrade. Track them in
+drift, and parsed topology `raw_json` retention. Track them in
 [RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md); truthful documentation does
 not close those runtime contracts.
 
 The HACS satellite is a separate publication gate. Its public `main` is not the
-reviewed staged tree, and both materially different trees currently advertise
-`0.1.13`. Use only the locally generated custom component for branch testing.
-Do not synchronize or publish the external satellite without a separate
-explicitly authorized task.
+reviewed staged tree and still advertises `0.1.13`, while the candidate stage
+uses the previously unused version `0.1.14`. The candidate version identifies
+the staged tree uniquely, but the tree mismatch remains. Use only the locally
+generated custom component for branch testing. Do not synchronize or publish
+the external satellite without a separate explicitly authorized task.
+
+The monorepo and generated stage now own durable HACS options, fail-closed
+compatibility/repairs, exact enrichment lifecycle, declarative/runtime
+single-entry behavior, exact HA `2025.1.0`/Python `3.12` and
+`2026.7.3`/Python `3.14` lanes, and generated pinned official hassfest/HACS
+jobs. Generated release publication depends on generated CI. Public install is
+still unavailable until the satellite tree/version is synchronized and those
+official jobs pass remotely on that exact tree.
 
 ### 2. Update version
 
@@ -103,6 +102,8 @@ pnpm --filter @zigbeelens/ui typecheck
 pnpm --filter @zigbeelens/ui lint
 pnpm --filter @zigbeelens/ui build
 ./scripts/validate-ha-integration.sh
+bash scripts/test-ha-integration-matrix.sh minimum
+bash scripts/test-ha-integration-matrix.sh current
 ./scripts/validate-addon.sh
 ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 ./scripts/validate-compose.sh
 ./scripts/package-hacs-repo.sh
@@ -130,8 +131,10 @@ Before public HACS guidance or publication is restored:
 
 - the complete staged tree must match the intended satellite tree;
 - the manifest/package version must uniquely identify that exact tree;
-- exact Home Assistant 2025.1.0 plus current-version coverage must pass;
-- official HACS and hassfest validation must pass; and
+- exact Home Assistant 2025.1.0/Python 3.12 and
+  2026.7.3/Python 3.14 lanes must pass;
+- generated official HACS and hassfest validation must pass remotely on the
+  synchronized satellite; and
 - explicit publication authorization must be recorded before the external
   repository is modified.
 
@@ -172,12 +175,11 @@ Create a GitHub release from tag `v${ZIGBEELENS_RELEASE_VERSION}`:
 - Body: CHANGELOG section
 - Attach HACS zip if distributing manually
 
-### 9. Add-on repository
+### 9. Add-on repository (deferred)
 
-Update add-on repository metadata only after the add-on publication gates in
-[RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md) pass against the packaged HAOS
-artifact. Structural validation and a standalone `:edge` container are not
-substitutes for that smoke test.
+Do not include or publish the add-on in the current HACS release. Any future
+add-on publication is a separate task gated by
+[RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md).
 
 ### 10. Post-release verification
 

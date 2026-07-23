@@ -37,7 +37,15 @@ establish publication readiness or replace the artifact-specific live gates
 below.
 
 - [ ] HA integration source validates (`./scripts/validate-ha-integration.sh`)
+- [ ] Exact HA minimum lane passes
+      (`bash scripts/test-ha-integration-matrix.sh minimum`:
+      Home Assistant `2025.1.0`, Python `3.12`)
+- [ ] Exact HA current lane passes
+      (`bash scripts/test-ha-integration-matrix.sh current`:
+      Home Assistant `2026.7.3`, Python `3.14`)
 - [ ] HACS staging package generates and validates (`./scripts/package-hacs-repo.sh` then `bash dist/zigbeelens-hacs/scripts/validate-hacs-repo.sh`)
+- [ ] Generated HACS CI owns both exact HA lanes plus pinned official hassfest
+      and HACS validation; generated release publication depends on that CI
 - [ ] Add-on source structure validates (`./scripts/validate-addon.sh`)
 - [ ] Add-on staging package generates and validates (`./scripts/package-addon-repo.sh` then `bash dist/zigbeelens-addons/scripts/validate-addon-repo.sh`)
 
@@ -55,17 +63,16 @@ failure, never a skip.
 
 - [x] Phase 7A query/cardinality/runtime baseline merged (PR #100)
 - [x] Phase 7B release-quality test architecture and exact-v3 report reset merged (PR #101)
-- [ ] Phase 7C1 documentation truth and cross-surface alignment complete
+- [x] Phase 7C1 documentation truth and cross-surface alignment merged
 - [ ] Phase 7C2 current screenshots captured and reviewed
 - [ ] Phase 7D live Beast deployment validation complete
 
 Local validation evidence is not remote CI evidence. Do not mark Phase 7C2 or
 Phase 7D complete from documentation or local tests.
 
-The packaged Home Assistant add-on is not publication-ready. Its runner,
-configuration schema, reporting defaults, and HACS reachability blockers are
-listed in the add-on gate below; a successful structural validator does not
-close them.
+The Home Assistant add-on is deferred and is not part of the current HACS
+release. Its future-only gate remains below; structural validation is
+non-regression evidence, not current installation readiness.
 
 ## Security acknowledgement
 
@@ -81,6 +88,7 @@ close them.
 - [ ] If Core is reachable beyond users/networks I trust, I have intentionally added a trusted proxy/firewall (or accepted the risk).
 - [ ] I understand ZigbeeLens is read-only for Zigbee control and does not perform permit join, remove, reset, bind/unbind, OTA, or channel changes.
 - [ ] I understand some API routes can modify ZigbeeLens local data, such as reports, topology snapshots, and Home Assistant enrichment metadata.
+- [ ] I understand the HACS integration reads Core diagnostic/configuration/Decision/capability/inventory data and writes only the exact Core-local HA enrichment snapshot/explicit-removal clear; it does not publish MQTT.
 - [ ] If using an FQDN/HTTPS route, I understand HTTPS is not authentication.
 - [ ] If using a tablet/no-auth route, I have intentionally scoped it to trusted/local access or accepted the risk.
 
@@ -104,10 +112,13 @@ package validation above is necessary but not sufficient.
       unsynchronized public satellite is not used as branch evidence
 - [ ] The complete staged tree matches the intended
       `theaussiepom/zigbeelens-hacs` satellite tree exactly
-- [ ] The manifest/package version uniquely identifies that tree; the current
-      `0.1.13` same-version/different-tree collision is resolved
-- [ ] Exact Home Assistant 2025.1.0 minimum and a current Home Assistant release both pass the integration suite
-- [ ] Staged HACS repository passes its structural validator plus official HACS/hassfest checks
+- [x] The candidate manifest/package uses the previously unused version
+      `0.1.14`, while the reviewed public satellite remains at `0.1.13`, so the
+      manifest/package version uniquely identifies that tree
+- [ ] Exact Home Assistant `2025.1.0` / Python `3.12` and Home Assistant
+      `2026.7.3` / Python `3.14` both pass the same integration suite
+- [ ] Synchronized HACS repository passes its structural validator plus the
+      generated remote official HACS/hassfest checks
 - [ ] Explicit authorization to synchronize and publish the HACS satellite is
       recorded before any external repository is modified
 - [ ] Config flow accepts Core URL reachable from Home Assistant
@@ -118,9 +129,13 @@ package validation above is necessary but not sufficient.
 - [ ] When HA is HTTPS and Core is HTTP, panel stays on native summary / blocked view (mixed content blocked)
 - [ ] Back to Summary returns from embedded or blocked view to the native panel
 - [ ] Reconfigure flow can change Core URL without delete/re-add; panel picks up new URL after reload
-- [ ] Configure stores a 15–900-second polling interval durably; the selected value survives flow completion and reload and changes the coordinator interval (currently blocked by the empty OptionsFlow result)
-- [ ] Missing or malformed Core versions project compatibility Unknown and cannot enable shared decisions (currently blocked: the helper returns compatible)
-- [ ] Exact-v2 capabilities with missing/malformed Dashboard decision surfaces do not emit the unsupported-contract/upgrade-Core repair (currently collapsed into the same boolean)
+- [ ] Configure stores a 15–900-second polling interval durably; the selected value survives flow completion and one effective reload and changes the coordinator interval
+- [ ] Missing or malformed Core versions project compatibility Unknown and cannot enable shared decisions
+- [ ] Older, newer, and malformed Decision contracts plus malformed/missing exact-v2 Dashboard surfaces produce distinct truthful states/repairs
+- [ ] HA registry name and area reach the correct exact network+IEEE Core/UI/report device while the Zigbee2MQTT friendly name remains available
+- [ ] Duplicate IEEE across networks fails closed when original-source evidence cannot select exactly one Core row
+- [ ] Accepted complete-empty enrichment clears; unavailable registry/inventory and transient POST failure retain the prior accepted snapshot
+- [ ] Enrichment manager initial/event/retry/15-minute reconciliation has one owner and unload/reload does not duplicate listeners or clear accepted data
 - [ ] Copy Core URL works
 - [ ] HACS entities appear (overall decision, review-first, worth-reviewing, coverage warnings, active incident, device counts, per-network)
 - [ ] Stop Core → panel shows calm disconnected state + Core unreachable repair
@@ -135,12 +150,10 @@ package validation above is necessary but not sufficient.
 - [ ] If HACS is included, its native companion panel passes on phone/tablet HA web/app
 - [ ] If HACS is included, Open Full Dashboard is obvious on mobile
 
-## Add-on publication readiness and live package gates
+## Add-on publication readiness and live package gates (deferred)
 
-Required only when an add-on artifact is included in the release. The
-source-built runner and generated image-based repository are separate
-artifacts; these checks apply to the generated package that would be
-published.
+Not part of the current HACS release. Preserve this checklist for a separate,
+explicitly scoped future add-on task.
 
 - [ ] Add-on repo validates (`./scripts/validate-addon.sh` + packaged repo check)
 - [ ] No privileged mode, no host network, no Docker socket

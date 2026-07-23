@@ -24,9 +24,9 @@ ZigbeeLens does **not** repair, reset, remove, re-pair, or mutate Zigbee devices
 - Multi-network support (`network_id` + `ieee_address` identity)
 - Local SQLite history and stored reports
 - Redacted JSON, YAML, and Markdown exports
-- Docker/Compose as the current portable deployment route; HACS integration
-  and Home Assistant OS add-on source are present for pre-release testing, but
-  their publication gates remain open
+- Docker/Compose as the current portable deployment route; the HACS integration
+  is available for local staged testing while public satellite publication
+  remains gated, and the Home Assistant OS add-on is deferred
 - Optional MQTT Discovery decision summary entities
 - Optional topology snapshots and Home Assistant enrichment
 
@@ -60,10 +60,13 @@ See [docs/safety-audit.md](docs/safety-audit.md) for the full safety audit.
 | Path | Current status | Artifact |
 |------|----------------|----------|
 | [Docker / Compose](docs/docker.md) | **Current portable deployment route**; choose released `latest`/`X.Y.Z` or explicit pre-release `edge`/`sha-*` | `ghcr.io/theaussiepom/zigbeelens` |
-| [Home Assistant integration](docs/hacs.md) | **Local/staged source testing only — public HACS satellite unsynchronized and publication blocked** | Generated `dist/zigbeelens-hacs/custom_components/zigbeelens` package |
-| [Home Assistant OS add-on](apps/addon/zigbeelens/README.md) | **Pre-release source — generated repository publication blocked** | Source-built runner and generated image-based package have different open gates |
+| [Home Assistant integration](docs/hacs.md) | **Local/staged source testing only — public install unavailable until satellite synchronization and remote official checks pass** | Generated `dist/zigbeelens-hacs/custom_components/zigbeelens` package |
+| [Home Assistant OS add-on](apps/addon/zigbeelens/README.md) | **Deferred — not part of the current HACS release** | Source remains for non-regression validation only |
 | [MQTT Discovery](docs/mqtt-discovery.md) | Optional summary HA entities without HACS | Core configuration |
 | [Topology](docs/topology.md) | Optional mesh enrichment — enabled by default with one startup scan | Core configuration |
+
+Phase 7C1 documentation truth is merged. Phase 7C2 screenshot capture and
+Phase 7D live Beast validation remain deferred.
 
 ## Using the UI
 
@@ -87,12 +90,10 @@ operational detail without competing with the primary investigation flow.
 
 ### Home Assistant OS
 
-The source add-on and Ingress runner exist, but the current image-based package
-does not propagate its optional API-token option and has additional
-configuration/reachability blockers. Do not publish or present that package as
-a supported install until the gates in
-[the release checklist](RELEASE_CHECKLIST.md) pass against HAOS. Use the Docker
-path below for current deployment testing.
+The Home Assistant OS add-on is deferred and is not part of the current HACS
+release. Its source and packaging checks remain non-regression coverage only;
+do not publish or present it as a supported install. Use the Docker path below
+for current deployment testing.
 
 Details: [add-on user guide](apps/addon/zigbeelens/README.md) ·
 [add-on development](docs/addon-dev.md)
@@ -130,6 +131,20 @@ The optional integration gives Home Assistant:
 - summary sensors and binary sensors
 - diagnostics and repairs
 - a button to open the full ZigbeeLens dashboard
+
+Its server-side client reads Core health/diagnostic, configuration, Decision
+Dashboard, capability, and bounded device-inventory data. Its only write is a
+strict, bounded snapshot of Home Assistant registry metadata to Core-local
+enrichment storage, plus an exact clear when the config entry is explicitly
+removed. It never controls Zigbee or publishes MQTT.
+
+Home Assistant user names and areas are additional display context. Core keeps
+the original Zigbee2MQTT `friendly_name`; matching never uses the HA user
+rename. The integration resolves a final exact `(network_id, ieee_address)`
+identity and omits ambiguous duplicate-IEEE candidates. A successfully
+accepted complete-empty snapshot clears enrichment, while unavailable registry
+or inventory data and transient HTTP failures retain the last accepted
+snapshot.
 
 The full ZigbeeLens dashboard is served by ZigbeeLens Core.
 
@@ -191,7 +206,7 @@ Generic `X-Forwarded-*` trust remains disabled.
 
 ZigbeeLens is read-only with respect to Zigbee control. It does not perform device-control actions such as permit join, remove, reset, bind/unbind, OTA, or channel changes.
 
-Some API routes can modify ZigbeeLens’ own local data, such as creating/deleting reports, requesting a topology snapshot, or storing Home Assistant enrichment metadata. If you expose Core beyond users or networks you trust, access-control decisions are your responsibility.
+Some API routes can modify ZigbeeLens’ own local data, such as creating/deleting reports, requesting a topology snapshot, or storing Home Assistant enrichment metadata. The HA integration is restricted to the exact enrichment snapshot/clear routes and does not receive a generic mutation client. If you expose Core beyond users or networks you trust, access-control decisions are your responsibility.
 
 For broader access, consider firewall rules, Home Assistant Ingress, network isolation, or an authenticated reverse proxy such as Authentik, Cloudflare Access, Authelia, or basic auth. HTTPS may be useful for the optional embedded dashboard view, but **HTTPS is not authentication**.
 

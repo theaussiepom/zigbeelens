@@ -24,7 +24,7 @@ layers.
  (React)       (optional)       (optional)    API (optional)
     │
     ▼
- HACS integration ──HTTP read-only──► Core
+ HACS integration ──HTTP reads + exact HA metadata write──► Core
  (entities, native companion panel, diagnostics)
 ```
 
@@ -32,12 +32,12 @@ layers.
 |-----------|------|
 | **Core** | MQTT collector, SQLite, evidence/decision services, incident engine, API, reports, bundled UI |
 | **UI** | Decision-led React application served by Core in production |
-| **HAOS add-on source** | Runner designed to wrap Core+UI with Supervisor options and Ingress; generated repository is not yet publication-ready |
+| **HAOS add-on source** | Deferred from the current HACS release; retained for non-regression validation |
 | **Docker** | Standalone Core+UI container with `/config` + `/data` volumes |
-| **HACS integration** | HA config flow, summary entities, native companion panel, repairs |
+| **HACS integration** | HA config flow, summary entities, native companion panel, repairs, and exact Core-local HA registry enrichment |
 | **MQTT Discovery** | Optional summary HA entities via configured Discovery and ZigbeeLens-owned state topics |
 | **Topology** | Optional point-in-time network map enrichment |
-| **HA enrichment** | Optional POST of HA device registry for area/name context |
+| **HA enrichment** | Strict complete-snapshot POST of HA device registry names/areas, stored only in Core |
 
 ## Decision-led product
 
@@ -157,8 +157,23 @@ Each configured `networks[]` entry maps to one Zigbee2MQTT `base_topic`. Core su
 
 ### HACS integration
 
-- HTTP read-only to Core
-- Does not collect MQTT or mutate Zigbee
+- Reads Core health/diagnostic, configuration status, Decision Dashboard,
+  capabilities, and bounded device inventory.
+- Writes only the strict versioned Home Assistant enrichment snapshot to
+  Core-local storage; explicit config-entry removal may call its exact clear
+  route. There is no generic mutation API.
+- Preserves the Core/Zigbee2MQTT friendly name while projecting HA names and
+  areas as additional display context.
+- Resolves a final exact `(network_id, ieee_address)` pair. Duplicate IEEE
+  candidates across networks fail closed unless reviewed original registry-name
+  evidence identifies exactly one Core row; HA user renames are never identity.
+- A complete accepted empty snapshot clears enrichment. An unavailable registry
+  or Core inventory, unsupported contract, or transient request failure sends no
+  replacement and retains the last accepted Core snapshot.
+- Owns one initial reconciliation, official registry listeners with debouncing,
+  bounded retries, and a forced 15-minute reconciliation; unload cancels every
+  listener, timer, retry, and in-flight task.
+- Does not collect MQTT, publish MQTT, or mutate Zigbee.
 
 Full audit: [safety-audit.md](safety-audit.md)
 
@@ -168,14 +183,11 @@ Full audit: [safety-audit.md](safety-audit.md)
 |------|-------|------|
 | Dev | `./scripts/dev.sh` | UI 5173, API 8377 |
 | Docker | `deploy/docker/docker-compose.example.yaml` | 8377 |
-| HAOS add-on | Supervisor Ingress | 8377 internal |
+| HAOS add-on | Deferred; source architecture is Supervisor Ingress | 8377 internal |
 | HACS | Native companion panel (HA websocket summary) + Open Full Dashboard in new tab | via HA |
 
-The HAOS row describes the source runner's intended architecture. The current
-generated add-on repository points at the standalone GHCR entrypoint, which
-still generates Ingress configuration but omits optional token-file
-installation; `/data` writability and Ingress also remain packaged HAOS smoke
-gates. See [release-infra.md](release-infra.md).
+The HAOS row describes a deferred source architecture, not a current supported
+release route. See [release-infra.md](release-infra.md).
 
 ## Live updates
 

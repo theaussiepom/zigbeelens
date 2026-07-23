@@ -87,8 +87,9 @@ with its read endpoint first when the caller requires `404` semantics.
 ```json
 {
   "product": "zigbeelens",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "decision_contract_version": 2,
+  "home_assistant_enrichment_contract_version": 1,
   "capabilities": {
     "dashboard": true,
     "sse": true,
@@ -139,6 +140,50 @@ requires its separate `mqtt_discovery.enabled` flag. `topology` reflects
 `topology.enabled`. `mqtt_collector` reflects whether the collector is enabled
 for the current live/mock and MQTT configuration. These are capability/config
 facts, not broker connection success.
+
+### Home Assistant enrichment
+
+`POST /api/v1/enrichment/homeassistant` (legacy alias:
+`POST /api/enrichment/homeassistant`) accepts one complete, strict contract-v1
+snapshot. The exact top-level shape is:
+
+```json
+{
+  "home_assistant_enrichment_contract_version": 1,
+  "devices": [
+    {
+      "network_id": "home",
+      "ieee_address": "0x00124b0024abcd01",
+      "ha_device_id": "ha-device-registry-id",
+      "ha_device_name": "Kitchen lamp",
+      "area_id": "kitchen",
+      "area_name": "Kitchen",
+      "entity_id": "light.kitchen_lamp"
+    }
+  ]
+}
+```
+
+Every row requires `network_id`, an exact normalized 64-bit Zigbee IEEE, and
+the HA device-registry ID. Name, area ID/name, and one deterministic
+representative entity ID are nullable metadata. Unknown fields, duplicate exact
+identities, one HA device/representative entity assigned to multiple Core
+identities, malformed strings, and oversized snapshots are rejected before
+storage.
+
+Core matches only the final exact `(network_id, ieee_address)` pair. HA user
+names are never identity. An accepted request atomically replaces enrichment
+rows and status; a complete empty `devices` list clears the snapshot. Request
+validation, authentication, matching/transaction, or internal failure leaves
+the previous accepted snapshot untouched. The response reports exact
+`submitted`, `matched`, `unmatched`, `ambiguous`, `stored`, `last_push_at`, and
+contract-version facts.
+
+`DELETE /api/v1/enrichment/homeassistant` is the exact explicit clear route.
+The HACS client uses it only during explicit config-entry removal. Core device
+payloads preserve `friendly_name` and add nullable `home_assistant_name` and
+`home_assistant_area_name` fields (`ha_area` remains a compatibility alias).
+HA metadata in reports follows the selected redaction profile.
 
 ### Status
 
@@ -194,7 +239,12 @@ Successful maintenance may publish SSE events: `storage_maintenance_completed`, 
 
 ## Home Assistant integration
 
-The HACS integration uses legacy `/api/health`, `/api/dashboard`, and related routes with an optional server-side `Authorization: Bearer` header (never in URLs). This remains supported. New HA-side code may adopt `/api/v1` when convenient.
+The HACS integration reads legacy `/api/health`, `/api/dashboard`,
+`/api/config/status`, and `/api/capabilities` through shared supported handlers,
+with an optional server-side `Authorization: Bearer` header (never in URLs).
+Enrichment uses preferred `/api/v1/devices` inventory plus only the exact v1
+snapshot POST and optional explicit-removal DELETE described above. It does not
+expose or use a generic Core mutation method.
 
 See [hacs.md](hacs.md) and [hacs-embedded-view.md](hacs-embedded-view.md).
 
