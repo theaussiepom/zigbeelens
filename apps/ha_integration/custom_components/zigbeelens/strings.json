@@ -108,9 +108,37 @@
       "title": "ZigbeeLens Core version is incompatible",
       "description": "Connected ZigbeeLens Core reports version {version}, which is below the minimum this integration supports. Upgrade Core, then reload the integration."
     },
+    "core_version_unknown": {
+      "title": "ZigbeeLens Core version is unknown",
+      "description": "ZigbeeLens Core did not return a valid version. Decision features remain unavailable until Core reports a valid compatible version."
+    },
     "core_decision_contract_incompatible": {
       "title": "ZigbeeLens decision contract incompatible",
       "description": "ZigbeeLens Core reports decision contract version {version}, which this companion does not support. Upgrade ZigbeeLens Core to a release that advertises decision contract v2. This is not an authentication failure."
+    },
+    "decision_contract_older": {
+      "title": "ZigbeeLens Decision contract needs a Core update",
+      "description": "Core reports Decision contract {version}, which is missing required companion capabilities or is older than v2. Update ZigbeeLens Core."
+    },
+    "decision_contract_newer": {
+      "title": "ZigbeeLens integration needs an update",
+      "description": "Core reports newer Decision contract {version}. Update this Home Assistant integration to a version that supports it; do not downgrade or update Core for this condition."
+    },
+    "decision_contract_malformed": {
+      "title": "ZigbeeLens Decision capabilities are malformed",
+      "description": "Core returned malformed Decision capability metadata. Decision summaries are disabled; review Core diagnostics before choosing an upgrade."
+    },
+    "decision_payload_malformed": {
+      "title": "ZigbeeLens Decision data is malformed",
+      "description": "Core advertises exact Decision contract v2, but its Dashboard Decision payload is missing or malformed. Decision summaries are disabled; this condition does not prescribe a Core upgrade."
+    },
+    "home_assistant_enrichment_unsupported": {
+      "title": "Home Assistant enrichment is unavailable",
+      "description": "Core does not advertise the exact Home Assistant enrichment contract required by this integration. Registry names and areas will not be published."
+    },
+    "home_assistant_enrichment_sync_failed": {
+      "title": "Home Assistant enrichment sync failed",
+      "description": "The most recent bounded registry enrichment sync failed. Core retains the last accepted snapshot. Review the categorical integration diagnostics; transient failures are retried automatically."
     }
   }
 }

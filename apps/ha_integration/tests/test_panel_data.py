@@ -5,6 +5,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from zigbeelens.compatibility import (
+    CapabilitiesState,
+    CoreVersionState,
+    DecisionContractState,
+    DecisionPayloadState,
+    EnrichmentContractState,
+)
 from zigbeelens.coordinator import ZigbeeLensCoordinatorData
 from zigbeelens.panel_data import MAX_COMPANION_INVESTIGATION_PRIORITIES, build_panel_summary
 
@@ -40,18 +47,43 @@ def _data(
     sample_config_status,
     *,
     shared: bool = False,
-    contract: int = 0,
+    contract: int | None = None,
     compatible: bool | None = True,
+    capabilities_state: CapabilitiesState = CapabilitiesState.ACCEPTED,
+    contract_state: DecisionContractState | None = None,
+    payload_state: DecisionPayloadState = DecisionPayloadState.VALID,
+    core_version: str | None = "0.1.0",
 ):
+    if contract_state is None:
+        if contract is None:
+            contract_state = DecisionContractState.MISSING
+        elif contract < 2:
+            contract_state = DecisionContractState.OLDER
+        elif contract > 2:
+            contract_state = DecisionContractState.NEWER
+        elif shared:
+            contract_state = DecisionContractState.SUPPORTED_EXACT
+        else:
+            contract_state = DecisionContractState.MISSING_REQUIRED_CAPABILITY
+    core_state = {
+        True: CoreVersionState.COMPATIBLE,
+        False: CoreVersionState.INCOMPATIBLE,
+        None: CoreVersionState.UNKNOWN,
+    }[compatible]
     return ZigbeeLensCoordinatorData(
         health=sample_health,
         dashboard=sample_dashboard,
         config_status=sample_config_status,
-        core_version="0.1.0",
+        core_version=core_version,
         collector_connected=True,
         last_update_success=True,
         shared_decisions_available=shared,
         decision_contract_version=contract,
+        capabilities_state=capabilities_state,
+        decision_contract_state=contract_state,
+        decision_payload_state=payload_state,
+        enrichment_contract_state=EnrichmentContractState.SUPPORTED,
+        core_version_state=core_state,
         core_version_compatible=compatible,
     )
 
@@ -73,7 +105,12 @@ def test_summary_connected_has_expected_fields(
     assert summary["router_risks"] is None
     assert summary["collector_connected"] is True
     assert summary["shared_decisions_available"] is False
-    assert summary["decision_contract_version"] == 0
+    assert summary["decision_contract_version"] is None
+    assert summary["core_version_state"] == "compatible"
+    assert summary["capabilities_state"] == "accepted"
+    assert summary["decision_contract_state"] == "missing"
+    assert summary["decision_payload_state"] == "valid"
+    assert summary["enrichment_contract_state"] == "supported"
     assert summary["core_version_compatible"] is True
     assert summary["investigation_priorities"] == []
     assert summary["investigation_priority_count"] is None
@@ -94,6 +131,8 @@ def test_summary_exposes_decision_contract_flags(
     summary = build_panel_summary(data, core_url="http://core:8377", connected=True)
     assert summary["shared_decisions_available"] is True
     assert summary["decision_contract_version"] == 2
+    assert summary["decision_contract_state"] == "supported_exact"
+    assert summary["decision_payload_state"] == "valid"
     assert summary["core_version_compatible"] is True
     assert summary["active_incident_count"] == 1
     assert summary["device_count"] == 10
@@ -276,7 +315,148 @@ def test_summary_disconnected_is_calm():
     assert summary["investigation_priorities"] == []
     assert summary["core_version_compatible"] is None
     assert summary["shared_decisions_available"] is False
-    assert summary["decision_contract_version"] == 0
+    assert summary["decision_contract_version"] is None
+    assert summary["core_version_state"] == "unknown"
+
+
+def test_summary_treats_malformed_collector_and_mock_mode_as_unknown(
+    sample_health,
+    sample_dashboard,
+    sample_config_status,
+):
+    health = dict(sample_health)
+    health["collector"] = ["not", "an", "object"]
+    health["mock_mode"] = "false"
+    data = _data(
+        health,
+        sample_dashboard,
+        sample_config_status,
+        shared=True,
+        contract=2,
+    )
+    data.collector_connected = None
+
+    summary = build_panel_summary(
+        data,
+        core_url="http://core:8377",
+        connected=True,
+    )
+
+    assert summary["collector_connected"] is None
+    assert summary["last_update"] == sample_dashboard["generated_at"]
+    assert summary["mock_mode"] is False
+
+
+def test_summary_suppresses_malformed_timestamps(
+    sample_health,
+    sample_dashboard,
+    sample_config_status,
+):
+    health = {
+        **sample_health,
+        "collector": {
+            **sample_health["collector"],
+            "last_message_at": 1234567890,
+        },
+    }
+    dashboard = {**sample_dashboard, "generated_at": 1234567890}
+    data = _data(
+        health,
+        dashboard,
+        sample_config_status,
+        shared=False,
+        contract=2,
+    )
+
+    summary = build_panel_summary(
+        data,
+        core_url="http://core:8377",
+        connected=True,
+    )
+
+    assert summary["last_update"] is None
+
+
+def test_summary_distinguishes_older_newer_and_malformed_payload(
+    sample_health, sample_dashboard, sample_config_status
+):
+    older = build_panel_summary(
+        _data(
+            sample_health,
+            sample_dashboard,
+            sample_config_status,
+            contract=1,
+        ),
+        core_url="http://core:8377",
+        connected=True,
+    )
+    assert older["core_update_required"] is True
+    assert older["integration_update_required"] is False
+    assert older["decision_payload_invalid"] is False
+
+    newer = build_panel_summary(
+        _data(
+            sample_health,
+            sample_dashboard,
+            sample_config_status,
+            contract=3,
+        ),
+        core_url="http://core:8377",
+        connected=True,
+    )
+    assert newer["core_update_required"] is False
+    assert newer["integration_update_required"] is True
+    assert newer["decision_contract_state"] == "newer"
+
+    malformed_payload = build_panel_summary(
+        _data(
+            sample_health,
+            sample_dashboard,
+            sample_config_status,
+            contract=2,
+            contract_state=DecisionContractState.SUPPORTED_EXACT,
+            payload_state=DecisionPayloadState.MALFORMED,
+        ),
+        core_url="http://core:8377",
+        connected=True,
+    )
+    assert malformed_payload["core_update_required"] is False
+    assert malformed_payload["integration_update_required"] is False
+    assert malformed_payload["decision_payload_invalid"] is True
+    assert malformed_payload["decision_contract_compatible"] is True
+
+    unknown_version = build_panel_summary(
+        _data(
+            sample_health,
+            sample_dashboard,
+            sample_config_status,
+            contract=2,
+            compatible=None,
+            core_version=None,
+            contract_state=DecisionContractState.SUPPORTED_EXACT,
+            payload_state=DecisionPayloadState.MALFORMED,
+        ),
+        core_url="http://core:8377",
+        connected=True,
+    )
+    assert unknown_version["core_version_state"] == "unknown"
+    assert unknown_version["decision_payload_invalid"] is False
+
+
+def test_summary_capabilities_outage_does_not_prescribe_update(
+    sample_health, sample_dashboard, sample_config_status
+):
+    data = _data(
+        sample_health,
+        sample_dashboard,
+        sample_config_status,
+        capabilities_state=CapabilitiesState.UNAVAILABLE,
+        contract_state=DecisionContractState.MISSING,
+    )
+    summary = build_panel_summary(data, core_url="http://core:8377", connected=True)
+    assert summary["capabilities_state"] == "unavailable"
+    assert summary["core_update_required"] is False
+    assert summary["integration_update_required"] is False
 
 
 def test_summary_preserves_compatibility_tri_state(
@@ -317,9 +497,11 @@ def test_summary_preserves_compatibility_tri_state(
         shared=False,
         contract=2,
         compatible=None,
+        core_version=None,
     )
     summary = build_panel_summary(unknown, core_url="http://core:8377", connected=True)
     assert summary["core_version_compatible"] is None
+    assert summary["core_version"] is None
     assert summary["investigation_priorities"] == []
 
 
@@ -356,7 +538,9 @@ def test_panel_frontend_asset_decision_mode():
     assert "esc(item.summary)" in source
     assert "esc(item.network_name" in source
     assert "_contractIncompatibleCard" in source
-    assert "decision contract is incompatible" in source
+    assert "Core exposes a newer Decision contract than this integration supports." in source
+    assert "No upgrade remedy is inferred." in source
+    assert "Core capabilities unavailable" in source
     assert "_findingCard" not in source
     assert "n.health" not in source
     assert "No active findings" not in source

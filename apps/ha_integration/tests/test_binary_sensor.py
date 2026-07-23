@@ -11,6 +11,12 @@ def test_core_connected_binary_sensor(mock_coordinator):
     assert sensor.is_on is True
     attrs = sensor.extra_state_attributes
     assert attrs["core_url"] == "http://localhost:8377"
+    assert attrs["core_version_state"] == "compatible"
+    assert attrs["capabilities_state"] == "accepted"
+    assert attrs["decision_contract_version"] == 2
+    assert attrs["decision_contract_state"] == "supported_exact"
+    assert attrs["decision_payload_state"] == "valid"
+    assert attrs["enrichment_contract_state"] == "supported"
 
 
 def test_active_incident_off_when_zero(mock_coordinator, sample_health, sample_config_status):
@@ -82,3 +88,18 @@ def test_active_incident_includes_validated_decision_status_when_available(
     assert attrs["overall_decision_status"] == "review_first"
     assert attrs["active_incident_count"] == 1
     assert attrs["watching_incident_count"] == 0
+
+
+def test_mqtt_collector_attributes_survive_malformed_collector(mock_coordinator):
+    mock_coordinator.data.health = {
+        **mock_coordinator.data.health,
+        "collector": ["not", "an", "object"],
+    }
+    sensor = ZigbeeLensBinarySensor(mock_coordinator, "entry1", BINARY_SENSORS[2])
+
+    assert sensor.is_on is True
+    assert sensor.extra_state_attributes == {
+        "last_message_at": None,
+        "subscribed_topics_count": None,
+        "last_error": None,
+    }

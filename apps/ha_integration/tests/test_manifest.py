@@ -14,6 +14,7 @@ def test_manifest_parses_and_has_expected_fields() -> None:
     assert manifest["domain"] == "zigbeelens"
     assert manifest["name"] == "ZigbeeLens"
     assert manifest["config_flow"] is True
+    assert manifest["single_config_entry"] is True
     assert manifest["iot_class"] == "local_polling"
 
 

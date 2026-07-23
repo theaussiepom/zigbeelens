@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from zigbeelens.sensor import ZigbeeLensNetworkSensor, ZigbeeLensSensor
+from unittest.mock import MagicMock
+
+import pytest
+
+from zigbeelens.const import DOMAIN
+from zigbeelens.sensor import (
+    ZigbeeLensNetworkSensor,
+    ZigbeeLensSensor,
+    async_setup_entry,
+)
 from homeassistant.components.sensor import SensorEntityDescription
 
 
@@ -18,6 +27,10 @@ def test_overall_decision_sensor(mock_coordinator):
     attrs = sensor.extra_state_attributes
     assert attrs["status_counts"]["review_first"] == 2
     assert attrs["highest_priority"] == "high"
+    assert attrs["core_version_state"] == "compatible"
+    assert attrs["decision_contract_version"] == 2
+    assert attrs["decision_contract_state"] == "supported_exact"
+    assert attrs["decision_payload_state"] == "valid"
 
 
 def test_decision_sensors_unavailable_without_contract(mock_coordinator):
@@ -29,6 +42,7 @@ def test_decision_sensors_unavailable_without_contract(mock_coordinator):
     )
     assert sensor.available is False
     assert sensor.native_value is None
+    assert sensor.extra_state_attributes["decision_contract_state"] == "supported_exact"
 
 
 def test_review_first_count(mock_coordinator):
@@ -104,6 +118,58 @@ def test_network_decision_sensor(mock_coordinator):
     )
     assert sensor.unique_id == "entry1_home_decision"
     assert sensor.native_value == "review_first"
+
+
+def test_malformed_router_risk_items_are_unknown_globally_and_per_network(
+    mock_coordinator,
+):
+    mock_coordinator.data.dashboard = {
+        **mock_coordinator.data.dashboard,
+        "router_risks": ["malformed"],
+    }
+    mock_coordinator.data.shared_decisions_available = False
+    global_sensor = ZigbeeLensSensor(
+        mock_coordinator,
+        "entry1",
+        SensorEntityDescription(key="router_risks", translation_key="router_risks"),
+    )
+    network_sensor = ZigbeeLensNetworkSensor(
+        mock_coordinator,
+        "entry1",
+        "home_router_risks",
+        "Home Router Risks",
+        "router_risks",
+        "home",
+    )
+
+    assert global_sensor.available is False
+    assert global_sensor.native_value is None
+    assert network_sensor.available is False
+    assert network_sensor.native_value is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "malformed_networks",
+    ["not-a-list", {"id": "home"}, [None, "bad", {"name": "missing id"}]],
+)
+async def test_sensor_setup_survives_malformed_network_rows(
+    mock_coordinator,
+    malformed_networks,
+):
+    mock_coordinator.data.dashboard = {
+        **mock_coordinator.data.dashboard,
+        "networks": malformed_networks,
+    }
+    hass = MagicMock()
+    entry = MagicMock(entry_id="entry1")
+    hass.data = {DOMAIN: {"entry1": {"coordinator": mock_coordinator}}}
+    added = MagicMock()
+
+    await async_setup_entry(hass, entry, added)
+
+    entities = added.call_args.args[0]
+    assert len(entities) == 10
 
 
 def test_superseded_health_unique_ids_not_reused():

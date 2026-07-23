@@ -27,6 +27,7 @@ from .const import (
     CONF_REMOVE_API_TOKEN,
     CONF_SCAN_INTERVAL,
     CONF_VERIFY_SSL,
+    CONFIG_ENTRY_VERSION,
     DEFAULT_CORE_URL,
     DEFAULT_PANEL_ENABLED,
     DEFAULT_SCAN_INTERVAL,
@@ -127,7 +128,35 @@ def _map_validation_error(exc: BaseException) -> str:
 class ZigbeeLensConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for ZigbeeLens."""
 
-    VERSION = 1
+    VERSION = CONFIG_ENTRY_VERSION
+
+    @callback
+    def _update_entry_and_abort_once(
+        self,
+        entry: ConfigEntry,
+        *,
+        reason: str,
+        data: Mapping[str, Any] | None = None,
+        data_updates: Mapping[str, Any] | None = None,
+        unique_id: str | None = None,
+    ) -> ConfigFlowResult:
+        """Update through APIs shared by HA 2025.1/current and reload once."""
+        if data is not None and data_updates is not None:
+            raise ValueError("data and data_updates are mutually exclusive")
+        updated_data: Mapping[str, Any] | None = data
+        if data_updates is not None:
+            updated_data = {**entry.data, **data_updates}
+        kwargs: dict[str, Any] = {}
+        if updated_data is not None:
+            kwargs["data"] = updated_data
+        if unique_id is not None:
+            kwargs["unique_id"] = unique_id
+
+        had_update_listener = bool(entry.update_listeners)
+        changed = self.hass.config_entries.async_update_entry(entry, **kwargs)
+        if not changed or not had_update_listener:
+            self.hass.config_entries.async_schedule_reload(entry.entry_id)
+        return self.async_abort(reason=reason)
 
     def is_matching(self, other_flow: Self) -> bool:
         """Match any concurrent ZigbeeLens user flow (single-entry ownership)."""
@@ -198,10 +227,12 @@ class ZigbeeLensConfigFlow(ConfigFlow, domain=DOMAIN):
                     data={
                         CONF_CORE_URL: core_url,
                         CONF_VERIFY_SSL: verify_ssl,
-                        CONF_PANEL_ENABLED: bool(user_input[CONF_PANEL_ENABLED]),
                         CONF_API_TOKEN: api_token,
                     },
-                    options={CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL},
+                    options={
+                        CONF_PANEL_ENABLED: bool(user_input[CONF_PANEL_ENABLED]),
+                        CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
+                    },
                 )
 
         return self.async_show_form(
@@ -250,8 +281,9 @@ class ZigbeeLensConfigFlow(ConfigFlow, domain=DOMAIN):
                     _LOGGER.exception("Unexpected ZigbeeLens reauth validation error")
                     errors["base"] = "unknown"
             else:
-                return self.async_update_reload_and_abort(
+                return self._update_entry_and_abort_once(
                     reauth_entry,
+                    reason="reauth_successful",
                     data_updates={CONF_API_TOKEN: api_token},
                 )
 
@@ -337,15 +369,17 @@ class ZigbeeLensConfigFlow(ConfigFlow, domain=DOMAIN):
                     _LOGGER.exception("Unexpected ZigbeeLens reconfigure validation error")
                     errors["base"] = "unknown"
             else:
-                return self.async_update_reload_and_abort(
+                updated_data = {
+                    **entry.data,
+                    CONF_CORE_URL: core_url,
+                    CONF_VERIFY_SSL: verify_ssl,
+                    CONF_API_TOKEN: api_token,
+                }
+                return self._update_entry_and_abort_once(
                     entry,
+                    reason="reconfigure_successful",
                     unique_id=core_url,
-                    data={
-                        **entry.data,
-                        CONF_CORE_URL: core_url,
-                        CONF_VERIFY_SSL: verify_ssl,
-                        CONF_API_TOKEN: api_token,
-                    },
+                    data=updated_data,
                 )
 
         return self.async_show_form(
@@ -370,20 +404,13 @@ class ZigbeeLensOptionsFlow(OptionsFlow):
         entry = self.config_entry
 
         if user_input is not None:
-            panel_enabled = bool(user_input[CONF_PANEL_ENABLED])
-            scan_interval = int(user_input[CONF_SCAN_INTERVAL])
-            self.hass.config_entries.async_update_entry(
-                entry,
+            return self.async_create_entry(
+                title="",
                 data={
-                    **entry.data,
-                    CONF_PANEL_ENABLED: panel_enabled,
-                },
-                options={
-                    CONF_SCAN_INTERVAL: scan_interval,
+                    CONF_PANEL_ENABLED: bool(user_input[CONF_PANEL_ENABLED]),
+                    CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL]),
                 },
             )
-            await self.hass.config_entries.async_reload(entry.entry_id)
-            return self.async_create_entry(title="", data={})
 
         return self.async_show_form(
             step_id="init",
@@ -391,7 +418,10 @@ class ZigbeeLensOptionsFlow(OptionsFlow):
                 {
                     vol.Optional(
                         CONF_PANEL_ENABLED,
-                        default=entry.data.get(CONF_PANEL_ENABLED, DEFAULT_PANEL_ENABLED),
+                        default=entry.options.get(
+                            CONF_PANEL_ENABLED,
+                            entry.data.get(CONF_PANEL_ENABLED, DEFAULT_PANEL_ENABLED),
+                        ),
                     ): bool,
                     vol.Optional(
                         CONF_SCAN_INTERVAL,

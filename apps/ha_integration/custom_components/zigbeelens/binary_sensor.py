@@ -101,14 +101,22 @@ class ZigbeeLensBinarySensor(ZigbeeLensEntity, BinarySensorEntity):
                     attrs["overall_decision_status"] = summary["overall_status"]
             return attrs
         if key == "core_connected":
+            data = self.coordinator.data
             return {
                 "core_url": self.coordinator.client.core_url,
-                "core_version": self.coordinator.data.core_version,
+                "core_version": data.core_version,
+                "core_version_state": data.core_version_state.value,
+                "capabilities_state": data.capabilities_state.value,
+                "decision_contract_version": data.decision_contract_version,
+                "decision_contract_state": data.decision_contract_state.value,
+                "decision_payload_state": data.decision_payload_state.value,
+                "enrichment_contract_state": data.enrichment_contract_state.value,
                 "last_update_success": self.coordinator.last_update_success,
-                "collector_connected": self.coordinator.data.collector_connected,
+                "collector_connected": data.collector_connected,
             }
         if key == "mqtt_collector_connected":
-            collector = self.health.get("collector") or {}
+            raw_collector = self.health.get("collector")
+            collector = raw_collector if isinstance(raw_collector, dict) else {}
             last_error = collector.get("last_error")
             return {
                 "last_message_at": collector.get("last_message_at"),

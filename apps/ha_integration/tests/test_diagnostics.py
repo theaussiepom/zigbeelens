@@ -6,15 +6,32 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from zigbeelens.compatibility import (
+    CapabilitiesState,
+    CoreVersionState,
+    DecisionContractState,
+    DecisionPayloadState,
+    EnrichmentContractState,
+)
+from zigbeelens.const import (
+    DOMAIN,
+    ISSUE_COLLECTOR_DISCONNECTED,
+    ISSUE_CORE_UNREACHABLE,
+    ISSUE_CORE_VERSION_UNKNOWN,
+    ISSUE_DECISION_CONTRACT_MALFORMED,
+    ISSUE_DECISION_CONTRACT_NEWER,
+    ISSUE_DECISION_CONTRACT_OLDER,
+    ISSUE_DECISION_PAYLOAD_MALFORMED,
+    ISSUE_ENRICHMENT_SYNC_FAILED,
+    ISSUE_ENRICHMENT_UNSUPPORTED,
+    ISSUE_INCOMPATIBLE_VERSION,
+    ISSUE_MOCK_MODE,
+    ISSUE_NO_MQTT_DATA,
+    ISSUE_NO_NETWORKS,
+)
 from zigbeelens.coordinator import ZigbeeLensCoordinatorData, ZigbeeLensDataUpdateCoordinator
 from zigbeelens.diagnostics import async_get_config_entry_diagnostics
 from zigbeelens.repairs import async_manage_repairs, async_clear_repairs
-from zigbeelens.const import (
-    ISSUE_COLLECTOR_DISCONNECTED,
-    ISSUE_CORE_UNREACHABLE,
-    ISSUE_INCOMPATIBLE_VERSION,
-    ISSUE_MOCK_MODE,
-)
 
 
 @pytest.fixture
@@ -49,6 +66,10 @@ async def test_diagnostics_redacts_secrets(hass_with_coordinator):
     assert "decision_contract_version" in payload
     assert "shared_decisions_available" in payload
     assert "core_version_compatible" in payload
+    assert payload["core_version_state"] == "compatible"
+    assert payload["decision_contract_state"] == "supported_exact"
+    assert payload["decision_payload_state"] == "valid"
+    assert payload["enrichment_contract_state"] == "supported"
     assert "capabilities" not in payload
     assert "investigation_priorities" not in payload
 
@@ -76,6 +97,7 @@ async def test_diagnostics_invalid_core_url_fail_closed(raw):
     coordinator.data = None
     coordinator.last_update_success = False
     coordinator.last_exception = None
+    coordinator.auth_failed = False
     hass.data = {"zigbeelens": {"entry1": {"coordinator": coordinator}}}
     with patch("zigbeelens.diagnostics.er.async_get") as mock_er_get:
         mock_er_get.return_value = MagicMock()
@@ -108,6 +130,7 @@ async def test_diagnostics_preserves_unknown_compatibility():
     coordinator.data = None
     coordinator.last_update_success = False
     coordinator.last_exception = None
+    coordinator.auth_failed = False
     hass.data = {"zigbeelens": {"entry1": {"coordinator": coordinator}}}
 
     with patch("zigbeelens.diagnostics.er.async_get") as mock_er_get:
@@ -118,7 +141,9 @@ async def test_diagnostics_preserves_unknown_compatibility():
         ):
             payload = await async_get_config_entry_diagnostics(hass, entry)
 
-    assert payload["decision_contract_version"] == 0
+    assert payload["decision_contract_version"] is None
+    assert payload["core_version_state"] == "unknown"
+    assert payload["decision_contract_state"] == "missing"
     assert payload["shared_decisions_available"] is False
     assert payload["core_version_compatible"] is None
 
@@ -174,6 +199,7 @@ async def test_diagnostics_hides_api_token_sentinel():
     coordinator.data = None
     coordinator.last_update_success = False
     coordinator.last_exception = "Authentication required"
+    coordinator.auth_failed = True
     hass.data = {"zigbeelens": {"entry1": {"coordinator": coordinator}}}
 
     with patch("zigbeelens.diagnostics.er.async_get") as mock_er_get:
@@ -185,12 +211,69 @@ async def test_diagnostics_hides_api_token_sentinel():
             payload = await async_get_config_entry_diagnostics(hass, entry)
 
     assert payload["api_token_configured"] is True
-    assert payload["last_exception"] == "Authentication required"
+    assert payload["last_error_category"] == "authentication"
     blob = json.dumps(payload)
     assert sentinel not in blob
     assert sentinel not in str(payload)
     assert "Authorization" not in blob
     assert "api_token" not in payload
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_never_projects_malformed_raw_core_version(
+    sample_health,
+    sample_dashboard,
+    sample_config_status,
+):
+    raw_version = "malformed-version-secret"
+    health = dict(sample_health)
+    health["version"] = raw_version
+    collector_sentinel = "Kitchen Lamp light.secret 0x00124b0001abcdef"
+    health["collector"] = {
+        "enabled": True,
+        "connected": True,
+        "subscribed_topics_count": 4,
+        "last_message_at": collector_sentinel,
+        "last_error": collector_sentinel,
+        "unreviewed_registry_payload": collector_sentinel,
+    }
+    coordinator = MagicMock(spec=ZigbeeLensDataUpdateCoordinator)
+    coordinator.data = ZigbeeLensCoordinatorData(
+        health=health,
+        dashboard=sample_dashboard,
+        config_status=sample_config_status,
+        core_version=None,
+        collector_connected=True,
+        last_update_success=True,
+        core_version_state=CoreVersionState.UNKNOWN,
+        core_version_compatible=None,
+    )
+    coordinator.last_update_success = True
+    coordinator.auth_failed = False
+    hass = MagicMock()
+    entry = MagicMock()
+    entry.entry_id = "entry1"
+    entry.version = 2
+    entry.data = {"core_url": "http://localhost:8377", "api_token": ""}
+    hass.data = {DOMAIN: {"entry1": {"coordinator": coordinator}}}
+
+    with patch("zigbeelens.diagnostics.er.async_get", return_value=MagicMock()), patch(
+        "zigbeelens.diagnostics.er.async_entries_for_config_entry",
+        return_value=[],
+    ):
+        payload = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert payload["core_version"] is None
+    assert payload["health"]["version"] is None
+    assert raw_version not in str(payload)
+    assert collector_sentinel not in str(payload)
+    assert payload["health"]["collector"] == {
+        "enabled": True,
+        "connected": True,
+        "subscribed_topics_count": 4,
+        "last_message_at": None,
+        "last_error": "[redacted]",
+    }
 
 
 def test_repairs_collector_disconnected(sample_health, sample_dashboard, sample_config_status):
@@ -205,8 +288,17 @@ def test_repairs_collector_disconnected(sample_health, sample_dashboard, sample_
         core_version="0.1.0",
         collector_connected=False,
         last_update_success=True,
+        capabilities_state=CapabilitiesState.ACCEPTED,
+        decision_contract_version=2,
+        decision_contract_state=DecisionContractState.SUPPORTED_EXACT,
+        decision_payload_state=DecisionPayloadState.VALID,
+        enrichment_contract_state=EnrichmentContractState.SUPPORTED,
+        core_version_state=CoreVersionState.COMPATIBLE,
+        shared_decisions_available=True,
+        core_version_compatible=True,
     )
     coord.last_update_success = True
+    coord.auth_failed = False
 
     with patch("zigbeelens.repairs.ir.async_create_issue") as create_issue, patch(
         "zigbeelens.repairs.ir.async_delete_issue"
@@ -229,8 +321,17 @@ def test_repairs_mock_mode(sample_health, sample_dashboard, sample_config_status
         core_version="0.1.0",
         collector_connected=True,
         last_update_success=True,
+        capabilities_state=CapabilitiesState.ACCEPTED,
+        decision_contract_version=2,
+        decision_contract_state=DecisionContractState.SUPPORTED_EXACT,
+        decision_payload_state=DecisionPayloadState.VALID,
+        enrichment_contract_state=EnrichmentContractState.SUPPORTED,
+        core_version_state=CoreVersionState.COMPATIBLE,
+        shared_decisions_available=True,
+        core_version_compatible=True,
     )
     coord.last_update_success = True
+    coord.auth_failed = False
 
     with patch("zigbeelens.repairs.ir.async_create_issue") as create_issue, patch(
         "zigbeelens.repairs.ir.async_delete_issue"
@@ -249,9 +350,11 @@ def test_repairs_incompatible_core_version(sample_health, sample_dashboard, samp
         core_version="0.0.1",
         collector_connected=True,
         last_update_success=True,
+        core_version_state=CoreVersionState.INCOMPATIBLE,
         core_version_compatible=False,
     )
     coord.last_update_success = True
+    coord.auth_failed = False
 
     with patch("zigbeelens.repairs.ir.async_create_issue") as create_issue, patch(
         "zigbeelens.repairs.ir.async_delete_issue"
@@ -272,11 +375,17 @@ def test_unsupported_decision_contract_does_not_create_version_repair(
         core_version="0.1.13",
         collector_connected=True,
         last_update_success=True,
+        capabilities_state=CapabilitiesState.ACCEPTED,
         decision_contract_version=2,
+        decision_contract_state=DecisionContractState.MISSING_REQUIRED_CAPABILITY,
+        decision_payload_state=DecisionPayloadState.VALID,
+        enrichment_contract_state=EnrichmentContractState.SUPPORTED,
+        core_version_state=CoreVersionState.COMPATIBLE,
         shared_decisions_available=False,
         core_version_compatible=True,
     )
     coord.last_update_success = True
+    coord.auth_failed = False
 
     with patch("zigbeelens.repairs.ir.async_create_issue") as create_issue, patch(
         "zigbeelens.repairs.ir.async_delete_issue"
@@ -285,6 +394,301 @@ def test_unsupported_decision_contract_does_not_create_version_repair(
         assert not any(
             call.args[2] == ISSUE_INCOMPATIBLE_VERSION for call in create_issue.call_args_list
         )
+
+
+@pytest.mark.parametrize(
+    ("contract_state", "payload_state", "version", "expected_issue"),
+    [
+        (
+            DecisionContractState.OLDER,
+            DecisionPayloadState.VALID,
+            1,
+            ISSUE_DECISION_CONTRACT_OLDER,
+        ),
+        (
+            DecisionContractState.NEWER,
+            DecisionPayloadState.VALID,
+            3,
+            ISSUE_DECISION_CONTRACT_NEWER,
+        ),
+        (
+            DecisionContractState.SUPPORTED_EXACT,
+            DecisionPayloadState.MALFORMED,
+            2,
+            ISSUE_DECISION_PAYLOAD_MALFORMED,
+        ),
+        (
+            DecisionContractState.MALFORMED,
+            DecisionPayloadState.VALID,
+            2,
+            ISSUE_DECISION_CONTRACT_MALFORMED,
+        ),
+    ],
+)
+def test_repairs_distinguish_contract_and_payload_failures(
+    sample_health,
+    sample_dashboard,
+    sample_config_status,
+    contract_state,
+    payload_state,
+    version,
+    expected_issue,
+):
+    hass = MagicMock()
+    coord = MagicMock(spec=ZigbeeLensDataUpdateCoordinator)
+    coord.data = ZigbeeLensCoordinatorData(
+        health=sample_health,
+        dashboard=sample_dashboard,
+        config_status=sample_config_status,
+        core_version="0.1.13",
+        collector_connected=True,
+        last_update_success=True,
+        capabilities_state=CapabilitiesState.ACCEPTED,
+        decision_contract_version=version,
+        decision_contract_state=contract_state,
+        decision_payload_state=payload_state,
+        enrichment_contract_state=EnrichmentContractState.SUPPORTED,
+        core_version_state=CoreVersionState.COMPATIBLE,
+        shared_decisions_available=False,
+        core_version_compatible=True,
+    )
+    coord.last_update_success = True
+    coord.auth_failed = False
+
+    with patch("zigbeelens.repairs.ir.async_create_issue") as create_issue, patch(
+        "zigbeelens.repairs.ir.async_delete_issue"
+    ):
+        async_manage_repairs(hass, coord)
+
+    created = {call.args[2] for call in create_issue.call_args_list}
+    assert expected_issue in created
+    assert (
+        created
+        & {
+            ISSUE_DECISION_CONTRACT_OLDER,
+            ISSUE_DECISION_CONTRACT_NEWER,
+            ISSUE_DECISION_CONTRACT_MALFORMED,
+            ISSUE_DECISION_PAYLOAD_MALFORMED,
+        }
+    ) == {expected_issue}
+
+
+def test_repairs_unknown_core_version_is_not_compatible(
+    sample_health, sample_dashboard, sample_config_status
+):
+    hass = MagicMock()
+    coord = MagicMock(spec=ZigbeeLensDataUpdateCoordinator)
+    coord.data = ZigbeeLensCoordinatorData(
+        health=sample_health,
+        dashboard=sample_dashboard,
+        config_status=sample_config_status,
+        core_version=None,
+        collector_connected=True,
+        last_update_success=True,
+        capabilities_state=CapabilitiesState.ACCEPTED,
+        decision_contract_version=2,
+        decision_contract_state=DecisionContractState.SUPPORTED_EXACT,
+        decision_payload_state=DecisionPayloadState.VALID,
+        enrichment_contract_state=EnrichmentContractState.SUPPORTED,
+        core_version_state=CoreVersionState.UNKNOWN,
+        shared_decisions_available=False,
+        core_version_compatible=None,
+    )
+    coord.last_update_success = True
+    coord.auth_failed = False
+
+    with patch("zigbeelens.repairs.ir.async_create_issue") as create_issue, patch(
+        "zigbeelens.repairs.ir.async_delete_issue"
+    ):
+        async_manage_repairs(hass, coord)
+
+    created = {call.args[2] for call in create_issue.call_args_list}
+    assert ISSUE_CORE_VERSION_UNKNOWN in created
+    assert ISSUE_INCOMPATIBLE_VERSION not in created
+    assert ISSUE_DECISION_CONTRACT_OLDER not in created
+
+
+def test_repairs_capabilities_outage_does_not_claim_core_is_older(
+    sample_health, sample_dashboard, sample_config_status
+):
+    hass = MagicMock()
+    coord = MagicMock(spec=ZigbeeLensDataUpdateCoordinator)
+    coord.data = ZigbeeLensCoordinatorData(
+        health=sample_health,
+        dashboard=sample_dashboard,
+        config_status=sample_config_status,
+        core_version="0.1.13",
+        collector_connected=True,
+        last_update_success=True,
+        capabilities_state=CapabilitiesState.UNAVAILABLE,
+        decision_contract_version=None,
+        decision_contract_state=DecisionContractState.MISSING,
+        decision_payload_state=DecisionPayloadState.VALID,
+        enrichment_contract_state=EnrichmentContractState.UNAVAILABLE,
+        core_version_state=CoreVersionState.COMPATIBLE,
+        shared_decisions_available=False,
+        core_version_compatible=True,
+    )
+    coord.last_update_success = True
+    coord.auth_failed = False
+
+    with patch("zigbeelens.repairs.ir.async_create_issue") as create_issue, patch(
+        "zigbeelens.repairs.ir.async_delete_issue"
+    ):
+        async_manage_repairs(hass, coord)
+
+    created = {call.args[2] for call in create_issue.call_args_list}
+    assert ISSUE_DECISION_CONTRACT_OLDER not in created
+    assert ISSUE_DECISION_CONTRACT_NEWER not in created
+    assert ISSUE_DECISION_PAYLOAD_MALFORMED not in created
+
+
+def test_repairs_do_not_coerce_malformed_operational_fields_to_empty_or_zero(
+    sample_health,
+):
+    hass = MagicMock()
+    coord = MagicMock(spec=ZigbeeLensDataUpdateCoordinator)
+    coord.data = ZigbeeLensCoordinatorData(
+        health={**sample_health, "collector": {}, "mock_mode": "false"},
+        dashboard={"networks": "not-a-list", "device_count": "not-a-count"},
+        config_status={"configured_networks": None, "mock_mode": "false"},
+        core_version="0.1.13",
+        collector_connected=None,
+        last_update_success=True,
+        capabilities_state=CapabilitiesState.ACCEPTED,
+        decision_contract_version=2,
+        decision_contract_state=DecisionContractState.SUPPORTED_EXACT,
+        decision_payload_state=DecisionPayloadState.MALFORMED,
+        enrichment_contract_state=EnrichmentContractState.SUPPORTED,
+        core_version_state=CoreVersionState.COMPATIBLE,
+        shared_decisions_available=False,
+        core_version_compatible=True,
+    )
+    coord.last_update_success = True
+    coord.auth_failed = False
+
+    with patch("zigbeelens.repairs.ir.async_create_issue") as create_issue, patch(
+        "zigbeelens.repairs.ir.async_delete_issue"
+    ):
+        async_manage_repairs(hass, coord)
+
+    created = {call.args[2] for call in create_issue.call_args_list}
+    assert ISSUE_DECISION_PAYLOAD_MALFORMED in created
+    assert ISSUE_NO_NETWORKS not in created
+    assert ISSUE_NO_MQTT_DATA not in created
+    assert ISSUE_COLLECTOR_DISCONNECTED not in created
+    assert ISSUE_MOCK_MODE not in created
+
+
+def test_payload_repair_is_deleted_after_valid_recovery(
+    sample_health,
+    sample_dashboard,
+    sample_config_status,
+):
+    hass = MagicMock()
+    coord = MagicMock(spec=ZigbeeLensDataUpdateCoordinator)
+    coord.data = ZigbeeLensCoordinatorData(
+        health=sample_health,
+        dashboard={},
+        config_status=sample_config_status,
+        core_version="0.1.13",
+        collector_connected=True,
+        last_update_success=True,
+        capabilities_state=CapabilitiesState.ACCEPTED,
+        decision_contract_version=2,
+        decision_contract_state=DecisionContractState.SUPPORTED_EXACT,
+        decision_payload_state=DecisionPayloadState.MALFORMED,
+        enrichment_contract_state=EnrichmentContractState.SUPPORTED,
+        core_version_state=CoreVersionState.COMPATIBLE,
+        shared_decisions_available=False,
+        core_version_compatible=True,
+    )
+    coord.last_update_success = True
+    coord.auth_failed = False
+
+    with patch("zigbeelens.repairs.ir.async_create_issue") as create_issue, patch(
+        "zigbeelens.repairs.ir.async_delete_issue"
+    ) as delete_issue:
+        async_manage_repairs(hass, coord)
+        assert any(
+            call.args[2] == ISSUE_DECISION_PAYLOAD_MALFORMED
+            for call in create_issue.call_args_list
+        )
+
+        coord.data.dashboard = sample_dashboard
+        coord.data.decision_payload_state = DecisionPayloadState.VALID
+        coord.data.shared_decisions_available = True
+        async_manage_repairs(hass, coord)
+
+    assert any(
+        call.args[2] == ISSUE_DECISION_PAYLOAD_MALFORMED
+        for call in delete_issue.call_args_list
+    )
+
+
+@pytest.mark.parametrize(
+    ("sync_state", "expected", "excluded"),
+    [
+        (
+            "failed_authentication",
+            set(),
+            {ISSUE_ENRICHMENT_SYNC_FAILED, ISSUE_ENRICHMENT_UNSUPPORTED},
+        ),
+        (
+            "failed_contract_unsupported",
+            {ISSUE_ENRICHMENT_UNSUPPORTED},
+            {ISSUE_ENRICHMENT_SYNC_FAILED},
+        ),
+        (
+            "failed_request_rejected",
+            {ISSUE_ENRICHMENT_SYNC_FAILED},
+            {ISSUE_ENRICHMENT_UNSUPPORTED},
+        ),
+    ],
+)
+def test_enrichment_repairs_distinguish_auth_route_and_terminal_sync_failure(
+    sample_health,
+    sample_dashboard,
+    sample_config_status,
+    sync_state,
+    expected,
+    excluded,
+):
+    hass = MagicMock()
+    coord = MagicMock(spec=ZigbeeLensDataUpdateCoordinator)
+    coord.data = ZigbeeLensCoordinatorData(
+        health=sample_health,
+        dashboard=sample_dashboard,
+        config_status=sample_config_status,
+        core_version="0.1.13",
+        collector_connected=True,
+        last_update_success=True,
+        capabilities_state=CapabilitiesState.ACCEPTED,
+        decision_contract_version=2,
+        decision_contract_state=DecisionContractState.SUPPORTED_EXACT,
+        decision_payload_state=DecisionPayloadState.VALID,
+        enrichment_contract_state=EnrichmentContractState.SUPPORTED,
+        core_version_state=CoreVersionState.COMPATIBLE,
+        shared_decisions_available=True,
+        core_version_compatible=True,
+    )
+    coord.last_update_success = True
+    coord.auth_failed = False
+    manager = MagicMock(
+        diagnostics={
+            "sync_state": sync_state,
+            "failure_reason": "categorical-only",
+        }
+    )
+
+    with patch("zigbeelens.repairs.ir.async_create_issue") as create_issue, patch(
+        "zigbeelens.repairs.ir.async_delete_issue"
+    ):
+        async_manage_repairs(hass, coord, manager)
+
+    created = {call.args[2] for call in create_issue.call_args_list}
+    assert expected <= created
+    assert not (excluded & created)
 
 
 def test_clear_repairs():

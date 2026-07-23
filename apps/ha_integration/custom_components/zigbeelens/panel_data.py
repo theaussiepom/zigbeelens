@@ -12,9 +12,17 @@ labels are passed through unchanged from Core.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
-from .compatibility import nonneg_int_not_bool
+from .compatibility import (
+    CapabilitiesState,
+    CoreVersionState,
+    DecisionContractState,
+    DecisionPayloadState,
+    nonneg_int_not_bool,
+    validate_router_risks,
+)
 from .coordinator import ZigbeeLensCoordinatorData
 from .core_origin import InvalidCoreOrigin, canonicalize_core_origin
 
@@ -47,6 +55,19 @@ def _optional_str(value: Any) -> str | None:
         return None
     cleaned = value.strip()
     return cleaned or None
+
+
+def _safe_timestamp(value: Any) -> str | None:
+    cleaned = _optional_str(value)
+    if cleaned is None or len(cleaned) > 64:
+        return None
+    try:
+        parsed = datetime.fromisoformat(cleaned)
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return cleaned
 
 
 def _network_name_map(networks: list[Any]) -> dict[str, str]:
@@ -87,7 +108,9 @@ def _project_priority(
         "summary": summary,
         "network_id": network_id,
         "network_name": network_name,
-        "latest_supporting_evidence_at": _optional_str(raw.get("latest_supporting_evidence_at")),
+        "latest_supporting_evidence_at": _safe_timestamp(
+            raw.get("latest_supporting_evidence_at")
+        ),
     }
 
 
@@ -131,15 +154,22 @@ def build_panel_summary(
         "device_count": None,
         "unavailable_devices": None,
         "router_risks": None,
-        "collector_connected": False,
+        "collector_connected": None,
         "last_update": None,
         "mock_mode": False,
         "networks": [],
         "error": last_exception if not connected else None,
         "shared_decisions_available": False,
-        "decision_contract_version": 0,
+        "core_version_state": CoreVersionState.UNKNOWN.value,
+        "capabilities_state": CapabilitiesState.UNAVAILABLE.value,
+        "decision_contract_version": None,
+        "decision_contract_state": DecisionContractState.MISSING.value,
+        "decision_payload_state": DecisionPayloadState.MISSING.value,
+        "enrichment_contract_state": "unavailable",
         "decision_contract_compatible": False,
         "core_update_required": False,
+        "integration_update_required": False,
+        "decision_payload_invalid": False,
         "core_version_compatible": None,
         "investigation_priority_count": None,
         "investigation_priorities": [],
@@ -152,23 +182,54 @@ def build_panel_summary(
 
     dashboard = data.dashboard or {}
     health = data.health or {}
-    collector = health.get("collector") or {}
+    raw_collector = health.get("collector")
+    collector = raw_collector if isinstance(raw_collector, dict) else {}
 
-    summary["core_version"] = data.core_version or str(health.get("version") or "") or None
+    # The coordinator has already validated the observed type. Never stringify
+    # malformed raw health values into a seemingly factual version.
+    summary["core_version"] = data.core_version
     summary["shared_decisions_available"] = bool(data.shared_decisions_available)
-    summary["decision_contract_version"] = int(data.decision_contract_version or 0)
-    summary["decision_contract_compatible"] = bool(data.shared_decisions_available)
+    summary["core_version_state"] = data.core_version_state.value
+    summary["capabilities_state"] = data.capabilities_state.value
+    summary["decision_contract_version"] = data.decision_contract_version
+    summary["decision_contract_state"] = data.decision_contract_state.value
+    summary["decision_payload_state"] = data.decision_payload_state.value
+    summary["enrichment_contract_state"] = data.enrichment_contract_state.value
+    summary["decision_contract_compatible"] = bool(
+        data.decision_contract_state is DecisionContractState.SUPPORTED_EXACT
+    )
     summary["core_update_required"] = bool(
         connected
-        and data is not None
-        and not data.shared_decisions_available
-        and data.core_version_compatible is not False
+        and data.core_version_state is CoreVersionState.COMPATIBLE
+        and data.capabilities_state is CapabilitiesState.ACCEPTED
+        and data.decision_contract_state
+        in {
+            DecisionContractState.MISSING,
+            DecisionContractState.OLDER,
+            DecisionContractState.MISSING_REQUIRED_CAPABILITY,
+        }
+    )
+    summary["integration_update_required"] = bool(
+        connected
+        and data.core_version_state is CoreVersionState.COMPATIBLE
+        and data.capabilities_state is CapabilitiesState.ACCEPTED
+        and data.decision_contract_state is DecisionContractState.NEWER
+    )
+    summary["decision_payload_invalid"] = bool(
+        connected
+        and data.core_version_state is CoreVersionState.COMPATIBLE
+        and data.capabilities_state is CapabilitiesState.ACCEPTED
+        and data.decision_contract_state is DecisionContractState.SUPPORTED_EXACT
+        and data.decision_payload_state
+        in {DecisionPayloadState.MISSING, DecisionPayloadState.MALFORMED}
     )
     summary["core_version_compatible"] = data.core_version_compatible
 
-    summary["collector_connected"] = bool(data.collector_connected)
-    summary["mock_mode"] = bool(health.get("mock_mode"))
-    summary["last_update"] = dashboard.get("generated_at") or collector.get("last_message_at")
+    summary["collector_connected"] = data.collector_connected
+    summary["mock_mode"] = health.get("mock_mode") is True
+    summary["last_update"] = _safe_timestamp(
+        dashboard.get("generated_at")
+    ) or _safe_timestamp(collector.get("last_message_at"))
 
     decision_mode = data.shared_decisions_available is True
     if decision_mode:
@@ -179,7 +240,7 @@ def build_panel_summary(
         summary["unavailable_devices"] = _safe_int(dashboard.get("unavailable_device_count"))
         router_risks = dashboard.get("router_risks")
         summary["router_risks"] = (
-            len(router_risks) if isinstance(router_risks, list) else None
+            len(router_risks) if validate_router_risks(router_risks) else None
         )
     valid_priorities: list[dict[str, Any]] = []
     projected_priorities: list[dict[str, Any]] = []
