@@ -7,6 +7,13 @@ SRC="${ROOT}/apps/addon/zigbeelens"
 DIST="${ROOT}/dist/zigbeelens-addons"
 OWNER="${GITHUB_OWNER:-theaussiepom}"
 IMAGE="ghcr.io/${OWNER}/zigbeelens"
+ADDON_VERSION="$(
+  sed -nE 's/^version: "?([^"]+)"?/\1/p' "${SRC}/config.yaml" | head -1
+)"
+if [[ -z "${ADDON_VERSION}" ]]; then
+  echo "FAIL: add-on version not found in ${SRC}/config.yaml" >&2
+  exit 1
+fi
 
 rm -rf "${DIST}"
 mkdir -p "${DIST}/zigbeelens/translations"
@@ -51,23 +58,39 @@ Uses the published container image: \`${IMAGE}\`
 1. **Settings → Add-ons → Add-on store → ⋮ → Repositories**
 2. Add: \`https://github.com/${OWNER}/zigbeelens-addons\`
 3. Install **ZigbeeLens**, configure MQTT and networks, start the add-on
-4. Open **ZigbeeLens** from the sidebar (Ingress on port 8377)
+4. Open **ZigbeeLens** from the sidebar (Supervisor Ingress; no host port is published)
 
 ## Image tags
 
 | Tag | When |
 |-----|------|
 | \`edge\` / \`main\` | Latest \`main\` branch build |
-| \`0.1.0\` | Release tag (matches add-on version) |
+| \`${ADDON_VERSION}\` | Release tag (matches add-on version) |
 | \`latest\` | Latest release |
 
-For pre-release Docker testing, pull \`${IMAGE}:edge\` directly. Add-on version \`0.1.0\` pulls \`:0.1.0\` when that GHCR tag exists.
+For pre-release Docker testing, pull \`${IMAGE}:edge\` directly. Add-on version \`${ADDON_VERSION}\` pulls \`:${ADDON_VERSION}\` when that GHCR tag exists.
+
+## Current package limitations
+
+- Publication is blocked until the packaged HAOS artifact proves UID-1000
+  \`/data\` writability, Supervisor Ingress access, and rejection of spoofed
+  Ingress identity.
+- The image-based package does not currently propagate the optional add-on API
+  token into Core. Leave that option empty and use the admin-only Ingress UI.
+- Supervisor Ingress is the supported dashboard route. This package publishes
+  no portable Core origin for the optional HACS companion integration.
+- The three \`reporting.max_*\` options must be at least \`1\`; although the
+  current Supervisor schema accepts \`0\`, Core rejects it during startup.
 
 ## Safety
 
-Read-only. No permit join, remove, reset, bind, unbind, OTA, or channel changes.
+Read-only for Zigbee device control: no permit join, remove, reset, bind,
+unbind, OTA, channel changes, or device \`/set\` commands. The default add-on
+policy may publish one exact allowlisted
+\`{base_topic}/bridge/request/networkmap\` diagnostic request after startup;
+periodic/manual/incident capture is off, and MQTT Discovery is off.
 
-Documentation: https://github.com/${OWNER}/zigbeelens/blob/main/docs/addon-dev.md
+Documentation: https://github.com/${OWNER}/zigbeelens/blob/main/apps/addon/zigbeelens/README.md
 EOF
 
 # Satellite repo CI

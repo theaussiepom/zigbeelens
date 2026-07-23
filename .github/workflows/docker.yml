@@ -52,6 +52,38 @@ jobs:
             type=sha,prefix=sha-,format=short
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 
+      - name: Read package version
+        id: version
+        run: |
+          echo "value=$(sed -nE 's/.*\"version\": \"([^\"]+)\".*/\1/p' package.json | head -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify release versions are aligned
+        run: bash scripts/check-version-alignment.sh
+
+      - name: Verify release tag is strict SemVer and matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          python3 - "$PACKAGE_VERSION" "$GITHUB_REF_NAME" <<'PY'
+          import re
+          import sys
+
+          version, tag = sys.argv[1:]
+          semver = re.compile(
+              r"^(0|[1-9][0-9]*)\."
+              r"(0|[1-9][0-9]*)\."
+              r"(0|[1-9][0-9]*)"
+              r"(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+              r"(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?"
+              r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+          )
+          if semver.fullmatch(version) is None:
+              raise SystemExit(f"package version is not strict SemVer: {version}")
+          if tag != f"v{version}":
+              raise SystemExit(f"tag {tag} does not match package version v{version}")
+          PY
+
       - name: Log in to GHCR
         if: github.event_name != 'pull_request' && github.repository == format('{0}/zigbeelens', github.repository_owner)
         uses: docker/login-action@v3
@@ -70,5 +102,5 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.1.0' }}
+            VERSION=${{ steps.version.outputs.value }}
             IMAGE_SOURCE=https://github.com/${{ github.repository }}

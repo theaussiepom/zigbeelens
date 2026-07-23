@@ -11,5 +11,6 @@ echo "Building ${IMAGE} (context: ${ROOT})"
 docker build -f apps/addon/zigbeelens/Dockerfile -t "${IMAGE}" .
 
 echo "Built ${IMAGE}"
-echo "Run locally:"
-echo "  docker run --rm -p 8377:8377 -v \$(pwd)/data/ha-addon:/data ${IMAGE}"
+echo "The add-on image enforces Supervisor Ingress identity and is not a direct"
+echo "localhost UI. Install it as a local HAOS add-on and open Supervisor Ingress;"
+echo "use scripts/dev.sh for direct browser UI development."

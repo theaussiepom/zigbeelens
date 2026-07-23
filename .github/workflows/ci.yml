@@ -146,7 +146,9 @@ jobs:
         run: bash scripts/validate-compose.sh
 
       - name: Package add-on repository layout
-        run: bash scripts/package-addon-repo.sh
+        run: |
+          bash scripts/package-addon-repo.sh
+          bash dist/zigbeelens-addons/scripts/validate-addon-repo.sh
 
       - name: Core smoke test
         run: bash scripts/smoke-core.sh
@@ -173,6 +175,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Read package version
+        id: version
+        run: |
+          echo "value=$(sed -nE 's/.*\"version\": \"([^\"]+)\".*/\1/p' package.json | head -1)" >> "$GITHUB_OUTPUT"
+
       - name: Build Docker image (no push)
         uses: docker/build-push-action@v6
         with:
@@ -183,5 +190,5 @@ jobs:
           load: true
           tags: zigbeelens:ci
           build-args: |
-            VERSION=0.1.0
+            VERSION=${{ steps.version.outputs.value }}
             IMAGE_SOURCE=https://github.com/${{ github.repository }}

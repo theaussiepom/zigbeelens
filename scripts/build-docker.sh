@@ -5,7 +5,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-VERSION="${ZIGBEELENS_VERSION:-0.1.0}"
+PACKAGE_VERSION="$(
+  sed -nE 's/.*"version": "([^"]+)".*/\1/p' "${ROOT}/package.json" | head -1
+)"
+VERSION="${ZIGBEELENS_VERSION:-${PACKAGE_VERSION}}"
 IMAGE="${ZIGBEELENS_IMAGE:-ghcr.io/theaussiepom/zigbeelens:latest}"
 
 echo "Building ${IMAGE} (version=${VERSION}, context=${ROOT})"

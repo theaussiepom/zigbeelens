@@ -20,7 +20,6 @@ cat > "${DIST}/hacs.json" <<EOF
 {
   "name": "ZigbeeLens",
   "content_in_root": false,
-  "filename": "zigbeelens",
   "render_readme": true,
   "homeassistant": "2025.1.0"
 }

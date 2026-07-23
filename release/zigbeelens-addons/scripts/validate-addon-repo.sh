@@ -23,7 +23,19 @@ grep -q 'password: ""' "${ADDON}/config.yaml" && ok "no embedded default secrets
 
 grep -q 'mqtt_discovery: false' "${ADDON}/config.yaml" && ok "mqtt_discovery disabled by default" || fail "mqtt_discovery should default false"
 
-grep -q 'topology:' "${ADDON}/config.yaml" && grep -q 'enabled: true' "${ADDON}/config.yaml" && grep -q 'startup_scan: true' "${ADDON}/config.yaml" && ok "topology enabled with startup scan by default" || fail "topology should default enabled with startup_scan"
+TOPOLOGY_DEFAULTS="$(
+  awk '
+    /^  topology:$/ && !found { found = 1; next }
+    found && /^  [^ ]/ { exit }
+    found { print }
+  ' "${ADDON}/config.yaml"
+)"
+if grep -qx '    enabled: true' <<<"${TOPOLOGY_DEFAULTS}" \
+  && grep -qx '    startup_scan: true' <<<"${TOPOLOGY_DEFAULTS}"; then
+  ok "topology enabled with startup scan by default"
+else
+  fail "topology defaults must set enabled and startup_scan true"
+fi
 
 if [[ "${FAIL}" -ne 0 ]]; then exit 1; fi
 echo "Add-on repo validation passed."
