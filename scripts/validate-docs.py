@@ -265,6 +265,19 @@ def require_document_fragments(relative: str, fragments: tuple[str, ...]) -> int
     return len(fragments)
 
 
+def option_section(text: str, label: str) -> str:
+    match = re.search(
+        rf"^## Option {re.escape(label)}\b.*?(?=^## Option [A-Z]\b|\Z)",
+        text,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise DocumentationError(
+            f"docs/hacs-embedded-view.md: missing Option {label} section"
+        )
+    return " ".join(match.group(0).split())
+
+
 def validate_docker_install_truth() -> int:
     expected = "${ZIGBEELENS_IMAGE:-ghcr.io/theaussiepom/zigbeelens:latest}"
     overrideable_examples = (
@@ -334,6 +347,218 @@ def validate_docker_install_truth() -> int:
             "image before Compose runs it"
         )
     return assertions + 1
+
+
+def validate_addon_operational_truth() -> int:
+    required: dict[str, tuple[str, ...]] = {
+        "docs/hacs.md": (
+            "source-built/local pre-release testing",
+            "future published add-on artifact",
+            "publication gates close",
+        ),
+        "apps/ha_integration/README.md": (
+            "source-built/local pre-release testing",
+            "future published add-on artifact",
+            "publication gates close",
+        ),
+        "docs/hacs-embedded-view.md": (
+            "source-built/local pre-release testing",
+            "future published add-on artifact",
+            "publication gates close",
+        ),
+        "docs/upgrades.md": (
+            "source-built/local pre-release testing",
+            "future published add-on artifact",
+            "publication gates close",
+        ),
+        "docs/backups.md": (
+            "source-built/local pre-release testing",
+            "future published add-on artifact",
+            "publication gates close",
+        ),
+        "docs/troubleshooting.md": (
+            "source-built/local pre-release testing",
+            "future published add-on artifact",
+            "publication gates close",
+        ),
+        "release/zigbeelens-hacs/README.md.in": (
+            "source-built/local pre-release testing",
+            "future published add-on artifact",
+            "publication gates close",
+        ),
+        "docs/configuration.md": (
+            "source-built/local pre-release runner",
+            "future published add-on artifact",
+            "publication gates close",
+        ),
+        "SECURITY.md": (
+            "HAOS add-on source/local pre-release",
+            "future published artifact",
+            "publication gates close",
+        ),
+    }
+    assertions = sum(
+        require_document_fragments(relative, fragments)
+        for relative, fragments in required.items()
+    )
+
+    operational = "\n".join(
+        (ROOT / relative).read_text(encoding="utf-8") for relative in required
+    )
+    forbidden = {
+        "shipped add-on claim": r"\bshipped Home Assistant add-on\b",
+        "already-available add-on claim": r"\badd-on already provides\b",
+        "bare add-on Ingress direction": r"\bUse the add-on['’]s Ingress UI\b",
+        "unqualified designed add-on path": (
+            r"\bHAOS add-on \+ Ingress\b[^\n]*\bdesigned embedded path\b"
+        ),
+        "unconditional store upgrade": (
+            r"^\s*\d+\.\s+Update the add-on from the store\s*$"
+        ),
+        "unqualified preferred add-on restore": (
+            r"\bpreferred add-on restore mechanism\b"
+        ),
+        "unqualified add-on troubleshooting heading": (
+            r"^## Add-on Ingress blank page\s*$"
+        ),
+        "available packaged add-on claim": (
+            r"\bThe packaged Home Assistant add-on exposes\b"
+        ),
+        "unqualified HAOS deployment row": (
+            r"^\|\s*HAOS add-on\s*\|\s*Full dashboard\b"
+        ),
+        "unqualified add-on configuration row": (
+            r"^\|\s*Home Assistant add-on\s*\|\s*Supervisor"
+        ),
+    }
+    failures = [
+        label
+        for label, pattern in forbidden.items()
+        if re.search(pattern, operational, flags=re.IGNORECASE | re.MULTILINE)
+    ]
+    if failures:
+        raise DocumentationError(
+            "unqualified blocked add-on operational guidance found:\n- "
+            + "\n- ".join(failures)
+        )
+    return assertions + len(forbidden)
+
+
+def validate_hacs_proxy_image_truth() -> int:
+    beast = yaml.safe_load(
+        (
+            ROOT / "deploy/docker/docker-compose.beast-traefik.example.yaml"
+        ).read_text(encoding="utf-8")
+    )
+    beast_image = beast.get("services", {}).get("zigbeelens", {}).get("image")
+    expected_beast = "ghcr.io/theaussiepom/zigbeelens:edge"
+    if beast_image != expected_beast:
+        raise DocumentationError(
+            "deploy/docker/docker-compose.beast-traefik.example.yaml: "
+            f"current-main HACS path must remain on {expected_beast!r}"
+        )
+
+    embedded = (ROOT / "docs/hacs-embedded-view.md").read_text(encoding="utf-8")
+    required: dict[str, tuple[str, ...]] = {
+        "A": (
+            expected_beast,
+            "deliberately hardcodes",
+            "current-main/pre-release testing",
+            "not remote release validation",
+            "`X.Y.Z`",
+        ),
+        "B": (
+            "defaults to `latest`",
+            "export ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge",
+            "Keep `ZIGBEELENS_IMAGE` set",
+            "not remote release-validation evidence",
+        ),
+        "C": (
+            "future compatible released HACS/Core pair",
+            "export ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge",
+            "docker-compose.traefik.example.yaml up -d",
+            "Keep `ZIGBEELENS_IMAGE` set",
+            "not remote release-validation evidence",
+        ),
+        "D": (
+            "nginx does not select or start a ZigbeeLens Core image",
+            "Current-main/pre-release validation",
+            "`edge`",
+            "`sha-*`",
+            "`X.Y.Z`",
+        ),
+    }
+    assertions = 1
+    for label, fragments in required.items():
+        section = option_section(embedded, label).lower()
+        missing = [
+            fragment
+            for fragment in fragments
+            if " ".join(fragment.split()).lower() not in section
+        ]
+        if missing:
+            raise DocumentationError(
+                "docs/hacs-embedded-view.md: "
+                f"Option {label} is missing image-channel contract(s): "
+                + ", ".join(missing)
+            )
+        assertions += len(fragments)
+    return assertions
+
+
+def validate_shared_package_test_truth() -> int:
+    package = json.loads(
+        (ROOT / "packages/shared/package.json").read_text(encoding="utf-8")
+    )
+    test_script = package.get("scripts", {}).get("test", "")
+    assertions = 1
+    if "No tests configured for shared" not in test_script:
+        return assertions
+
+    claim_owners = (
+        "CONTRIBUTING.md",
+        "RELEASE_CHECKLIST.md",
+        "docs/release.md",
+        "docs/release-test.md",
+        ".github/pull_request_template.md",
+        ".github/workflows/ci.yml",
+        ".github/workflows/release-check.yml",
+        "scripts/run-release-checks.sh",
+    )
+    command = "pnpm --filter @zigbeelens/shared test"
+    offenders = [
+        relative
+        for relative in claim_owners
+        if command in (ROOT / relative).read_text(encoding="utf-8")
+    ]
+    if offenders:
+        raise DocumentationError(
+            "shared package no-op is presented as a test lane in: "
+            + ", ".join(offenders)
+        )
+
+    assertions += len(claim_owners)
+    assertions += require_document_fragments(
+        "CONTRIBUTING.md",
+        (
+            "no dedicated shared package test suite",
+            "pnpm --filter @zigbeelens/shared build",
+            "pnpm --filter @zigbeelens/shared typecheck",
+        ),
+    )
+    assertions += require_document_fragments(
+        "RELEASE_CHECKLIST.md",
+        (
+            "Shared package build passes",
+            "no dedicated test suite",
+            "do not treat its no-op `test` script as release evidence",
+        ),
+    )
+    assertions += require_document_fragments(
+        ".github/pull_request_template.md",
+        ("UI tests, shared build/typecheck",),
+    )
+    return assertions
 
 
 def validate_companion_publication_truth() -> int:
@@ -633,6 +858,9 @@ def validate_current_contract_copy() -> int:
         + truth_assertions
         + len(model_leaf_paths(AppConfig))
         + validate_docker_install_truth()
+        + validate_addon_operational_truth()
+        + validate_hacs_proxy_image_truth()
+        + validate_shared_package_test_truth()
         + validate_companion_publication_truth()
         + validate_release_document_ownership()
     )

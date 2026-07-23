@@ -41,9 +41,11 @@ uv run pytest -q tests/performance
 uv run ruff check src tests
 cd ../..
 
-# UI
-pnpm --filter @zigbeelens/shared test
+# Shared package (build/typecheck; no dedicated shared package test suite)
 pnpm --filter @zigbeelens/shared build
+pnpm --filter @zigbeelens/shared typecheck
+
+# UI
 pnpm --filter @zigbeelens/ui test
 pnpm --filter @zigbeelens/ui typecheck
 pnpm --filter @zigbeelens/ui lint

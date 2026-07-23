@@ -16,6 +16,8 @@ helper does not replace the Phase 7-specific checks or manual gates.
 - [ ] Phase 7B contract lane passes (`bash scripts/validate-contracts.sh`)
 - [ ] Phase 7A performance suite passes (`cd apps/core && uv run pytest -q tests/performance`)
 - [ ] SQLite 3.34.1 runtime smoke passes (`./scripts/smoke-sqlite-3.34.1.sh`)
+- [ ] Shared package build passes (`pnpm --filter @zigbeelens/shared build`)
+- [ ] Shared package has no dedicated test suite; do not treat its no-op `test` script as release evidence
 - [ ] UI tests pass (`pnpm --filter @zigbeelens/ui test`)
 - [ ] UI lint passes (`pnpm --filter @zigbeelens/ui lint`)
 - [ ] UI typecheck passes (`pnpm --filter @zigbeelens/ui typecheck`)
