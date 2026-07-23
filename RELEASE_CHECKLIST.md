@@ -22,7 +22,9 @@ helper does not replace the Phase 7-specific checks or manual gates.
 - [ ] UI lint passes (`pnpm --filter @zigbeelens/ui lint`)
 - [ ] UI typecheck passes (`pnpm --filter @zigbeelens/ui typecheck`)
 - [ ] UI production build passes (`pnpm --filter @zigbeelens/ui build`)
-- [ ] Compose validation passes (`./scripts/validate-compose.sh`)
+- [ ] Strict Compose validation renders all maintained configurations
+      (`ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 ./scripts/validate-compose.sh`);
+      source-only non-strict output is partial evidence, not a release pass
 - [ ] Core smoke passes (`./scripts/smoke-core.sh`)
 - [ ] Version alignment check passes (`./scripts/check-version-alignment.sh`)
 - [ ] Storage retention policy v2: telemetry / resolved incidents / reports; startup + periodic maintenance
@@ -96,9 +98,18 @@ close them.
 Required only when the HACS integration is included in the release. Structural
 package validation above is necessary but not sufficient.
 
-- [ ] HACS integration installed from custom repo (`theaussiepom/zigbeelens-hacs`)
+- [ ] The current branch is tested by manually installing
+      `dist/zigbeelens-hacs/custom_components/zigbeelens` at
+      `<home-assistant-config>/custom_components/zigbeelens`; the
+      unsynchronized public satellite is not used as branch evidence
+- [ ] The complete staged tree matches the intended
+      `theaussiepom/zigbeelens-hacs` satellite tree exactly
+- [ ] The manifest/package version uniquely identifies that tree; the current
+      `0.1.13` same-version/different-tree collision is resolved
 - [ ] Exact Home Assistant 2025.1.0 minimum and a current Home Assistant release both pass the integration suite
 - [ ] Staged HACS repository passes its structural validator plus official HACS/hassfest checks
+- [ ] Explicit authorization to synchronize and publish the HACS satellite is
+      recorded before any external repository is modified
 - [ ] Config flow accepts Core URL reachable from Home Assistant
 - [ ] Single-entry ownership is declared in manifest metadata as well as enforced by config flow
 - [ ] Native companion panel loads (cards, not raw JSON)
@@ -197,10 +208,12 @@ published.
 - [ ] Release tag `v<version>` created only after the Docker/Core gates and all
       gates for companion artifacts included in this release pass
 - [ ] Versioned Docker image pushed to GHCR (`ghcr.io/theaussiepom/zigbeelens:<version>`)
-- [ ] If HACS is included after its publication gates close, its repo version
-      is coherent with the integration manifest
+- [ ] If HACS is included after its publication gates close, the synchronized
+      tree and uniquely identifying version are rechecked immediately before
+      publication
 - [ ] If HACS is included, its staged artifact is pushed to
-      `theaussiepom/zigbeelens-hacs`
+      `theaussiepom/zigbeelens-hacs` only in the separately authorized
+      publication task
 - [ ] GitHub release notes published
 - [ ] If an add-on is included, repository metadata is updated only after every
       generated-package publication blocker above is closed

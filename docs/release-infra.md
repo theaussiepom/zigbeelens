@@ -8,7 +8,7 @@ GitHub owner: **theaussiepom**
 |------|--------|
 | Version source | Package and manifest versions; validate with `./scripts/check-version-alignment.sh` |
 | Main repo | https://github.com/theaussiepom/zigbeelens |
-| HACS repo | https://github.com/theaussiepom/zigbeelens-hacs |
+| Public HACS satellite | https://github.com/theaussiepom/zigbeelens-hacs — unsynchronized; not current branch-validation evidence |
 | Add-on repo | https://github.com/theaussiepom/zigbeelens-addons |
 | GHCR image | `ghcr.io/theaussiepom/zigbeelens` |
 | Pre-release tag | **`edge`** (also `main`, `sha-*`) |
@@ -56,6 +56,14 @@ non-Supervisor spoofing smokes before publishing the add-on repository.
 
 ## HACS integration release blocker
 
+The public HACS satellite is not synchronized with the reviewed monorepo
+stage. It still contains a materially older integration while both trees
+advertise version `0.1.13`; this same-version/different-tree collision prevents
+the version from identifying an artifact. Validate the current branch only
+with the locally generated package from `./scripts/package-hacs-repo.sh`.
+External synchronization or publication requires a separate explicitly
+authorized task.
+
 The integration's OptionsFlow accepts a 15–900-second polling interval, manually
 updates the entry, and then returns an empty options result. Home Assistant
 persists that result over the intermediate update, so the custom interval is
@@ -82,6 +90,17 @@ the manifest lacks declarative `single_config_entry` metadata. Run official
 HACS/hassfest validation for the staged satellite repository in addition to the
 local structural validator before publication.
 
+Before restoring public HACS installation guidance or publishing the satellite:
+
+- prove the complete staged tree matches the intended satellite tree;
+- assign a manifest/package version that uniquely identifies that exact tree;
+- pass exact Home Assistant 2025.1.0 plus current-version coverage;
+- pass official HACS and hassfest validation; and
+- record explicit publication authorization before modifying the external
+  repository.
+
 ## Local pre-release test
 
 See [release-test.md](release-test.md) and `./scripts/local-release-test.sh`.
+The integration portion uses a manual install from
+`dist/zigbeelens-hacs/custom_components/zigbeelens`, not the public satellite.

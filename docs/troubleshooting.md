@@ -87,7 +87,12 @@ If two devices share a name within one network, use IEEE address in the UI and r
 
 See [redaction.md](redaction.md).
 
-## HACS integration cannot connect
+## Staged or future published HA integration cannot connect
+
+This applies to the manually installed monorepo stage now, or to a future
+synchronized and authorized public artifact. The current public HACS satellite
+is not the reviewed staged package and must not be used to validate this
+branch.
 
 1. Confirm a standalone or otherwise Home-Assistant-reachable ZigbeeLens Core
    service is running. The packaged add-on has no portable HACS backend origin.
@@ -98,7 +103,8 @@ See [redaction.md](redaction.md).
    HACS-to-add-on Core address.
 3. Check firewall from HA to Core.
 4. If Core requires bearer authentication, set the same Core API token in the
-   HACS config flow / reauth form (leave blank only for trusted-open Core).
+   integration config flow / reauth form (leave blank only for trusted-open
+   Core).
 5. When Home Assistant prompts to reauthenticate ZigbeeLens, enter the current
    token or leave blank if Core returned to trusted-open mode.
 6. Review HA logs for connection errors (never expect the token in logs).

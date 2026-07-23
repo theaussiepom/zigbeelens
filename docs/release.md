@@ -65,6 +65,12 @@ contract requiring a Core upgrade. Track them in
 [RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md); truthful documentation does
 not close those runtime contracts.
 
+The HACS satellite is a separate publication gate. Its public `main` is not the
+reviewed staged tree, and both materially different trees currently advertise
+`0.1.13`. Use only the locally generated custom component for branch testing.
+Do not synchronize or publish the external satellite without a separate
+explicitly authorized task.
+
 ### 2. Update version
 
 ```bash
@@ -98,7 +104,7 @@ pnpm --filter @zigbeelens/ui lint
 pnpm --filter @zigbeelens/ui build
 ./scripts/validate-ha-integration.sh
 ./scripts/validate-addon.sh
-./scripts/validate-compose.sh
+ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 ./scripts/validate-compose.sh
 ./scripts/package-hacs-repo.sh
 ./scripts/package-addon-repo.sh
 ./scripts/smoke-core.sh
@@ -118,6 +124,16 @@ xfail is
 ./scripts/build-addon.sh
 ./scripts/package-hacs-repo.sh
 ```
+
+The generated HACS directory is a local stage, not a publication instruction.
+Before public HACS guidance or publication is restored:
+
+- the complete staged tree must match the intended satellite tree;
+- the manifest/package version must uniquely identify that exact tree;
+- exact Home Assistant 2025.1.0 plus current-version coverage must pass;
+- official HACS and hassfest validation must pass; and
+- explicit publication authorization must be recorded before the external
+  repository is modified.
 
 ### 6. Tag and push
 
@@ -177,9 +193,9 @@ release:
 
 - [ ] **If an add-on artifact was included and published after its package/live
   gates closed:** install that exact HAOS add-on artifact and verify Ingress.
-- [ ] **If the HACS integration was included and its publication gates
-  closed:** install that exact packaged HACS artifact and verify it against the
-  released Docker Core.
+- [ ] **If the HACS integration was synchronized and published after its
+  tree/version/validation/authorization gates closed:** install that exact
+  published HACS artifact and verify it against the released Docker Core.
 
 ## Safety verification
 

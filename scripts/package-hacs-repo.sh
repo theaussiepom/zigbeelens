@@ -37,7 +37,7 @@ from pathlib import Path
 
 manifest = Path("${DIST}/custom_components/zigbeelens/manifest.json")
 data = json.loads(manifest.read_text())
-data["documentation"] = "https://github.com/${OWNER}/zigbeelens-hacs"
+data["documentation"] = "https://github.com/${OWNER}/zigbeelens/blob/main/docs/hacs.md"
 data["issue_tracker"] = "https://github.com/${OWNER}/zigbeelens/issues"
 manifest.write_text(json.dumps(data, indent=2) + "\n")
 PY

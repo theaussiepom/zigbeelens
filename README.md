@@ -60,7 +60,7 @@ See [docs/safety-audit.md](docs/safety-audit.md) for the full safety audit.
 | Path | Current status | Artifact |
 |------|----------------|----------|
 | [Docker / Compose](docs/docker.md) | **Current portable deployment route**; choose released `latest`/`X.Y.Z` or explicit pre-release `edge`/`sha-*` | `ghcr.io/theaussiepom/zigbeelens` |
-| [HACS integration](docs/hacs.md) | **Pre-release testing — publication blocked**; custom repository use is deliberate testing only | `theaussiepom/zigbeelens-hacs` staging repository |
+| [Home Assistant integration](docs/hacs.md) | **Local/staged source testing only — public HACS satellite unsynchronized and publication blocked** | Generated `dist/zigbeelens-hacs/custom_components/zigbeelens` package |
 | [Home Assistant OS add-on](apps/addon/zigbeelens/README.md) | **Pre-release source — generated repository publication blocked** | Source-built runner and generated image-based package have different open gates |
 | [MQTT Discovery](docs/mqtt-discovery.md) | Optional summary HA entities without HACS | Core configuration |
 | [Topology](docs/topology.md) | Optional mesh enrichment — enabled by default with one startup scan | Core configuration |
@@ -115,12 +115,14 @@ This quick start builds the current checkout locally. For released or
 workflow-built images, choose the channel explicitly in
 [docs/docker.md](docs/docker.md).
 
-### Home Assistant / HACS integration
+### Home Assistant integration
 
-**Pre-release testing — publication blocked.** The custom HACS repository may
-be used only for deliberate pre-release testing while the polling,
-compatibility, repair, minimum-version, manifest, and official-validation gates
-in [docs/hacs.md](docs/hacs.md) remain open.
+**Local/staged source testing only.** The public HACS satellite is not
+synchronized with the reviewed package and must not be used to validate this
+branch. Generate and manually install the integration from this checkout as
+described in [docs/hacs.md](docs/hacs.md). Synchronizing or publishing the
+satellite requires a separate explicitly authorized task after its runtime,
+version-identity, compatibility, and official-validation gates close.
 
 The optional integration gives Home Assistant:
 
@@ -135,8 +137,9 @@ For Docker users, an HTTP Core URL such as `http://192.168.1.10:8377` is fine. T
 
 The optional **Try Embedded View** button can show the full dashboard inside Home Assistant only when browser security allows it. In practice, if Home Assistant is served over HTTPS, the ZigbeeLens Core URL also needs to be HTTPS for embedded view to work.
 
-You do not need HTTPS or a reverse proxy for normal HACS use. Change the Core
-URL under **Settings → Devices & services → ZigbeeLens → Reconfigure**.
+You do not need HTTPS or a reverse proxy for the native, non-embedded companion
+path. Change the Core URL under **Settings → Devices & services → ZigbeeLens →
+Reconfigure**.
 
 Details: [docs/hacs.md](docs/hacs.md) · [docs/hacs-embedded-view.md](docs/hacs-embedded-view.md)
 

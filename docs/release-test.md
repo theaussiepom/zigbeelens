@@ -1,12 +1,14 @@
-# Pre-release smoke test — deployed GHCR image + HACS integration
+# Pre-release smoke test — deployed GHCR image + staged HA integration
 
-Use this guide to validate the **real** install path before tagging a release.
+Use this guide to validate the current local/staged integration path before
+tagging a release. The public HACS satellite is not synchronized with the
+reviewed package and is not evidence for this branch.
 
 | Item | Value |
 |------|-------|
 | GitHub owner | `theaussiepom` |
 | Main repo | https://github.com/theaussiepom/zigbeelens |
-| HACS repo | https://github.com/theaussiepom/zigbeelens-hacs |
+| Public HACS satellite | `theaussiepom/zigbeelens-hacs` — unsynchronized; do not install for this branch test |
 | Add-on repo | https://github.com/theaussiepom/zigbeelens-addons |
 | GHCR image | `ghcr.io/theaussiepom/zigbeelens` |
 | Pre-release tag | **`edge`** (rolling image from `main`) |
@@ -34,8 +36,10 @@ Before you start, confirm:
 - [ ] You have MQTT credentials ready (do **not** commit them)
 - [ ] Port **8377** is free on the Docker host
 - [ ] GHCR image is public: `docker pull ghcr.io/theaussiepom/zigbeelens:edge`
-- [ ] Home Assistant can reach the Docker host IP on port 8377 (for HACS test)
-- [ ] HACS is installed in Home Assistant
+- [ ] Home Assistant can reach the Docker host IP on port 8377 (for the staged
+      companion test)
+- [ ] You can install a manual custom component and fully restart the clean
+      Home Assistant test instance
 
 ## Security acknowledgement
 
@@ -343,16 +347,25 @@ Run against the release-test data volume (or a copy). Prefer Core stopped for `-
 
 ---
 
-## 4. Install HACS integration
+## 4. Install the locally staged integration
 
-1. **HACS → Integrations → Custom repositories**
-2. Repository URL: **https://github.com/theaussiepom/zigbeelens-hacs**
-3. Category: **Integration**
-4. Install **ZigbeeLens**
-5. Restart Home Assistant if prompted
-6. **Settings → Devices & services → Add Integration → ZigbeeLens**
-7. Enter Core URL (see below)
-8. Keep the companion panel enabled (default)
+1. From the monorepo root, generate and validate the reviewed package:
+
+   ```bash
+   ./scripts/package-hacs-repo.sh
+   bash dist/zigbeelens-hacs/scripts/validate-hacs-repo.sh
+   ```
+
+2. On a clean test instance, copy
+   `dist/zigbeelens-hacs/custom_components/zigbeelens/` so its contents land at
+   `<home-assistant-config>/custom_components/zigbeelens/` (`/config/custom_components/zigbeelens/`
+   on a typical HAOS installation). Copy only that integration directory; do
+   not copy the whole staged repository or merge package versions.
+3. Perform a full Home Assistant restart.
+4. Open **Settings → Devices & services → Add Integration → ZigbeeLens**.
+5. Enter the Core URL below and keep the companion panel enabled.
+
+Do not use the unsynchronized public HACS satellite to validate this branch.
 
 ### Core URL examples
 
@@ -366,20 +379,23 @@ Use a URL **reachable from Home Assistant**, not only from your browser.
 
 Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens share the same network namespace.
 The current add-on uses `ports: {}` in a separate namespace, so it does not
-provide a portable HACS Core URL; its documented access path is the Ingress UI.
+provide a portable Home Assistant integration Core URL; its documented access
+path is the Ingress UI.
 
-### HACS smoke checklist
+### Staged integration smoke checklist
 
-- [ ] Custom repository added: https://github.com/theaussiepom/zigbeelens-hacs
+- [ ] Generated package validator passed
+- [ ] The reviewed `custom_components/zigbeelens` directory is installed at the
+      Home Assistant configuration path
 - [ ] Integration installs without errors
-- [ ] Restart completed if required
+- [ ] Full Home Assistant restart completed
 - [ ] Config flow accepts Core URL
-- [ ] Trusted-open Core + blank HACS token succeeds
+- [ ] Trusted-open Core + blank Core API token succeeds
 - [ ] Protected Core + missing/wrong token → invalid auth / reauth (not a misleading unreachable loop)
 - [ ] Protected Core + correct token → entities/panel/repairs work
 - [ ] Rotate Core token → HA linked reauth → enter new token → updates recover
 - [ ] Diagnostics show `api_token_configured` and contain no token value
-- [ ] Open Full Dashboard still uses standalone login (no HACS token in URL)
+- [ ] Open Full Dashboard still uses standalone login (no integration token in URL)
 - [ ] Factual lifecycle entities still appear (active incident, unavailable devices, network count, device count)
 - [ ] Decision entities appear (`overall_decision`, review-first, worth-reviewing, coverage warnings, and per-network decision)
 - [ ] Per-network sensors appear (`Home`, `Home 2`)
@@ -486,7 +502,7 @@ If you fix issues in the monorepo:
 3. `docker pull ghcr.io/theaussiepom/zigbeelens:edge`
 4. Re-run this checklist
 
-Re-sync HACS repo if integration source changed:
+Regenerate the local HACS staging tree if integration source changed:
 
 ```bash
 ./scripts/package-hacs-repo.sh
@@ -494,9 +510,12 @@ Re-sync HACS repo if integration source changed:
 ```
 
 `dist/zigbeelens-hacs` is a freshly generated staging directory, not a Git
-checkout. Review it, then synchronize its contents into a separate clean clone
-of `theaussiepom/zigbeelens-hacs`; inspect that clone's diff and commit/push
-there. Do not run Git publication commands inside `dist/zigbeelens-hacs`.
+checkout or authorization to publish. Do not synchronize or push the public
+satellite from this guide. A separate explicitly authorized publication task
+must first prove exact staged/satellite tree equality, assign a version that
+uniquely identifies that tree, pass exact-minimum/current Home Assistant plus
+official HACS/hassfest validation, and then inspect the external repository
+diff before publication.
 
 ---
 

@@ -49,7 +49,7 @@ for f in "${REQUIRED[@]}"; do
 done
 
 python3 - <<PY
-import json, sys
+import json, re, sys
 from pathlib import Path
 
 root = Path("${ROOT}")
@@ -67,6 +67,17 @@ if manifest.get("iot_class") != "local_polling":
     sys.exit("manifest iot_class must be local_polling")
 if not manifest.get("codeowners"):
     sys.exit("manifest codeowners required")
+documentation = manifest.get("documentation")
+if not isinstance(documentation, str) or re.fullmatch(
+    r"https://github\.com/[^/]+/zigbeelens/blob/main/docs/hacs\.md",
+    documentation,
+) is None:
+    sys.exit(
+        "manifest documentation must point to the monorepo's current "
+        "docs/hacs.md status guide"
+    )
+if "zigbeelens-hacs" in documentation.lower():
+    sys.exit("manifest documentation must not point to the public HACS satellite")
 strings = json.loads((root / "custom_components/zigbeelens/strings.json").read_text())
 translations = json.loads((root / "custom_components/zigbeelens/translations/en.json").read_text())
 if "issues" not in strings or "incompatible_core_version" not in strings["issues"]:
@@ -123,9 +134,19 @@ require_readme "fallback"
 require_readme "native companion summary (default)"
 require_readme "try embedded view"
 require_readme "back to summary"
-require_readme "pre-release testing only"
-require_readme "publication is blocked"
+require_readme "release status — local/staged integration only"
+require_readme "public hacs installation is unavailable"
+require_readme "not synchronized"
+require_readme "must not be used to validate"
+require_readme "local staged integration testing"
+require_readme "full home assistant restart"
+require_readme "conditional public hacs installation"
+require_readme "reviewed public-satellite state (**2026-07-23**)"
+require_readme "staged tree must match the intended satellite tree"
+require_readme "version must uniquely identify that tree"
+require_readme "exact home assistant 2025.1.0 plus current-version coverage"
 require_readme "official hacs and hassfest"
+require_readme "explicit publication authorization"
 
 if grep -Eqi 'does \*\*not\*\* create per-priority or per-device-story entities|does not create per-priority or per-device-story entities' <<<"${README}"; then
   ok "README distinguishes summary entities from per-priority/device-story entities"
@@ -149,6 +170,15 @@ if grep -Eqi 'same-protocol auto-embed|same protocol auto-embed' <<<"${README}";
   fail "README must not document stale same-protocol auto-embed behavior"
 else
   ok "README omits stale same-protocol auto-embed behavior"
+fi
+CURRENT_README="${README%%## conditional public hacs installation*}"
+if grep -Eqi \
+  'https://github\.com/[^[:space:]`]+/zigbeelens-hacs|hacs[[:space:]]*(→|->)[[:space:]]*integrations[[:space:]]*(→|->)[[:space:]]*custom repositories|pre-release install via hacs|hacs is required|requires[^.]{0,120}hacs|(^|[^[:alnum:]_])(install|add|use)([^[:alnum:]_]|$).{0,160}([^[:space:]]*/)?zigbeelens-hacs' \
+  <<<"${CURRENT_README}"
+then
+  fail "README current/local guidance must not direct testing through the public HACS satellite"
+else
+  ok "README keeps public-HACS installation inside the conditional future section"
 fi
 
 if grep -RniE 'password\s*=\s*["\x27][^"\x27]{8,}|api_key\s*=\s*["\x27]|hunter2|secret-pass' "${ROOT}/custom_components" 2>/dev/null; then

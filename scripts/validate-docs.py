@@ -253,6 +253,13 @@ def normalized_document(relative: str) -> str:
 
 def require_document_fragments(relative: str, fragments: tuple[str, ...]) -> int:
     normalized = normalized_document(relative)
+    return require_text_fragments(relative, normalized, fragments)
+
+
+def require_text_fragments(
+    label: str, text: str, fragments: tuple[str, ...]
+) -> int:
+    normalized = " ".join(text.split())
     missing = [
         fragment
         for fragment in fragments
@@ -260,7 +267,7 @@ def require_document_fragments(relative: str, fragments: tuple[str, ...]) -> int
     ]
     if missing:
         raise DocumentationError(
-            f"{relative}: missing documentation contract(s): " + ", ".join(missing)
+            f"{label}: missing documentation contract(s): " + ", ".join(missing)
         )
     return len(fragments)
 
@@ -459,6 +466,24 @@ def validate_hacs_proxy_image_truth() -> int:
         )
 
     embedded = (ROOT / "docs/hacs-embedded-view.md").read_text(encoding="utf-8")
+    stale_current_hacs_terms = (
+        "current HACS pre-release procedure",
+        "HACS Core URL",
+        "HACS sensors",
+        "HACS companion panel",
+        "future compatible released HACS/Core pair",
+        "enter the same token in HACS",
+        "For a HACS direct iframe",
+        "required for HACS over HTTPS",
+    )
+    stale_terms_found = [
+        term for term in stale_current_hacs_terms if term.lower() in embedded.lower()
+    ]
+    if stale_terms_found:
+        raise DocumentationError(
+            "docs/hacs-embedded-view.md: stale current-public-HACS ownership "
+            "wording found: " + ", ".join(stale_terms_found)
+        )
     required: dict[str, tuple[str, ...]] = {
         "A": (
             expected_beast,
@@ -474,7 +499,7 @@ def validate_hacs_proxy_image_truth() -> int:
             "not remote release-validation evidence",
         ),
         "C": (
-            "future compatible released HACS/Core pair",
+            "future compatible published companion/Core pair",
             "export ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge",
             "docker-compose.traefik.example.yaml up -d",
             "Keep `ZIGBEELENS_IMAGE` set",
@@ -488,7 +513,7 @@ def validate_hacs_proxy_image_truth() -> int:
             "`X.Y.Z`",
         ),
     }
-    assertions = 1
+    assertions = 1 + len(stale_current_hacs_terms)
     for label, fragments in required.items():
         section = option_section(embedded, label).lower()
         missing = [
@@ -563,22 +588,101 @@ def validate_shared_package_test_truth() -> int:
 
 def validate_companion_publication_truth() -> int:
     assertions = 0
-    ordered_sections = (
-        (
-            "docs/hacs.md",
-            "## Release status — pre-release testing only",
-            "## Pre-release install via HACS",
+    hacs_documents = (
+        "docs/hacs.md",
+        "apps/ha_integration/README.md",
+        "release/zigbeelens-hacs/README.md.in",
+    )
+    status_heading = "## Release status — local/staged integration only"
+    local_heading = "## Local staged integration testing"
+    future_heading = "## Conditional public HACS installation"
+    current_install_pattern = re.compile(
+        r"(?:https://github\.com/[^\s`)\]]+/zigbeelens-hacs(?:[^\s`)\]]*)?|"
+        r"HACS\s*→\s*Integrations\s*→\s*Custom repositories|"
+        r"pre-release install via HACS|HACS is required|"
+        r"requires[^\n.]{0,120}\bHACS\b|"
+        r"\b(?:install|add|use)\b[^\n]{0,160}"
+        r"\b(?:[A-Za-z0-9_.-]+/)?zigbeelens-hacs\b)",
+        flags=re.IGNORECASE,
+    )
+    local_install_contracts: dict[str, tuple[str, ...]] = {
+        "docs/hacs.md": (
+            "./scripts/package-hacs-repo.sh",
+            "dist/zigbeelens-hacs/custom_components/zigbeelens",
+            "<home-assistant-config>/custom_components/zigbeelens/",
+            "full Home Assistant restart",
+            "Do not add the public satellite",
         ),
-        (
-            "apps/ha_integration/README.md",
-            "## Release status — pre-release testing only",
-            "## Pre-release install via HACS",
+        "apps/ha_integration/README.md": (
+            "./scripts/package-hacs-repo.sh",
+            "dist/zigbeelens-hacs/custom_components/zigbeelens/",
+            "<home-assistant-config>/custom_components/zigbeelens/",
+            "full Home Assistant restart",
+            "Do not use the public HACS satellite",
         ),
-        (
-            "release/zigbeelens-hacs/README.md.in",
-            "## Release status — pre-release testing only",
-            "## Pre-release install via HACS",
+        "release/zigbeelens-hacs/README.md.in": (
+            "./scripts/package-hacs-repo.sh",
+            "custom_components/zigbeelens/",
+            "<home-assistant-config>/custom_components/zigbeelens/",
+            "full Home Assistant restart",
+            "Do not use the unsynchronized public satellite",
         ),
+    }
+    future_install_contracts: dict[str, tuple[str, ...]] = {
+        "docs/hacs.md": (
+            "staged tree matches the intended satellite tree",
+            "version uniquely identifies that tree",
+            "2025.1.0 plus current-version coverage",
+            "official HACS and hassfest validation",
+            "explicit publication authorization",
+        ),
+        "apps/ha_integration/README.md": (
+            "staged tree must match the intended satellite tree",
+            "version must uniquely identify that tree",
+            "2025.1.0 plus current coverage",
+            "official HACS and hassfest validation",
+            "explicit publication authorization",
+        ),
+        "release/zigbeelens-hacs/README.md.in": (
+            "staged tree must match the intended satellite tree",
+            "version must uniquely identify that tree",
+            "2025.1.0 plus current-version coverage",
+            "official HACS and hassfest validation",
+            "explicit publication authorization",
+        ),
+    }
+    for relative in hacs_documents:
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        indexes = tuple(
+            text.find(heading)
+            for heading in (status_heading, local_heading, future_heading)
+        )
+        if any(index < 0 for index in indexes) or indexes != tuple(sorted(indexes)):
+            raise DocumentationError(
+                f"{relative}: release status, local staged testing, and future "
+                "public HACS sections must appear in that order"
+            )
+        current_guidance = text[: indexes[2]]
+        if current_install_pattern.search(current_guidance):
+            raise DocumentationError(
+                f"{relative}: current guidance directs users to the "
+                "unsynchronized public HACS satellite"
+            )
+        local_guidance = text[indexes[1] : indexes[2]]
+        future_guidance = text[indexes[2] :]
+        assertions += require_text_fragments(
+            f"{relative} local staged integration section",
+            local_guidance,
+            local_install_contracts[relative],
+        )
+        assertions += require_text_fragments(
+            f"{relative} conditional public HACS section",
+            future_guidance,
+            future_install_contracts[relative],
+        )
+        assertions += 4
+
+    addon_ordered_sections = (
         (
             "apps/addon/zigbeelens/README.md",
             "## Release status — generated repository publication blocked",
@@ -590,15 +694,34 @@ def validate_companion_publication_truth() -> int:
             "## Conditional install after publication",
         ),
     )
-    for relative, status_heading, install_heading in ordered_sections:
+    for relative, addon_status_heading, install_heading in addon_ordered_sections:
         text = (ROOT / relative).read_text(encoding="utf-8")
-        status_index = text.find(status_heading)
+        status_index = text.find(addon_status_heading)
         install_index = text.find(install_heading)
         if status_index < 0 or install_index < 0 or status_index >= install_index:
             raise DocumentationError(
                 f"{relative}: publication status must precede install procedure"
             )
         assertions += 1
+
+    current_guidance_owners = (
+        "README.md",
+        "docs/release-test.md",
+        "docs/troubleshooting.md",
+    )
+    offenders = [
+        relative
+        for relative in current_guidance_owners
+        if current_install_pattern.search(
+            (ROOT / relative).read_text(encoding="utf-8")
+        )
+    ]
+    if offenders:
+        raise DocumentationError(
+            "current guidance points to the unsynchronized public HACS "
+            "satellite in: " + ", ".join(offenders)
+        )
+    assertions += len(current_guidance_owners)
 
     hacs_blockers = (
         "OptionsFlow",
@@ -624,10 +747,65 @@ def validate_companion_publication_truth() -> int:
         "README.md",
         (
             "Current portable deployment route",
-            "Pre-release testing — publication blocked",
+            "Local/staged source testing only",
+            "public HACS satellite unsynchronized",
             "Pre-release source — generated repository publication blocked",
         ),
     )
+    synchronization_gates: dict[str, tuple[str, ...]] = {
+        "RELEASE_CHECKLIST.md": (
+            "complete staged tree matches the intended",
+            "version uniquely identifies that tree",
+            "Exact Home Assistant 2025.1.0 minimum and a current",
+            "official HACS/hassfest checks",
+            "Explicit authorization",
+        ),
+        "docs/release-infra.md": (
+            "complete staged tree matches the intended satellite tree",
+            "version that uniquely identifies that exact tree",
+            "2025.1.0 plus current-version coverage",
+            "official HACS and hassfest validation",
+            "explicit publication authorization",
+        ),
+        "docs/release.md": (
+            "complete staged tree must match the intended satellite tree",
+            "version must uniquely identify that exact tree",
+            "2025.1.0 plus current-version coverage",
+            "official HACS and hassfest validation",
+            "explicit publication authorization",
+        ),
+    }
+    assertions += sum(
+        require_document_fragments(relative, fragments)
+        for relative, fragments in synchronization_gates.items()
+    )
+    manifest = json.loads(
+        (
+            ROOT
+            / "apps/ha_integration/custom_components/zigbeelens/manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    expected_documentation = (
+        "https://github.com/theaussiepom/zigbeelens/blob/main/docs/hacs.md"
+    )
+    if manifest.get("documentation") != expected_documentation:
+        raise DocumentationError(
+            "Home Assistant manifest documentation must point to the "
+            "monorepo's current HACS status guide"
+        )
+    hacs_generator = (ROOT / "scripts/package-hacs-repo.sh").read_text(
+        encoding="utf-8"
+    )
+    expected_generated_documentation = (
+        'data["documentation"] = '
+        '"https://github.com/${OWNER}/zigbeelens/blob/main/docs/hacs.md"'
+    )
+    if expected_generated_documentation not in hacs_generator:
+        raise DocumentationError(
+            "scripts/package-hacs-repo.sh: generated manifest documentation "
+            "must point to the monorepo's current HACS status guide"
+        )
+    assertions += 2
     assertions += require_document_fragments(
         "apps/addon/zigbeelens/README.md",
         (
@@ -664,6 +842,21 @@ def validate_companion_publication_truth() -> int:
 
 def validate_release_document_ownership() -> int:
     embedded = (ROOT / "docs/hacs-embedded-view.md").read_text(encoding="utf-8")
+    status_index = embedded.find(
+        "## Release status — local/staged integration only"
+    )
+    operational_index = embedded.find("## Lens family — embedded view decision tree")
+    first_option_index = embedded.find("## Option A")
+    if (
+        status_index < 0
+        or operational_index < 0
+        or first_option_index < 0
+        or not status_index < operational_index < first_option_index
+    ):
+        raise DocumentationError(
+            "docs/hacs-embedded-view.md: local/staged release status must "
+            "precede operational guidance"
+        )
     option_labels = re.findall(
         r"^## Option ([A-Z])\b", embedded, flags=re.MULTILINE
     )
@@ -673,14 +866,25 @@ def validate_release_document_ownership() -> int:
             f"sequential A-D, found {option_labels}"
         )
 
-    assertions = 1
+    assertions = 2
+    assertions += require_document_fragments(
+        "docs/hacs-embedded-view.md",
+        (
+            "public HACS satellite is not the reviewed staged package",
+            "future public HACS artifact",
+            "synchronization, version, validation, and explicit-publication gates",
+            "HACS integration release status",
+            "native companion experience",
+            "non-embedded companion path",
+        ),
+    )
     assertions += require_document_fragments(
         "docs/release.md",
         (
             "The current portable route is unconditional",
             "Fresh released Docker install",
             "If an add-on artifact was included and published",
-            "If the HACS integration was included",
+            "If the HACS integration was synchronized and published",
         ),
     )
     assertions += require_document_fragments(
@@ -694,6 +898,41 @@ def validate_release_document_ownership() -> int:
             "If an add-on was included and published",
         ),
     )
+
+    strict_command = (
+        "ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 bash scripts/validate-compose.sh"
+    )
+    strict_callers = (
+        "scripts/run-release-checks.sh",
+        ".github/workflows/ci.yml",
+        ".github/workflows/release-check.yml",
+    )
+    for relative in strict_callers:
+        if strict_command not in (ROOT / relative).read_text(encoding="utf-8"):
+            raise DocumentationError(
+                f"{relative}: release/CI Compose validation must be strict"
+            )
+        assertions += 1
+
+    assertions += require_document_fragments(
+        "scripts/validate-compose.sh",
+        (
+            "ZIGBEELENS_REQUIRE_DOCKER_COMPOSE",
+            "Docker/Compose source checks passed; rendering not run",
+            "Docker/Compose validation passed",
+        ),
+    )
+    strict_document_command = (
+        "ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 ./scripts/validate-compose.sh"
+    )
+    for relative in ("RELEASE_CHECKLIST.md", "docs/release.md"):
+        if strict_document_command not in (ROOT / relative).read_text(
+            encoding="utf-8"
+        ):
+            raise DocumentationError(
+                f"{relative}: strict Compose release command is missing"
+            )
+        assertions += 1
     return assertions
 
 

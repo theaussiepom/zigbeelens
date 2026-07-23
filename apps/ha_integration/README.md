@@ -2,7 +2,12 @@
 
 ZigbeeLens connects Home Assistant to **ZigbeeLens Core** — the read-only observability engine for Zigbee2MQTT. This integration is the Home Assistant companion surface: summary entities, a native companion panel, diagnostics, and repairs.
 
-The HACS sidebar panel is a polished **native companion panel** — a status and launcher surface, not the full product UI. The full ZigbeeLens dashboard is served by Core and opens in a new tab with one obvious button. This works for normal Docker installs **without a reverse proxy**, and avoids the browser mixed-content block that occurs when Home Assistant uses HTTPS and Core uses HTTP.
+The ZigbeeLens sidebar panel is a polished **native companion panel** — a
+status and launcher surface, not the full product UI. The full ZigbeeLens
+dashboard is served by Core and opens in a new tab with one obvious button.
+This works for normal Docker installs **without a reverse proxy**, and avoids
+the browser mixed-content block that occurs when Home Assistant uses HTTPS and
+Core uses HTTP.
 
 ## What this integration does
 
@@ -39,12 +44,14 @@ published add-on artifact may provide that packaged route after its publication
 gates close. The add-on manifest publishes no direct port, and this repository
 does not define a portable HACS-to-add-on backend URL.
 
-## Release status — pre-release testing only
+## Release status — local/staged integration only
 
-**Publication is blocked.** Use
-`https://github.com/theaussiepom/zigbeelens-hacs` as a custom repository only
-for deliberate pre-release testing. Docker/Compose is the current portable Core
-deployment route.
+**Public HACS installation is unavailable for this reviewed branch.** The
+public `theaussiepom/zigbeelens-hacs` satellite is not synchronized with this
+staged package and must not be used to validate the branch. Both materially
+different trees currently advertise version `0.1.13`. Synchronization,
+version-identity repair, and publication require a separate explicitly
+authorized task. Docker/Compose is the current portable Core deployment route.
 
 Custom polling persistence, missing/malformed-version compatibility, exact-v2
 Dashboard-shape repair guidance, exact-minimum Home Assistant coverage,
@@ -52,30 +59,49 @@ manifest `single_config_entry` metadata, and official HACS/hassfest validation
 remain open publication gates. Structural package validation does not close
 them.
 
-## Pre-release install via HACS
+## Local staged integration testing
 
-Requires Home Assistant **2025.1.0 or newer** and HACS.
+Use a clean Home Assistant test instance running **2025.1.0 or newer**. HACS is
+not used for this branch test.
 
 Package metadata declares that minimum, but the current test dependency uses
 `homeassistant>=2025.1.0` and resolves a newer release. Exact 2025.1.0 plus
 current-Home-Assistant matrix coverage remains a HACS publication gate.
 
-1. Run ZigbeeLens Core (see [docs/release-test.md](../../docs/release-test.md) for `:edge` pre-release testing).
-2. **HACS → Integrations → Custom repositories** → add the URL above (Category: Integration).
-3. Install **ZigbeeLens** and restart Home Assistant if prompted.
-4. **Settings → Devices & services → Add Integration → ZigbeeLens**.
+1. From the monorepo root, generate and validate the staged package:
+
+   ```bash
+   ./scripts/package-hacs-repo.sh
+   bash dist/zigbeelens-hacs/scripts/validate-hacs-repo.sh
+   ```
+
+2. Run ZigbeeLens Core (see
+   [docs/release-test.md](../../docs/release-test.md) for `:edge` pre-release
+   testing).
+3. Copy `dist/zigbeelens-hacs/custom_components/zigbeelens/` so its contents
+   land at
+   `<home-assistant-config>/custom_components/zigbeelens/`. On HAOS the
+   configuration root is normally `/config`. Copy only the integration
+   directory, use a clean destination, and replace an existing copy as one unit
+   while Home Assistant is stopped.
+4. Perform a full Home Assistant restart.
+5. Open **Settings → Devices & services → Add Integration → ZigbeeLens**.
+
+Do not use the public HACS satellite for this test.
 
 Only one ZigbeeLens config entry/Core target is supported. The config flow
 rejects a second entry; declarative `single_config_entry` manifest metadata is
 not yet present and remains a packaging-alignment gate.
 
-Monorepo packaging for maintainers:
+Monorepo staging for maintainers:
 
 ```bash
 ./scripts/package-hacs-repo.sh
 ```
 
-Output: `dist/zigbeelens-hacs/` (push to the HACS repo).
+Output: `dist/zigbeelens-hacs/`. It is a generated validation/install stage,
+not a repository to push. Satellite synchronization requires a separate
+authorized publication task.
 
 ### Core URL and embedded view
 
@@ -86,6 +112,16 @@ HTTP Core URLs are the normal Docker path and work for the native companion pane
 The optional embedded dashboard view usually requires an **HTTPS Core URL** when Home Assistant is served over HTTPS. Change the Core URL through **Reconfigure** — no need to delete and re-add the integration.
 
 See [docs/hacs-embedded-view.md](../../docs/hacs-embedded-view.md) for HTTPS reverse proxy options (Traefik on Beast, Caddy example, etc.).
+
+## Conditional public HACS installation
+
+Public custom-repository installation is a future route only. Before restoring
+it, the staged tree must match the intended satellite tree, the package version
+must uniquely identify that tree, exact Home Assistant 2025.1.0 plus current
+coverage must pass, official HACS and hassfest validation must pass, and
+explicit publication authorization must be recorded. Only after those gates
+close may operators add the synchronized
+`https://github.com/theaussiepom/zigbeelens-hacs` repository in HACS.
 
 ## Configure
 
@@ -262,11 +298,15 @@ Tests live in `apps/ha_integration/tests/`.
 
 ## Upgrade or remove
 
-- Upgrade Core and the integration together when release notes require a newer
-  decision contract. Restart Home Assistant when HACS prompts for one.
+- For a local/staged update, stop Home Assistant, replace
+  `<home-assistant-config>/custom_components/zigbeelens` as one unit, and
+  perform a full restart.
 - To remove it, delete the ZigbeeLens config entry under **Settings → Devices &
-  services**, uninstall ZigbeeLens in HACS, and restart if prompted. Core and
-  its SQLite data are unaffected.
+  services**, stop Home Assistant, remove the manually installed
+  `custom_components/zigbeelens` directory, and restart. Core and its SQLite
+  data are unaffected.
+- HACS-managed upgrades apply only to a future synchronized, authorized public
+  artifact.
 
 ## Safety and security
 
