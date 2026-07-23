@@ -1,0 +1,7 @@
+{
+  "scope": "full",
+  "format": "json",
+  "redaction": {
+    "profile": "public_safe"
+  }
+}

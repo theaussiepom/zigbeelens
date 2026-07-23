@@ -102,6 +102,12 @@ Assistant’s server-side HTTP client (never in panel/iframe URLs). The Home
 Assistant add-on UI authenticates through Supervisor ingress identity (exact
 trusted peer + `X-Remote-User-Id`); no API token is required to open that UI.
 
+That paragraph describes the source add-on security contract. The current
+image-based add-on package is not publication-ready: its entrypoint generates
+Ingress configuration but omits optional API-token file installation, and
+HAOS `/data` writability under the standalone image UID still needs a packaged
+smoke test.
+
 Bearer and session authentication authenticate the HTTP request. They do **not**
 replace TLS on untrusted networks.
 
@@ -304,7 +310,7 @@ It **must not** be combined with `ZIGBEELENS_SECURITY_API_TOKEN` or `ZIGBEELENS_
 |--------|------------------------|------------------|---------------------|
 | Direct API (`curl`, scripts) | Open | Use `Authorization: Bearer` | Bearer only when optional add-on token is set |
 | Bundled UI | Trusted-open enters directly | Token login when `session_secret` is set | Opens through HA ingress; no token form |
-| HACS integration | Works | Configure the same Core API token | Configure the same optional add-on bearer token separately |
+| HACS integration | Works | Configure the same Core API token | No portable packaged add-on origin; optional token propagation is also blocked |
 
 Do not weaken bearer protection to preserve unauthenticated clients in authenticated mode. The add-on does not auto-copy tokens into HACS.
 
@@ -319,7 +325,7 @@ Do not weaken bearer protection to preserve unauthenticated clients in authentic
 
 | Install | Exposure |
 |---------|----------|
-| HAOS add-on | Via Home Assistant Ingress — Supervisor panel admin-only; Core enforces exact Supervisor peer identity |
+| HAOS add-on source | Via Home Assistant Ingress — Supervisor panel admin-only; packaged artifact remains blocked pending HAOS validation |
 | Docker standalone | Port 8377 when published — prefer loopback publish or a reviewed authenticated reverse proxy |
 | Dev | Loopback by default |
 

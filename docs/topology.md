@@ -1,153 +1,217 @@
 # Topology snapshots
 
-ZigbeeLens can capture **point-in-time Zigbee2MQTT network map snapshots** to enrich router risk and incident context. Topology is never required for core diagnostics to work.
+ZigbeeLens can ask Zigbee2MQTT for point-in-time network-map evidence. The
+result can add context to investigations, but topology is not required for
+passive diagnostics and is never proof of a current route or cause.
 
-## What topology snapshots do
+## Capture and storage
 
-- Ask Zigbee2MQTT for a network map via the single allowed request topic: `{base_topic}/bridge/request/networkmap`
-- Store a redacted snapshot with nodes, links, and counts
-- Enrich router risk and correlated incident evidence
-- Show snapshot status in Advanced Topology snapshots support and Settings
+A capture:
+
+1. publishes `{"type":"raw","routes":true}` to the single allowlisted request
+   topic `{base_topic}/bridge/request/networkmap`;
+2. receives the exact response topic
+   `{base_topic}/bridge/response/networkmap`;
+3. secret-scrubs the snapshot-level raw payload and parses nodes, neighbour
+   links, and route counts;
+4. stores the snapshot and parsed node/link rows in local SQLite.
+
+The parser currently operates on the received object before snapshot-level
+scrubbing, so parsed node/link `raw_json` rows may retain source fields that do
+not appear in public node/link projections. Parsed topology rows also include
+IEEE addresses and may include friendly names.
+Report redaction does not anonymize the topology tables themselves. Protect the
+SQLite database, its backups, and topology APIs as local diagnostic data.
+
+Network-map requests can temporarily make a Zigbee network less responsive,
+especially on larger networks. They never issue device `/set`, permit-join,
+remove, reset, configure, bind/unbind, OTA, or channel-change commands.
+
+## What the evidence means
+
+| Evidence | Safe interpretation |
+|----------|---------------------|
+| Observed neighbour link | A neighbour relationship Zigbee2MQTT reported at capture time |
+| Route hint | Directional route-table evidence present in the captured link (`route_count > 0`) |
+| Recent missing link | A relationship in recent earlier usable snapshots that was not present in the latest usable snapshot |
+| Last-known link | The most recently stored evidence available for a device when the latest evidence does not contain that relationship |
+| Suggested investigation link | A passive-derived reason to review two devices together; not topology evidence |
+
+Neighbour-table and route-table evidence are different. ZigbeeLens does not
+derive a route hint from LQI, adjacency, or a relationship label. A capture-time
+route hint does not identify a current route. A link absent from a later
+snapshot does not prove that a connection failed; sleepy devices can age out of
+neighbour tables.
+
+When a response is missing, incomplete, unparseable, or contains no usable
+node/link layout, ZigbeeLens reports limited/unavailable evidence. It does not
+turn unavailable evidence into a measured empty mesh.
 
 ## Product surfaces
 
-Primary comparison workflow:
+Primary device comparison:
 
 1. Devices → Device Detail
 2. Device Story
-3. Snapshot history (compare an earlier usable snapshot with the latest usable snapshot)
+3. Snapshot history (latest usable snapshot compared with a selected earlier
+   usable snapshot)
 
-Mesh NodeDrawer remains a compact inspector and links to full Device Detail
-instead of duplicating snapshot-history comparison.
+The Mesh device details panel links to full Device Detail rather than
+duplicating snapshot-history comparison.
 
-Advanced & support:
+Advanced and support routes:
 
-- `/topology` — landing for capture status and per-network raw snapshot entry
-- `/topology/:networkId` — exact point-in-time raw detail (collapsed node/link contents)
+- `/topology` — capture status and per-network raw snapshot entry
+- `/topology/:networkId` — exact point-in-time raw detail
 
-`topology.enabled` controls capture/collection posture, not authorization to read
-retained snapshots. When capture is disabled, configured networks and stored
-raw detail remain readable; manual capture actions stay hidden (UI requires both
-`topology.enabled` and `manual_capture_enabled`).
+Whole-network `GET /api/v1/topology/{network_id}/snapshots/compare` remains an
+API/debug capability, not a primary product workflow.
 
-Background `topology_updated` refresh failures keep the last accepted Device
-Detail snapshot history and `/topology/:networkId` raw detail visible, with a
-non-blocking retry notice.
-
-Whole-network `GET /api/topology/{network_id}/snapshots/compare` remains an
-API/debug capability, not a current product workflow.
+`topology.enabled` controls capture and response-subscription posture, not
+authorization to read retained snapshots. When capture is disabled, configured
+network cards and already stored snapshot detail remain readable; capture
+actions stay unavailable.
 
 ## Default behaviour
 
-Topology is **enabled by default**.
-
-After ZigbeeLens startup:
-
-1. Wait until the MQTT collector is connected
-2. Confirm each configured Zigbee2MQTT bridge is observed **online**
-3. Wait a short grace period so startup retained MQTT messages settle
-4. Request **one** topology snapshot per network
-
-After that startup snapshot, ZigbeeLens relies on **passive MQTT updates** (devices, availability, linkquality, bridge state) by default. Periodic active topology scans are **disabled** unless explicitly configured.
-
-## Why startup is delayed
-
-Network map requests can temporarily make a Zigbee network less responsive, especially on larger networks. ZigbeeLens therefore:
-
-- Does **not** request topology immediately at container start
-- Does **not** request topology before the MQTT collector is connected
-- Does **not** request topology before the Zigbee2MQTT bridge is observed online
-- Waits `startup_stable_delay_seconds` after collector + bridge readiness before the startup scan
-
-Manual capture still requires explicit user confirmation.
-
-## What ZigbeeLens can infer
-
-- Possible shared router/segment patterns in a snapshot
-- Topology evidence for incident context
-- Router risk enrichment (linked device counts)
-
-Language uses correlation, not certainty:
-
-- "Latest topology snapshot **suggests**…"
-- "This is **consistent with**…"
-
-## What ZigbeeLens cannot infer
-
-- Guaranteed current route
-- Root cause
-- RF interference proof
-- Permanent parent-child relationships
-
-Every topology-derived conclusion includes:
-
-> Topology is a point-in-time snapshot and may not reflect current routing.
-
-## Configuration
+The Core source defaults are:
 
 ```yaml
+features:
+  manual_network_map: false
+  automatic_network_map: false
+
 topology:
   enabled: true
+  manual_capture_enabled: false
+  automatic_capture_enabled: false
+  automatic_capture_interval_hours: 24
   startup_scan: true
   startup_stable_delay_seconds: 60
   refresh_interval_seconds: 0
-  manual_capture_enabled: false
-  automatic_capture_enabled: false
   capture_on_incident: false
   max_snapshots_per_network: 30
   warn_before_capture: true
 ```
 
-| Key | Default | Meaning |
-|-----|---------|---------|
-| `enabled` | `true` | Subscribe to topology responses and allow snapshot storage |
-| `startup_scan` | `true` | One active network map request per network after startup stability |
-| `startup_stable_delay_seconds` | `60` | Grace period after collector + bridge readiness before startup scan |
-| `refresh_interval_seconds` | `0` | Periodic active scans; `0` disables periodic polling |
-| `manual_capture_enabled` | `false` | UI/API manual capture (also needs `features.manual_network_map: true`) |
+In live mode, the default startup scheduler:
 
-Legacy periodic scheduling remains available via `automatic_capture_enabled` + `automatic_capture_interval_hours` when `refresh_interval_seconds` is `0`.
+1. waits for the MQTT collector to connect;
+2. waits until every configured Zigbee2MQTT bridge is observed online;
+3. waits `startup_stable_delay_seconds`;
+4. requests one snapshot per configured network.
 
-To disable topology entirely:
+This startup scan is configuration-authorized. It is not a manual action and
+does not wait for a UI confirmation. After it completes, periodic active scans
+are off by default and Core continues using passive MQTT evidence.
+
+Disable capture and the topology response subscription with:
 
 ```yaml
 topology:
   enabled: false
+```
+
+To retain topology response-subscription posture but skip the startup request:
+
+```yaml
+topology:
+  enabled: true
   startup_scan: false
 ```
 
+## Periodic capture
+
+With `topology.enabled: true`, `refresh_interval_seconds > 0` selects periodic
+capture at that interval without requiring the two older automatic-capture
+flags. When it is `0`, the hours-based path runs only if all of these are
+enabled:
+
+```yaml
+features:
+  automatic_network_map: true
+
+topology:
+  enabled: true
+  automatic_capture_enabled: true
+  automatic_capture_interval_hours: 24
+```
+
+Periodic capture waits for collector and bridge readiness. Only one capture can
+be pending in a Core process at a time. `capture_on_incident` is accepted by the
+current configuration model but does not currently schedule an
+incident-triggered capture.
+
+Keep `refresh_interval_seconds: 0` whenever `topology.enabled` is false. The
+current scheduler/status path can appear active for a positive interval while
+the capture service rejects every request because topology is disabled.
+
+## Manual capture
+
+Manual capture requires both feature gates:
+
+```yaml
+features:
+  manual_network_map: true
+
+topology:
+  enabled: true
+  manual_capture_enabled: true
+```
+
+The request must acknowledge the load warning with an exact JSON boolean:
+
+```bash
+curl -X POST http://localhost:8377/api/v1/topology/home/capture \
+  -H 'Content-Type: application/json' \
+  -d '{"confirmed": true, "reason": "manual_user_capture"}'
+```
+
+Add bearer authentication, or browser-session Origin and CSRF headers, when
+required by the deployment. `"confirmed": "true"` is invalid.
+
 ## API
+
+`/api/v1` is preferred; the same handlers are also mounted under `/api`.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/api/topology` | Overview per network |
-| GET | `/api/topology/{network_id}` | Latest snapshot nodes/links |
-| GET | `/api/topology/{network_id}/snapshots` | History |
-| POST | `/api/topology/{network_id}/capture` | Manual capture (`confirmed: true` required) |
+| GET | `/api/v1/topology` | Capture/status overview per network |
+| GET | `/api/v1/topology/{network_id}` | Latest complete snapshot plus evidence/layout facts |
+| GET | `/api/v1/topology/{network_id}/evidence-graph` | Composed current, historical, and passive-derived evidence |
+| GET | `/api/v1/topology/{network_id}/snapshots` | Snapshot history |
+| GET | `/api/v1/topology/{network_id}/snapshots/{snapshot_id}` | Exact stored snapshot detail |
+| GET | `/api/v1/topology/{network_id}/snapshots/compare` | Whole-network debug comparison |
+| GET | `/api/v1/topology/{network_id}/devices/{ieee_address}/snapshot-history` | Device-led history and comparison |
+| POST | `/api/v1/topology/{network_id}/capture` | Manual capture; gated and confirmed |
 
 ## Home Assistant enrichment
 
-Optional HA area/device mapping can be pushed to Core:
+Core also exposes ZigbeeLens-local enrichment storage:
 
 | Method | Path |
 |--------|------|
-| GET | `/api/enrichment/status` |
-| POST | `/api/enrichment/homeassistant` |
-| DELETE | `/api/enrichment/homeassistant` |
+| GET | `/api/v1/enrichment/status` |
+| POST | `/api/v1/enrichment/homeassistant` |
+| DELETE | `/api/v1/enrichment/homeassistant` |
 
-The HACS integration can push redacted registry mappings when `enable_home_assistant_enrichment` is enabled. Core still works fully without HA enrichment.
+The POST matches a supplied device by IEEE (high confidence) or by friendly
+name within a supplied network (medium confidence), then stores the supplied
+Home Assistant device/area metadata. The current HACS integration does not
+automatically push registry enrichment; these endpoints are for a reviewed
+client or manual integration. Core works without enrichment.
 
-Matching confidence:
+## Safety summary
 
-- **high** — IEEE address match
-- **medium** — friendly name match within network
-- **low** — heuristics only; not used for strong conclusions
+- Collector subscriptions and topology publishing are separate paths.
+- Only the exact configured-network `bridge/request/networkmap` topic is
+  allowlisted for topology.
+- The request uses QoS 0 and is not retained.
+- Manual capture is feature-gated and confirmed.
+- Startup capture is controlled by explicit configuration defaults and waits
+  for readiness.
+- Evidence remains capture-time, incomplete, and non-causal.
 
-## Safety
-
-- Only `{base_topic}/bridge/request/networkmap` is allowlisted for Zigbee2MQTT requests
-- Collector remains subscribe-only
-- No permit join, remove, reset, configure, bind, OTA, or channel changes
-- Manual capture shows a clear warning in UI and API
-
-See also [HACS integration](hacs.md) and [MQTT Discovery](mqtt-discovery.md).
+See [safety-audit.md](safety-audit.md),
+[ubiquitous-language.md](ubiquitous-language.md), and
+[troubleshooting.md](troubleshooting.md).

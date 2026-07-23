@@ -1,6 +1,11 @@
 # HTTP API
 
-ZigbeeLens Core exposes a read-only JSON API for the dashboard, Home Assistant integration, and external tools.
+ZigbeeLens Core exposes a JSON API for the dashboard, Home Assistant
+integration, and external tools. Zigbee device behaviour is read-only.
+Authenticated mutations manage ZigbeeLens-local reports, browser sessions,
+topology capture records, and Home Assistant enrichment. A topology capture
+also emits the separately allowlisted diagnostic network-map request described
+in [topology.md](topology.md); it is not a device-control write.
 
 ## API prefix
 
@@ -12,17 +17,61 @@ Existing `/api/*` routes remain available for backward compatibility. Both prefi
 |----------------|--------------|
 | `GET /api/v1/health` | `GET /api/health` |
 | `GET /api/v1/dashboard` | `GET /api/dashboard` |
-| `GET /api/v1/capabilities` | — |
-| `GET /api/v1/status` | — |
+| `GET /api/v1/capabilities` | `GET /api/capabilities` |
+| `GET /api/v1/status` | `GET /api/status` |
 | `GET /api/v1/events/stream` | `GET /api/events/stream` |
 | `GET /api/v1/reports` | `GET /api/reports` |
 | `GET /api/v1/storage/status` | `GET /api/storage/status` |
 
-All other public routes under `/api/` are also mounted at `/api/v1/` (devices, incidents, networks, topology, enrichment, config status, version, scenarios).
+All other API routes under `/api/` are also mounted at `/api/v1/` (devices,
+incidents, networks, topology, enrichment, config status, version, scenarios).
 
 ## Authentication
 
-Protected routes under `/api` and `/api/v1` accept `Authorization: Bearer <token>`, a valid browser session cookie, or (in `home_assistant_ingress` mode) a Supervisor-injected ingress identity from an exact trusted ASGI peer. Public endpoints are `GET /healthz`, `GET /api/version`, `GET /api/v1/version`, and `GET /api/auth/session` (plus `/api/v1` aliases; static UI may be proxy-only in add-on posture). Session login is `POST /api/auth/session` (bearer bootstrap). Cookie-authenticated mutations require an exact browser `Origin` and `X-ZigbeeLens-CSRF-Token`; ingress-authenticated mutations do not. Do not send `X-Remote-User-*` as a client credential — OpenAPI does not advertise those headers. See [security.md](security.md).
+The same authentication policy applies under both API prefixes.
+
+| Method | Contract |
+|--------|----------|
+| Trusted local | `security.mode: local` with no API token admits protected reads and mutations as `trusted_local`. Session bootstrap is not available. |
+| Bearer | `Authorization: Bearer <token>`. A presented Authorization header always takes precedence; malformed or wrong bearer credentials fail with `401` and do not fall back to another method. Bearer mutations do not need Origin or CSRF. |
+| Browser session | Configure both `security.api_token` and `security.session_secret`, then exchange the bearer at `POST /api/v1/auth/session`. Reads accept the signed `zigbeelens_session` cookie. Cookie-authenticated `POST`, `PUT`, `PATCH`, and `DELETE` requests require one allowed `Origin` and one `X-ZigbeeLens-CSRF-Token`. |
+| Home Assistant ingress | In `home_assistant_ingress` mode, Core accepts a validated Supervisor user ID only from an exact configured ASGI peer. Ingress-authenticated mutations do not use Core session CSRF. Client-supplied `X-Remote-User-*` headers are not credentials. |
+
+`GET /api/v1/auth/session` is public and returns only session posture plus, for
+an authenticated Core browser session, its expiry and a CSRF token. It never
+returns a session ID, cookie value, API token, or Home Assistant user ID.
+`POST /api/v1/auth/session` is bearer-bootstrap only. `DELETE
+/api/v1/auth/session` is a mutation, so a browser session must send its allowed
+Origin and CSRF token when signing out.
+
+The always-public machine endpoints are `GET /healthz`, `GET /api/version`, and
+`GET /api/v1/version`; the two session-status aliases are also public. In
+Home Assistant proxy-only posture, direct access to the static UI is denied even
+though those probes remain available.
+
+See [security.md](security.md) for cookie attributes, origin rules, ingress
+trust, and configuration.
+
+### Error responses
+
+Explicit HTTP errors use FastAPI's JSON shape:
+
+```json
+{
+  "detail": "Report not found"
+}
+```
+
+Request-schema validation errors use `detail` as an array of validation
+entries. Authentication failures use the same non-revealing `401` detail for
+missing and invalid credentials and include `WWW-Authenticate: Bearer`.
+Session Origin and CSRF failures are `403`; trying to create a browser session
+when sessions are not configured is `409`.
+
+Report target existence is not a request-validation error today: an unknown
+network, incident, or unambiguous device target produces an exact-v3 report
+with an empty target plan. Ambiguous device identity is `422`. Verify a target
+with its read endpoint first when the caller requires `404` semantics.
 
 ## Core endpoints
 
@@ -32,27 +81,64 @@ Protected routes under `/api` and `/api/v1` accept `Authorization: Bearer <token
 
 ### Capabilities
 
-`GET /api/v1/capabilities` — stable feature flags for integrations (no secrets):
+`GET /api/v1/capabilities` — stable feature and contract flags for integrations
+(no secrets). A live configuration can return:
 
 ```json
 {
   "product": "zigbeelens",
-  "version": "0.1.0",
+  "version": "0.1.13",
+  "decision_contract_version": 2,
   "capabilities": {
     "dashboard": true,
     "sse": true,
     "reports": true,
-    "mqtt_discovery": true,
+    "mqtt_discovery": false,
     "home_assistant_enrichment": true,
-    "topology": false,
+    "topology": true,
     "mock_scenarios": true,
     "read_only_observability": true,
-    "mqtt_collector": true
+    "mqtt_collector": true,
+    "shared_decisions": true,
+    "decision_only_diagnostic_payloads": true,
+    "legacy_health_lens_payloads": false,
+    "companion_decision_summary": true,
+    "report_contract_v3": true,
+    "decision_mqtt_summary": true,
+    "bearer_authentication": true,
+    "browser_session_authentication": true,
+    "csrf_protection": true,
+    "exact_cors_allowlist": true,
+    "content_security_policy": true,
+    "frame_ancestor_allowlist": true,
+    "browser_origin_validation": true,
+    "home_assistant_ingress_identity": true,
+    "trusted_ingress_peer_enforcement": true,
+    "ingress_browser_authentication": true,
+    "retention_policy_v2": true,
+    "periodic_storage_maintenance": true,
+    "online_sqlite_backup_cli": true,
+    "storage_integrity_checks": true
+  },
+  "decision_surfaces": {
+    "dashboard_decision_summary": true,
+    "network_decision_badges": true,
+    "device_decision_badges": true,
+    "device_story": true,
+    "incident_device_decisions": true,
+    "report_decision_sections": true,
+    "dashboard_investigation_priorities": true,
+    "dashboard_data_coverage_warnings": true,
+    "report_device_stories": true
   }
 }
 ```
 
-Boolean values reflect configured features, not live collector success.
+`mqtt_discovery` reflects `features.mqtt_discovery`; effective Discovery still
+requires its separate `mqtt_discovery.enabled` flag. `topology` reflects
+`topology.enabled`. `mqtt_collector` reflects whether the collector is enabled
+for the current live/mock and MQTT configuration. These are capability/config
+facts, not broker connection success.
 
 ### Status
 
@@ -77,11 +163,17 @@ Optional query: `scenario` (mock mode only).
 
 ### Reports
 
-- `GET /api/v1/reports/preview` — generate preview without storing
-- `POST /api/v1/reports` — generate and store
-- `GET /api/v1/reports` — list stored reports
-- `GET /api/v1/reports/{id}` — fetch stored report
-- `GET /api/v1/reports/{id}/download` — download redacted export
+- `GET /api/v1/reports/preview` — return an exact `ReportDetailV3` without storing it
+- `POST /api/v1/reports` — generate and store; returns `ReportSummary`
+- `GET /api/v1/reports` — list `ReportSummary` rows for valid exact-v3 reports
+- `GET /api/v1/reports/{report_id}` — return the stored exact `ReportDetailV3`
+- `GET /api/v1/reports/{report_id}/download` — download the format selected when the report was created
+- `DELETE /api/v1/reports/{report_id}` — delete the local stored row; returns `{"deleted": true}`
+
+JSON, YAML, and Markdown downloads use `application/json`,
+`application/x-yaml`, and `text/markdown`, respectively. A malformed or non-v3
+stored row is omitted from the list and returns `404` from detail/download; it
+is not interpreted as a legacy report.
 
 See [reports.md](reports.md).
 
