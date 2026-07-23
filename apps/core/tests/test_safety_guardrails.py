@@ -54,18 +54,25 @@ def _production_ui_files(directory: Path) -> list[Path]:
         "test",
         "tests",
     }
-    return sorted(
-        path
-        for path in directory.rglob("*.tsx")
-        if not any(part in excluded_parts for part in path.parts)
-        and not path.name.endswith((".test.tsx", ".spec.tsx"))
-    )
+    files: list[Path] = []
+    for path in directory.rglob("*.tsx"):
+        relative = path.relative_to(directory)
+        if any(part in excluded_parts for part in relative.parts[:-1]):
+            continue
+        if path.name.endswith((".test.tsx", ".spec.tsx")):
+            continue
+        files.append(path)
+    return sorted(files)
 
 
 def _assert_ui_has_no_repair_controls(directory: Path) -> None:
     assert directory.is_dir(), f"Required production UI source is missing: {directory}"
+    files = _production_ui_files(directory)
+    assert files, (
+        f"UI safety guard discovered zero production TSX files under {directory}"
+    )
     hits: list[tuple[str, str]] = []
-    for path in _production_ui_files(directory):
+    for path in files:
         text = path.read_text(encoding="utf-8").lower()
         for pattern in UNSAFE_UI_PATTERNS:
             if pattern in text:
@@ -121,8 +128,12 @@ def test_ui_source_path_matches_monorepo_layout():
     """The release owner must scan the production UI inside apps/ui."""
     assert UI_SRC.relative_to(REPO_ROOT) == Path("apps/ui/src")
     assert UI_SRC.is_dir(), f"Required production UI source is missing: {UI_SRC}"
-    assert (UI_SRC / "main.tsx").is_file(), (
-        f"Expected production UI entrypoint is missing: {UI_SRC / 'main.tsx'}"
+    entrypoint = UI_SRC / "main.tsx"
+    assert entrypoint.is_file(), (
+        f"Expected production UI entrypoint is missing: {entrypoint}"
+    )
+    assert entrypoint in _production_ui_files(UI_SRC), (
+        f"Production UI entrypoint was excluded from the safety corpus: {entrypoint}"
     )
 
 
@@ -130,6 +141,16 @@ def test_ui_guard_fails_when_source_is_missing(tmp_path: Path):
     missing = tmp_path / "apps" / "ui" / "src"
     with pytest.raises(AssertionError, match="Required production UI source is missing"):
         _assert_ui_has_no_repair_controls(missing)
+
+
+def test_ui_guard_fails_when_production_corpus_is_empty(tmp_path: Path):
+    ui_src = tmp_path / "apps" / "ui" / "src"
+    ui_src.mkdir(parents=True)
+    with pytest.raises(
+        AssertionError,
+        match="UI safety guard discovered zero production TSX files",
+    ):
+        _assert_ui_has_no_repair_controls(ui_src)
 
 
 def test_ui_guard_rejects_deliberate_unsafe_control(tmp_path: Path):
@@ -159,6 +180,16 @@ def test_ui_file_enumerator_excludes_test_sources(tmp_path: Path):
         path.write_text("<button>Factory reset</button>\n", encoding="utf-8")
 
     assert _production_ui_files(ui_src) == [production]
+
+
+def test_ui_file_enumerator_ignores_excluded_checkout_ancestors(tmp_path: Path):
+    ui_src = tmp_path / "tests" / "generated" / "checkout" / "apps" / "ui" / "src"
+    production = ui_src / "components" / "DeviceActions.tsx"
+    production.parent.mkdir(parents=True)
+    production.write_text("<div>Evidence only</div>\n", encoding="utf-8")
+
+    assert _production_ui_files(ui_src) == [production]
+    _assert_ui_has_no_repair_controls(ui_src)
 
 
 def test_topology_startup_defaults_in_example_configs():
