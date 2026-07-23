@@ -67,7 +67,9 @@ You do **not** need HTTPS or a reverse proxy for:
 
 Alternatives to reverse proxy for embedded full UI:
 
-- **HAOS add-on + Ingress** — designed embedded path (same-origin through Home Assistant)
+- **HAOS add-on + Ingress (source-built/local pre-release testing)** —
+  same-origin path through Home Assistant today; treat it as a packaged route
+  only for a future published add-on artifact after publication gates close
 - **Open Full Dashboard** — no proxy
 
 ## Overview
@@ -132,6 +134,15 @@ For Beast-style Traefik stacks, see:
 
 These follow existing conventions (`local@file`, `authentik@file`, `securityHeadersZigbeeLens@file`, Cloudflare cert resolver, `underground` network). Create a matching Authentik provider for `zigbeelens.${DOMAIN}` before enabling the UI route.
 
+The Beast template deliberately hardcodes
+`ghcr.io/theaussiepom/zigbeelens:edge` for current-main/pre-release testing.
+That rolling image is not remote release validation. For a future compatible
+released HACS/Core pair, use the overrideable generic Traefik template in
+Option C or replace the Beast service's image entry with the matching `X.Y.Z`;
+released users are not required to use `edge`. Replace that same hardcoded
+entry with a compatible `sha-*` or local build when testing one exact
+current-main revision.
+
 **API bypass (required for HACS over HTTPS):** Home Assistant config flow calls `GET /api/health` (legacy; `GET /api/v1/health` is equivalent). If Authentik protects all paths, those requests get `302` and setup fails. Mirror the ThreadLens split:
 
 - **`zigbeelens-api`** — `PathPrefix(/api)`, priority 100, `local@file` + security headers, **no Authentik**
@@ -186,8 +197,13 @@ explicitly instead:
 
 ```bash
 cd ~/zigbeelens-https
-ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge docker compose up -d
+export ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge
+docker compose up -d
 ```
+
+Keep `ZIGBEELENS_IMAGE` set for later `docker compose pull` and
+`docker compose up -d` commands in that shell. `edge` is a rolling
+current-main test image, not remote release-validation evidence.
 
 Core is **not** published on `:8377` in this example — only Caddy on `:8443` (mapped to container 443).
 
@@ -245,15 +261,35 @@ If you still see blocked or certificate errors, see [Troubleshooting](#troublesh
 If you already run Traefik with TLS:
 
 1. Use `deploy/docker/docker-compose.traefik.example.yaml` as a template.
-2. Point DNS at your host (`zigbeelens.example.com`).
-3. Ensure the Traefik service disables response buffering if live SSE updates stall.
-4. Set HACS Core URL to `https://zigbeelens.example.com` (no port if 443).
+2. For a future compatible released HACS/Core pair, leave the released
+   `latest` default or pin its matching `X.Y.Z` image.
+3. For the current HACS pre-release procedure, select a compatible
+   current-main image explicitly:
+
+   ```bash
+   export ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge
+   docker compose -f deploy/docker/docker-compose.traefik.example.yaml up -d
+   ```
+
+   Keep `ZIGBEELENS_IMAGE` set for later pull/up commands. A compatible
+   `sha-*` image or local build may replace `edge`. This is not remote
+   release-validation evidence.
+4. Point DNS at your host (`zigbeelens.example.com`).
+5. Ensure the Traefik service disables response buffering if live SSE updates stall.
+6. Set HACS Core URL to `https://zigbeelens.example.com` (no port if 443).
 
 See [docker.md](docker.md#reverse-proxy--traefik) for SSE notes.
 
 ---
 
 ## Option D — nginx (manual)
+
+nginx does not select or start a ZigbeeLens Core image; it only proxies an
+already-running upstream. For the current HACS pre-release procedure, first
+start that upstream with `edge`, a compatible `sha-*`, or a local build by
+following [Current-main/pre-release validation](docker.md#current-mainpre-release-validation).
+For a future released HACS/Core pair, proxy its compatible pinned `X.Y.Z` or
+released `latest` image instead.
 
 Minimal location block (adjust hostname, cert paths, and upstream):
 
