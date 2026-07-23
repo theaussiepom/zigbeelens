@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import shutil
+import subprocess
 
+import pytest
 import yaml
 
 from zigbeelens.config import load_config
@@ -106,6 +110,72 @@ def test_canonical_compose_image_is_overrideable():
     assert image == (
         "${ZIGBEELENS_IMAGE:-ghcr.io/theaussiepom/zigbeelens:latest}"
     )
+
+
+def test_traefik_copied_layout_renders_with_edge_image(tmp_path: Path):
+    docker = shutil.which("docker")
+    require_compose = os.environ.get("ZIGBEELENS_REQUIRE_DOCKER_COMPOSE") == "1"
+    if docker is None:
+        if require_compose:
+            pytest.fail("Docker Compose is required, but the docker command was not found")
+        pytest.skip("Docker Compose is unavailable: docker command not found")
+
+    version = subprocess.run(
+        [docker, "compose", "version"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    if version.returncode != 0:
+        reason = version.stderr.strip() or version.stdout.strip() or "version check failed"
+        if require_compose:
+            pytest.fail(f"Docker Compose is required, but unavailable: {reason}")
+        pytest.skip(f"Docker Compose is unavailable: {reason}")
+
+    install_dir = tmp_path / "zigbeelens-traefik"
+    config_dir = install_dir / "config"
+    data_dir = install_dir / "data"
+    config_dir.mkdir(parents=True)
+    data_dir.mkdir()
+
+    compose_copy = install_dir / "docker-compose.yaml"
+    config_copy = config_dir / "config.yaml"
+    shutil.copy2(DOCKER / "docker-compose.traefik.example.yaml", compose_copy)
+    shutil.copy2(DOCKER / "config.example.yaml", config_copy)
+
+    assert config_copy.is_file()
+
+    edge_image = "ghcr.io/theaussiepom/zigbeelens:edge"
+    env = os.environ.copy()
+    env["ZIGBEELENS_IMAGE"] = edge_image
+    rendered = subprocess.run(
+        [
+            docker,
+            "compose",
+            "--env-file",
+            "/dev/null",
+            "-f",
+            compose_copy.name,
+            "config",
+        ],
+        cwd=install_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert rendered.returncode == 0, rendered.stderr
+
+    service = yaml.safe_load(rendered.stdout)["services"]["zigbeelens"]
+    assert service["image"] == edge_image
+    assert service["environment"]["ZIGBEELENS_CONFIG"] == "/config/config.yaml"
+    mounts = {mount["target"]: mount for mount in service["volumes"]}
+    assert Path(mounts["/config"]["source"]) == config_dir.resolve()
+    assert mounts["/config"]["read_only"] is True
+    assert (Path(mounts["/config"]["source"]) / "config.yaml").is_file()
+    assert Path(mounts["/data"]["source"]) == data_dir.resolve()
 
 
 def test_dockerfile_defaults():

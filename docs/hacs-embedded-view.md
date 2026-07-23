@@ -276,23 +276,69 @@ If you still see blocked or certificate errors, see [Troubleshooting](#troublesh
 
 If you already run Traefik with TLS:
 
-1. Use `deploy/docker/docker-compose.traefik.example.yaml` as a template.
-2. For a future compatible published companion/Core pair, leave the released
-   `latest` default or pin its matching `X.Y.Z` image.
-3. For the current local/staged integration procedure, select a compatible
-   current-main image explicitly:
+1. From the ZigbeeLens repository root, create a dedicated installation
+   directory and copy the maintained Compose and Core configuration examples:
+
+   ```bash
+   mkdir -p ~/zigbeelens-traefik/{config,data}
+   cp deploy/docker/docker-compose.traefik.example.yaml \
+     ~/zigbeelens-traefik/docker-compose.yaml
+   cp deploy/docker/config.example.yaml \
+     ~/zigbeelens-traefik/config/config.yaml
+   ```
+
+2. Before starting Core, edit the copied files:
+
+   - In `config/config.yaml`, set `mqtt.server`, each network's ID and
+     `base_topic`, and the required security settings. In particular, set the
+     browser-visible origin in `security.cors_allowed_origins` and the Home
+     Assistant origin in `security.frame_ancestor_origins` for embedded view.
+   - In `docker-compose.yaml`, replace `zigbeelens.example.com` with your
+     Traefik hostname.
+   - If the external proxy-network name is not `proxy`, change it in both the
+     service's `networks` list and the top-level `networks` definition.
+
+3. Change into the copied installation directory:
+
+   ```bash
+   cd ~/zigbeelens-traefik
+   ```
+
+4. For the current local/staged integration procedure, select a compatible
+   current-main image explicitly, validate the rendered configuration, pull
+   it, and start it:
 
    ```bash
    export ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge
-   docker compose -f deploy/docker/docker-compose.traefik.example.yaml up -d
+   docker compose config
+   docker compose pull
+   docker compose up -d
    ```
 
-   Keep `ZIGBEELENS_IMAGE` set for later pull/up commands. A compatible
-   `sha-*` image or local build may replace `edge`. This is not remote
-   release-validation evidence.
-4. Point DNS at your host (`zigbeelens.example.com`).
-5. Ensure the Traefik service disables response buffering if live SSE updates stall.
-6. Set the ZigbeeLens integration Core URL to
+   Keep `ZIGBEELENS_IMAGE` set for later `docker compose pull` and
+   `docker compose up -d` commands. An export lasts only for the current shell;
+   for later shells, export it again or persist the same assignment in
+   `~/zigbeelens-traefik/.env`:
+
+   ```dotenv
+   ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge
+   ```
+
+   A compatible published `sha-*` image may replace `edge` and use the same
+   pull/start sequence. A locally built tag may also replace `edge`, but omit
+   `docker compose pull` for that local-only image and run `docker compose
+   config` followed by `docker compose up -d`. These local/staged paths are not
+   remote release-validation evidence.
+
+5. For a future compatible published companion/Core pair, do not force
+   `edge`. Either remove the selector from `.env` and unset
+   `ZIGBEELENS_IMAGE` to use the default `latest` tagged release, or set it to
+   the exact matching `ghcr.io/theaussiepom/zigbeelens:X.Y.Z` release. Then
+   run `docker compose config`, `docker compose pull`, and
+   `docker compose up -d` from `~/zigbeelens-traefik`.
+6. Point DNS at your host (`zigbeelens.example.com`).
+7. Ensure the Traefik service disables response buffering if live SSE updates stall.
+8. Set the ZigbeeLens integration Core URL to
    `https://zigbeelens.example.com` (no port if 443).
 
 See [docker.md](docker.md#reverse-proxy--traefik) for SSE notes.
