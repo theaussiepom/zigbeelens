@@ -1,6 +1,6 @@
 # Pre-release smoke test — deployed GHCR image + HACS integration
 
-Use this guide to validate the **real** install path before tagging `v0.1.0`.
+Use this guide to validate the **real** install path before tagging a release.
 
 | Item | Value |
 |------|-------|
@@ -9,7 +9,19 @@ Use this guide to validate the **real** install path before tagging `v0.1.0`.
 | HACS repo | https://github.com/theaussiepom/zigbeelens-hacs |
 | Add-on repo | https://github.com/theaussiepom/zigbeelens-addons |
 | GHCR image | `ghcr.io/theaussiepom/zigbeelens` |
-| Pre-release tag | **`edge`** (from `main`; not `v0.1.0` yet) |
+| Pre-release tag | **`edge`** (rolling image from `main`) |
+
+## Phase 7 release boundary
+
+Phase 7A (PR #100) and Phase 7B (PR #101) are merged. Phase 7C1 aligns
+documentation. Current screenshot capture is Phase 7C2. The live checks in this
+guide are Phase 7D and remain incomplete until they are run against the actual
+Beast deployment.
+
+Do not treat local results as remote CI results. Record exact skips, xfails, and
+warnings. The known non-strict xfail is
+`test_incident_badge_matches_device_story_for_model_pattern` (`watch` versus
+`informational` Decision-surface mismatch); it is not a pass.
 
 ## Pre-flight checklist
 
@@ -18,7 +30,7 @@ Before you start, confirm:
 - [ ] Docker is running locally
 - [ ] You can reach your MQTT broker from the Docker host (host IP, not `localhost` inside container unless broker is on host network)
 - [ ] Zigbee2MQTT is running and publishing for both configured base topics
-- [ ] Base topics in config match your broker (defaults below are common; yours may differ — e.g. `home` / `home2` instead of `zigbee2mqtt` / `zigbee2mqtt-home2`). Verify with `mosquitto_sub -t '# -v'` or your broker UI before configuring networks.
+- [ ] Base topics in config match your broker (defaults below are common; yours may differ — e.g. `home` / `home2` instead of `zigbee2mqtt` / `zigbee2mqtt-home2`). Verify with `mosquitto_sub -t '#' -v` or your broker UI before configuring networks.
 - [ ] You have MQTT credentials ready (do **not** commit them)
 - [ ] Port **8377** is free on the Docker host
 - [ ] GHCR image is public: `docker pull ghcr.io/theaussiepom/zigbeelens:edge`
@@ -32,7 +44,7 @@ Before release testing, confirm you understand:
 - Core may require `Authorization: Bearer` for protected API routes when an API token is configured
 - Optional browser sessions need both API token and session secret; cookie mutations need exact `Origin` and `X-ZigbeeLens-CSRF-Token`
 - The bundled UI uses session login when both are configured; bearer-only Core shows a UI setup-required state
-- Add-on ingress identity: open UI through HA panel without API token; SSE and report download work; spoofed identity from another peer fails; optional bearer token enables HACS/direct API
+- The add-on package generates Home Assistant Ingress configuration, but its current image entrypoint omits optional token-file propagation and its UID-1000 `/data` behavior remains unverified; do not count packaged Ingress or bearer behavior as passed until the HAOS smoke succeeds
 - Diagnostics/logs contain neither API token nor Home Assistant user ID
 - ZigbeeLens is **read-only for Zigbee control** (no permit join, remove, reset, bind/unbind, OTA, or channel changes)
 - Some Core API routes modify **ZigbeeLens local data only** (reports, topology snapshots, HA enrichment)
@@ -150,7 +162,7 @@ networks:
 storage:
   path: /data/zigbeelens.sqlite
   retention_days: 7
-  # resolved_incident_retention_days: 90   # null/omit = keep indefinitely
+  # resolved_incident_retention_days: 90   # omitted = 90; explicit null = keep indefinitely
   # report_retention_days: null            # until manually deleted (default)
   # maintenance_interval_hours: 24
 
@@ -163,7 +175,10 @@ features:
   automatic_network_map: false
 
 topology:
-  enabled: false
+  enabled: true
+  startup_scan: true
+  startup_stable_delay_seconds: 60
+  refresh_interval_seconds: 0
   manual_capture_enabled: false
   automatic_capture_enabled: false
   capture_on_incident: false
@@ -274,11 +289,15 @@ Open the dashboard: **http://localhost:8377**
 - [ ] Image pulls from GHCR (`:edge`)
 - [ ] Container starts without crash loop
 - [ ] `/api/health` returns `"status": "ok"` (or equivalent healthy payload)
-- [ ] `/api/capabilities` returns `decision_contract_version == 1`
-- [ ] Capabilities include `shared_decisions` and `companion_decision_summary`
+- [ ] `/api/capabilities` returns exact `decision_contract_version == 2`
+- [ ] Capabilities include `shared_decisions`, `companion_decision_summary`, `decision_only_diagnostic_payloads`, and `report_contract_v3`
+- [ ] Capabilities report `legacy_health_lens_payloads: false`
 - [ ] Required Dashboard surfaces are advertised; `dashboard_recent_changes` is absent
 - [ ] `/api/dashboard` includes `investigation_priorities` and `data_coverage_warnings` lists
 - [ ] UI loads at `/`
+- [ ] Primary navigation is exactly Overview, Mesh / Investigate, Devices, Incidents, Reports, Settings
+- [ ] Advanced & support is exactly Networks, Timeline, Topology snapshots, How it works
+- [ ] `/routers` redirects to Mesh / Investigate; no standalone Routers navigation returns
 - [ ] Static assets load (no blank page / 404 on JS/CSS)
 - [ ] SQLite database created under mounted `/data` (`zigbeelens.sqlite`)
 - [ ] MQTT collector connects (`collector.connected: true` in `/api/health`)
@@ -288,7 +307,7 @@ Open the dashboard: **http://localhost:8377**
 - [ ] Devices list shows Device Story decision badges
 - [ ] Device Detail uses Device Story
 - [ ] Incidents separate recorded event from current device decisions
-- [ ] Reports Version 3 uses shared decisions (`device_stories` present)
+- [ ] Reports use exact integer `report_version: 3` and shared decisions (`device_stories` present)
 - [ ] Incidents appear only if real conditions warrant (empty is OK)
 - [ ] Settings page shows collector status and both networks
 - [ ] Settings storage section shows retention policy (telemetry / resolved incidents / reports) and no Purge/Vacuum/Backup controls
@@ -310,6 +329,8 @@ Open the dashboard: **http://localhost:8377**
 Run against the release-test data volume (or a copy). Prefer Core stopped for `--apply`; online backup is safe while Core runs.
 
 - [ ] Upgrade starts Core: migration version includes **012**, then integrity gates, then first maintenance cycle (check logs / Settings)
+- [ ] Schema 13 → 14 test: migration 014 deletes existing development-era `reports` rows once and leaves other tables intact
+- [ ] After migration 014, create an exact-v3 report, restart Core, and confirm the new report remains (the reset does not rerun)
 - [ ] `GET /api/storage/status` returns policy defaults (`telemetry_retention_days: 7`, resolved incidents `90`, `report_retention_days: null`)
 - [ ] Before first successful maintenance persistence, deletion totals may be `null`; after success, timestamps and counts are present
 - [ ] Integrity facts expose `quick_check` and `foreign_key_check` (`status` / `checked_at` / `violation_count`)
@@ -342,9 +363,10 @@ Use a URL **reachable from Home Assistant**, not only from your browser.
 | HA on another machine, ZigbeeLens on Docker host | `http://<docker-host-lan-ip>:8377` |
 | HA and ZigbeeLens on same Docker Compose network | `http://zigbeelens:8377` |
 | HA container, ZigbeeLens on host Docker | `http://<host-lan-ip>:8377` |
-| HAOS add-on (later) | `http://localhost:8377` only if Core is reachable inside HA namespace |
 
 Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens share the same network namespace.
+The current add-on uses `ports: {}` in a separate namespace, so it does not
+provide a portable HACS Core URL; its documented access path is the Ingress UI.
 
 ### HACS smoke checklist
 
@@ -358,28 +380,29 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 - [ ] Rotate Core token → HA linked reauth → enter new token → updates recover
 - [ ] Diagnostics show `api_token_configured` and contain no token value
 - [ ] Open Full Dashboard still uses standalone login (no HACS token in URL)
-- [ ] Existing summary entities still appear (overall health, active incident, counts)
+- [ ] Factual lifecycle entities still appear (active incident, unavailable devices, network count, device count)
+- [ ] Decision entities appear (`overall_decision`, review-first, worth-reviewing, coverage warnings, and per-network decision)
 - [ ] Per-network sensors appear (`Home`, `Home 2`)
-- [ ] No new decision entities appear for priorities / Device Stories
 - [ ] Existing entity unique IDs remain stable
 - [ ] No mutation controls/services appear
 - [ ] Sidebar **ZigbeeLens** entry appears
-- [ ] Same-scheme HA/Core stays on native summary until Try Embedded View
+- [ ] A browser-allowed HA/Core scheme combination stays on native summary until Try Embedded View
 - [ ] Mixed-content (HTTPS HA + HTTP Core) uses the native companion summary / blocked view
 - [ ] Back to Summary returns from embedded or blocked view to native summary
 - [ ] Diagnostics show `decision_contract_version`, `shared_decisions_available`, `core_version_compatible`
-- [ ] Contract v1 activates decision mode when Dashboard surfaces are valid lists
+- [ ] Exact contract v2 activates decision mode when Dashboard surfaces are valid lists
 - [ ] Panel priority label/title/summary match Core Dashboard exactly
 - [ ] Top-three priority cap and “+N more …” behaviour
 - [ ] Coverage warning count appears as a factual count
 - [ ] Decision mode has no Health authority badge and no Current finding card
 - [ ] Valid empty priorities show: `No current investigation priorities from stored evidence.`
-- [ ] Unsupported/malformed contract uses factual fallback mode
-- [ ] Disconnected Core shows compatibility Unknown, not Compatible
+- [ ] Unsupported/malformed/older/newer contract disables decision mode, raises the incompatibility repair, and does not restore Health/Lens diagnostic fallback
+- [ ] Exact-v2 capabilities plus missing/malformed Dashboard decision surfaces disable cards without the unsupported-contract/upgrade-Core repair (currently blocked: both states collapse into `shared_decisions_available: false`)
+- [ ] Disconnected, missing-version, and malformed-version Core states show compatibility Unknown, not Compatible, and cannot enable shared decisions (currently blocked: the compatibility helper returns true)
 - [ ] Open Full Dashboard opens Core in a new tab
 - [ ] Try Embedded View shows a friendly explanation if Home Assistant is HTTPS and Core is HTTP
 - [ ] Settings → Devices & services → ZigbeeLens → Reconfigure can change Core URL / token without delete/re-add
-- [ ] Configure (options) adjusts panel/polling only
+- [ ] Configure adjusts panel visibility and durably persists a 15–900-second polling interval (currently blocked: the empty OptionsFlow result overwrites the intermediate interval update)
 - [ ] If using an HTTPS Core URL, Try Embedded View displays the full dashboard inside Home Assistant
 - [ ] *(Optional advanced)* Caddy HTTPS stack from [hacs-embedded-view.md](hacs-embedded-view.md): Core URL updated, cert trusted, embedded view works
 - [ ] Core connected state appears
@@ -397,7 +420,7 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 ### Switch Core URL from HTTP to HTTPS (embedded view test)
 
 1. Put ZigbeeLens behind HTTPS (for Beast: `deploy/docker/docker-compose.beast-traefik.example.yaml` + Traefik headers middleware).
-2. In Home Assistant: **Settings → Devices & services → ZigbeeLens → Configure**.
+2. In Home Assistant: **Settings → Devices & services → ZigbeeLens → Reconfigure**.
 3. Change Core URL to the HTTPS address (for example `https://zigbeelens.theaussiepom.me`).
 4. Confirm validation succeeds (`GET /api/health`).
 5. Open the ZigbeeLens sidebar — native summary is the default; use **Try Embedded View** to enter iframe mode.
@@ -409,31 +432,45 @@ Do **not** use `http://localhost:8377` unless Home Assistant and ZigbeeLens shar
 
 - The **Core dashboard is canonical** — HACS does not build a second dashboard or drill-down pages.
 - The companion panel is a **status/launcher surface**: it renders a redacted summary supplied by the integration over the HA websocket, so the browser never fetches Core directly for the summary.
-- Native summary is the default; same-scheme setups can opt into embedded Core via Try Embedded View; mixed content cannot embed.
+- Native summary is the default; scheme combinations allowed by browser
+  mixed-content rules can opt into embedded Core via Try Embedded View.
 - **Open Full Dashboard** opens Core in a new tab and remains the reliable investigation route.
 - **Try Embedded View** is optional and only works when browser security allows embedding; **Back to Summary** exits iframe mode.
-- Decision mode (contract v1) applies only on the native summary path.
+- Decision mode (exact contract v2) applies only on the native summary path.
 - Optional HTTPS reverse proxy for embedded view: [hacs-embedded-view.md](hacs-embedded-view.md)
 
 ---
 
 ## 4b. Add-on validation path
 
+The current packaged add-on is blocked from publication. Do not interpret the
+structural checks below as closing these runtime gaps.
+
 - [ ] `./scripts/validate-addon.sh`
 - [ ] `./scripts/prepare-addon.sh`
 - [ ] Optional: `./scripts/build-addon.sh` when Docker is available
+- [ ] Packaged image entrypoint matches the add-on startup contract (option conversion, exact Ingress security, `/data` writability, optional token-file install/export)
+- [ ] `security.api_token` option reaches Core; bearer smoke succeeds
+- [ ] Add-on `reporting.max_*` values reject zero, matching Core's minimum of one
+- [ ] An omitted report profile uses the configured `reporting.default_profile`, or that ineffective option is removed
+- [ ] Unused report options are implemented or removed
+- [ ] HACS-to-add-on reachability is implemented and documented without assuming `localhost` across namespaces, or declared unsupported
 - [ ] Ingress loads current Core UI
-- [ ] `/api/capabilities` exposes contract v1
+- [ ] `/api/capabilities` exposes exact contract v2
 - [ ] No separate add-on decision wording layer
 - [ ] Topology startup-scan policy matches documented safety limits
+- [ ] Non-Supervisor spoof of Ingress identity fails
 
 ## 5. Safety checks (pre-release)
 
 - [ ] MQTT Discovery **disabled** in config (`features.mqtt_discovery: false`)
 - [ ] Topology enabled with startup scan only (`topology.startup_scan: true`, `refresh_interval_seconds: 0`)
-- [ ] `/api/health` shows subscribe-only collector (no publish to Zigbee2MQTT topics)
+- [ ] `/api/health` shows the collector is subscribe-only; any topology publish is limited to the allowlisted confirmed/startup network-map request
 - [ ] Reports redacted before download
 - [ ] No permit join / remove / reset controls in UI
+- [ ] Discovery broker last will is validated against Zigbee2MQTT base topics before registration
+- [ ] Disabled topology plus a positive refresh interval does not advertise a scheduler that only rejects captures
+- [ ] Parsed topology `raw_json` has a reviewed local-storage scrub/retention contract
 - [ ] **No Scenario selector** in the header (it is dev-only; the published image builds without `VITE_ENABLE_SCENARIOS`)
 
 > The Scenario (mock fixture) selector appears only on the Vite dev server, or in a build explicitly opted in with `VITE_ENABLE_SCENARIOS=true pnpm --filter @zigbeelens/ui build`. The published image never sets it.
@@ -453,8 +490,13 @@ Re-sync HACS repo if integration source changed:
 
 ```bash
 ./scripts/package-hacs-repo.sh
-cd dist/zigbeelens-hacs && git add -A && git commit -m "Sync from monorepo" && git push
+./dist/zigbeelens-hacs/scripts/validate-hacs-repo.sh
 ```
+
+`dist/zigbeelens-hacs` is a freshly generated staging directory, not a Git
+checkout. Review it, then synchronize its contents into a separate clean clone
+of `theaussiepom/zigbeelens-hacs`; inspect that clone's diff and commit/push
+there. Do not run Git publication commands inside `dist/zigbeelens-hacs`.
 
 ---
 
@@ -462,7 +504,10 @@ cd dist/zigbeelens-hacs && git add -A && git commit -m "Sync from monorepo" && g
 
 HAOS add-on store: https://github.com/theaussiepom/zigbeelens-addons
 
-Uses GHCR image `ghcr.io/theaussiepom/zigbeelens`. Add-on version `0.1.0` pulls `:0.1.0` once that tag exists; use `:edge` via standalone Docker for pre-release testing.
+The add-on release version must match the versioned
+`ghcr.io/theaussiepom/zigbeelens` image. Use `:edge` via standalone Docker only
+for pre-release testing. Do not publish the add-on repository until every
+runtime blocker in §4b is closed against the packaged HAOS artifact.
 
 ---
 

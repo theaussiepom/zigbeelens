@@ -19,6 +19,15 @@ is described in historical CHANGELOG notes.
 | Internal health engine | Retained for evaluation / incidents; not public authority |
 | Operational health | `/api/health`, `/healthz` unchanged |
 
+## Release-work boundary
+
+Phase 7A and Phase 7B are merged. Phase 7C1 updates current documentation to
+this contract; Phase 7C2 will replace stale screenshots with current visual
+evidence. Phase 7D live Beast validation remains deferred. Historical release
+notes and screenshots are not evidence that either deferred phase has passed.
+Phase 7C1 remains incomplete while the runtime/document contradictions recorded
+in the release checklist require review.
+
 See:
 
 - [api.md](api.md)

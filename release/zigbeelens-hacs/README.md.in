@@ -6,10 +6,15 @@ Read-only Home Assistant bridge to [ZigbeeLens Core](https://github.com/@GITHUB_
 
 **ZigbeeLens Core must already be running.** This integration does not collect Zigbee2MQTT data directly.
 
+Requires Home Assistant **2025.1.0 or newer** and HACS.
+
+The package declares that minimum, but exact 2025.1.0 plus current-version test
+matrix coverage remains a publication gate.
+
 Run Core using one of:
 
-- **Docker** — `@GITHUB_OWNER@/zigbeelens` image from GHCR (see main repo [docs/docker.md](https://github.com/@GITHUB_OWNER@/zigbeelens/blob/main/docs/docker.md))
-- **Home Assistant OS add-on** — from [zigbeelens-addons](https://github.com/@GITHUB_OWNER@/zigbeelens-addons) (optional)
+- **Docker** — `ghcr.io/@GITHUB_OWNER@/zigbeelens` (see main repo [docs/docker.md](https://github.com/@GITHUB_OWNER@/zigbeelens/blob/main/docs/docker.md))
+- Another Core deployment with an HTTP(S) origin reachable from Home Assistant
 
 ## Install via HACS
 
@@ -19,27 +24,34 @@ Run Core using one of:
 4. Install **ZigbeeLens** and restart Home Assistant
 5. **Settings → Devices & services → Add integration → ZigbeeLens**
 
+Only one ZigbeeLens config entry/Core target is supported.
+
 ## Core URL examples
 
 | Deployment | Typical URL |
 |------------|-------------|
 | Docker on LAN | `http://<docker-host-ip>:8377` |
 | Docker Compose service | `http://zigbeelens:8377` |
-| HAOS add-on | `http://localhost:8377` |
+
+The URL must be an exact HTTP(S) origin with no path, query, fragment, or
+embedded credentials. Use `localhost` only when Home Assistant Core and
+ZigbeeLens Core truly share a network namespace.
+
+The packaged Home Assistant add-on exposes its full UI only through Supervisor
+Ingress and publishes no host port. `http://localhost:8377` is therefore not a
+portable add-on URL, and the repository currently defines no stable add-on
+backend hostname for HACS. Use the add-on's Ingress UI without HACS, or run
+standalone Core at a reachable origin for HACS entities and the companion panel.
 
 ## Presentation paths
 
-### Same-protocol auto-embed
+### Native companion summary (default)
 
-When Home Assistant and ZigbeeLens Core use the same protocol (HTTP+HTTP or HTTPS+HTTPS), the sidebar may **auto-embed** the full Core dashboard. That embedded UI is the canonical Decision Engine surface. HACS does not reinterpret it.
+The sidebar always opens on the **native companion panel**, a status and
+launcher surface. It does not iframe Core automatically. HACS negotiates an
+**exact companion decision contract**:
 
-### Native companion summary
-
-When embedding is unavailable — for example HTTPS Home Assistant with an HTTP Core URL (mixed content) — the integration shows its **native companion panel**.
-
-In that native path, HACS negotiates an **exact companion decision contract**:
-
-- `decision_contract_version = 1` only
+- `decision_contract_version = 2` only
 
 When the contract is supported and the Dashboard decision payload is valid:
 
@@ -49,9 +61,50 @@ When the contract is supported and the Dashboard decision payload is valid:
 - factual counts include investigation priorities, data coverage warnings, active incidents, networks, devices, and unavailable devices;
 - no separate Device Story, reason, coverage, action-group, or card-type wording table exists in HACS.
 
-When the contract is missing, older, newer, or malformed — or the Dashboard decision surfaces are missing/malformed — decision cards stay off softly. Soft fallback: the panel uses a factual integration summary (connection, collector, networks, incidents) without inventing diagnoses.
+When the contract is missing, older, newer, or malformed — or the Dashboard
+decision surfaces are missing/malformed — decision cards stay off softly. The
+safe fallback shows connection and compatibility facts without inventing a
+Health/Lens diagnosis.
 
-Disconnected or unobserved Core versions show Core compatibility as **Unknown**, not Compatible.
+Disconnected or unobserved Core versions are required to show Core
+compatibility as **Unknown**, not Compatible. The current compatibility helper
+instead treats a missing or malformed version as compatible, so this is an open
+HACS release blocker; do not treat the tri-state/shared-decision gate as
+release-ready until it fails closed.
+
+Exact-v2 capabilities with missing/malformed Dashboard decision surfaces are
+also currently collapsed into the unsupported-contract repair, which
+incorrectly tells the operator to upgrade Core. HACS publication remains
+blocked until payload-shape failure has truthful state and repair copy.
+
+### Opt-in embedded Core
+
+**Try Embedded View** enters iframe mode when browser mixed-content rules allow
+and Core allows the Home Assistant origin in its frame policy. HTTPS Home
+Assistant cannot embed HTTP Core; HTTP Home Assistant may embed HTTPS Core.
+**Back to Summary** always returns to the native panel, including when Core's
+CSP prevents the iframe from loading.
+
+**Open Full ZigbeeLens dashboard** opens the canonical Core UI in a new tab and
+remains the reliable route to full evidence.
+
+## Configure
+
+Setup asks for the Core URL, optional API token, SSL verification (default
+off), and whether to show the panel (default on). The polling interval defaults
+to 60 seconds. **Configure** currently accepts a custom interval, but the
+OptionsFlow returns an empty options result that overwrites the intermediate
+update, so the value does not persist. Custom polling is a release blocker; use
+the 60-second default until a persistence/reload test passes.
+
+Use **Reconfigure** to replace the Core URL, SSL setting, or API token. A Core
+401 starts Home Assistant reauthentication. The token stays in Home Assistant's
+server-side config-entry storage and is never placed in panel data, iframe URLs,
+or dashboard links.
+
+Standalone browser login for **Try Embedded View** / **Open Full Dashboard**
+requires both Core `security.api_token` and `security.session_secret`.
+Bearer-only Core deliberately leaves the browser UI locked.
 
 ## What this integration does
 
@@ -64,11 +117,18 @@ Disconnected or unobserved Core versions show Core compatibility as **Unknown**,
 
 The full ZigbeeLens dashboard remains **canonical**.
 
+Per-network entities are created at platform setup; reload the integration after
+Core network changes, and manually remove stale unavailable registry entries
+when needed. The panel/websocket summary is visible to every authenticated Home
+Assistant user and includes the Core URL, network labels, counts, and priority
+text.
+
 ## What it does not do
 
 - Does **not** mutate Zigbee devices
 - Does **not** publish MQTT or Zigbee2MQTT device-control commands
-- Does **not** create decision entities for priorities or Device Stories
+- Does **not** create per-priority or per-Device-Story entities; the documented
+  overall/count decision summary entities are provided
 - Does **not** add Zigbee control services, buttons, or switches
 - Does **not** invent Decision Engine wording or severity colouring from aggregate counts
 - Entities are summaries only — Core dashboard remains authoritative
@@ -76,5 +136,13 @@ The full ZigbeeLens dashboard remains **canonical**.
 ## Safety
 
 Read-only bridge to Core.
+
+## Upgrade or remove
+
+Upgrade Core and the HACS integration together when release notes require a
+newer decision contract. To remove the integration, delete its ZigbeeLens
+config entry under **Settings → Devices & services**, uninstall ZigbeeLens in
+HACS, and restart Home Assistant if prompted. Core and its SQLite data are not
+removed.
 
 Issues: https://github.com/@GITHUB_OWNER@/zigbeelens/issues

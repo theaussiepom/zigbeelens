@@ -2,34 +2,59 @@
 
 Home Assistant bridge to **ZigbeeLens Core** — summary entities, a native companion panel, diagnostics, and repairs.
 
-The HACS sidebar provides a ZigbeeLens companion entry with a native summary and an **Open Full Dashboard** button. Embedded Core view is opt-in via **Try Embedded View** when schemes match; mixed-content or invalid URLs stay on the native summary / blocked fallback.
+The HACS sidebar provides a ZigbeeLens companion entry with a native summary
+and an **Open Full Dashboard** button. Embedded Core view is opt-in via **Try
+Embedded View** when browser mixed-content rules allow; HTTPS Home Assistant
+cannot embed HTTP Core, while HTTP Home Assistant may embed HTTPS Core. Invalid
+URLs stay on the native summary / blocked fallback.
 
 The Core dashboard is **canonical**. HACS does not collect MQTT or replace the dashboard.
 
 HACS can store an optional **Core API token** and sends it only as
 `Authorization: Bearer <token>` from Home Assistant’s server-side HTTP client.
-Leave the token blank for trusted-open Core. Against the Home Assistant add-on,
-configure the same optional add-on bearer-fallback token if you want HACS
-entities/native panel; the add-on ingress UI does not use that token and does
-not transfer it into HACS automatically. The token is never placed in the Core
-URL, panel config, websocket summary, iframe URL, or **Open Full Dashboard**
-href — those browser paths use ingress identity (add-on) or standalone UI
-session login (Docker/standalone).
+Leave the token blank for trusted-open Core. The token is never placed in the
+Core URL, panel config, websocket summary, iframe URL, or **Open Full
+Dashboard** href. Standalone browser login exists only when Core has both
+`security.api_token` and `security.session_secret`; bearer-only Core leaves the
+bundled browser UI locked.
 
 ## Install via HACS (recommended)
 
-1. Run ZigbeeLens Core (Docker or add-on) — see [release-test.md](release-test.md) for pre-release `:edge` testing.
+Requires Home Assistant **2025.1.0 or newer** and HACS.
+
+That minimum is declared in package metadata, but the current test dependency
+uses `homeassistant>=2025.1.0` and resolves a newer release. Exact 2025.1.0 plus
+current-Home-Assistant matrix coverage remains a HACS publication gate.
+
+1. Run ZigbeeLens Core at an HTTP(S) origin reachable from Home Assistant. The
+   documented portable path is standalone Docker; see
+   [release-test.md](release-test.md) for pre-release `:edge` testing.
 2. In Home Assistant: **HACS → Integrations → Custom repositories**
 3. Add: **https://github.com/theaussiepom/zigbeelens-hacs**
 4. Category: **Integration**
 5. Install **ZigbeeLens** and restart Home Assistant if prompted
 6. **Settings → Devices & services → Add Integration → ZigbeeLens**
 
+Only one ZigbeeLens config entry/Core target is supported. The config flow
+rejects a second entry. The manifest does not yet declare Home Assistant's
+`single_config_entry` metadata, so that declarative alignment remains a package
+gate rather than a claimed runtime feature in this phase.
+
 ![HACS config flow](../docs/screenshots/hacs-config-flow.png)
 
 The setup dialog explains HTTP vs HTTPS Core URLs, optional SSL verification, and the companion panel sidebar toggle.
 
 Pre-release Core image: `ghcr.io/theaussiepom/zigbeelens:edge`
+
+Setup defaults:
+
+| Setting | Default |
+|---------|---------|
+| Core URL | `http://localhost:8377` — replace unless Core really shares Home Assistant's network namespace |
+| API token | blank |
+| Verify SSL | `false` |
+| Panel enabled | `true` |
+| Poll interval | `60` seconds; Configure accepts `15` to `900`, but custom values currently do not persist |
 
 ## Core URL
 
@@ -39,10 +64,18 @@ Use a URL **reachable from Home Assistant**:
 |------------|-------------|
 | Docker on LAN | `http://<docker-host-ip>:8377` |
 | Same Compose network | `http://zigbeelens:8377` |
-| HAOS add-on (Core in same namespace) | `http://localhost:8377` |
 | HTTPS reverse proxy (optional) | `https://zigbeelens.example.com` |
 
-Do not use `localhost` unless HA and Core share the same network namespace.
+The value must be an exact HTTP(S) origin: no path, query, fragment, embedded
+credentials, or trailing application route. Use `localhost` only when Home
+Assistant Core and ZigbeeLens Core truly share a network namespace.
+
+The shipped Home Assistant add-on exposes its full UI only through Supervisor
+Ingress and publishes no host port. Home Assistant Core does not share the
+add-on's network namespace, so `http://localhost:8377` is not a valid portable
+add-on URL. The repository currently defines no stable add-on backend hostname
+for HACS. Use the add-on's Ingress UI without HACS, or run standalone Core at a
+reachable origin when HACS entities and the companion panel are required.
 
 The companion panel renders status from the integration (over the HA websocket) and does not require the browser to reach Core directly. The **Open Full Dashboard** button opens the configured Core URL in a new tab, so that URL must be reachable from your browser.
 
@@ -50,6 +83,19 @@ Use **Reconfigure** on the integration to change the Core URL, TLS verification,
 or API token. Use **Configure** (options) for panel visibility and polling
 interval. When Core rejects credentials, Home Assistant offers linked
 **reauthentication**.
+
+Current polling limitation: the OptionsFlow manually updates
+`scan_interval`, reloads the entry, and then returns an empty options result.
+Home Assistant persists that empty result over the intermediate update, so a
+custom 15–900-second interval is not durable and polling returns to the
+60-second default. Treat this as a release blocker until the chosen options are
+returned and a reload/persistence test passes. Panel visibility is stored
+separately and is not subject to this specific overwrite.
+
+Home Assistant reloads the config entry after Configure, Reconfigure, or
+successful reauthentication changes. Integration logs are in Home Assistant's
+normal logs; redacted diagnostics are available from the ZigbeeLens integration
+or device diagnostics menu.
 
 ### Core URL and embedded view
 
@@ -85,8 +131,10 @@ No reverse proxy is required for a good sidebar experience.
 
 **HAOS add-on:**
 
-- The add-on / Ingress is the embedded full-dashboard path.
-- HACS remains optional for entities and repairs.
+- The add-on / Ingress is the supported full-dashboard path and needs no HACS
+  integration.
+- Do not enter `http://localhost:8377`; the add-on publishes no direct port and
+  this repository does not define a portable HACS-to-add-on Core origin.
 
 **Advanced Docker (optional):**
 
@@ -96,6 +144,11 @@ No reverse proxy is required for a good sidebar experience.
 ## Security
 
 The HACS integration is **not** an authentication layer for ZigbeeLens Core. Changing the Core URL to HTTPS is for optional embedded-view browser compatibility, not authentication.
+
+The panel and websocket summary are available to every authenticated Home
+Assistant user, not only administrators. They expose the Core URL, network
+labels, factual counts, and projected priority text. Limit Home Assistant
+accounts accordingly.
 
 If your Core URL is reachable by users or networks you do not trust, consider firewall rules, network isolation, Home Assistant Ingress, or an authenticated reverse proxy.
 
@@ -135,6 +188,8 @@ Core exposes the contract on `GET /api/capabilities` (also `/api/v1/capabilities
 - `capabilities.shared_decisions`
 - `capabilities.companion_decision_summary`
 - `capabilities.decision_only_diagnostic_payloads`
+- `capabilities.report_contract_v3`
+- `capabilities.decision_mqtt_summary`
 - `capabilities.legacy_health_lens_payloads` (must be `false`)
 - `decision_surfaces.dashboard_decision_summary`
 - `decision_surfaces.dashboard_investigation_priorities`
@@ -146,9 +201,16 @@ Core exposes the contract on `GET /api/capabilities` (also `/api/v1/capabilities
 
 Contract negotiation is not enough. The Dashboard response must include:
 
-- `decision_summary` with `overall_status` and `status_counts`
-- `investigation_priorities` as a JSON list (may be empty)
-- `data_coverage_warnings` as a JSON list (may be empty)
+- a valid `decision_summary`: non-negative `subject_count` and
+  `coverage_warning_count`, known `overall_status` and `highest_priority`, and
+  non-negative `status_counts`/`priority_counts` whose totals and highest values
+  agree with the subject count;
+- `investigation_priorities` as a JSON list (may be empty);
+- `data_coverage_warnings` as a JSON list (may be empty);
+- non-negative integer factual counts for active/watching incidents, devices,
+  and unavailable devices (plus `network_count` when present);
+- `networks` as a list whose rows contain a valid decision badge, valid decision
+  count summary, and non-negative device/unavailable/active-incident counts.
 
 Semantics:
 
@@ -174,6 +236,21 @@ Diagnostics and the native panel report Core compatibility as:
 Unknown must never be rendered as Compatible. Decision mode requires explicit
 `shared_decisions_available === true` and `core_version_compatible === true`.
 
+Current release blocker: `core_version_compatible()` returns `true` when the
+health version is missing or malformed. The coordinator consumes that boolean,
+so an unobserved version can render as Compatible and can contribute to
+enabling shared decisions. Do not publish the HACS integration as satisfying
+the tri-state contract until unknown/malformed versions fail closed and tests
+cover the panel/coordinator projection.
+
+The coordinator also collapses two different states into
+`shared_decisions_available: false`: an unsupported contract and an exact-v2
+contract whose Dashboard decision surfaces are missing/malformed. Repairs maps
+both to `core_decision_contract_incompatible`, whose copy says the reported
+version is unsupported and tells the operator to upgrade Core. That repair is
+factually wrong for a payload-shape failure. Preserve a distinct failure reason
+or issue before claiming the soft payload fallback above is release-ready.
+
 ### Native panel projection
 
 - Pass-through Core `priority`, `title`, and `summary` (escaped for HTML)
@@ -187,8 +264,9 @@ Unknown must never be rendered as Compatible. Decision mode requires explicit
 
 1. **Native companion summary (default):** status/launcher surface with Open Full Dashboard
    and optional Try Embedded View. Contract-gated priorities apply only on this path.
-2. **Opt-in embedded Core:** Try Embedded View enters iframe mode when schemes match;
-   Back to Summary returns to the native panel even if CSP blocks the iframe.
+2. **Opt-in embedded Core:** Try Embedded View enters iframe mode when browser
+   mixed-content rules allow; Back to Summary returns to the native panel even
+   if CSP blocks the iframe.
 3. **Blocked / mixed-content fallback:** HTTPS HA + HTTP Core (and invalid URLs) stay on
    the friendly blocked view without trapping the panel.
 
@@ -200,8 +278,9 @@ Diagnostics include safe factual fields:
 - `shared_decisions_available`
 - `core_version_compatible`
 
-Phase 5E adds **no** Home Assistant decision entities and **no** Zigbee controls. Shared
-decisions stay read-only.
+The companion projection adds no per-priority or per-Device-Story entities and
+no Zigbee controls. The overall/count decision summary entities listed below
+remain read-only.
 
 Do not treat future contract versions as compatible until this HACS package is updated
 for them.
@@ -223,10 +302,14 @@ See [MQTT Discovery](mqtt-discovery.md). You generally do not need both.
 Factual / lifecycle (stable unique IDs retained):
 
 - `binary_sensor.zigbeelens_active_incident`
+- `binary_sensor.zigbeelens_core_connected`
+- `binary_sensor.zigbeelens_mqtt_collector_connected`
 - `sensor.zigbeelens_unavailable_devices`
 - `sensor.zigbeelens_network_count`
 - `sensor.zigbeelens_device_count`
 - `sensor.zigbeelens_router_risks`
+- `sensor.zigbeelens_watch_devices`
+- `sensor.zigbeelens_incident_state`
 
 Decision-led (new unique IDs — do not reuse superseded health entity IDs):
 
@@ -234,11 +317,25 @@ Decision-led (new unique IDs — do not reuse superseded health entity IDs):
 - `sensor.zigbeelens_review_first_devices`
 - `sensor.zigbeelens_worth_reviewing_devices`
 - `sensor.zigbeelens_coverage_warning_count`
-- Per-network `…_decision` and factual unavailable sensors
+- Per-network `…_decision`, `…_unavailable_devices`, and `…_router_risks`
+
+Per-network entities are enumerated at integration platform setup. Reload the
+integration after adding or renaming Core networks. Registry entries for
+removed networks can remain as unavailable entities until removed manually.
 
 Superseded health-derived entities (`overall_health`, recently-unstable / weak-link /
 stale / low-battery / unknown counts, per-network `_health`) are no longer registered.
 Remove leftover unavailable entities from the Home Assistant entity registry manually.
+
+## Upgrade or remove
+
+- Upgrade Core and the HACS integration together when release notes require a
+  newer decision contract. HACS upgrades reload after Home Assistant restarts
+  if HACS prompts for one.
+- To remove the integration, delete its ZigbeeLens config entry under
+  **Settings → Devices & services**, uninstall ZigbeeLens in HACS, and restart
+  Home Assistant if prompted. Removing HACS does not stop Core or delete
+  ZigbeeLens's SQLite data.
 
 ## Monorepo / packaging
 

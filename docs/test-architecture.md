@@ -1,7 +1,8 @@
 # Test architecture (Phase 7B)
 
 Narrow ownership map for Decision, report, and public-contract confidence.
-This is not broad contributor documentation (Phase 7C).
+Phase 7B merged in PR #101 from approved branch tip `03c12d4`. Broader
+contributor and product documentation belongs to Phase 7C1.
 
 ## Layers
 
@@ -115,6 +116,23 @@ Python resolution in `validate-contracts.sh`:
 3. `python3`;
 4. `python`;
 5. otherwise fail clearly.
+
+## Intentional xfail
+
+The full Core suite currently has one intentional non-strict xfail:
+
+`test_incident_badge_matches_device_story_for_model_pattern`
+
+It records a pre-existing Decision-surface mismatch (`watch` versus
+`informational`) for model-pattern badges. Release evidence must report it as
+**xfail**, not pass. Any additional xfail or skip is a new result that requires
+review.
+
+The canonical Core suite currently also reports two skips. The SQLite 3.34.1
+case is intentionally delegated to `scripts/smoke-sqlite-3.34.1.sh`.
+`test_ui_has_no_repair_controls` is unintentionally skipped because its
+`UI_SRC` path does not resolve to `apps/ui/src`; treat that as an open
+release-test blocker until the guard actually executes.
 
 ## Adding a new Decision code
 

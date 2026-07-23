@@ -1,17 +1,23 @@
-# Release checklist — v0.1.0
+# Release checklist
 
 Use this checklist before tagging a release. See [docs/release.md](docs/release.md) for the full workflow.
 
 ## Automated tests and validation
 
-Run all automated checks:
+Run the release helper, then close every explicit automated gate below. The
+helper does not replace the Phase 7-specific checks or manual gates.
 
 ```bash
 ./scripts/run-release-checks.sh
 ```
 
-- [ ] Backend tests pass (`pytest apps/core/tests -q`)
+- [ ] Backend tests pass (`cd apps/core && uv run pytest -q`)
+- [ ] Ruff passes (`cd apps/core && uv run ruff check src tests`)
+- [ ] Phase 7B contract lane passes (`bash scripts/validate-contracts.sh`)
+- [ ] Phase 7A performance suite passes (`cd apps/core && uv run pytest -q tests/performance`)
+- [ ] SQLite 3.34.1 runtime smoke passes (`./scripts/smoke-sqlite-3.34.1.sh`)
 - [ ] UI tests pass (`pnpm --filter @zigbeelens/ui test`)
+- [ ] UI lint passes (`pnpm --filter @zigbeelens/ui lint`)
 - [ ] UI typecheck passes (`pnpm --filter @zigbeelens/ui typecheck`)
 - [ ] UI production build passes (`pnpm --filter @zigbeelens/ui build`)
 - [ ] HA integration validation passes (`./scripts/validate-ha-integration.sh`)
@@ -24,6 +30,33 @@ Run all automated checks:
 - [ ] Storage retention policy v2: telemetry / resolved incidents / reports; startup + periodic maintenance
 - [ ] `zigbeelens storage check` / `backup` / `maintenance --dry-run` validated on a release candidate DB
 
+The Core suite currently has one intentional non-strict xfail:
+`test_incident_badge_matches_device_story_for_model_pattern` (`watch` versus
+`informational` Decision-surface mismatch). Record it as **xfail**, not pass.
+Any additional skip, xfail, or warning requires an explicit release note.
+
+Current canonical-suite skips must also be recorded: the SQLite 3.34.1 test is
+expected to skip outside its dedicated container smoke, while
+`test_ui_has_no_repair_controls` currently skips because its `UI_SRC` path
+resolves outside `apps/ui`. The latter is an open release-test blocker, not a
+passing safety assertion.
+
+## Phase 7 release status
+
+- [x] Phase 7A query/cardinality/runtime baseline merged (PR #100)
+- [x] Phase 7B release-quality test architecture and exact-v3 report reset merged (PR #101)
+- [ ] Phase 7C1 documentation truth and cross-surface alignment complete
+- [ ] Phase 7C2 current screenshots captured and reviewed
+- [ ] Phase 7D live Beast deployment validation complete
+
+Local validation evidence is not remote CI evidence. Do not mark Phase 7C2 or
+Phase 7D complete from documentation or local tests.
+
+The packaged Home Assistant add-on is not publication-ready. Its runner,
+configuration schema, reporting defaults, and HACS reachability blockers are
+listed in the add-on gate below; a successful structural validator does not
+close them.
+
 ## Security acknowledgement
 
 - [ ] I have set the intended `security.mode` (and know what this build actually enforces).
@@ -31,7 +64,8 @@ Run all automated checks:
 - [ ] I have decided whether to configure an API token (`ZIGBEELENS_SECURITY_API_TOKEN` / `_FILE` or legacy `ZIGBEELENS_API_KEY` config alias).
 - [ ] If a token is set, I understand protected reads, mutations, SSE, and downloads require `Authorization: Bearer` (not `X-ZigbeeLens-Api-Key`).
 - [ ] If I also set `session_secret`, I understand browser sessions use an HttpOnly cookie and cookie mutations need `X-ZigbeeLens-CSRF-Token`.
-- [ ] I understand `local` without a token is trusted-open; the bundled UI uses session login when both token and session secret are set; add-on UI uses Home Assistant ingress identity (no token required); HACS may store the optional Core API token for server-side bearer reads (never in panel/iframe URLs).
+- [ ] I understand standalone Core in `local` mode without a token is trusted-open; the bundled UI uses session login when both token and session secret are set; HACS may store an optional Core API token for server-side bearer reads (never in panel/iframe URLs).
+- [ ] I understand the image-based package generates add-on Ingress configuration, but its current entrypoint omits the source runner's optional token-file installation; token-enabled behavior is not verified.
 - [ ] Standalone UI: trusted-open enters directly; existing session reloads; wrong token stays locked; correct token cookie round-trip unlocks; mutations send CSRF; SSE and report download use cookies; expiry/logout return to login; API token is absent from browser storage.
 - [ ] I have checked logs/config status for accidental secret leakage.
 - [ ] If Core is reachable beyond users/networks I trust, I have intentionally added a trusted proxy/firewall (or accepted the risk).
@@ -43,7 +77,7 @@ Run all automated checks:
 ## Manual gates — real-world (Beast / production-like)
 
 - [ ] Real GHCR edge container tested on Beast (`ghcr.io/theaussiepom/zigbeelens:edge`)
-- [ ] Real MQTT broker tested with dedicated `zigbeelens` user (subscribe-only)
+- [ ] Real MQTT broker tested with a dedicated `zigbeelens` user: subscribe permissions plus only the exact per-network `bridge/request/networkmap` publish needed by the default startup scan (and Discovery prefixes only when that optional feature is under test)
 - [ ] Both real networks visible: `home`, `home2`
 - [ ] Real report generation tested
 - [ ] `public_safe` redaction tested with real data (password / network_key scrubbed)
@@ -52,15 +86,21 @@ Run all automated checks:
 ## Manual gates — HACS integration
 
 - [ ] HACS integration installed from custom repo (`theaussiepom/zigbeelens-hacs`)
+- [ ] Exact Home Assistant 2025.1.0 minimum and a current Home Assistant release both pass the integration suite
+- [ ] Staged HACS repository passes its structural validator plus official HACS/hassfest checks
 - [ ] Config flow accepts Core URL reachable from Home Assistant
+- [ ] Single-entry ownership is declared in manifest metadata as well as enforced by config flow
 - [ ] Native companion panel loads (cards, not raw JSON)
 - [ ] **Open Full Dashboard** opens Core in a new tab (e.g. `http://192.168.100.5:8377`)
-- [ ] Native companion summary is the default; Try Embedded View opts into iframe mode when schemes match
+- [ ] Native companion summary is the default; Try Embedded View opts into iframe mode when browser mixed-content rules allow
 - [ ] When HA is HTTPS and Core is HTTP, panel stays on native summary / blocked view (mixed content blocked)
 - [ ] Back to Summary returns from embedded or blocked view to the native panel
-- [ ] Configure flow can change Core URL without delete/re-add; panel picks up new URL after reload
+- [ ] Reconfigure flow can change Core URL without delete/re-add; panel picks up new URL after reload
+- [ ] Configure stores a 15–900-second polling interval durably; the selected value survives flow completion and reload and changes the coordinator interval (currently blocked by the empty OptionsFlow result)
+- [ ] Missing or malformed Core versions project compatibility Unknown and cannot enable shared decisions (currently blocked: the helper returns compatible)
+- [ ] Exact-v2 capabilities with missing/malformed Dashboard decision surfaces do not emit the unsupported-contract/upgrade-Core repair (currently collapsed into the same boolean)
 - [ ] Copy Core URL works
-- [ ] HACS entities appear (overall health, active incident, device counts, per-network)
+- [ ] HACS entities appear (overall decision, review-first, worth-reviewing, coverage warnings, active incident, device counts, per-network)
 - [ ] Stop Core → panel shows calm disconnected state + Core unreachable repair
 - [ ] Start Core → panel recovers and repair clears
 - [ ] HACS diagnostics download is redacted (no secrets)
@@ -68,21 +108,27 @@ Run all automated checks:
 
 ## Manual gates — mobile polish
 
-- [ ] Core React dashboard pass at ~360–430px width (Overview, Incidents, Devices, Reports, Settings)
+- [ ] Core React UI pass at ~360–430px width (Overview, Mesh / Investigate, Devices, Incidents, Reports, Settings, Advanced menu)
 - [ ] No horizontal page overflow on phone-sized viewport
 - [ ] HACS native companion panel pass on phone/tablet HA web/app
 - [ ] Open Full Dashboard button obvious on mobile
 
-## Manual gates — add-on readiness (structural; HAOS install may be deferred)
+## Manual gates — add-on publication blockers
 
 - [ ] Add-on repo validates (`./scripts/validate-addon.sh` + packaged repo check)
 - [ ] No privileged mode, no host network, no Docker socket
-- [ ] Ingress enabled; safe defaults (`mqtt_discovery: false`, topology off)
-- [ ] Add-on README accurate (Ingress UI uses HA identity; optional bearer for HACS)
-- [ ] Add-on with no API token: ingress UI opens, SSE/download/mutation work; direct protected request fails
-- [ ] Add-on with optional token: ingress still works; HACS/direct bearer succeeds
-- [ ] Spoofed ingress identity from a non-Supervisor peer fails
-- [ ] HAOS manual install smoke test (optional before v0.1.0 tag; required before add-on publish)
+- [ ] Ingress enabled; MQTT Discovery off; topology enabled for one startup scan with periodic/manual/incident capture gates off
+- [ ] Packaged repository entrypoint matches the required add-on startup contract, including option conversion, exact Ingress security, `/data` writability, and optional token-file installation
+- [ ] `security.api_token` from add-on options is installed/exported into Core; packaged HAOS bearer smoke passes
+- [ ] Add-on `reporting.max_*` schema minimums match Core (`>= 1`); zero is rejected consistently
+- [ ] `reporting.default_profile` is effective when a request omits a profile, or the ineffective option is removed and documentation is qualified
+- [ ] Unused reporting options (`max_metric_samples_per_device`, `max_availability_changes_per_device`, `include_raw_payloads`) are implemented or removed
+- [ ] A portable Home-Assistant-reachable Core origin for HACS is implemented and documented, or HACS interoperability is explicitly out of scope; do not assume `localhost` across namespaces while the add-on exposes `ports: {}`
+- [ ] Packaged add-on with no API token: Ingress UI opens and SSE/download/mutation work
+- [ ] Packaged add-on with optional token: Ingress still works and a direct bearer request succeeds
+- [ ] Spoofed Ingress identity from a non-Supervisor peer fails
+- [ ] Add-on README describes only behavior demonstrated by the packaged artifact
+- [ ] HAOS manual install smoke test complete before add-on publication
 
 ## Decision contract / Track 5
 
@@ -90,6 +136,8 @@ Run all automated checks:
 - [ ] Current Dashboard/Devices/Networks/Incidents payloads have no Lens/health presentation fields
 - [ ] Saved reports are exact `report_version: 3`; non-v3 rows are not listed or downloaded
 - [ ] HACS requires exact contract v2; incompatible Core shows repair (not reauth) and no health fallback
+- [ ] HACS treats missing/malformed Core versions as compatibility Unknown and keeps shared decisions off
+- [ ] HACS distinguishes unsupported decision contract from malformed/missing exact-v2 Dashboard surfaces and emits truthful repair guidance
 - [ ] MQTT Discovery publishes decision summary entities; superseded Lens configs tombstoned
 - [ ] Operational `/healthz` and `/api/health` unchanged (no decision payload)
 
@@ -102,6 +150,9 @@ Run all automated checks:
 - [ ] MQTT Discovery **disabled** by default
 - [ ] Topology **enabled** by default with startup scan only (no periodic refresh unless configured)
 - [ ] No unsafe MQTT topics published with default config
+- [ ] MQTT Discovery validates `{state_topic_prefix}/status` against Zigbee2MQTT base topics before registering the broker last will
+- [ ] `topology.enabled: false` plus a positive refresh interval does not advertise an active scheduler that can only reject captures
+- [ ] Parsed topology node/link `raw_json` storage has a reviewed scrub/retention contract
 - [ ] SSE `/api/events/stream` works (not shadowed by static SPA catch-all)
 
 ## Safety
@@ -117,19 +168,22 @@ Run all automated checks:
 - [ ] CHANGELOG updated
 - [ ] Version numbers aligned (see `./scripts/bump-version.sh`)
 - [ ] Docs describe Docker + HACS native panel + add-on Ingress relationship
+- [ ] README and product docs use the exact primary and Advanced & support navigation labels
+- [ ] Configuration docs use implementation-derived option names and defaults
+- [ ] Current report docs promise exact `ReportDetailV3` only; no v1/v2 reader/download path
 - [ ] No docs promise iframe as normal HACS experience
 - [ ] No docs imply reverse proxy required for HACS sidebar value
-- [ ] README screenshot placeholders replaced or consciously accepted
+- [ ] Phase 7C2 screenshots show the current Decision-led UI and HACS contract-v2 companion
 
 ## Packaging and publish
 
 - [ ] Docker image builds (`./scripts/build-docker.sh`)
-- [ ] Git tag `v0.1.0` created **only after manual gates above pass**
-- [ ] Docker image pushed to GHCR (`ghcr.io/theaussiepom/zigbeelens:0.1.0`)
+- [ ] Release tag `v<version>` created **only after manual gates above pass**
+- [ ] Versioned Docker image pushed to GHCR (`ghcr.io/theaussiepom/zigbeelens:<version>`)
 - [ ] HACS repo version coherent with integration manifest
 - [ ] HACS repo pushed (`theaussiepom/zigbeelens-hacs`)
 - [ ] GitHub release notes published
-- [ ] Add-on repository metadata updated (when add-on is published)
+- [ ] Add-on repository metadata updated only after every add-on publication blocker above is closed
 
 ## Post-release spot checks
 

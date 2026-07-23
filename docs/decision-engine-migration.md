@@ -4,6 +4,11 @@ This document defines the master phases and sub-phases for moving ZigbeeLens fro
 
 It exists to prevent the work being watered down as it is split across many PRs.
 
+**Current release status:** Phases 1–6 and the Phase 7A/7B hardening work are
+implemented. Phase 7A merged in PR #100 and Phase 7B merged in PR #101.
+Phase 7C1 is the current documentation-truth phase. Phase 7C2 screenshot
+evidence and Phase 7D live Beast validation remain deferred.
+
 ## Programme statement
 
 ZigbeeLens is evolving from:
@@ -713,7 +718,7 @@ segments, Investigate/Raw snapshot link semantics).
 
 ### Phase 6B — Router UX consolidation
 
-**Status: implemented on `refactor/router-area-ux` (awaiting review).**
+**Status: merged (PR #97).**
 
 Standalone Router diagnostics navigation and `RoutersPage` are removed.
 `/routers` remains a compatibility redirect to `/investigate`. Router facts,
@@ -746,37 +751,57 @@ saved report list/detail/download accepts exact `ReportDetailV3` only.
 
 ### Phase 7A — Query/index performance
 
-Add query-specific repository methods and indexes for Beast-sized networks.
+**Merged in PR #100.** Query-specific repository methods, indexed seeks,
+cardinality baselines, History report measurements, strict cursor handling,
+migration 013, and the SQLite 3.34.1 runtime smoke are release baselines. See
+[phase-7a-investigation.md](phase-7a-investigation.md) and
+[performance-baseline.md](performance-baseline.md).
 
 ### Phase 7B — Test architecture
 
-**Done (branch `test/release-quality-architecture`, corrective pass):** oracle contract v2 + Core vocabulary manifest; one freshness owner; self-contained `scripts/validate-contracts.sh`; exact Core→UI→ReportDetailV3 parity; migration 014 deletes all stored development reports (schema 14, v3-only); unknown-not-zero + primary-copy guardrails; `/api`↔`/api/v1` + OpenAPI structural matrix. No v1/v2 stored-report compatibility remains.
+**Merged in PR #101 (approved branch tip `03c12d4`).** Oracle contract v2 +
+Core vocabulary manifest; one freshness owner; self-contained
+`scripts/validate-contracts.sh`; exact Core→UI→ReportDetailV3 parity; migration
+014 deletes all stored development reports once (schema 14, v3-only);
+unknown-not-zero + primary-copy guardrails; `/api`↔`/api/v1` + OpenAPI
+structural matrix. No v1/v2 stored-report compatibility remains.
 
-### Phase 7C — Documentation/screenshots
+### Phase 7C1 — Documentation truth
 
-Update README, architecture, screenshots and safety docs.
+**Current.** Align product, installation, configuration, API/report, safety,
+companion, release, and troubleshooting documentation with implemented
+contracts. Phase 7C1 does not capture or modify screenshots and remains
+incomplete while the release checklist's runtime/document contradictions
+require review.
+
+### Phase 7C2 — Screenshot and visual evidence
+
+**Deferred until Phase 7C1 is complete.** Capture the current Decision-led
+Overview, Mesh / Investigate, Device Detail, Reports, HACS companion, and
+installation states without changing runtime behaviour.
 
 ### Phase 7D — Deployment validation
 
-Run live Beast smoke tests covering healthy router, problem sensor, sleepy battery device, no-latest-link device, router area, availability history building, route hints and report export.
+**Deferred.** Run live Beast smoke tests covering healthy router, problem
+sensor, sleepy battery device, no-latest-link device, router area, availability
+history building, route hints and report export. Documentation or local tests
+do not satisfy this phase.
 
 ## Current migration map
 
-| Surface | Current state | Target state | Migration phase |
-|---|---|---|---|
-| Overview | Dashboard summary. | Decision priorities, recent changes, data coverage. | 5A |
-| Devices | Inventory/status list. | Inventory/search with decision badges. | 5B |
-| Device details | Mixed facts and local sections. | Device story / decision surface. | 3C / 4A |
-| Snapshot history | Device Detail primary surface. | ViewModel-backed decision section. | 3B / 6C |
-| Mesh graph | Strong evidence graph, some local orchestration. | Investigation workspace consuming decisions. | 3A-3F |
-| Investigation cards | Backend topology/passive-specific cards. | Shared decision/action groups. | 3D |
-| Reports | Saved history + contextual Create full report. | Decision-backed contextual summaries. | 5D / 6D (done) |
-| Incidents | Issue history and state. | Decision/event record tied to device story. | 5C |
-| Raw snapshots | Advanced `/topology` landing + exact detail. | Support evidence only. | 6C |
-| Whole-network compare | Debug endpoint after UI demotion. | Advanced/debug only. | 6C |
-| Router/risk UX | Separate/implicit router risk. | Router-area review decisions. | 4F / 6B |
-| HACS companion | Companion read-only surfaces. | Shared decision display. | 5E |
-| MQTT Discovery entities | Summary HA entities. | Minimal high-level status only. | Later explicit phase if needed |
+| Surface | Implemented current state | Release disposition |
+|---|---|---|
+| Overview | Decision priorities, recent changes, data coverage, factual network/incident context. | Primary; document in 7C1, recapture in 7C2. |
+| Mesh / Investigate | Main network investigation workspace consuming shared decisions and evidence. | Primary; validate live in 7D. |
+| Devices / Device Detail | Inventory/search with decision badges; Device Story and device-led Snapshot history. | Primary; validate copy and history in 7D. |
+| Incidents | Correlated issue records tied to shared decision facts. | Primary; not an independent root-cause authority. |
+| Reports | Contextual device/incident/network creation plus Saved reports and Create full report; exact `ReportDetailV3`. | Primary; no client Mesh exporter or legacy reader. |
+| Networks / Timeline | Factual supporting views under Advanced & support. | Retain as supporting surfaces. |
+| Raw snapshots | Advanced `/topology` landing and exact point-in-time detail. | Support evidence only. |
+| Whole-network compare | API/debug endpoint after UI demotion. | Advanced/debug only. |
+| Router-area evidence | Investigated in Mesh; `/routers` is a compatibility redirect. | No standalone primary router workflow. |
+| HACS companion | Exact decision contract v2, factual/Decision entities, native companion and launcher. | Companion only; Core UI remains canonical. |
+| MQTT Discovery | Six decision/factual summary entities. | Optional; no per-device expansion. |
 
 ## Per-PR checklist
 

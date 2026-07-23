@@ -1,7 +1,7 @@
 {
   "domain": "zigbeelens",
   "name": "ZigbeeLens",
-  "codeowners": ["@zigbeelens"],
+  "codeowners": ["@theaussiepom"],
   "config_flow": true,
   "dependencies": ["http", "frontend"],
   "documentation": "https://github.com/theaussiepom/zigbeelens-hacs",

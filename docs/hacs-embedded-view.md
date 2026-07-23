@@ -84,7 +84,7 @@ Home Assistant (HTTPS)
 After setup:
 
 1. Core is reachable at an **HTTPS** URL from the browser running Home Assistant.
-2. **Settings → Devices & services → ZigbeeLens → Configure** — set Core URL to that HTTPS address.
+2. **Settings → Devices & services → ZigbeeLens → Reconfigure** — set Core URL to that HTTPS address.
 3. **Try Embedded View** renders the dashboard.
 
 Core defaults to same-origin framing (`frame-ancestors 'self'`). For a HACS
@@ -137,6 +137,14 @@ These follow existing conventions (`local@file`, `authentik@file`, `securityHead
 - **`zigbeelens-api`** — `PathPrefix(/api)`, priority 100, `local@file` + security headers, **no Authentik**
 - **`zigbeelens`** — UI/dashboard, Authentik on Docker labels or a second file router
 
+This bypass covers every `/api` route, not only the setup health read. With
+Core's default trusted-open/no-token security, every client admitted by
+`local@file` can read protected evidence and call ZigbeeLens-local mutations
+such as report, topology-snapshot, and enrichment routes. Configure
+`security.api_token` and enter the same token in HACS, or explicitly accept
+that LAN-wide API access. Authentik on the UI router does not protect this API
+router.
+
 Example HTTPS Core URL: `https://zigbeelens.theaussiepom.me` (no port suffix).
 
 ---
@@ -183,26 +191,34 @@ curl -k https://zigbeelens.home.arpa:8443/api/health
 
 The example uses `tls internal` (Caddy local CA). Browsers must trust that CA or the iframe will fail for certificate reasons even after mixed content is fixed.
 
-On the Docker host (installs into system trust store — adjust for your OS):
+Export the generated root certificate:
 
 ```bash
-docker compose exec caddy caddy trust
+docker compose cp \
+  caddy:/data/caddy/pki/authorities/local/root.crt \
+  ./caddy-local-root.crt
 ```
 
-On other machines, export and install the root CA, or use a publicly trusted certificate (Let's Encrypt) instead — see below.
+Install `caddy-local-root.crt` into the trust store of every browser/device that
+will embed Core and into the Home Assistant host/container trust store when
+**Verify SSL** is enabled. `docker compose exec caddy caddy trust` changes trust
+inside the Caddy container only; it does not trust the certificate on the
+Docker host, Home Assistant, or a browser device. Trust-store commands are
+platform-specific. Prefer a publicly trusted certificate (for example Let's
+Encrypt) when possible — see below.
 
 Home Assistant must also reach `https://zigbeelens.home.arpa:8443/api/health` (integration backend), not only your browser.
 
 ### 4. Update HACS integration
 
-**Settings → Devices & services → ZigbeeLens → Configure**
+**Settings → Devices & services → ZigbeeLens → Reconfigure**
 
 | Field | Value |
 |-------|--------|
 | Core URL | `https://zigbeelens.home.arpa:8443` |
 | Verify SSL | On if cert is trusted; off only for testing with self-signed |
 
-Restart Home Assistant if prompted.
+The integration validates the new URL and reloads the config entry.
 
 ### 5. Test embedded view
 
@@ -265,7 +281,16 @@ For a domain with public DNS:
 2. Map `443:443` on the host.
 3. HACS Core URL: `https://zigbeelens.example.com` (no port).
 
-**Security:** Core may require `Authorization: Bearer` when an API token is configured. The HACS integration sends that token only from Home Assistant’s server-side client for entities/panel summary/repairs — never into the iframe URL or browser storage. **Try Embedded View** and **Open Full Dashboard** remain standalone browser clients and use session login when `session_secret` is set. HTTPS adds TLS, not authentication. If Core is reachable beyond users or networks you trust, consider firewall rules, network isolation, VPN, or authentication at the proxy (Authelia, OAuth2 proxy, Authentik, etc.).
+**Security:** Core may require `Authorization: Bearer` when an API token is
+configured. The HACS integration sends that token only from Home Assistant’s
+server-side client for entities/panel summary/repairs — never into the iframe
+URL or browser storage. **Try Embedded View** and **Open Full Dashboard** remain
+standalone browser clients. Browser-session login requires both
+`security.api_token` and `security.session_secret`; bearer-only Core
+deliberately leaves the browser UI locked. HTTPS adds TLS, not authentication.
+If Core is reachable beyond users or networks you trust, consider firewall
+rules, network isolation, VPN, or authentication at the proxy (Authelia,
+OAuth2 proxy, Authentik, etc.).
 
 ---
 
@@ -289,7 +314,7 @@ For a domain with public DNS:
 | Integration "cannot connect" after switching to HTTPS | HA backend can't reach HTTPS URL; or Authentik blocking `/api` | Fix DNS/firewall; add API bypass router (see Option A); test `curl -sk https://host/api/health` returns JSON |
 | Used `https://host:8377` | Wrong URL — Traefik is on 443, `:8377` is direct HTTP | Use `http://host:8377` or `https://host` (no port) |
 | Dashboard loads but "Reconnecting" / stale live data | Proxy buffering SSE | `flush_interval -1` (Caddy) or `proxy_buffering off` (nginx) |
-| Open Full Dashboard works, embed doesn't | Mixed content or cert | Check Core URL scheme is `https://` in integration options |
+| Open Full Dashboard works, embed doesn't | Mixed content or cert | Use Reconfigure and check that the Core URL scheme is `https://` |
 
 **Open Full Dashboard** should continue to work even when embedded view fails — use it as the fallback.
 
