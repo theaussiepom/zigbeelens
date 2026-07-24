@@ -1,5 +1,12 @@
 import { Link, useParams } from "react-router-dom";
-import { Badge, Card, ErrorState, LoadingState, MetricPill } from "@/components/ui";
+import {
+  Badge,
+  Card,
+  ErrorState,
+  LoadingState,
+  MetricPill,
+  StaleRefreshNotice,
+} from "@/components/ui";
 import { GraphPanel } from "@/components/meshGraph/GraphPanel";
 import { EvidenceCoverageStrip } from "@/components/meshGraph/EvidenceCoverageStrip";
 import { TopologyMetricStrip } from "@/components/meshGraph/TopologyMetricStrip";
@@ -51,7 +58,10 @@ export function TopologyGraphPage() {
     : null;
 
   return (
-    <div className="max-w-7xl space-y-6">
+    <div
+      className="max-w-7xl space-y-6"
+      aria-busy={Boolean(detail.refreshing || inventory.refreshing)}
+    >
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Mesh / Investigate</h1>
@@ -81,6 +91,14 @@ export function TopologyGraphPage() {
         {GRAPH_SAFETY_COPY_LIVE}
       </div>
 
+      {detail.data && detail.error && (
+        <StaleRefreshNotice
+          resourceLabel="Mesh evidence graph"
+          onRetry={detail.refetch}
+          retryLabel="Retry Mesh evidence graph"
+        />
+      )}
+
       {detail.data && inventory.data === null && (
         <MeshInventoryWarning
           message={
@@ -93,9 +111,10 @@ export function TopologyGraphPage() {
       )}
 
       {detail.data && inventory.data !== null && inventory.error && (
-        <MeshInventoryWarning
-          message="Device inventory could not be refreshed. Showing the last loaded inventory confirmation."
+        <StaleRefreshNotice
+          resourceLabel="Mesh device inventory"
           onRetry={inventory.refetch}
+          retryLabel="Retry device inventory"
         />
       )}
 
@@ -116,10 +135,14 @@ export function TopologyGraphPage() {
             available.
           </p>
         </Card>
-      ) : detail.loading || (inventory.loading && !detail.data) ? (
+      ) : (detail.loading && !detail.data) || (inventory.loading && !detail.data) ? (
         <LoadingState />
-      ) : detail.error ? (
-        <ErrorState message={detail.error} onRetry={detail.refetch} />
+      ) : detail.error && !detail.data ? (
+        <ErrorState
+          message={detail.error}
+          onRetry={detail.refetch}
+          retryLabel="Retry Mesh evidence graph"
+        />
       ) : !snapshot ? (
         <Card title="Waiting for a topology snapshot">
           <div className="space-y-3 text-sm text-zl-muted">

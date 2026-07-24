@@ -20,6 +20,8 @@ const emit = (eventName: string) => {
 };
 
 vi.mock("@/lib/events", () => ({
+  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT:
+    "home_assistant_enrichment_updated",
   liveConnection: {
     subscribeEvents: (listener: (e: string) => void) => {
       eventListeners.add(listener);
@@ -198,7 +200,10 @@ describe("TopologyPage raw detail refresh resilience", () => {
     expect(api.topology).toHaveBeenCalledTimes(1);
     expect(api.topologyNetwork).toHaveBeenCalledTimes(1);
 
-    act(() => emit("home_assistant_enrichment_updated"));
+    act(() => {
+      emit("home_assistant_enrichment_updated");
+      emit("dashboard_updated");
+    });
     await act(async () => {
       vi.advanceTimersByTime(350);
       await Promise.resolve();

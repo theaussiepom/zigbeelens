@@ -30,14 +30,10 @@ import {
   incidentTimingLine,
   recordedSeverityConfidenceLine,
 } from "@/viewModels/incidents/incidentDetailViewModel";
-
-const INCIDENT_EVENTS = [
-  "incident_opened",
-  "incident_updated",
-  "incident_resolved",
-  "incidents_updated",
-  "dashboard_updated",
-];
+import {
+  INCIDENT_COLLECTION_EVENTS,
+  NETWORK_PROJECTION_EVENTS,
+} from "@/lib/liveResourceEvents";
 
 const PAGE_LIMIT = 50;
 
@@ -58,7 +54,7 @@ export function IncidentsPage() {
   const networksResource = useLiveResource(
     () => api.networks(scenario || undefined).then((res) => res.items),
     [scenario],
-    { refetchOn: INCIDENT_EVENTS },
+    { refetchOn: NETWORK_PROJECTION_EVENTS },
   );
 
   const page = useLiveResource(
@@ -68,9 +64,9 @@ export function IncidentsPage() {
         status: lifecycle ? (lifecycle as IncidentStatus) : undefined,
         network_id: network || undefined,
         limit: PAGE_LIMIT,
-      }),
+    }),
     [scenario, lifecycle, network],
-    { refetchOn: INCIDENT_EVENTS },
+    { refetchOn: INCIDENT_COLLECTION_EVENTS },
   );
 
   useEffect(() => {
@@ -328,7 +324,10 @@ export function IncidentDetailPage() {
   const { data: inc, error, loading, refetch } = useLiveResource(
     () => api.incident(incidentId!, scenario || undefined),
     [incidentId, scenario],
-    { refetchOn: INCIDENT_EVENTS, enabled: Boolean(incidentId) },
+    {
+      refetchOn: INCIDENT_COLLECTION_EVENTS,
+      enabled: Boolean(incidentId),
+    },
   );
 
   if (error) return <ErrorState message={error} onRetry={refetch} />;

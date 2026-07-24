@@ -3,19 +3,10 @@ import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
 import { api } from "@/lib/api";
 import { buildLiveMeshEvidence } from "@/lib/meshEvidenceLive";
-import { HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT } from "@/lib/events";
-
-/** Factual device-inventory invalidations; excludes topology_updated. */
-const DEVICE_INVENTORY_EVENTS = [
-  "device_health_updated",
-  "health_updated",
-  "dashboard_updated",
-  "incidents_updated",
-  "incident_opened",
-  "incident_updated",
-  "incident_resolved",
-  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
-] as const;
+import {
+  EVIDENCE_GRAPH_EVENTS,
+  MESH_INVENTORY_EVENTS,
+} from "@/lib/liveResourceEvents";
 
 export function useTopologyGraphData(networkId: string | undefined) {
   const { status, scenario } = useScenario();
@@ -28,8 +19,7 @@ export function useTopologyGraphData(networkId: string | undefined) {
     [networkId],
     {
       enabled: Boolean(networkId),
-      // Explicit topology history invalidation; do not rely on default-all-events.
-      refetchOn: ["topology_updated", HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT],
+      refetchOn: EVIDENCE_GRAPH_EVENTS,
     },
   );
   const inventory = useLiveResource(
@@ -37,7 +27,7 @@ export function useTopologyGraphData(networkId: string | undefined) {
     [networkId, scenario],
     {
       enabled: Boolean(networkId),
-      refetchOn: [...DEVICE_INVENTORY_EVENTS],
+      refetchOn: MESH_INVENTORY_EVENTS,
     },
   );
 

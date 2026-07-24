@@ -225,7 +225,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/pages/InvestigateLandingPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "summary.status_counts.review_first ?? 0",
-    "line": 69,
+    "line": 75,
     "character": 33,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
@@ -234,7 +234,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/pages/InvestigateLandingPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "summary.status_counts.worth_reviewing ?? 0",
-    "line": 70,
+    "line": 76,
     "character": 36,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
@@ -243,7 +243,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/pages/NetworksPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "statusCounts.review_first ?? 0",
-    "line": 242,
+    "line": 276,
     "character": 20,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
@@ -252,7 +252,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/pages/NetworksPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "statusCounts.review_first ?? 0",
-    "line": 243,
+    "line": 277,
     "character": 24,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
@@ -261,7 +261,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/pages/NetworksPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "statusCounts.worth_reviewing ?? 0",
-    "line": 247,
+    "line": 281,
     "character": 20,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
@@ -270,7 +270,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/pages/NetworksPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "statusCounts.worth_reviewing ?? 0",
-    "line": 248,
+    "line": 282,
     "character": 24,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
@@ -279,7 +279,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/pages/OverviewPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "data.decision_summary.status_counts.review_first ?? 0",
-    "line": 210,
+    "line": 197,
     "character": 23,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
@@ -288,7 +288,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/pages/OverviewPage.tsx",
     "kind": "nullishCoalescing",
     "expression": "data.decision_summary.status_counts.worth_reviewing ?? 0",
-    "line": 211,
+    "line": 198,
     "character": 26,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."

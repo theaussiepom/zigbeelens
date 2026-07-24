@@ -5,17 +5,7 @@ import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
 import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui";
 import { TimelineEventRow } from "@/components/cards";
-
-const TIMELINE_EVENTS = [
-  "dashboard_updated",
-  "incident_opened",
-  "incident_updated",
-  "incident_resolved",
-  "incidents_updated",
-  "timeline_updated",
-  "health_updated",
-  "collector_status",
-];
+import { TIMELINE_COLLECTION_EVENTS } from "@/lib/liveResourceEvents";
 
 const WINDOWS: Record<string, number> = {
   "1h": 3600_000,
@@ -40,7 +30,7 @@ export function TimelinePage() {
   const { data, error, loading, refetch } = useLiveResource(
     () => api.timeline(scenario || undefined, network || undefined).then((r) => r.items),
     [scenario, network],
-    { refetchOn: TIMELINE_EVENTS },
+    { refetchOn: TIMELINE_COLLECTION_EVENTS },
   );
 
   const events = data ?? [];

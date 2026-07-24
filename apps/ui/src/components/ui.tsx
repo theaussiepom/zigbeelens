@@ -294,6 +294,37 @@ export function LoadingState({ label = "Loading ZigbeeLens…" }: { label?: stri
   );
 }
 
+export function StaleRefreshNotice({
+  resourceLabel,
+  onRetry,
+  retryLabel,
+}: {
+  resourceLabel: string;
+  onRetry: () => void;
+  retryLabel: string;
+}) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="rounded-lg border border-zl-watch/40 bg-zl-watch/10 px-4 py-3 text-sm text-zl-watch"
+    >
+      <p>
+        {resourceLabel} could not be refreshed. Showing the last accepted view; it may not include
+        the newest Home Assistant enrichment.
+      </p>
+      <button
+        type="button"
+        aria-label={retryLabel}
+        onClick={onRetry}
+        className="mt-2 min-h-11 rounded-lg border border-zl-border px-3 py-1.5 text-sm text-zl-text hover:bg-zl-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
 export function ErrorState({
   message,
   onRetry,

@@ -13,6 +13,10 @@ const CORE_URL = process.env.ZIGBEELENS_E2E_CORE_URL ?? "";
 const HA_CONTROL_URL = process.env.ZIGBEELENS_E2E_HA_CONTROL_URL ?? "";
 const IEEE = "0x00124b0024abcd01";
 const DEVICE_PATH = `/api/devices/home/${IEEE}`;
+const DEVICE_STORY_PATH = `${DEVICE_PATH}/story`;
+const INCIDENTS_PATH = "/api/incidents";
+const SNAPSHOT_HISTORY_PATH =
+  `/api/topology/home/devices/${IEEE}/snapshot-history`;
 
 type Listener = EventListenerOrEventListenerObject;
 
@@ -83,12 +87,7 @@ class NetworkEventSource {
     }
     if (data.length === 0) return;
     networkState.rawEvents.set(type, (networkState.rawEvents.get(type) ?? 0) + 1);
-    // Keep the refetch causally attributable to the enrichment event. Core's
-    // accompanying dashboard projection and every unrelated live event are
-    // observed/countable above but intentionally withheld from subscribers.
-    if (type === HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT || type === "message") {
-      this.dispatch(type, data.join("\n"));
-    }
+    this.dispatch(type, data.join("\n"));
   }
 
   private async connect(): Promise<void> {
@@ -129,6 +128,9 @@ class NetworkEventSource {
 const originalEventSource = globalThis.EventSource;
 const originalFetch = globalThis.fetch;
 let detailFetches = 0;
+let deviceStoryFetches = 0;
+let incidentFetches = 0;
+let snapshotHistoryFetches = 0;
 
 async function applyHomeAssistantState(state: string): Promise<{
   ha_device_id: string;
@@ -162,12 +164,24 @@ describe("Home Assistant enrichment live production path", () => {
     networkState.openCount = 0;
     networkState.lastError = "";
     detailFetches = 0;
+    deviceStoryFetches = 0;
+    incidentFetches = 0;
+    snapshotHistoryFetches = 0;
     globalThis.EventSource = NetworkEventSource as unknown as typeof EventSource;
     globalThis.fetch = async (input, init) => {
       const request = input instanceof Request ? input : new Request(input, init);
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === DEVICE_PATH) {
         detailFetches += 1;
+      }
+      if (request.method === "GET" && url.pathname === DEVICE_STORY_PATH) {
+        deviceStoryFetches += 1;
+      }
+      if (request.method === "GET" && url.pathname === INCIDENTS_PATH) {
+        incidentFetches += 1;
+      }
+      if (request.method === "GET" && url.pathname === SNAPSHOT_HISTORY_PATH) {
+        snapshotHistoryFetches += 1;
       }
       return originalFetch(input, init);
     };
@@ -210,16 +224,26 @@ describe("Home Assistant enrichment live production path", () => {
         expect(networkState.openCount).toBe(1);
       });
       expect(detailFetches).toBe(1);
+      expect(deviceStoryFetches).toBe(1);
+      expect(incidentFetches).toBe(1);
+      expect(snapshotHistoryFetches).toBe(1);
       expect(networkState.rawEvents.get(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT) ?? 0).toBe(
         0,
       );
+      expect(networkState.rawEvents.get("dashboard_updated") ?? 0).toBe(0);
 
       const renamed = await applyHomeAssistantState("renamed");
       expect(renamed.ha_device_id).toBe(initial.ha_device_id);
       await screen.findByRole("heading", { level: 1, name: "HA Study Lamp" });
       expect(within(identityRow("Home Assistant area")).getByText("Study")).toBeVisible();
+      await waitFor(() => {
+        expect(networkState.rawEvents.get(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT)).toBe(1);
+        expect(networkState.rawEvents.get("dashboard_updated")).toBe(1);
+      });
       expect(detailFetches).toBe(2);
-      expect(networkState.rawEvents.get(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT)).toBe(1);
+      expect(deviceStoryFetches).toBe(2);
+      expect(incidentFetches).toBe(1);
+      expect(snapshotHistoryFetches).toBe(1);
 
       const removed = await applyHomeAssistantState("removed");
       expect(removed.ha_device_id).toBe(initial.ha_device_id);
@@ -228,8 +252,14 @@ describe("Home Assistant enrichment live production path", () => {
         expect(screen.queryByText("Home Assistant name")).not.toBeInTheDocument();
         expect(screen.queryByText("Home Assistant area")).not.toBeInTheDocument();
       });
+      await waitFor(() => {
+        expect(networkState.rawEvents.get(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT)).toBe(2);
+        expect(networkState.rawEvents.get("dashboard_updated")).toBe(2);
+      });
       expect(detailFetches).toBe(3);
-      expect(networkState.rawEvents.get(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT)).toBe(2);
+      expect(deviceStoryFetches).toBe(3);
+      expect(incidentFetches).toBe(1);
+      expect(snapshotHistoryFetches).toBe(1);
     },
     30_000,
   );

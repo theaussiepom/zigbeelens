@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import { DrawerSection } from "@/components/meshGraph/DrawerShell";
 import { EvidenceCoverageStrip } from "@/components/meshGraph/EvidenceCoverageStrip";
 import { useLiveResource } from "@/hooks/useLiveResource";
-import { HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT } from "@/lib/events";
+import { DEVICE_STORY_EVENTS } from "@/lib/liveResourceEvents";
 import {
   buildDeviceStoryViewModel,
   errorDeviceStoryViewModel,
@@ -47,7 +47,7 @@ export function DeviceStorySection({
     [networkId, deviceIeee, scenario],
     {
       enabled: Boolean(networkId && deviceIeee),
-      refetchOn: [HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT],
+      refetchOn: DEVICE_STORY_EVENTS,
     },
   );
   const story = storyResource.data;
@@ -64,7 +64,17 @@ export function DeviceStorySection({
         {viewModel.loadState === "loading" ? (
           <p className="text-xs text-zl-muted">{viewModel.loadingCopy}</p>
         ) : viewModel.loadState === "error" ? (
-          <p className="text-xs text-zl-muted">{viewModel.unavailableCopy}</p>
+          <div>
+            <p className="text-xs text-zl-muted">{viewModel.unavailableCopy}</p>
+            <button
+              type="button"
+              aria-label="Retry device story"
+              onClick={storyResource.refetch}
+              className="mt-2 min-h-11 rounded-lg border border-zl-border px-3 py-1.5 text-sm text-zl-text hover:bg-zl-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+            >
+              Retry
+            </button>
+          </div>
         ) : (
           <>
             <div>

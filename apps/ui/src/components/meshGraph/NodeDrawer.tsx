@@ -13,9 +13,15 @@ import {
   type DeviceDetailsSectionViewModel,
 } from "@/viewModels/topology/deviceDetailsViewModel";
 import { useLiveResource } from "@/hooks/useLiveResource";
-import { HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT } from "@/lib/events";
+import { DEVICE_COVERAGE_EVENTS } from "@/lib/liveResourceEvents";
 
-function DeviceDetailsSection({ section }: { section: DeviceDetailsSectionViewModel }) {
+function DeviceDetailsSection({
+  section,
+  onRetryCoverage,
+}: {
+  section: DeviceDetailsSectionViewModel;
+  onRetryCoverage?: () => void;
+}) {
   switch (section.id) {
     case "summary":
     case "currentStatus":
@@ -73,7 +79,19 @@ function DeviceDetailsSection({ section }: { section: DeviceDetailsSectionViewMo
       return (
         <DrawerSection title={section.title}>
           {section.message ? (
-            <p className="text-zl-muted">{section.message}</p>
+            <div>
+              <p className="text-zl-muted">{section.message}</p>
+              {onRetryCoverage && (
+                <button
+                  type="button"
+                  aria-label="Retry device coverage"
+                  onClick={onRetryCoverage}
+                  className="mt-2 min-h-11 rounded-lg border border-zl-border px-3 py-1.5 text-sm text-zl-text hover:bg-zl-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+                >
+                  Retry
+                </button>
+              )}
+            </div>
           ) : (
             <EvidenceCoverageStrip items={section.items} />
           )}
@@ -102,7 +120,7 @@ export function NodeDrawer({
   const deviceCoverageResource = useLiveResource(
     () => api.deviceCoverage(device.network_id, device.ieee_address),
     [device.network_id, device.ieee_address],
-    { refetchOn: [HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT] },
+    { refetchOn: DEVICE_COVERAGE_EVENTS },
   );
   const deviceCoverage =
     deviceCoverageResource.error === null
@@ -149,7 +167,15 @@ export function NodeDrawer({
         </Link>
       </div>
       {viewModel.sections.map((section) => (
-        <DeviceDetailsSection key={section.id} section={section} />
+        <DeviceDetailsSection
+          key={section.id}
+          section={section}
+          onRetryCoverage={
+            section.id === "dataCoverage" && deviceCoverageResource.error
+              ? deviceCoverageResource.refetch
+              : undefined
+          }
+        />
       ))}
     </DrawerShell>
   );

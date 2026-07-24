@@ -14,6 +14,8 @@ const emitState = (state: string) => {
 };
 
 vi.mock("@/lib/events", () => ({
+  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT:
+    "home_assistant_enrichment_updated",
   liveConnection: {
     subscribeEvents: (listener: (e: string) => void) => {
       eventListeners.add(listener);
@@ -170,7 +172,10 @@ describe("SnapshotHistorySection", () => {
     });
     expect(topologyDeviceSnapshotHistory).toHaveBeenCalledTimes(3);
 
-    act(() => emit("home_assistant_enrichment_updated"));
+    act(() => {
+      emit("home_assistant_enrichment_updated");
+      emit("dashboard_updated");
+    });
     act(() => vi.advanceTimersByTime(350));
     await act(async () => {
       await Promise.resolve();

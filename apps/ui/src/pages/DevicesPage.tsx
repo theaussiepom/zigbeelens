@@ -12,6 +12,7 @@ import {
   ErrorState,
   LoadingState,
   NetworkBadge,
+  StaleRefreshNotice,
 } from "@/components/ui";
 import { ContextualReportDialog } from "@/components/reports/ContextualReportDialog";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
@@ -33,38 +34,20 @@ import {
   type DeviceRowViewModel,
 } from "@/viewModels/devices/deviceRowViewModel";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
-import { HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT } from "@/lib/events";
-
-const DEVICE_EVENTS = [
-  "device_health_updated",
-  "health_updated",
-  "dashboard_updated",
-  "incidents_updated",
-  "incident_opened",
-  "incident_updated",
-  "incident_resolved",
-  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
-];
-
-const RELATED_INCIDENT_EVENTS = [
-  "device_health_updated",
-  "health_updated",
-  "dashboard_updated",
-  "incidents_updated",
-  "incident_opened",
-  "incident_updated",
-  "incident_resolved",
-];
+import {
+  DEVICE_PROJECTION_EVENTS,
+  INCIDENT_COLLECTION_EVENTS,
+} from "@/lib/liveResourceEvents";
 
 export function DevicesPage() {
   const { scenario } = useScenario();
   const [searchParams] = useSearchParams();
   const initialNetwork = searchParams.get("network") ?? "";
 
-  const { data, error, loading, refetch } = useLiveResource(
+  const { data, error, loading, refreshing, refetch } = useLiveResource(
     () => api.devices(scenario || undefined).then((r) => r.items),
     [scenario],
-    { refetchOn: DEVICE_EVENTS },
+    { refetchOn: DEVICE_PROJECTION_EVENTS },
   );
 
   const [network, setNetwork] = useState(initialNetwork);
@@ -109,11 +92,27 @@ export function DevicesPage() {
     [inventoryRows],
   );
 
-  if (error) return <ErrorState message={error} onRetry={refetch} />;
-  if (loading) return <LoadingState />;
+  if (loading && data === null) return <LoadingState />;
+  if (error && data === null) {
+    return (
+      <ErrorState
+        message={error}
+        onRetry={refetch}
+        retryLabel="Retry device inventory"
+      />
+    );
+  }
+  if (data === null) return <LoadingState />;
 
   return (
-    <div className="max-w-6xl space-y-6">
+    <div className="max-w-6xl space-y-6" aria-busy={refreshing}>
+      {error && (
+        <StaleRefreshNotice
+          resourceLabel="Device inventory"
+          onRetry={refetch}
+          retryLabel="Retry device inventory"
+        />
+      )}
       <div>
         <h1 className="text-2xl font-semibold">Devices</h1>
         <p className="mt-1 text-zl-muted">
@@ -329,7 +328,10 @@ export function DeviceDetailPage() {
   const detail = useLiveResource(
     () => api.device(networkId, ieee, s),
     [networkId, ieee, scenario],
-    { refetchOn: DEVICE_EVENTS, enabled: Boolean(networkId && ieee) },
+    {
+      refetchOn: DEVICE_PROJECTION_EVENTS,
+      enabled: Boolean(networkId && ieee),
+    },
   );
   const incidents = useLiveResource(
     () =>
@@ -342,11 +344,23 @@ export function DeviceDetailPage() {
         })
         .then((r) => r.items),
     [networkId, ieee, scenario],
-    { refetchOn: RELATED_INCIDENT_EVENTS, enabled: Boolean(networkId && ieee) },
+    {
+      refetchOn: INCIDENT_COLLECTION_EVENTS,
+      enabled: Boolean(networkId && ieee),
+    },
   );
 
-  if (detail.error) return <ErrorState message={detail.error} onRetry={detail.refetch} />;
-  if (detail.loading || !detail.data) return <LoadingState />;
+  if (detail.loading && !detail.data) return <LoadingState />;
+  if (detail.error && !detail.data) {
+    return (
+      <ErrorState
+        message={detail.error}
+        onRetry={detail.refetch}
+        retryLabel="Retry device details"
+      />
+    );
+  }
+  if (!detail.data) return <LoadingState />;
   const device = detail.data;
   const related = incidents.data ?? [];
   const decision = buildDeviceDecisionBadgeViewModel(device.decision);
@@ -356,7 +370,14 @@ export function DeviceDetailPage() {
   const displayName = homeAssistantName || device.friendly_name;
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="max-w-4xl space-y-6" aria-busy={detail.refreshing}>
+      {detail.error && (
+        <StaleRefreshNotice
+          resourceLabel="Device details"
+          onRetry={detail.refetch}
+          retryLabel="Retry device details"
+        />
+      )}
       <div>
         <Link to="/devices" className="text-sm text-zl-accent hover:underline">
           ← Devices

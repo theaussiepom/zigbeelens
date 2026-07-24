@@ -496,7 +496,7 @@ vi.mock("@/hooks/useLiveResource", async (importOriginal) => {
     useLiveResource: (
       fetcher: () => Promise<unknown>,
       deps: unknown[],
-      options?: { enabled?: boolean; refetchOn?: string[] },
+      options?: { enabled?: boolean; refetchOn?: readonly string[] },
     ) => {
       if (options?.enabled === false) {
         return { data: null, loading: false, error: null, refetch: vi.fn() };
@@ -506,7 +506,7 @@ vi.mock("@/hooks/useLiveResource", async (importOriginal) => {
       if (
         deps.length === 2 &&
         options?.refetchOn != null &&
-        options.refetchOn.includes("dashboard_updated")
+        options.refetchOn.includes("device_health_updated")
       ) {
         return {
           data: mockInventoryAccepted
@@ -854,7 +854,7 @@ describe("TopologyGraphPage live mode", () => {
     );
     expect(
       screen.getByText(
-        "Device inventory could not be refreshed. Showing the last loaded inventory confirmation.",
+        "Mesh device inventory could not be refreshed. Showing the last accepted view; it may not include the newest Home Assistant enrichment.",
       ),
     ).toBeInTheDocument();
     expect(drawer).toHaveTextContent("In Zigbee2MQTT device inventory");

@@ -8,6 +8,7 @@ import {
   EmptyState,
   ErrorState,
   LoadingState,
+  StaleRefreshNotice,
   StatTile,
 } from "@/components/ui";
 import {
@@ -42,32 +43,10 @@ import {
   writeOverviewLastViewedAt,
 } from "@/lib/overviewVisitStorage";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
-import { HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT } from "@/lib/events";
-
-const OVERVIEW_DASHBOARD_EVENTS = [
-  "dashboard_update",
-  "dashboard_updated",
-  "health_updated",
-  "network_health_updated",
-  "device_health_updated",
-  "incident_opened",
-  "incident_updated",
-  "incident_resolved",
-  "incidents_updated",
-  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
-];
-
-const OVERVIEW_INCIDENT_EVENTS = [
-  "dashboard_update",
-  "dashboard_updated",
-  "health_updated",
-  "network_health_updated",
-  "device_health_updated",
-  "incident_opened",
-  "incident_updated",
-  "incident_resolved",
-  "incidents_updated",
-];
+import {
+  INCIDENT_COLLECTION_EVENTS,
+  OVERVIEW_DASHBOARD_EVENTS,
+} from "@/lib/liveResourceEvents";
 
 export function OverviewPage() {
   const { scenario } = useScenario();
@@ -131,7 +110,7 @@ function OverviewPageForScope({
         limit: 20,
       }).then((r) => r.items),
     [scenario],
-    { refetchOn: OVERVIEW_INCIDENT_EVENTS },
+    { refetchOn: INCIDENT_COLLECTION_EVENTS },
   );
   const recentIncidentsResource = useLiveResource(
     () => {
@@ -148,7 +127,10 @@ function OverviewPageForScope({
         .then((r) => r.items);
     },
     [scenario, previousLastViewedAt, visitTimestamp],
-    { enabled: Boolean(visitTimestamp), refetchOn: OVERVIEW_INCIDENT_EVENTS },
+    {
+      enabled: Boolean(visitTimestamp),
+      refetchOn: INCIDENT_COLLECTION_EVENTS,
+    },
   );
 
   useEffect(() => {
@@ -173,12 +155,17 @@ function OverviewPageForScope({
     visitTimestamp,
   ]);
 
-  if (dashboard.error) return <ErrorState message={dashboard.error} onRetry={() => {
-    dashboard.refetch();
-    activeIncidentsResource.refetch();
-    recentIncidentsResource.refetch();
-  }} />;
-  if (dashboard.loading || !dashboard.data) return <LoadingState />;
+  if (dashboard.loading && !dashboard.data) return <LoadingState />;
+  if (dashboard.error && !dashboard.data) {
+    return (
+      <ErrorState
+        message={dashboard.error}
+        onRetry={dashboard.refetch}
+        retryLabel="Retry Overview"
+      />
+    );
+  }
+  if (!dashboard.data) return <LoadingState />;
 
   const data = dashboard.data;
   const networkNames = Object.fromEntries(data.networks.map((network) => [network.id, network.name]));
@@ -211,7 +198,14 @@ function OverviewPageForScope({
   const worthReviewing = data.decision_summary.status_counts.worth_reviewing ?? 0;
 
   return (
-    <div className="max-w-7xl space-y-6">
+    <div className="max-w-7xl space-y-6" aria-busy={dashboard.refreshing}>
+      {dashboard.error && (
+        <StaleRefreshNotice
+          resourceLabel="Overview"
+          onRetry={dashboard.refetch}
+          retryLabel="Retry Overview"
+        />
+      )}
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>

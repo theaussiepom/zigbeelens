@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useLiveResource } from "@/hooks/useLiveResource";
+import { RAW_TOPOLOGY_HISTORY_EVENTS } from "@/lib/liveResourceEvents";
 import {
   SNAPSHOT_HISTORY_REFRESH_FAILED_COPY,
 } from "@/lib/meshGraphCopy";
@@ -273,7 +274,7 @@ export function DeviceSnapshotHistory({
   const history = useLiveResource(
     () => api.topologyDeviceSnapshotHistory(networkId, deviceIeee),
     [networkId, deviceIeee],
-    { refetchOn: ["topology_updated"] },
+    { refetchOn: RAW_TOPOLOGY_HISTORY_EVENTS },
   );
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
 

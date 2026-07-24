@@ -29,8 +29,26 @@ export const LIVE_EVENTS = [
 export type SessionProbeReason = "sse_error";
 
 type SessionProbeRequester = (reason: SessionProbeReason) => void;
-type EventListener = (eventName: string) => void;
+export type LiveEventPayload = Record<string, unknown> | null;
+type EventListener = (
+  eventName: string,
+  payload: LiveEventPayload,
+) => void;
 type StateListener = (state: ConnectionState) => void;
+
+function eventPayload(event: Event): LiveEventPayload {
+  if (!(event instanceof MessageEvent) || typeof event.data !== "string") {
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(event.data);
+    return parsed !== null && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Single shared EventSource connection to Core.
@@ -170,10 +188,13 @@ class LiveConnection {
       this.scheduleStatusProbe(source);
     };
 
-    const notify = (eventName: string) => () => {
+    const notify = (eventName: string) => (event: Event) => {
       if (!this.accessEnabled || this.source !== source) return;
       this.setState("open");
-      for (const listener of this.eventListeners) listener(eventName);
+      const payload = eventPayload(event);
+      for (const listener of this.eventListeners) {
+        listener(eventName, payload);
+      }
     };
 
     for (const name of LIVE_EVENTS) {

@@ -5,21 +5,19 @@ import { useLiveResource } from "@/hooks/useLiveResource";
 import { api } from "@/lib/api";
 import { Badge, Card, LoadingState } from "@/components/ui";
 import { relativeTime } from "@/lib/format";
-import { HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT } from "@/lib/events";
+import {
+  ENRICHMENT_HEALTH_EVENTS,
+  STORAGE_STATUS_EVENTS,
+} from "@/lib/liveResourceEvents";
 
 export function SettingsPage() {
   const auth = useAuth();
   const { status, refreshStatus, scenario, dataMode, isScenarioMode } = useScenario();
   const health = useLiveResource(() => api.health(), [], {
-    refetchOn: [
-      "collector_status",
-      "collector_connected",
-      "collector_disconnected",
-      HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
-    ],
+    refetchOn: ENRICHMENT_HEALTH_EVENTS,
   });
   const storage = useLiveResource(() => api.storageStatus(), [], {
-    refetchOn: ["storage_maintenance_completed"],
+    refetchOn: STORAGE_STATUS_EVENTS,
   });
 
   if (!status) return <LoadingState />;

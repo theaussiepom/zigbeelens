@@ -14,8 +14,8 @@ export const eventSourceTestState = {
   constructs: [] as EventSourceConstruct[],
   closeCount: 0,
   instances: [] as StubEventSource[],
-  emit(eventName: string) {
-    this.instances.at(-1)?.emit(eventName);
+  emit(eventName: string, data?: unknown) {
+    this.instances.at(-1)?.emit(eventName, data);
   },
   reset() {
     this.constructs = [];
@@ -60,8 +60,10 @@ class StubEventSource {
   registeredEventNames(): string[] {
     return [...this.listeners.keys()];
   }
-  emit(eventName: string) {
-    const event = new MessageEvent(eventName);
+  emit(eventName: string, data?: unknown) {
+    const event = new MessageEvent(eventName, {
+      data: data === undefined ? "" : JSON.stringify(data),
+    });
     for (const listener of this.listeners.get(eventName) ?? []) {
       if (typeof listener === "function") {
         listener(event);

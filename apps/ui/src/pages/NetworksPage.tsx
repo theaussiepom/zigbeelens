@@ -10,6 +10,7 @@ import {
   ErrorState,
   LoadingState,
   MetricPill,
+  StaleRefreshNotice,
   StatTile,
 } from "@/components/ui";
 import {
@@ -24,43 +25,43 @@ import { bridgeStateLabel, bridgeStateSeverity, compareDevices } from "@/lib/for
 import { investigatePath, topologySnapshotPath } from "@/lib/routes";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
 import { decisionStatusLabel } from "@/viewModels/decisionCopy";
-import { HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT } from "@/lib/events";
-
-const NETWORK_EVENTS = [
-  "network_health_updated",
-  "health_updated",
-  "dashboard_updated",
-  "incidents_updated",
-  "incident_opened",
-  "incident_updated",
-  "incident_resolved",
-  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
-];
-
-const NETWORK_SUPPORTING_EVENTS = [
-  "network_health_updated",
-  "health_updated",
-  "dashboard_updated",
-  "incidents_updated",
-  "incident_opened",
-  "incident_updated",
-  "incident_resolved",
-];
+import {
+  DEVICE_PROJECTION_EVENTS,
+  INCIDENT_COLLECTION_EVENTS,
+  NETWORK_PROJECTION_EVENTS,
+  TIMELINE_COLLECTION_EVENTS,
+} from "@/lib/liveResourceEvents";
 
 export function NetworksPage() {
   const { scenario, status } = useScenario();
-  const { data, error, loading, refetch } = useLiveResource(
+  const { data, error, loading, refreshing, refetch } = useLiveResource(
     () => api.networks(scenario || undefined).then((r) => r.items),
     [scenario],
-    { refetchOn: NETWORK_EVENTS },
+    { refetchOn: NETWORK_PROJECTION_EVENTS },
   );
 
-  if (error) return <ErrorState message={error} onRetry={refetch} />;
-  if (loading) return <LoadingState />;
-  const networks = data ?? [];
+  if (loading && data === null) return <LoadingState />;
+  if (error && data === null) {
+    return (
+      <ErrorState
+        message={error}
+        onRetry={refetch}
+        retryLabel="Retry network summaries"
+      />
+    );
+  }
+  if (data === null) return <LoadingState />;
+  const networks = data;
 
   return (
-    <div className="max-w-6xl space-y-6">
+    <div className="max-w-6xl space-y-6" aria-busy={refreshing}>
+      {error && (
+        <StaleRefreshNotice
+          resourceLabel="Network summaries"
+          onRetry={refetch}
+          retryLabel="Retry network summaries"
+        />
+      )}
       <div>
         <h1 className="text-2xl font-semibold">Networks</h1>
         <p className="mt-1 text-zl-muted">Compare Zigbee2MQTT networks side by side.</p>
@@ -110,13 +111,13 @@ export function NetworkDetailPage() {
   const reportButtonRef = useRef<HTMLButtonElement>(null);
 
   const net = useLiveResource(() => api.network(networkId!, s), [networkId, scenario], {
-    refetchOn: NETWORK_EVENTS,
+    refetchOn: NETWORK_PROJECTION_EVENTS,
     enabled: Boolean(networkId),
   });
   const devices = useLiveResource(
     () => api.devices(s, networkId).then((r) => r.items),
     [networkId, scenario],
-    { refetchOn: NETWORK_EVENTS, enabled: Boolean(networkId) },
+    { refetchOn: DEVICE_PROJECTION_EVENTS, enabled: Boolean(networkId) },
   );
   const activeIncidentsResource = useLiveResource(
     () =>
@@ -129,7 +130,7 @@ export function NetworkDetailPage() {
         })
         .then((r) => r.items),
     [networkId, scenario],
-    { refetchOn: NETWORK_SUPPORTING_EVENTS, enabled: Boolean(networkId) },
+    { refetchOn: INCIDENT_COLLECTION_EVENTS, enabled: Boolean(networkId) },
   );
   const resolvedIncidentsResource = useLiveResource(
     () =>
@@ -142,16 +143,25 @@ export function NetworkDetailPage() {
         })
         .then((r) => r.items),
     [networkId, scenario],
-    { refetchOn: NETWORK_SUPPORTING_EVENTS, enabled: Boolean(networkId) },
+    { refetchOn: INCIDENT_COLLECTION_EVENTS, enabled: Boolean(networkId) },
   );
   const timeline = useLiveResource(
     () => api.timeline(s, networkId).then((r) => r.items),
     [networkId, scenario],
-    { refetchOn: NETWORK_SUPPORTING_EVENTS, enabled: Boolean(networkId) },
+    { refetchOn: TIMELINE_COLLECTION_EVENTS, enabled: Boolean(networkId) },
   );
 
-  if (net.error) return <ErrorState message={net.error} onRetry={net.refetch} />;
-  if (net.loading || !net.data) return <LoadingState />;
+  if (net.loading && !net.data) return <LoadingState />;
+  if (net.error && !net.data) {
+    return (
+      <ErrorState
+        message={net.error}
+        onRetry={net.refetch}
+        retryLabel="Retry network details"
+      />
+    );
+  }
+  if (!net.data) return <LoadingState />;
   const n = net.data;
 
   // Devices and resolved incidents are optional supporting sections: absent
@@ -165,7 +175,31 @@ export function NetworkDetailPage() {
   const statusCounts = n.decision_summary.status_counts;
 
   return (
-    <div className="max-w-5xl space-y-6">
+    <div
+      className="max-w-5xl space-y-6"
+      aria-busy={Boolean(net.refreshing || devices.refreshing)}
+    >
+      {net.error && (
+        <StaleRefreshNotice
+          resourceLabel="Network details"
+          onRetry={net.refetch}
+          retryLabel="Retry network details"
+        />
+      )}
+      {devices.data !== null && devices.error && (
+        <StaleRefreshNotice
+          resourceLabel="Network device inventory"
+          onRetry={devices.refetch}
+          retryLabel="Retry network device inventory"
+        />
+      )}
+      {devices.data === null && devices.error && (
+        <ErrorState
+          message="Network device inventory is unavailable."
+          onRetry={devices.refetch}
+          retryLabel="Retry network device inventory"
+        />
+      )}
       <div>
         <Link to="/networks" className="text-sm text-zl-accent hover:underline">
           ← Networks

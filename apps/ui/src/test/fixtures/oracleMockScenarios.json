@@ -16132,6 +16132,9 @@
       "reported_lqi_not_path_failure",
       "route_hints_not_live_routing"
     ],
+    "live_event_types": [
+      "home_assistant_enrichment_updated"
+    ],
     "reason_codes": [
       "availability_history_building",
       "availability_status_unknown",

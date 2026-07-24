@@ -23,7 +23,7 @@ import {
 } from "@/lib/events";
 import { eventSourceTestState } from "@/test/setup";
 import { DevicesPage, DeviceDetailPage } from "@/pages/DevicesPage";
-import { NetworkDetailPage } from "@/pages/NetworksPage";
+import { NetworkDetailPage, NetworksPage } from "@/pages/NetworksPage";
 import { OverviewPage } from "@/pages/OverviewPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 
@@ -356,7 +356,38 @@ async function flushAsyncWork() {
 
 async function emitEnrichmentUpdate() {
   act(() => {
-    eventSourceTestState.emit(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT);
+    eventSourceTestState.emit(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT, {
+      type: HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+    });
+    eventSourceTestState.emit("dashboard_updated", {
+      type: "dashboard_updated",
+      causes: [HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT],
+    });
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(350);
+  });
+  await flushAsyncWork();
+}
+
+async function emitDelayedDashboardCompanion() {
+  act(() => {
+    eventSourceTestState.emit("dashboard_updated", {
+      type: "dashboard_updated",
+      causes: [HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT],
+    });
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(700);
+  });
+  await flushAsyncWork();
+}
+
+async function emitOrdinaryDashboardUpdate() {
+  act(() => {
+    eventSourceTestState.emit("dashboard_updated", {
+      type: "dashboard_updated",
+    });
   });
   await act(async () => {
     await vi.advanceTimersByTimeAsync(350);
@@ -528,6 +559,67 @@ describe("Home Assistant enrichment live refresh", () => {
     expect(apiMocks.incidents).toHaveBeenCalledTimes(1);
   });
 
+  it("refreshes network summaries exactly once for the real event pair", async () => {
+    apiMocks.networks
+      .mockResolvedValueOnce({
+        items: [networkWithCoverage(1)],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        items: [networkWithCoverage(0)],
+        total: 1,
+      });
+
+    render(
+      <MemoryRouter>
+        <NetworksPage />
+      </MemoryRouter>,
+    );
+    await flushAsyncWork();
+    expect(metricValue("Coverage")).toContain("1");
+
+    await emitEnrichmentUpdate();
+
+    expect(screen.queryByText("Coverage")).not.toBeInTheDocument();
+    expect(apiMocks.networks).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes device and network projections for an ordinary unattributed Dashboard update", async () => {
+    apiMocks.devices
+      .mockResolvedValueOnce({
+        items: [deviceSummary({ home_assistant_name: "Accepted Device" })],
+      })
+      .mockResolvedValueOnce({
+        items: [deviceSummary({ home_assistant_name: "Ordinary Device Update" })],
+      });
+    apiMocks.networks
+      .mockResolvedValueOnce({
+        items: [networkWithCoverage(1)],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        items: [networkWithCoverage(0)],
+        total: 1,
+      });
+
+    render(
+      <MemoryRouter>
+        <DevicesPage />
+        <NetworksPage />
+      </MemoryRouter>,
+    );
+    await flushAsyncWork();
+    expect(screen.getByText("Accepted Device")).toBeInTheDocument();
+    expect(apiMocks.devices).toHaveBeenCalledTimes(1);
+    expect(apiMocks.networks).toHaveBeenCalledTimes(1);
+
+    await emitOrdinaryDashboardUpdate();
+
+    expect(screen.getByText("Ordinary Device Update")).toBeInTheDocument();
+    expect(apiMocks.devices).toHaveBeenCalledTimes(2);
+    expect(apiMocks.networks).toHaveBeenCalledTimes(2);
+  });
+
   it("refreshes network and device projections without refetching incidents or timeline", async () => {
     apiMocks.network
       .mockResolvedValueOnce(networkWithCoverage(1))
@@ -575,6 +667,49 @@ describe("Home Assistant enrichment live refresh", () => {
     expect(apiMocks.devices).toHaveBeenCalledTimes(2);
     expect(apiMocks.incidents).toHaveBeenCalledTimes(2);
     expect(apiMocks.timeline).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores an attributed Dashboard companion even after the debounce window", async () => {
+    apiMocks.dashboard
+      .mockResolvedValueOnce(dashboardWithCoverage(true))
+      .mockResolvedValueOnce(dashboardWithCoverage(false))
+      .mockResolvedValueOnce(dashboardWithCoverage(false));
+    apiMocks.incidents.mockResolvedValue({ items: [], total: 0 });
+
+    render(
+      <MemoryRouter>
+        <OverviewPage />
+      </MemoryRouter>,
+    );
+    await flushAsyncWork();
+
+    act(() => {
+      eventSourceTestState.emit(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT, {
+        type: HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(350);
+    });
+    await flushAsyncWork();
+    expect(apiMocks.dashboard).toHaveBeenCalledTimes(2);
+    expect(apiMocks.incidents).toHaveBeenCalledTimes(1);
+
+    await emitDelayedDashboardCompanion();
+    expect(apiMocks.dashboard).toHaveBeenCalledTimes(2);
+    expect(apiMocks.incidents).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      eventSourceTestState.emit("dashboard_updated", {
+        type: "dashboard_updated",
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(350);
+    });
+    await flushAsyncWork();
+    expect(apiMocks.dashboard).toHaveBeenCalledTimes(3);
+    expect(apiMocks.incidents).toHaveBeenCalledTimes(1);
   });
 
   it("refreshes Settings enrichment health without refetching storage", async () => {

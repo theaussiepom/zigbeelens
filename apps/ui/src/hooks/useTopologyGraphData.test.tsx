@@ -2,14 +2,19 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTopologyEvidenceGraphDetail } from "@/test/topologyEvidenceGraphFixture";
 
-const listeners = new Set<(eventName: string) => void>();
-const emit = (eventName: string) => {
-  for (const listener of listeners) listener(eventName);
+type TestPayload = Record<string, unknown> | null;
+const listeners = new Set<
+  (eventName: string, payload: TestPayload) => void
+>();
+const emit = (eventName: string, payload: TestPayload = null) => {
+  for (const listener of listeners) listener(eventName, payload);
 };
 
 vi.mock("@/lib/events", () => ({
   liveConnection: {
-    subscribeEvents: (listener: (e: string) => void) => {
+    subscribeEvents: (
+      listener: (eventName: string, payload: TestPayload) => void,
+    ) => {
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
@@ -89,7 +94,15 @@ describe("useTopologyGraphData", () => {
     expect(topologyEvidenceGraph).toHaveBeenCalledTimes(2);
     expect(devices).toHaveBeenCalledTimes(1);
 
-    act(() => emit("home_assistant_enrichment_updated"));
+    act(() => {
+      emit("home_assistant_enrichment_updated", {
+        type: "home_assistant_enrichment_updated",
+      });
+      emit("dashboard_updated", {
+        type: "dashboard_updated",
+        causes: ["home_assistant_enrichment_updated"],
+      });
+    });
     act(() => vi.advanceTimersByTime(350));
     await act(async () => {
       await Promise.resolve();
@@ -97,7 +110,21 @@ describe("useTopologyGraphData", () => {
     expect(topologyEvidenceGraph).toHaveBeenCalledTimes(3);
     expect(devices).toHaveBeenCalledTimes(2);
 
-    act(() => emit("dashboard_updated"));
+    act(() => vi.advanceTimersByTime(1_000));
+    act(() =>
+      emit("dashboard_updated", {
+        type: "dashboard_updated",
+        causes: ["home_assistant_enrichment_updated"],
+      }),
+    );
+    act(() => vi.advanceTimersByTime(350));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(3);
+    expect(devices).toHaveBeenCalledTimes(2);
+
+    act(() => emit("dashboard_updated", { type: "dashboard_updated" }));
     act(() => vi.advanceTimersByTime(350));
     await act(async () => {
       await Promise.resolve();

@@ -10,37 +10,43 @@ import {
   ErrorState,
   LoadingState,
   MetricPill,
+  StaleRefreshNotice,
 } from "@/components/ui";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
 import { bridgeStateLabel, bridgeStateSeverity } from "@/lib/format";
-import { HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT } from "@/lib/events";
-
-const NETWORK_EVENTS = [
-  "network_health_updated",
-  "health_updated",
-  "dashboard_updated",
-  "incidents_updated",
-  "incident_opened",
-  "incident_updated",
-  "incident_resolved",
-  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
-];
+import { NETWORK_PROJECTION_EVENTS } from "@/lib/liveResourceEvents";
 
 export function InvestigateLandingPage() {
   const { scenario } = useScenario();
-  const { data, error, loading, refetch } = useLiveResource(
+  const { data, error, loading, refreshing, refetch } = useLiveResource(
     () => api.networks(scenario || undefined).then((r) => r.items),
     [scenario],
-    { refetchOn: NETWORK_EVENTS },
+    { refetchOn: NETWORK_PROJECTION_EVENTS },
   );
 
-  if (error) return <ErrorState message={error} onRetry={refetch} />;
-  if (loading) return <LoadingState />;
-  const networks = data ?? [];
+  if (loading && data === null) return <LoadingState />;
+  if (error && data === null) {
+    return (
+      <ErrorState
+        message={error}
+        onRetry={refetch}
+        retryLabel="Retry investigation networks"
+      />
+    );
+  }
+  if (data === null) return <LoadingState />;
+  const networks = data;
 
   return (
-    <div className="max-w-6xl space-y-6">
+    <div className="max-w-6xl space-y-6" aria-busy={refreshing}>
+      {error && (
+        <StaleRefreshNotice
+          resourceLabel="Investigation networks"
+          onRetry={refetch}
+          retryLabel="Retry investigation networks"
+        />
+      )}
       <div>
         <h1 className="text-2xl font-semibold">Mesh / Investigate</h1>
         <p className="mt-1 text-zl-muted">
