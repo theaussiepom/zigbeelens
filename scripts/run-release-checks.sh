@@ -6,9 +6,49 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${ROOT}"
 
 export PYTHONPATH="${ROOT}/apps/core/src"
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONNOUSERSITE=1
 RELEASE_VERSION="$(
   sed -nE 's/.*"version": "([^"]+)".*/\1/p' "${ROOT}/package.json" | head -1
 )"
+
+if ! UV_COMMAND="$(command -v uv 2>/dev/null)" || [[ -z "${UV_COMMAND}" ]]; then
+  echo "run-release-checks.sh: uv is required (release workflows provision uv 0.11.16)" >&2
+  exit 1
+fi
+
+RELEASE_STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/zigbeelens-release-python.XXXXXX")"
+cleanup() {
+  rm -rf "${RELEASE_STATE_DIR}"
+}
+trap cleanup EXIT
+
+export ZIGBEELENS_RELEASE_ROOT="${ROOT}"
+export ZIGBEELENS_RELEASE_UV_COMMAND="${UV_COMMAND}"
+CORE_PYTHON_WRAPPER="${RELEASE_STATE_DIR}/core-python"
+cat >"${CORE_PYTHON_WRAPPER}" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+exec "${ZIGBEELENS_RELEASE_UV_COMMAND}" run \
+  --isolated \
+  --no-project \
+  --no-config \
+  --no-env-file \
+  --with-editable "${ZIGBEELENS_RELEASE_ROOT}/apps/core[dev]" \
+  python "$@"
+SH
+chmod +x "${CORE_PYTHON_WRAPPER}"
+export CORE_PYTHON="${CORE_PYTHON_WRAPPER}"
+export ZIGBEELENS_CORE_PYTHON="${CORE_PYTHON_WRAPPER}"
+
+CORE_UV_RUN=(
+  "${UV_COMMAND}" run
+  --isolated
+  --no-project
+  --no-config
+  --no-env-file
+  --with-editable "${ROOT}/apps/core[dev]"
+)
 
 echo "==> Version alignment"
 bash scripts/check-version-alignment.sh
@@ -17,13 +57,13 @@ echo "==> Cross-surface contracts and documentation"
 bash scripts/validate-contracts.sh
 
 echo "==> Backend lint"
-(cd apps/core && uv run ruff check src tests)
+(cd apps/core && "${CORE_UV_RUN[@]}" ruff check src tests)
 
 echo "==> Backend tests"
-(cd apps/core && uv run pytest -q)
+(cd apps/core && "${CORE_UV_RUN[@]}" pytest -q)
 
 echo "==> Performance baselines"
-(cd apps/core && uv run pytest -q tests/performance)
+(cd apps/core && "${CORE_UV_RUN[@]}" pytest -q tests/performance)
 
 echo "==> SQLite 3.34.1 runtime smoke"
 bash scripts/smoke-sqlite-3.34.1.sh

@@ -90,7 +90,11 @@ else
   fail "stage missing apps/core/src/zigbeelens/decisions"
 fi
 
-if [[ -d "${ROOT}/apps/core/.venv" ]]; then
+if [[ -n "${CORE_PYTHON:-}" ]]; then
+  PYTHONPATH="${ROOT}/apps/core/src" \
+    "${CORE_PYTHON}" -m pytest -q "${ROOT}/apps/core/tests/test_addon_config.py" \
+    || FAIL=1
+elif [[ -d "${ROOT}/apps/core/.venv" ]]; then
   # shellcheck disable=SC1091
   source "${ROOT}/apps/core/.venv/bin/activate"
   PYTHONPATH="${ROOT}/apps/core/src" python3 -m pytest -q "${ROOT}/apps/core/tests/test_addon_config.py" || FAIL=1

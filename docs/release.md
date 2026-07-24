@@ -122,11 +122,16 @@ git diff --check
 `scripts/smoke-core.sh` is the canonical isolated Core runtime proof. It does
 not activate or repair `apps/core/.venv`, invoke pip, read `config/config.yaml`,
 or use repository `data/`. It resolves a verified checkout Python (explicit
-`ZIGBEELENS_CORE_PYTHON`, then an isolated, lock-enforcing uv run, then an
-already-usable `python3`), creates a temporary config and SQLite database on a
-free loopback port, disables collector, Discovery, and topology activity,
-verifies schema/integrity and the public endpoints, and removes its exact
-child/state on every exit path.
+`ZIGBEELENS_CORE_PYTHON`, then an isolated, lockless, non-project uv run that
+installs the checkout as an editable dependency, then an already-usable
+`python3`), creates a temporary config and SQLite database on a free loopback
+port, disables collector, Discovery, and topology activity, verifies
+schema/integrity and the public endpoints, and removes its exact child/state on
+every exit path. The release helper uses the same lockless, isolated,
+non-project uv execution shape for Core lint, full tests, and performance tests,
+and supplies a temporary external Core Python wrapper to its nested contract,
+safety, live-E2E, and add-on gates. Those gates do not create or update
+`apps/core/uv.lock` or `apps/core/.venv`.
 
 Record exact test counts, skips, xfails, and warnings. The known non-strict
 xfail is

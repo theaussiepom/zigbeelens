@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import socket
@@ -16,10 +17,16 @@ import pytest
 ROOT = Path(__file__).resolve().parents[4]
 SMOKE = ROOT / "scripts" / "smoke-core.sh"
 RELEASE_HELPER = ROOT / "scripts" / "run-release-checks.sh"
+ADDON_VALIDATOR = ROOT / "scripts" / "validate-addon.sh"
 STATE_GLOB = "zigbeelens-core-smoke.*"
 
 
-def _fixture_repository(tmp_path: Path) -> tuple[Path, Path]:
+def _fixture_repository(
+    tmp_path: Path,
+    *,
+    package_version: str | None = None,
+    version_api_override: str | None = None,
+) -> tuple[Path, Path]:
     repository = tmp_path / "repository"
     script = repository / "scripts" / "smoke-core.sh"
     script.parent.mkdir(parents=True)
@@ -27,10 +34,46 @@ def _fixture_repository(tmp_path: Path) -> tuple[Path, Path]:
 
     core = repository / "apps" / "core"
     core.mkdir(parents=True)
-    (core / "src").symlink_to(ROOT / "apps" / "core" / "src", target_is_directory=True)
-    for project_file in ("pyproject.toml", "README.md", "uv.lock"):
+    source_root = ROOT / "apps" / "core" / "src"
+    shutil.copytree(
+        source_root,
+        core / "src",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    for project_file in ("pyproject.toml", "README.md"):
         shutil.copy2(ROOT / "apps" / "core" / project_file, core / project_file)
 
+    if package_version is not None:
+        pyproject = core / "pyproject.toml"
+        updated, replacements = re.subn(
+            r'(?m)^version = "[^"]+"$',
+            f'version = "{package_version}"',
+            pyproject.read_text(encoding="utf-8"),
+        )
+        assert replacements == 1
+        pyproject.write_text(updated, encoding="utf-8")
+
+        package_init = core / "src" / "zigbeelens" / "__init__.py"
+        updated, replacements = re.subn(
+            r'(?m)^__version__ = "[^"]+"$',
+            f'__version__ = "{package_version}"',
+            package_init.read_text(encoding="utf-8"),
+        )
+        assert replacements == 1
+        package_init.write_text(updated, encoding="utf-8")
+
+    if version_api_override is not None:
+        routes = core / "src" / "zigbeelens" / "api" / "routes.py"
+        original = 'return {"version": __version__, "name": "zigbeelens-core"}'
+        replacement = (
+            f'return {{"version": "{version_api_override}", '
+            '"name": "zigbeelens-core"}'
+        )
+        text = routes.read_text(encoding="utf-8")
+        assert text.count(original) == 1
+        routes.write_text(text.replace(original, replacement, 1), encoding="utf-8")
+
+    assert not (core / "uv.lock").exists()
     config_sentinel = repository / "config" / "config.yaml"
     config_sentinel.parent.mkdir()
     config_sentinel.write_bytes(b"production-config-sentinel\n")
@@ -61,21 +104,73 @@ def _environment(
     return env, tmp_parent
 
 
+def _lock_snapshot(script: Path) -> dict[Path, bytes | None]:
+    paths = (
+        script.parents[1] / "apps" / "core" / "uv.lock",
+        ROOT / "apps" / "core" / "uv.lock",
+    )
+    return {
+        path: path.read_bytes() if path.is_file() else None
+        for path in paths
+    }
+
+
+def _assert_locks_unchanged(snapshot: dict[Path, bytes | None]) -> None:
+    for path, before in snapshot.items():
+        if before is None:
+            assert not path.exists(), f"smoke created ignored lockfile: {path}"
+        else:
+            assert path.read_bytes() == before, f"smoke modified ignored lockfile: {path}"
+
+
 def _run(
     script: Path,
     *,
     env: dict[str, str],
     timeout: float = 30,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["/bin/bash", str(script)],
-        cwd=script.parents[1],
-        env=env,
+    locks_before = _lock_snapshot(script)
+    try:
+        return subprocess.run(
+            ["/bin/bash", str(script)],
+            cwd=script.parents[1],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    finally:
+        _assert_locks_unchanged(locks_before)
+
+
+def _tracked_files_repository(tmp_path: Path) -> Path:
+    """Export the current Git-tracked file set without ignored local state."""
+    repository = tmp_path / "tracked-repository"
+    repository.mkdir()
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=ROOT,
         capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
+        check=True,
+    ).stdout
+    for raw_relative in tracked.split(b"\0"):
+        if not raw_relative:
+            continue
+        relative = Path(os.fsdecode(raw_relative))
+        source = ROOT / relative
+        destination = repository / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if source.is_symlink():
+            destination.symlink_to(os.readlink(source))
+        else:
+            shutil.copy2(source, destination)
+
+    assert not (repository / ".git").exists()
+    assert not (repository / "apps" / "core" / "uv.lock").exists()
+    assert not (repository / "apps" / "core" / ".venv").exists()
+    assert not (repository / "data").exists()
+    return repository
 
 
 def _assert_no_state(tmp_parent: Path) -> None:
@@ -185,6 +280,7 @@ def _write_uv_process_runner(path: Path, child_pid: Path) -> None:
 def test_smoke_script_is_hermetic_and_release_owned() -> None:
     text = SMOKE.read_text(encoding="utf-8")
     helper = RELEASE_HELPER.read_text(encoding="utf-8")
+    addon_validator = ADDON_VALIDATOR.read_text(encoding="utf-8")
 
     assert "apps/core/.venv" not in text
     assert "source " not in text
@@ -193,11 +289,21 @@ def test_smoke_script_is_hermetic_and_release_owned() -> None:
     assert "./data/" not in text
     assert '"$UV_COMMAND" run' in text
     assert "--isolated" in text
-    assert "--locked" in text
+    assert "--locked" not in text
+    assert "--no-project" in text
     assert "--no-config" in text
     assert "--no-env-file" in text
-    assert "--project" in text
-    assert "--extra dev" in text
+    assert "\n    --project " not in text
+    assert "--extra dev" not in text
+    assert '--with-editable "$ROOT/apps/core[dev]"' in text
+    assert "zigbeelens.__version__" in text
+    assert "EXPECTED_VERSION" in text
+    canonical_version = re.search(
+        r'(?m)^version = "([^"]+)"$',
+        (ROOT / "apps" / "core" / "pyproject.toml").read_text(encoding="utf-8"),
+    )
+    assert canonical_version is not None
+    assert canonical_version.group(1) not in text
     assert "mktemp -d" in text
     assert "mqtt_attempts=0" in text
     assert 'CORE_PID_PATH="$STATE_DIR/core.pid"' in text
@@ -212,6 +318,49 @@ def test_smoke_script_is_hermetic_and_release_owned() -> None:
     assert "quick_check" in text
     assert "foreign_key_check" in text
     assert "bash scripts/smoke-core.sh" in helper
+    assert "--isolated" in helper
+    assert "--no-project" in helper
+    assert "--with-editable" in helper
+    assert "\n  --project " not in helper
+    assert "--locked" not in helper
+    assert 'export CORE_PYTHON="${CORE_PYTHON_WRAPPER}"' in helper
+    assert 'export ZIGBEELENS_CORE_PYTHON="${CORE_PYTHON_WRAPPER}"' in helper
+    assert '"${CORE_PYTHON}" -m pytest -q' in addon_validator
+
+
+def test_tracked_files_only_checkout_runs_real_smoke_without_local_state(
+    tmp_path: Path,
+) -> None:
+    repository = _tracked_files_repository(tmp_path)
+    script = repository / "scripts" / "smoke-core.sh"
+    env, tmp_parent = _environment(tmp_path)
+    env["PATH"] = "/usr/bin:/bin"
+    assert shutil.which("uv", path=env["PATH"]) is None
+    package_before = (
+        repository / "apps" / "core" / "pyproject.toml"
+    ).read_bytes()
+    source_before = (
+        repository / "apps" / "core" / "src" / "zigbeelens" / "__init__.py"
+    ).read_bytes()
+    config_path = repository / "config" / "config.yaml"
+    config_before = config_path.read_bytes()
+
+    result = _run(script, env=env, timeout=60)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Core smoke Python owner: explicit" in result.stdout
+    assert "OK: smoke-core passed" in result.stdout
+    assert not (repository / "apps" / "core" / "uv.lock").exists()
+    assert not (repository / "apps" / "core" / ".venv").exists()
+    assert config_path.read_bytes() == config_before
+    assert not (repository / "data").exists()
+    assert (
+        repository / "apps" / "core" / "pyproject.toml"
+    ).read_bytes() == package_before
+    assert (
+        repository / "apps" / "core" / "src" / "zigbeelens" / "__init__.py"
+    ).read_bytes() == source_before
+    _assert_no_state(tmp_parent)
 
 
 def test_no_pip_venv_shapes_and_repeated_runs_leave_sentinels_untouched(
@@ -254,12 +403,43 @@ def test_no_pip_venv_shapes_and_repeated_runs_leave_sentinels_untouched(
     assert (repository / "data" / "zigbeelens.sqlite").read_bytes() == data_before
 
 
+def test_smoke_follows_fixture_canonical_version_metadata(tmp_path: Path) -> None:
+    _repository, script = _fixture_repository(
+        tmp_path,
+        package_version="9.8.7",
+    )
+    env, tmp_parent = _environment(tmp_path)
+
+    result = _run(script, env=env)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "version=9.8.7" in result.stdout
+    _assert_no_state(tmp_parent)
+
+
+def test_smoke_rejects_health_and_version_disagreement(tmp_path: Path) -> None:
+    _repository, script = _fixture_repository(
+        tmp_path,
+        package_version="9.8.7",
+        version_api_override="9.8.6",
+    )
+    env, tmp_parent = _environment(tmp_path)
+
+    result = _run(script, env=env)
+
+    assert result.returncode != 0
+    assert "unexpected /api/version version" in result.stderr
+    _assert_no_state(tmp_parent)
+
+
 def test_explicit_python_precedes_uv_and_is_observably_used(tmp_path: Path) -> None:
     _repository, script = _fixture_repository(tmp_path)
     marker = tmp_path / "python-invocations"
     wrapper = tmp_path / "explicit-python"
     _write_python_wrapper(wrapper, marker=marker)
     env, tmp_parent = _environment(tmp_path, python=str(wrapper))
+    env["PATH"] = "/usr/bin:/bin"
+    assert shutil.which("uv", path=env["PATH"]) is None
 
     result = _run(script, env=env)
 
@@ -311,7 +491,14 @@ def test_uv_owned_invocation_passes_without_pip_repair(tmp_path: Path) -> None:
     env.update(
         {
             "UV_ACTIVE": "1",
+            "UV_CONFIG_FILE": str(tmp_path / "must-not-be-read.toml"),
             "UV_ENV_FILE": str(tmp_path / "must-not-be-read.env"),
+            "UV_FROZEN": "1",
+            "UV_LOCKED": "1",
+            "UV_NO_CONFIG": "1",
+            "UV_NO_DEV": "1",
+            "UV_NO_EDITABLE": "1",
+            "UV_NO_INSTALL_PROJECT": "1",
             "UV_NO_PROJECT": "1",
             "UV_NO_SYNC": "1",
             "UV_PROJECT": str(tmp_path / "wrong-project"),
@@ -322,10 +509,11 @@ def test_uv_owned_invocation_passes_without_pip_repair(tmp_path: Path) -> None:
         }
     )
 
-    result = _run(script, env=env)
+    result = _run(script, env=env, timeout=180)
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Core smoke Python owner: uv" in result.stdout
+    assert not (repository / "apps" / "core" / "uv.lock").exists()
     assert sentinel.read_bytes() == b"ignored-environment-sentinel\n"
     assert (broken_bin / "python").readlink() == repository / "missing-python"
     assert sorted(
@@ -412,6 +600,7 @@ def test_sigterm_kills_exact_explicit_child_and_removes_state(
         child_pid=child_pid_path,
     )
     env, tmp_parent = _environment(tmp_path, python=str(wrapper))
+    locks_before = _lock_snapshot(script)
     process = subprocess.Popen(
         ["/bin/bash", str(script)],
         cwd=script.parents[1],
@@ -437,6 +626,7 @@ def test_sigterm_kills_exact_explicit_child_and_removes_state(
     assert process.returncode == 143, stdout + stderr
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
+    _assert_locks_unchanged(locks_before)
     _assert_no_state(tmp_parent)
 
 
@@ -450,6 +640,7 @@ def test_sigterm_kills_exact_uv_grandchild_and_reaps_runner(
     _write_uv_process_runner(fake_bin / "uv", child_pid_path)
     env, tmp_parent = _environment(tmp_path, python=None)
     env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    locks_before = _lock_snapshot(script)
     process = subprocess.Popen(
         ["/bin/bash", str(script)],
         cwd=script.parents[1],
@@ -475,4 +666,5 @@ def test_sigterm_kills_exact_uv_grandchild_and_reaps_runner(
     assert process.returncode == 143, stdout + stderr
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
+    _assert_locks_unchanged(locks_before)
     _assert_no_state(tmp_parent)

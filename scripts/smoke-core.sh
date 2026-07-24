@@ -100,11 +100,15 @@ unset UV_ACTIVE
 unset UV_CONFIG_FILE
 unset UV_ENV_FILE
 unset UV_FROZEN
+unset UV_ISOLATED
+unset UV_LOCKED
 unset UV_MANAGED_PYTHON
 unset UV_NO_BUILD
 unset UV_NO_BUILD_ISOLATION
+unset UV_NO_CONFIG
 unset UV_NO_DEFAULT_GROUPS
 unset UV_NO_DEV
+unset UV_NO_EDITABLE
 unset UV_NO_INSTALL_PACKAGE
 unset UV_NO_INSTALL_PROJECT
 unset UV_NO_INSTALL_WORKSPACE
@@ -132,11 +136,10 @@ elif UV_COMMAND="$(command -v uv 2>/dev/null)" && [[ -n "$UV_COMMAND" ]]; then
   CORE_COMMAND=(
     "$UV_COMMAND" run
     --isolated
-    --locked
+    --no-project
     --no-config
     --no-env-file
-    --project "$ROOT/apps/core"
-    --extra dev
+    --with-editable "$ROOT/apps/core[dev]"
     python
   )
   PYTHON_OWNER="uv"
@@ -161,13 +164,21 @@ try:
     module_path.relative_to(source_root)
 except ValueError:
     raise SystemExit(1)
-print("zigbeelens-core-smoke-python-ok")
+version = zigbeelens.__version__
+if not isinstance(version, str) or not version or any(character.isspace() for character in version):
+    raise SystemExit(1)
+print(f"zigbeelens-core-smoke-python-ok:{version}")
 PY
 )"; then
   fail "$PYTHON_OWNER Core Python cannot import this checkout and uvicorn"
 fi
-if [[ "$PROBE_RESULT" != "zigbeelens-core-smoke-python-ok" ]]; then
+PROBE_PREFIX="zigbeelens-core-smoke-python-ok:"
+if [[ "$PROBE_RESULT" != "$PROBE_PREFIX"* ]]; then
   fail "$PYTHON_OWNER Core Python did not complete the checkout import probe"
+fi
+EXPECTED_VERSION="${PROBE_RESULT#"$PROBE_PREFIX"}"
+if [[ -z "$EXPECTED_VERSION" || "$EXPECTED_VERSION" =~ [[:space:]] ]]; then
+  fail "$PYTHON_OWNER Core Python returned invalid version metadata"
 fi
 echo "Core smoke Python owner: $PYTHON_OWNER"
 
@@ -176,6 +187,7 @@ CONFIG_PATH="$STATE_DIR/config.yaml"
 DATABASE_PATH="$STATE_DIR/zigbeelens.sqlite"
 LOG_PATH="$STATE_DIR/core.log"
 HEALTH_STATUS_PATH="$STATE_DIR/health.json"
+VERSION_STATUS_PATH="$STATE_DIR/version.json"
 STORAGE_STATUS_PATH="$STATE_DIR/storage-status.json"
 CORE_PID_PATH="$STATE_DIR/core.pid"
 
@@ -359,15 +371,16 @@ curl_smoke "$BASE/healthz" |
 
 echo "Checking /api/health isolation..."
 curl_smoke --output "$HEALTH_STATUS_PATH" "$BASE/api/health"
-"${CORE_COMMAND[@]}" - "$HEALTH_STATUS_PATH" <<'PY'
+"${CORE_COMMAND[@]}" - "$HEALTH_STATUS_PATH" "$EXPECTED_VERSION" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+expected_version = sys.argv[2]
 expected = {
     "status": "ok",
-    "version": "0.1.14",
+    "version": expected_version,
     "config_loaded": True,
     "mock_mode": True,
     "database": "ok",
@@ -391,8 +404,17 @@ curl_smoke "$BASE/api/dashboard" |
   grep -q '"decision_summary"' || fail "/api/dashboard contract mismatch"
 
 echo "Checking /api/version..."
-curl_smoke "$BASE/api/version" |
-  grep -q '"version":"0.1.14"' || fail "/api/version contract mismatch"
+curl_smoke --output "$VERSION_STATUS_PATH" "$BASE/api/version"
+"${CORE_COMMAND[@]}" - "$VERSION_STATUS_PATH" "$EXPECTED_VERSION" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+expected_version = sys.argv[2]
+if payload.get("version") != expected_version:
+    raise SystemExit("unexpected /api/version version")
+PY
 
 echo "Checking / (bundled UI root or Core fallback)..."
 ROOT_CODE="$(
@@ -430,4 +452,4 @@ if grep -Eiq \
   fail "Core attempted an MQTT or Discovery connection"
 fi
 
-echo "OK: smoke-core passed (schema=14, isolated_state=true, mqtt_attempts=0)"
+echo "OK: smoke-core passed (version=$EXPECTED_VERSION, schema=14, isolated_state=true, mqtt_attempts=0)"
