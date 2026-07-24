@@ -634,6 +634,87 @@ def validate_shared_package_test_truth() -> int:
     return assertions
 
 
+def validate_live_enrichment_gate_ownership() -> int:
+    """Keep the cross-runtime live gate remote, required, and truthfully scoped."""
+    command = "bash scripts/test-enrichment-live-e2e.sh"
+    setup_uv = (
+        "astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b"
+    )
+    assertions = 0
+
+    for relative in (
+        ".github/workflows/ci.yml",
+        ".github/workflows/release-check.yml",
+    ):
+        assertions += require_document_fragments(
+            relative,
+            (
+                "enrichment-live-e2e:",
+                "timeout-minutes: 30",
+                'python-version: "3.12"',
+                setup_uv,
+                'version: "0.11.16"',
+                "pnpm install --frozen-lockfile",
+                "pnpm --filter @zigbeelens/shared build",
+                command,
+            ),
+        )
+
+    assertions += require_document_fragments(
+        "scripts/run-release-checks.sh",
+        (
+            "bash scripts/test-ha-integration-matrix.sh",
+            command,
+            "bash scripts/package-hacs-repo.sh",
+        ),
+    )
+    assertions += require_document_fragments(
+        "RELEASE_CHECKLIST.md",
+        (
+            "required monorepo PR/main `enrichment-live-e2e` check",
+            "`v*` release gate depends on that same canonical live test",
+            "generated satellite CI is package-scoped and does not replace this gate",
+        ),
+    )
+    assertions += require_document_fragments(
+        "docs/test-architecture.md",
+        (
+            "Packaging and the tag release gate depend on that job",
+            "Generated HACS workflows remain package-scoped",
+            "do not replace the green live-E2E result",
+        ),
+    )
+    assertions += require_document_fragments(
+        "docs/release.md",
+        (
+            "PR/main packaging gate and `v*` release gate",
+            "dedicated `enrichment-live-e2e` job",
+            "complement rather than replace that monorepo live-convergence result",
+        ),
+    )
+    assertions += require_document_fragments(
+        "docs/hacs.md",
+        (
+            "required monorepo `enrichment-live-e2e` check passes remotely",
+            "Generated satellite CI is package-scoped",
+            "does not replace the monorepo live-enrichment gate",
+        ),
+    )
+
+    for relative in (
+        "release/zigbeelens-hacs/.github/workflows/ci.yml",
+        "release/zigbeelens-hacs/.github/workflows/release.yml",
+    ):
+        workflow = (ROOT / relative).read_text(encoding="utf-8")
+        if command in workflow or "enrichment-live-e2e" in workflow:
+            raise DocumentationError(
+                f"{relative}: generated satellite workflow cannot claim the "
+                "omitted monorepo cross-runtime live gate"
+            )
+        assertions += 2
+    return assertions
+
+
 def validate_companion_publication_truth() -> int:
     assertions = 0
     hacs_documents = (
@@ -1399,6 +1480,7 @@ def validate_current_contract_copy() -> int:
         + validate_addon_operational_truth()
         + validate_hacs_proxy_image_truth()
         + validate_shared_package_test_truth()
+        + validate_live_enrichment_gate_ownership()
         + validate_companion_publication_truth()
         + validate_release_document_ownership()
     )

@@ -665,7 +665,8 @@ def test_monorepo_release_paths_own_exact_ha_matrix_and_structure() -> None:
         ROOT / ".github/workflows/release-check.yml"
     ).read_text(encoding="utf-8")
     assert re.search(
-        r"(?m)^\s{4}needs:\s*ha-integration-matrix\s*$",
+        r"needs:\s*\[[^\]]*\bha-integration-matrix\b"
+        r"[^\]]*\benrichment-live-e2e\b[^\]]*\]",
         release_check,
     )
 
@@ -676,8 +677,9 @@ def test_monorepo_release_paths_own_exact_ha_matrix_and_structure() -> None:
         "bash scripts/validate-ha-integration.sh --skip-matrix"
     )
     matrix = helper.index("bash scripts/test-ha-integration-matrix.sh")
+    live = helper.index("bash scripts/test-enrichment-live-e2e.sh")
     package = helper.index("bash scripts/package-hacs-repo.sh")
-    assert structural < matrix < package
+    assert structural < matrix < live < package
     assert "pnpm --filter @zigbeelens/shared typecheck" in helper
 
 

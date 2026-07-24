@@ -133,17 +133,27 @@ HACS invariants have narrow production-test owners:
 | Core version, capabilities, Decision contract/payload, enrichment contract, repairs, and panel projection states | compatibility/coordinator/repairs/panel tests |
 | Durable options and exactly one effective reload | `test_config_flow.py`, setup tests |
 | Runtime plus declarative single-entry ownership | manifest/config-flow/setup/package tests |
-| Core storage/projection/report/redaction lifecycle plus post-commit, prefix-parity SSE/Dashboard invalidation | Core `test_ha_enrichment.py`, `test_bearer_auth.py`, and report tests |
-| Precise UI enrichment refresh ownership, projection rename/area/removal, and raw-resource negative scope | UI `events.test.ts`, `EnrichmentLiveRefresh.test.tsx`, and topology refresh tests |
+| Core storage/projection/report/redaction lifecycle plus independent post-commit, prefix-parity SSE/Dashboard attempts and categorical cause coalescing | Core `test_ha_enrichment.py`, `test_bearer_auth.py`, `test_evaluation_pipeline.py`, and report tests |
+| Precise two-event UI enrichment refresh ownership, delayed companion suppression, accepted/stale presentation, projection rename/area/removal, and raw-resource negative scope | UI `events.test.ts`, `liveResourceEvents.test.ts`, `EnrichmentLiveRefresh.test.tsx`, `AcceptedRefreshSafety.test.tsx`, and topology refresh tests |
 | Live official HA registry → manager/client → Core SQLite/SSE/projection → mounted UI rename/area/removal convergence | `scripts/test-enrichment-live-e2e.sh` on exact HA `2025.1.0` / Python `3.12` |
 
 The production convergence chain has an owner at every boundary: HA manager
 tests prove the exact snapshot and retry decision, Core route tests prove
-commit-before-event plus the identity-free payload and Dashboard scheduling,
-and UI live-resource tests prove the event refetches only enrichment-derived
-projections. Integration coverage must exercise rename/area and removal through
-those production schemas and hooks; a test-only shortcut may not publish the
-event, rewrite the payload, or project display names independently.
+commit-before-notification plus independent identity-free event and Dashboard
+attempts, and UI live-resource tests dispatch the real enrichment-then-Dashboard
+sequence while proving exact resource ownership and retained accepted data.
+Integration coverage must exercise rename/area and removal through those
+production schemas and hooks; a test-only shortcut may not publish the event,
+filter the companion Dashboard event, rewrite the payload, or project display
+names independently.
+
+Monorepo PR/main CI and the `v*` release workflow run
+`scripts/test-enrichment-live-e2e.sh` as a dedicated required
+`enrichment-live-e2e` job. Packaging and the tag release gate depend on that
+job. Generated HACS workflows remain package-scoped because their tree contains
+neither Core, the UI, nor this cross-runtime harness; their HA matrix and
+official validators do not replace the green live-E2E result for the exact
+monorepo source commit.
 
 The exact compatibility matrix is checked in at
 `apps/ha_integration/ha-test-matrix.json`:

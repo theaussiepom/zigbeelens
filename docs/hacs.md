@@ -303,14 +303,21 @@ clears owned issues without allowing a late callback to recreate them.
 ### Live metadata convergence
 
 An accepted rename, area change, metadata removal, complete-empty replacement,
-or explicit config-entry clear commits in Core before Core emits
-`home_assistant_enrichment_updated`. Core also schedules one current Dashboard
-rebuild. The open Core UI treats the event as a precise invalidation for
+or explicit config-entry clear commits in Core before Core independently
+attempts `home_assistant_enrichment_updated` and one current Dashboard rebuild.
+Either post-commit notification may fail without changing the accepted
+mutation result or preventing the other attempt. A successful companion
+`dashboard_updated` carries the categorical enrichment cause, so delayed
+delivery cannot create a duplicate affected-resource refetch while ordinary
+Dashboard updates remain effective. The open Core UI treats the event as a
+precise invalidation for
 enrichment-derived Dashboard, device, network, investigation, settings, and
 mesh/device-story projections, so it refetches and displays the committed
 metadata without requiring a page reload. Raw topology history, incident,
 timeline, report, and storage resources are not refetched merely because HA
-display metadata changed.
+display metadata changed. If an affected background refresh fails, accepted
+page data remains visible with an accessible last-accepted warning and retry;
+old HA-derived nested story or coverage data is instead shown as unavailable.
 
 ## Architecture
 
@@ -498,9 +505,15 @@ public custom-repository installation only after all of these gates close:
   and has not already been published;
 - exact Home Assistant `2025.1.0` / Python `3.12` and Home Assistant
   `2026.7.3` / Python `3.14` coverage passes;
+- the required monorepo `enrichment-live-e2e` check passes remotely for the
+  exact source commit before synchronization or tagging;
 - generated official HACS and hassfest validation passes remotely on the
   synchronized satellite; and
 - explicit publication authorization is recorded.
+
+Generated satellite CI is package-scoped: it does not contain Core, the UI, or
+the cross-runtime live harness and therefore does not replace the monorepo
+live-enrichment gate.
 
 Only then may an operator add
 `https://github.com/theaussiepom/zigbeelens-hacs` as a HACS Integration custom

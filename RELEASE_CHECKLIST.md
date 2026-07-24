@@ -47,6 +47,9 @@ below.
       (`./scripts/test-enrichment-live-e2e.sh`: official HA registry →
       manager/client → Core SQLite/SSE/projection → mounted UI rename, area,
       and metadata-removal fallback on the exact minimum lane)
+- [ ] The required monorepo PR/main `enrichment-live-e2e` check is green for
+      the exact source commit, and the `v*` release gate depends on that same
+      canonical live test rather than local-only evidence
 - [ ] HACS staging package generates and validates (`./scripts/package-hacs-repo.sh` then `bash dist/zigbeelens-hacs/scripts/validate-hacs-repo.sh`)
 - [ ] Generated HACS CI owns both exact HA lanes plus pinned official hassfest
       and HACS validation; generated release publication depends on that CI
@@ -121,6 +124,9 @@ package validation above is necessary but not sufficient.
       manifest/package version uniquely identifies that tree
 - [ ] Exact Home Assistant `2025.1.0` / Python `3.12` and Home Assistant
       `2026.7.3` / Python `3.14` both pass the same integration suite
+- [ ] The canonical monorepo live enrichment E2E is green remotely for the
+      exact source commit before satellite synchronization or tagging;
+      generated satellite CI is package-scoped and does not replace this gate
 - [ ] Synchronized HACS repository passes its structural validator plus the
       generated remote official HACS/hassfest checks
 - [ ] Explicit authorization to synchronize and publish the HACS satellite is

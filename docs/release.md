@@ -70,6 +70,12 @@ jobs. Generated release publication depends on generated CI. Public install is
 still unavailable until the satellite tree/version is synchronized and those
 official jobs pass remotely on that exact tree.
 
+The monorepo PR/main packaging gate and `v*` release gate also depend on the
+dedicated `enrichment-live-e2e` job for the exact source commit. Generated HACS
+CI is package-scoped and does not contain Core, the UI, or the live harness, so
+its matrix and official checks complement rather than replace that monorepo
+live-convergence result.
+
 ### 2. Update version
 
 ```bash

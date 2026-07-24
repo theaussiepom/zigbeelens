@@ -12,6 +12,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    passWithNoTests: false,
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/e2e/**/*.e2e.test.{ts,tsx}"],
   },

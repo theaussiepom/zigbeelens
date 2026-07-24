@@ -149,10 +149,50 @@ jobs:
           ZIGBEELENS_HA_TEST_PYTHON: python
         run: bash scripts/test-ha-integration-matrix.sh "${{ matrix.lane }}"
 
+  enrichment-live-e2e:
+    name: Live HA enrichment convergence / Python 3.12
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.16"
+          enable-cache: true
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared types
+        run: pnpm --filter @zigbeelens/shared build
+
+      - name: Run canonical live enrichment E2E
+        run: bash scripts/test-enrichment-live-e2e.sh
+
   packaging:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [contracts, backend, ui, ha-integration, ha-integration-matrix]
+    needs:
+      [
+        contracts,
+        backend,
+        ui,
+        ha-integration,
+        ha-integration-matrix,
+        enrichment-live-e2e,
+      ]
     steps:
       - uses: actions/checkout@v4
 
