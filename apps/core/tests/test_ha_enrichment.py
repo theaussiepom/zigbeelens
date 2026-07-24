@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -32,6 +33,18 @@ IEEE_1 = "0x00124b0024abcd01"
 IEEE_2 = "0x00124b0024abcd02"
 IEEE_MISSING = "0x00124b0024abcdff"
 ACCEPTED_AT = "2026-07-23T01:02:03+00:00"
+PRIVATE_FAILURE_SENTINELS = (
+    IEEE_1,
+    "private-ha-device-id",
+    "Private HA device name",
+    "private-area-id",
+    "Private area name",
+    "sensor.private_entity",
+    "private-api-token",
+    "https://private-core.example",
+)
+EVENT_FAILURE_LOG = "Post-commit notification failed (side_effect=event)"
+DASHBOARD_FAILURE_LOG = "Post-commit notification failed (side_effect=dashboard)"
 
 
 def _repo(tmp_path: Path) -> Repository:
@@ -588,16 +601,20 @@ def test_route_post_publishes_one_private_safe_invalidation_after_commit(
         HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
         expected_payload,
     )
-    scheduler.schedule.assert_called_once_with()
+    scheduler.schedule.assert_called_once_with(
+        cause=HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT
+    )
     assert transaction_depths == [0]
     serialized_payload = json.dumps(publish.call_args.args[1])
     assert all(private not in serialized_payload for private in private_values)
     assert "last_push_at" not in publish.call_args.args[1]
 
 
+@pytest.mark.parametrize("prefix", ["/api", "/api/v1"])
 def test_route_empty_replacement_emits_once_and_rebuilds_dashboard_once(
     mock_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
+    prefix: str,
 ):
     ctx = mock_client.app.state.ctx
     assert ctx.dashboard_scheduler is None
@@ -610,7 +627,7 @@ def test_route_empty_replacement_emits_once_and_rebuilds_dashboard_once(
         monkeypatch.setattr(ctx.discovery, "schedule_update", MagicMock())
 
     response = mock_client.post(
-        "/api/enrichment/homeassistant",
+        f"{prefix}/enrichment/homeassistant",
         json=_request().model_dump(mode="json"),
     )
 
@@ -625,6 +642,9 @@ def test_route_empty_replacement_emits_once_and_rebuilds_dashboard_once(
         HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
         home_assistant_enrichment_updated_payload(),
     )
+    assert publish.call_args_list[1].args[1]["causes"] == [
+        HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT
+    ]
     dashboard.assert_called_once_with()
 
 
@@ -649,7 +669,9 @@ def test_route_delete_publishes_one_invalidation_and_schedules_once(
         HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
         home_assistant_enrichment_updated_payload(),
     )
-    scheduler.schedule.assert_called_once_with()
+    scheduler.schedule.assert_called_once_with(
+        cause=HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT
+    )
 
 
 @pytest.mark.parametrize("prefix", ["/api", "/api/v1"])
@@ -767,6 +789,180 @@ def test_route_transaction_rollback_emits_and_schedules_nothing(
     assert repo.get_ha_enrichment_status() == before_status
     publish.assert_not_called()
     scheduler.schedule.assert_not_called()
+
+
+@pytest.mark.parametrize("prefix", ["/api", "/api/v1"])
+@pytest.mark.parametrize("mutation", ["post", "empty", "delete"])
+@pytest.mark.parametrize(
+    ("failure_mode", "expected_event_status", "expected_dashboard_status"),
+    [
+        ("broadcaster", "failed", "succeeded"),
+        ("scheduler", "succeeded", "failed"),
+        ("synchronous_dashboard", "succeeded", "failed"),
+        ("both", "failed", "failed"),
+    ],
+)
+def test_route_post_commit_side_effect_failures_preserve_accepted_result(
+    mock_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    prefix: str,
+    mutation: str,
+    failure_mode: str,
+    expected_event_status: str,
+    expected_dashboard_status: str,
+):
+    ctx = mock_client.app.state.ctx
+    repo = ctx.repo
+    repo.upsert_device(
+        network_id="home",
+        ieee_address=IEEE_1,
+        friendly_name="Core private name",
+        device_type="Router",
+        power_source="Mains",
+        interview_state="successful",
+    )
+    monkeypatch.setattr(ha_module, "utc_now_iso", lambda: ACCEPTED_AT)
+    if mutation in {"empty", "delete"}:
+        apply_ha_enrichment(
+            repo,
+            _request(
+                _device(
+                    ha_device_id="private-ha-device-id",
+                    ha_device_name="Private HA device name",
+                    area_id="private-area-id",
+                    area_name="Private area name",
+                    entity_id="sensor.private_entity",
+                )
+            ),
+        )
+
+    injected_error = RuntimeError(" ".join(PRIVATE_FAILURE_SENTINELS))
+    publish = MagicMock()
+    scheduler = MagicMock()
+    dashboard = MagicMock()
+    if failure_mode in {"broadcaster", "both"}:
+        publish.side_effect = injected_error
+    if failure_mode in {"scheduler", "both"}:
+        scheduler.schedule.side_effect = injected_error
+    monkeypatch.setattr(ctx.broadcaster, "publish_sync", publish)
+    if failure_mode == "synchronous_dashboard":
+        monkeypatch.setattr(ctx, "dashboard_scheduler", None)
+        dashboard.side_effect = injected_error
+        monkeypatch.setattr(ctx.data, "dashboard", dashboard)
+    else:
+        monkeypatch.setattr(ctx, "dashboard_scheduler", scheduler)
+
+    notification_statuses = []
+    notify = ctx.notify_committed_mutation
+
+    def capture_notification_status(event_type: str, payload: dict):
+        status = notify(event_type, payload)
+        notification_statuses.append(status)
+        return status
+
+    monkeypatch.setattr(
+        ctx,
+        "notify_committed_mutation",
+        capture_notification_status,
+    )
+    caplog.clear()
+    with caplog.at_level(logging.ERROR, logger="zigbeelens.app.context"):
+        if mutation == "delete":
+            response = mock_client.delete(f"{prefix}/enrichment/homeassistant")
+        else:
+            body = (
+                _request()
+                if mutation == "empty"
+                else _request(
+                    _device(
+                        ha_device_id="private-ha-device-id",
+                        ha_device_name="Private HA device name",
+                        area_id="private-area-id",
+                        area_name="Private area name",
+                        entity_id="sensor.private_entity",
+                    )
+                )
+            )
+            response = mock_client.post(
+                f"{prefix}/enrichment/homeassistant",
+                json=body.model_dump(mode="json"),
+            )
+
+    assert response.status_code == 200
+    if mutation == "post":
+        assert response.json() == {
+            "home_assistant_enrichment_contract_version": 1,
+            "submitted": 1,
+            "matched": 1,
+            "unmatched": 0,
+            "ambiguous": 0,
+            "stored": 1,
+            "last_push_at": ACCEPTED_AT,
+        }
+        stored = repo.get_ha_device_enrichment("home", IEEE_1)
+        assert stored is not None
+        assert stored["ha_device_id"] == "private-ha-device-id"
+        expected_payload = {
+            "type": HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+            "home_assistant_enrichment_contract_version": 1,
+            "submitted": 1,
+            "matched": 1,
+            "unmatched": 0,
+            "ambiguous": 0,
+            "stored": 1,
+        }
+    elif mutation == "empty":
+        assert response.json() == {
+            "home_assistant_enrichment_contract_version": 1,
+            "submitted": 0,
+            "matched": 0,
+            "unmatched": 0,
+            "ambiguous": 0,
+            "stored": 0,
+            "last_push_at": ACCEPTED_AT,
+        }
+        assert repo.get_ha_device_enrichment("home", IEEE_1) is None
+        status = repo.get_ha_enrichment_status()
+        assert status["enabled"] == 1
+        assert status["matched_devices"] == 0
+        expected_payload = home_assistant_enrichment_updated_payload()
+    else:
+        assert response.json() == {"cleared": True}
+        assert repo.get_ha_device_enrichment("home", IEEE_1) is None
+        status = repo.get_ha_enrichment_status()
+        assert status["enabled"] == 0
+        assert status["last_push_at"] is None
+        expected_payload = home_assistant_enrichment_updated_payload()
+
+    publish.assert_called_once_with(
+        HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+        expected_payload,
+    )
+    if failure_mode == "synchronous_dashboard":
+        dashboard.assert_called_once_with()
+    else:
+        scheduler.schedule.assert_called_once_with(
+            cause=HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT
+        )
+    assert len(notification_statuses) == 1
+    assert notification_statuses[0].event == expected_event_status
+    assert notification_statuses[0].dashboard == expected_dashboard_status
+
+    expected_logs = []
+    if failure_mode in {"broadcaster", "both"}:
+        expected_logs.append(EVENT_FAILURE_LOG)
+    if failure_mode in {"scheduler", "synchronous_dashboard", "both"}:
+        expected_logs.append(DASHBOARD_FAILURE_LOG)
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "zigbeelens.app.context"
+    ]
+    assert messages == expected_logs
+    rendered_logs = caplog.text
+    assert "Traceback" not in rendered_logs
+    assert all(private not in rendered_logs for private in PRIVATE_FAILURE_SENTINELS)
 
 
 def test_route_validation_failure_preserves_last_accepted_snapshot(

@@ -29,3 +29,36 @@ async def test_sse_queue_drops_oldest_when_full():
     item = await asyncio.wait_for(task, timeout=1.0)
     assert item["event"] == "dashboard_updated"
     assert item["data"]["seq"] >= 5
+
+
+def test_dashboard_event_includes_only_categorical_rebuild_causes(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    broadcaster = EventBroadcaster()
+    published: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        broadcaster,
+        "publish_sync",
+        lambda event, data: published.append((event, data)),
+    )
+
+    broadcaster.publish_dashboard_update(
+        '{"generated_at":"2026-07-24T00:00:00+00:00"}',
+        causes=("health_updated", "home_assistant_enrichment_updated"),
+    )
+
+    assert published == [
+        (
+            "dashboard_updated",
+            {
+                "type": "dashboard_updated",
+                "dashboard": {
+                    "generated_at": "2026-07-24T00:00:00+00:00"
+                },
+                "causes": [
+                    "health_updated",
+                    "home_assistant_enrichment_updated",
+                ],
+            },
+        )
+    ]

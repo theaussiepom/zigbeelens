@@ -59,8 +59,22 @@ class EventBroadcaster:
 
             self._loop.call_soon_threadsafe(_put)
 
-    def publish_dashboard_update(self, dashboard_json: str) -> None:
-        self.publish_sync(
-            "dashboard_updated",
-            {"type": "dashboard_updated", "dashboard": json.loads(dashboard_json)},
-        )
+    def publish_dashboard_update(
+        self,
+        dashboard_json: str,
+        *,
+        causes: tuple[str, ...] = (),
+    ) -> None:
+        """Publish the current Dashboard with categorical rebuild ownership.
+
+        ``causes`` lets clients distinguish a generic Dashboard invalidation
+        from the Dashboard projection that accompanies an exact source event.
+        It contains event vocabulary only, never mutation payload data.
+        """
+        payload: dict[str, Any] = {
+            "type": "dashboard_updated",
+            "dashboard": json.loads(dashboard_json),
+        }
+        if causes:
+            payload["causes"] = list(causes)
+        self.publish_sync("dashboard_updated", payload)

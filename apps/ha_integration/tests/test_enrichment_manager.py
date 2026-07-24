@@ -193,6 +193,19 @@ class FakeClient:
             self.active_publish -= 1
 
 
+class AcceptedCommitWithProjectionFailureClient(FakeClient):
+    """Model Core returning its accepted result despite a local projection failure."""
+
+    def __init__(self, inventory: CoreInventorySnapshot):
+        super().__init__(inventory)
+        self.post_commit_projection_failed = False
+
+    async def async_publish_home_assistant_enrichment(self, devices):
+        result = await super().async_publish_home_assistant_enrichment(devices)
+        self.post_commit_projection_failed = True
+        return result
+
+
 def _result(
     submitted: int,
     *,
@@ -729,6 +742,23 @@ async def test_transient_publish_failure_retries_without_clearing_or_duplication
     assert client.max_active_publish == 1
     assert bus.active_count == 3
     assert manager.diagnostics["sync_state"] == "successful"
+    assert later.pending() == []
+    await manager.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_accepted_commit_with_projection_failure_is_not_failed_server():
+    source = MutableRegistrySource(_registry())
+    client = AcceptedCommitWithProjectionFailureClient(_inventory())
+    manager, _bus, _entry, later, _interval = _manager(source, client)
+
+    await manager.async_start()
+
+    assert client.post_commit_projection_failed is True
+    assert len(client.published) == 1
+    assert manager.diagnostics["sync_state"] == "successful"
+    assert manager.diagnostics["match_state"] == "complete"
+    assert manager._last_fingerprint is not None
     assert later.pending() == []
     await manager.async_stop()
 

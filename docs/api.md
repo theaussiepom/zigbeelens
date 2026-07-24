@@ -174,8 +174,8 @@ storage.
 Core matches only the final exact `(network_id, ieee_address)` pair. HA user
 names are never identity. An accepted request atomically replaces enrichment
 rows and status; a complete empty `devices` list clears the snapshot. Request
-validation, authentication, matching/transaction, or internal failure leaves
-the previous accepted snapshot untouched. The response reports exact
+validation, authentication, matching, or persistence/transaction failure before
+commit leaves the previous accepted snapshot untouched. The response reports exact
 `submitted`, `matched`, `unmatched`, `ambiguous`, `stored`, `last_push_at`, and
 contract-version facts.
 
@@ -185,9 +185,12 @@ payloads preserve `friendly_name` and add nullable `home_assistant_name` and
 `home_assistant_area_name` fields (`ha_area` remains a compatibility alias).
 HA metadata in reports follows the selected redaction profile.
 
-After a POST replacement or DELETE clear commits, Core emits exactly one
-`home_assistant_enrichment_updated` SSE event and requests exactly one current
-Dashboard rebuild. The event is an identity-free invalidation signal:
+After a POST replacement or DELETE clear commits, Core independently attempts
+exactly one `home_assistant_enrichment_updated` SSE event and exactly one
+current Dashboard rebuild. A post-commit event or Dashboard failure is logged
+with fixed categorical context only, does not block the other attempt, and
+cannot change the accepted HTTP response or committed data. On the normal
+successful path, the event is an identity-free invalidation signal:
 
 ```json
 {
@@ -203,9 +206,15 @@ Dashboard rebuild. The event is an identity-free invalidation signal:
 
 DELETE emits the same shape with all five counts set to zero. The payload never
 contains an IEEE, HA device/entity ID, name, area, token, or URL. Authentication,
-validation, matching/transaction, and internal failures emit no event and
-schedule no Dashboard rebuild. These rules are identical through `/api` and
-`/api/v1`.
+validation, matching, and persistence/transaction failures before commit emit
+no event and schedule no Dashboard rebuild. These rules are identical through
+`/api` and `/api/v1`.
+
+The accompanying successful `dashboard_updated` event includes the categorical
+cause `home_assistant_enrichment_updated`. That identity-free cause lets the UI
+avoid a duplicate projection refetch even when the companion event is delayed.
+An ordinary or coalesced unattributed Dashboard update remains generic and is
+not suppressed.
 
 ### Status
 

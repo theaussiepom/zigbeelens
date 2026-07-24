@@ -530,7 +530,7 @@ def test_unauthorized_endpoints_do_zero_work(tmp_path, monkeypatch):
             "clear_ha_enrichment",
             MagicMock(side_effect=AssertionError("clear")),
         )
-        ctx.publish_event_and_schedule_dashboard = MagicMock(
+        ctx.notify_committed_mutation = MagicMock(
             side_effect=AssertionError("enrichment invalidation")
         )
         monkeypatch.setattr(

@@ -843,7 +843,7 @@ def enrichment_homeassistant(
     ctx: AppContext = Depends(ctx_dep),
 ) -> HomeAssistantEnrichmentResultV1:
     result = apply_ha_enrichment(ctx.repo, body)
-    ctx.publish_event_and_schedule_dashboard(
+    ctx.notify_committed_mutation(
         HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
         home_assistant_enrichment_updated_payload(result),
     )
@@ -853,7 +853,7 @@ def enrichment_homeassistant(
 @mutation_router.delete("/enrichment/homeassistant")
 def enrichment_homeassistant_delete(ctx: AppContext = Depends(ctx_dep)) -> dict:
     clear_ha_enrichment(ctx.repo)
-    ctx.publish_event_and_schedule_dashboard(
+    ctx.notify_committed_mutation(
         HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
         home_assistant_enrichment_updated_payload(),
     )
