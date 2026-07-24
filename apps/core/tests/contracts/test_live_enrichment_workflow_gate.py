@@ -10,6 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[4]
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release-check.yml"
+DOCKER_WORKFLOW = ROOT / ".github" / "workflows" / "docker.yml"
 RUNNER = ROOT / "scripts" / "test-enrichment-live-e2e.sh"
 E2E_CONFIG = ROOT / "apps" / "ui" / "vitest.e2e.config.ts"
 E2E_ROOT = ROOT / "apps" / "ui" / "src" / "e2e"
@@ -22,6 +23,18 @@ CANONICAL_COMMAND = "bash scripts/test-enrichment-live-e2e.sh"
 SETUP_UV_REF = "astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b"
 SETUP_UV_VERSION = "0.11.16"
 CORE_SYNC_COMMAND = "uv sync --project apps/core --python 3.12 --extra dev"
+DOCKER_LIVE_STEP_NAME = (
+    "Run canonical live enrichment E2E before tag publication"
+)
+DOCKER_LIVE_STEP_ID = "tag-live-e2e"
+TAG_CONDITION = "startsWith(github.ref, 'refs/tags/v')"
+DOCKER_PUSH_EXPRESSION = (
+    "${{ github.event_name != 'pull_request' && "
+    "(github.ref == 'refs/heads/main' || "
+    "(startsWith(github.ref, 'refs/tags/v') && "
+    "steps.tag-live-e2e.outcome == 'success')) && "
+    "github.repository == format('{0}/zigbeelens', github.repository_owner) }}"
+)
 
 
 def _job_body(workflow: str, job_name: str) -> str:
@@ -32,6 +45,16 @@ def _job_body(workflow: str, job_name: str) -> str:
     )
     assert match is not None, f"missing workflow job: {job_name}"
     return match.group("body")
+
+
+def _named_step_body(job_body: str, step_name: str) -> str:
+    match = re.search(
+        rf"(?ms)^      - name:\s*{re.escape(step_name)}\s*\n"
+        rf".*?(?=^      - (?:name:|uses:)|\Z)",
+        job_body,
+    )
+    assert match is not None, f"missing workflow step: {step_name}"
+    return match.group(0)
 
 
 def _job_needs(workflow: str, job_name: str) -> set[str]:
@@ -79,6 +102,118 @@ def _assert_live_job_contract(workflow: str) -> None:
     ):
         assert forbidden not in lowered, f"live E2E job contains weakening: {forbidden}"
     assert re.search(r"(?m)^\s+if:\s*", body) is None
+
+
+def _assert_docker_tag_publish_contract(workflow: str) -> None:
+    push_trigger = re.search(
+        r"(?ms)^  push:\s*\n(?P<body>.*?)(?=^\S)",
+        workflow,
+    )
+    assert push_trigger is not None, "Docker workflow must keep its push trigger"
+    trigger_body = push_trigger.group("body")
+    assert re.search(
+        r"(?m)^    branches:\s*\[main,\s*master\]\s*$",
+        trigger_body,
+    )
+    assert re.search(
+        r'(?m)^    tags:\s*\n\s+-\s+"v\*"\s*$',
+        trigger_body,
+    )
+    assert re.search(
+        r"(?ms)^  pull_request:\s*\n"
+        r"\s+branches:\s*\[main,\s*master\]\s*$",
+        workflow,
+    )
+
+    body = _job_body(workflow, "build")
+    assert body.count("uses: actions/setup-python@v5") == 1
+    assert body.count('python-version: "3.12"') == 1
+    assert body.count(f"uses: {SETUP_UV_REF}") == 1
+    assert body.count(f'version: "{SETUP_UV_VERSION}"') == 1
+    assert body.count("enable-cache: true") == 1
+    assert body.count(f"run: {CORE_SYNC_COMMAND}") == 1
+    assert body.count("uses: pnpm/action-setup@v4") == 1
+    assert body.count("uses: actions/setup-node@v4") == 1
+    assert body.count("node-version: 22") == 1
+    assert body.count("cache: pnpm") == 1
+    assert body.count("run: pnpm install --frozen-lockfile") == 1
+    assert body.count("run: pnpm --filter @zigbeelens/shared build") == 1
+    assert body.count(f"run: {CANONICAL_COMMAND}") == 1
+
+    tag_steps = (
+        ("Set up uv for tag live E2E", f"uses: {SETUP_UV_REF}"),
+        (
+            "Install Core dependencies for tag live E2E",
+            f"run: {CORE_SYNC_COMMAND}",
+        ),
+        ("Set up pnpm for tag live E2E", "uses: pnpm/action-setup@v4"),
+        ("Set up Node for tag live E2E", "uses: actions/setup-node@v4"),
+        (
+            "Install JavaScript dependencies for tag live E2E",
+            "run: pnpm install --frozen-lockfile",
+        ),
+        (
+            "Build shared types for tag live E2E",
+            "run: pnpm --filter @zigbeelens/shared build",
+        ),
+        (DOCKER_LIVE_STEP_NAME, f"run: {CANONICAL_COMMAND}"),
+    )
+    for step_name, required in tag_steps:
+        step = _named_step_body(body, step_name)
+        assert step.count(f"if: {TAG_CONDITION}") == 1
+        assert required in step
+
+    live_step = _named_step_body(body, DOCKER_LIVE_STEP_NAME)
+    assert live_step.count(f"id: {DOCKER_LIVE_STEP_ID}") == 1
+    assert live_step.rstrip().endswith(f"run: {CANONICAL_COMMAND}")
+
+    ordered_fragments = (
+        "uses: actions/setup-python@v5",
+        'python-version: "3.12"',
+        f"uses: {SETUP_UV_REF}",
+        f"run: {CORE_SYNC_COMMAND}",
+        "uses: pnpm/action-setup@v4",
+        "uses: actions/setup-node@v4",
+        "node-version: 22",
+        "run: pnpm install --frozen-lockfile",
+        "run: pnpm --filter @zigbeelens/shared build",
+        f"run: {CANONICAL_COMMAND}",
+        "- name: Log in to GHCR",
+        "- name: Build and push",
+    )
+    positions = [body.index(fragment) for fragment in ordered_fragments]
+    assert positions == sorted(positions)
+
+    tag_prerequisites = body[
+        body.index("- name: Set up uv for tag live E2E"):
+        body.index("- name: Log in to GHCR")
+    ]
+    lowered = tag_prerequisites.lower()
+    for forbidden in (
+        "continue-on-error:",
+        "--passwithnotests",
+        "if: false",
+        "if: ${{ false }}",
+        " mock",
+        "--skip",
+        "|| true",
+        "exit 0",
+        "run: true",
+        "run: echo",
+    ):
+        assert forbidden not in lowered, (
+            f"Docker tag live E2E contains weakening: {forbidden}"
+        )
+    assert "continue-on-error:" not in body
+    assert "|| true" not in body
+
+    build_step = _named_step_body(body, "Build and push")
+    push = re.search(
+        r"(?m)^\s+push:\s*(?P<expression>\$\{\{.*\}\})\s*$",
+        build_step,
+    )
+    assert push is not None, "Docker build-push action must declare push ownership"
+    assert push.group("expression") == DOCKER_PUSH_EXPRESSION
 
 
 def _assert_e2e_corpus_contract(
@@ -184,6 +319,103 @@ def test_live_gate_runs_on_pr_main_and_version_tag_paths() -> None:
         r'(?ms)^on:\s*\n\s+push:\s*\n\s+tags:\s*\n\s+-\s+"v\*"\s*$',
         release,
     )
+
+
+def test_docker_tag_publication_requires_exact_live_gate() -> None:
+    _assert_docker_tag_publish_contract(
+        DOCKER_WORKFLOW.read_text(encoding="utf-8")
+    )
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    (
+        "run: echo mock live E2E",
+        "run: true",
+        f"run: {CANONICAL_COMMAND} --skip",
+    ),
+)
+def test_docker_tag_contract_rejects_mocked_or_skipped_e2e(
+    replacement: str,
+) -> None:
+    workflow = DOCKER_WORKFLOW.read_text(encoding="utf-8")
+    exact = f"run: {CANONICAL_COMMAND}"
+    assert exact in workflow
+    with pytest.raises(AssertionError):
+        _assert_docker_tag_publish_contract(
+            workflow.replace(exact, replacement, 1)
+        )
+
+
+def test_docker_tag_contract_rejects_deleted_e2e() -> None:
+    workflow = DOCKER_WORKFLOW.read_text(encoding="utf-8")
+    body = _job_body(workflow, "build")
+    live_step = _named_step_body(body, DOCKER_LIVE_STEP_NAME)
+    with pytest.raises(AssertionError):
+        _assert_docker_tag_publish_contract(
+            workflow.replace(live_step, "", 1)
+        )
+
+
+def test_docker_tag_contract_rejects_skipped_or_soft_failed_e2e() -> None:
+    workflow = DOCKER_WORKFLOW.read_text(encoding="utf-8")
+    body = _job_body(workflow, "build")
+    live_step = _named_step_body(body, DOCKER_LIVE_STEP_NAME)
+    for weakened_step in (
+        live_step.replace(f"if: {TAG_CONDITION}", "if: false", 1),
+        live_step.replace(
+            f"- name: {DOCKER_LIVE_STEP_NAME}",
+            f"- name: {DOCKER_LIVE_STEP_NAME}\n"
+            "        continue-on-error: true",
+            1,
+        ),
+    ):
+        assert weakened_step != live_step
+        with pytest.raises(AssertionError):
+            _assert_docker_tag_publish_contract(
+                workflow.replace(live_step, weakened_step, 1)
+            )
+
+
+def test_docker_tag_contract_rejects_publish_without_e2e_success() -> None:
+    workflow = DOCKER_WORKFLOW.read_text(encoding="utf-8")
+    weakened_push = (
+        "${{ github.event_name != 'pull_request' && "
+        "(github.ref == 'refs/heads/main' || "
+        "startsWith(github.ref, 'refs/tags/v')) && "
+        "github.repository == format('{0}/zigbeelens', github.repository_owner) }}"
+    )
+    assert DOCKER_PUSH_EXPRESSION in workflow
+    with pytest.raises(AssertionError):
+        _assert_docker_tag_publish_contract(
+            workflow.replace(DOCKER_PUSH_EXPRESSION, weakened_push, 1)
+        )
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        (f"uses: {SETUP_UV_REF}", "uses: astral-sh/setup-uv@main"),
+        (f'version: "{SETUP_UV_VERSION}"', 'version: "latest"'),
+        (CORE_SYNC_COMMAND, "uv sync --project apps/core"),
+        ("node-version: 22", "node-version: 20"),
+        ("pnpm install --frozen-lockfile", "pnpm install"),
+        (
+            "pnpm --filter @zigbeelens/shared build",
+            "echo shared build skipped",
+        ),
+    ),
+)
+def test_docker_tag_contract_rejects_weakened_prerequisites(
+    old: str,
+    new: str,
+) -> None:
+    workflow = DOCKER_WORKFLOW.read_text(encoding="utf-8")
+    assert old in workflow
+    with pytest.raises(AssertionError):
+        _assert_docker_tag_publish_contract(
+            workflow.replace(old, new, 1)
+        )
 
 
 def test_release_helper_orders_live_gate_before_hacs_packaging() -> None:
