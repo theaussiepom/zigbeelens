@@ -3,7 +3,13 @@ import { useSearchParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
-import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui";
+import {
+  Card,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  StaleRefreshNotice,
+} from "@/components/ui";
 import { TimelineEventRow } from "@/components/cards";
 import { TIMELINE_COLLECTION_EVENTS } from "@/lib/liveResourceEvents";
 
@@ -18,16 +24,33 @@ export function TimelinePage() {
   const [searchParams] = useSearchParams();
   const initialNetwork = searchParams.get("network") ?? "";
 
-  const [network, setNetwork] = useState(initialNetwork);
+  const [networkSelection, setNetworkSelection] = useState({
+    routeNetwork: initialNetwork,
+    value: initialNetwork,
+  });
+  const network =
+    networkSelection.routeNetwork === initialNetwork
+      ? networkSelection.value
+      : initialNetwork;
+  const setNetwork = (value: string) => {
+    setNetworkSelection({ routeNetwork: initialNetwork, value });
+  };
   const [kind, setKind] = useState("");
   const [severity, setSeverity] = useState("");
   const [window, setWindow] = useState("");
   const [incidentsOnly, setIncidentsOnly] = useState(false);
   const [search, setSearch] = useState("");
 
-  useEffect(() => setNetwork(initialNetwork), [initialNetwork]);
+  useEffect(() => {
+    setNetworkSelection((current) =>
+      current.routeNetwork === initialNetwork &&
+      current.value === initialNetwork
+        ? current
+        : { routeNetwork: initialNetwork, value: initialNetwork },
+    );
+  }, [initialNetwork]);
 
-  const { data, error, loading, refetch } = useLiveResource(
+  const { data, error, loading, refreshing, refetch } = useLiveResource(
     () => api.timeline(scenario || undefined, network || undefined).then((r) => r.items),
     [scenario, network],
     { refetchOn: TIMELINE_COLLECTION_EVENTS },
@@ -63,11 +86,27 @@ export function TimelinePage() {
       .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   }, [events, kind, severity, incidentsOnly, window, search]);
 
-  if (error) return <ErrorState message={error} onRetry={refetch} />;
-  if (loading) return <LoadingState />;
+  if (loading && data === null) return <LoadingState />;
+  if (error && data === null) {
+    return (
+      <ErrorState
+        message={error}
+        onRetry={refetch}
+        retryLabel="Retry Timeline"
+      />
+    );
+  }
+  if (data === null) return <LoadingState />;
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="max-w-4xl space-y-6" aria-busy={refreshing}>
+      {error && (
+        <StaleRefreshNotice
+          resourceLabel="Timeline"
+          onRetry={refetch}
+          retryLabel="Retry Timeline"
+        />
+      )}
       <div>
         <h1 className="text-2xl font-semibold">Timeline</h1>
         <p className="mt-1 text-zl-muted">A troubleshooting trail in reverse chronological order.</p>
