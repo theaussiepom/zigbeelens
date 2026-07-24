@@ -2,29 +2,38 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 
 type TestPayload = Record<string, unknown> | null;
-let emit: (eventName: string, payload?: TestPayload) => void = () => {};
 type TestConnectionState = "connecting" | "open" | "disconnected";
 let connectionState: TestConnectionState = "open";
-let emitState: (state: TestConnectionState) => void = () => {};
+let accessEnabled = true;
+const eventListeners = new Set<
+  (eventName: string, payload: TestPayload) => void
+>();
+const stateListeners = new Set<(state: TestConnectionState) => void>();
+
+function emit(eventName: string, payload: TestPayload = null) {
+  for (const listener of eventListeners) listener(eventName, payload);
+}
+
+function emitState(state: TestConnectionState) {
+  connectionState = state;
+  for (const listener of stateListeners) listener(state);
+}
 
 vi.mock("@/lib/events", () => ({
   liveConnection: {
     subscribeEvents: (
       listener: (eventName: string, payload: TestPayload) => void,
     ) => {
-      emit = (eventName, payload = null) => listener(eventName, payload);
-      return () => {};
+      eventListeners.add(listener);
+      return () => eventListeners.delete(listener);
     },
     subscribeState: (listener: (state: TestConnectionState) => void) => {
-      emitState = (state) => {
-        connectionState = state;
-        listener(state);
-      };
+      stateListeners.add(listener);
       listener(connectionState);
-      return () => {};
+      return () => stateListeners.delete(listener);
     },
     getState: () => connectionState,
-    isAccessEnabled: () => true,
+    isAccessEnabled: () => accessEnabled,
   },
   HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT:
     "home_assistant_enrichment_updated",
@@ -44,6 +53,9 @@ describe("useLiveResource", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     connectionState = "open";
+    accessEnabled = true;
+    eventListeners.clear();
+    stateListeners.clear();
   });
   afterEach(() => vi.useRealTimers());
 
@@ -83,7 +95,37 @@ describe("useLiveResource", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores the causally attributed Dashboard companion without timing dependence", async () => {
+  it("coalesces exact-event bursts and their immediate Dashboard companion", async () => {
+    const fetcher = vi.fn().mockResolvedValue("ok");
+    renderHook(() =>
+      useLiveResource(fetcher, [], {
+        refetchOn: [
+          "home_assistant_enrichment_updated",
+          "dashboard_updated",
+        ],
+        debounceMs: 300,
+      }),
+    );
+    await flushAsyncWork();
+
+    act(() => {
+      emit("home_assistant_enrichment_updated", {
+        type: "home_assistant_enrichment_updated",
+      });
+      emit("home_assistant_enrichment_updated", {
+        type: "home_assistant_enrichment_updated",
+      });
+      emit("dashboard_updated", {
+        type: "dashboard_updated",
+        causes: ["home_assistant_enrichment_updated"],
+      });
+    });
+    act(() => vi.advanceTimersByTime(300));
+    await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("accepts a delayed Dashboard companion for an enrichment owner", async () => {
     const fetcher = vi.fn().mockResolvedValue("ok");
     renderHook(() =>
       useLiveResource(fetcher, [], {
@@ -114,12 +156,45 @@ describe("useLiveResource", () => {
     );
     act(() => vi.advanceTimersByTime(300));
     await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it("converges when either half of the event pair is delivered alone", async () => {
+    const fetcher = vi.fn().mockResolvedValue("ok");
+    renderHook(() =>
+      useLiveResource(fetcher, [], {
+        refetchOn: [
+          "home_assistant_enrichment_updated",
+          "dashboard_updated",
+        ],
+        debounceMs: 300,
+      }),
+    );
+    await flushAsyncWork();
+
+    act(() =>
+      emit("dashboard_updated", {
+        type: "dashboard_updated",
+        causes: ["home_assistant_enrichment_updated"],
+      }),
+    );
+    act(() => vi.advanceTimersByTime(300));
+    await flushAsyncWork();
     expect(fetcher).toHaveBeenCalledTimes(2);
+
+    act(() =>
+      emit("home_assistant_enrichment_updated", {
+        type: "home_assistant_enrichment_updated",
+      }),
+    );
+    act(() => vi.advanceTimersByTime(300));
+    await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(3);
 
     act(() => emit("dashboard_updated", { type: "dashboard_updated" }));
     act(() => vi.advanceTimersByTime(300));
     await flushAsyncWork();
-    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
   it("suppresses the enrichment-attributed Dashboard companion for a Dashboard-only resource", async () => {
@@ -170,6 +245,144 @@ describe("useLiveResource", () => {
     expect(fetcher).not.toHaveBeenCalled();
     expect(result.current.loading).toBe(false);
     expect(result.current.refreshing).toBe(false);
+  });
+
+  it("does not duplicate the initial request when EventSource first opens", async () => {
+    connectionState = "connecting";
+    const fetcher = vi.fn().mockResolvedValue("ok");
+    renderHook(() => useLiveResource(fetcher, []));
+    await flushAsyncWork();
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    act(() => emitState("open"));
+    await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconciles once immediately after reconnect and cancels disconnected polling", async () => {
+    const fetcher = vi.fn().mockResolvedValue("ok");
+    renderHook(() => useLiveResource(fetcher, []));
+    await flushAsyncWork();
+
+    act(() => emitState("disconnected"));
+    act(() => vi.advanceTimersByTime(29_999));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    act(() => emitState("open"));
+    await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+
+    act(() => emitState("open"));
+    act(() => vi.advanceTimersByTime(30_001));
+    await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses reconnect as the immediate reconciliation when both events were missed", async () => {
+    const fetcher = vi.fn().mockResolvedValue("accepted");
+    renderHook(() =>
+      useLiveResource(fetcher, [], {
+        refetchOn: [
+          "home_assistant_enrichment_updated",
+          "dashboard_updated",
+        ],
+        debounceMs: 300,
+      }),
+    );
+    await flushAsyncWork();
+
+    act(() => emitState("disconnected"));
+    // The committed exact event and companion are absent while disconnected.
+    act(() => emitState("open"));
+    await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("reconciles before a post-reconnect companion and accepts that companion", async () => {
+    const fetcher = vi.fn().mockResolvedValue("accepted");
+    renderHook(() =>
+      useLiveResource(fetcher, [], {
+        refetchOn: [
+          "home_assistant_enrichment_updated",
+          "dashboard_updated",
+        ],
+        debounceMs: 300,
+      }),
+    );
+    await flushAsyncWork();
+
+    act(() => emitState("disconnected"));
+    // The exact event is missed. Reopening must reconcile before its companion.
+    act(() => emitState("open"));
+    await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+
+    act(() =>
+      emit("dashboard_updated", {
+        type: "dashboard_updated",
+        causes: ["home_assistant_enrichment_updated"],
+      }),
+    );
+    act(() => vi.advanceTimersByTime(300));
+    await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not poll or reconcile while live access is disabled", async () => {
+    const fetcher = vi.fn().mockResolvedValue("ok");
+    renderHook(() => useLiveResource(fetcher, []));
+    await flushAsyncWork();
+
+    act(() => emitState("disconnected"));
+    accessEnabled = false;
+    act(() => vi.advanceTimersByTime(30_000));
+    await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    act(() => emitState("open"));
+    await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets reconnect supersede an in-flight disconnected poll", async () => {
+    let resolvePoll: ((value: string) => void) | undefined;
+    let resolveReconnect: ((value: string) => void) | undefined;
+    const fetcher = vi
+      .fn<() => Promise<string>>()
+      .mockResolvedValueOnce("accepted")
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolvePoll = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveReconnect = resolve;
+          }),
+      );
+    const { result } = renderHook(() => useLiveResource(fetcher, []));
+    await flushAsyncWork();
+    expect(result.current.data).toBe("accepted");
+
+    act(() => emitState("disconnected"));
+    act(() => vi.advanceTimersByTime(30_000));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+
+    act(() => emitState("open"));
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      resolveReconnect?.("reconciled");
+      await Promise.resolve();
+    });
+    expect(result.current.data).toBe("reconciled");
+
+    await act(async () => {
+      resolvePoll?.("older-poll");
+      await Promise.resolve();
+    });
+    expect(result.current.data).toBe("reconciled");
   });
 
   it("distinguishes initial failure from a failed refresh with accepted data", async () => {
@@ -284,7 +497,7 @@ describe("useLiveResource", () => {
     expect(result.current.data).toBe("accepted-b");
   });
 
-  it("restarts disconnected polling at an identity boundary without duplicating the new request", async () => {
+  it("restarts disconnected ownership at a scope boundary and reconciles only the new scope", async () => {
     const pending = new Map<string, (value: string) => void>();
     const fetches: string[] = [];
     const { result, rerender } = renderHook(
@@ -318,10 +531,50 @@ describe("useLiveResource", () => {
     act(() => vi.advanceTimersByTime(1));
     expect(fetches).toEqual(["network-a", "network-b"]);
 
+    act(() => emitState("open"));
+    expect(fetches).toEqual(["network-a", "network-b", "network-b"]);
+
     await act(async () => {
       pending.get("network-b-2")?.("accepted-b");
       await Promise.resolve();
     });
-    expect(result.current.data).toBe("accepted-b");
+    expect(result.current.data).toBeNull();
+
+    await act(async () => {
+      pending.get("network-b-3")?.("reconciled-b");
+      await Promise.resolve();
+    });
+    expect(result.current.data).toBe("reconciled-b");
+
+    await act(async () => {
+      pending.get("network-a-1")?.("superseded-a");
+      await Promise.resolve();
+    });
+    expect(result.current.data).toBe("reconciled-b");
+  });
+
+  it("removes reconnect, poll, and event ownership on unmount", async () => {
+    const fetcher = vi.fn().mockResolvedValue("ok");
+    const { unmount } = renderHook(() =>
+      useLiveResource(fetcher, [], {
+        refetchOn: ["dashboard_updated"],
+        debounceMs: 300,
+      }),
+    );
+    await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    act(() => emitState("disconnected"));
+    act(() => emit("dashboard_updated", { type: "dashboard_updated" }));
+    unmount();
+    expect(eventListeners.size).toBe(0);
+    expect(stateListeners.size).toBe(0);
+
+    act(() => {
+      emitState("open");
+      vi.advanceTimersByTime(30_000);
+    });
+    await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });

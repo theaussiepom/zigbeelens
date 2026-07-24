@@ -31,6 +31,45 @@ async def test_sse_queue_drops_oldest_when_full():
     assert item["data"]["seq"] >= 5
 
 
+@pytest.mark.asyncio
+async def test_slow_client_can_miss_exact_event_but_receive_dashboard_companion():
+    broadcaster = EventBroadcaster()
+    broadcaster.set_loop(asyncio.get_running_loop())
+    queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=_MAX_SSE_QUEUE_SIZE)
+    broadcaster._queues.append(queue)
+
+    broadcaster.publish_sync(
+        "home_assistant_enrichment_updated",
+        {"type": "home_assistant_enrichment_updated"},
+    )
+    for sequence in range(_MAX_SSE_QUEUE_SIZE):
+        broadcaster.publish_sync("filler", {"type": "filler", "seq": sequence})
+    broadcaster.publish_sync(
+        "dashboard_updated",
+        {
+            "type": "dashboard_updated",
+            "causes": ["home_assistant_enrichment_updated"],
+        },
+    )
+    # Drain call_soon_threadsafe callbacks without relying on elapsed time.
+    await asyncio.sleep(0)
+
+    delivered = []
+    while not queue.empty():
+        delivered.append(queue.get_nowait())
+    event_names = [item["event"] for item in delivered]
+
+    assert len(delivered) == _MAX_SSE_QUEUE_SIZE
+    assert "home_assistant_enrichment_updated" not in event_names
+    assert delivered[-1] == {
+        "event": "dashboard_updated",
+        "data": {
+            "type": "dashboard_updated",
+            "causes": ["home_assistant_enrichment_updated"],
+        },
+    }
+
+
 def test_dashboard_event_includes_only_categorical_rebuild_causes(
     monkeypatch: pytest.MonkeyPatch,
 ):

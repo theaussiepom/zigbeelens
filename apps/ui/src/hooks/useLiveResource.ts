@@ -131,13 +131,27 @@ export function useLiveResource<T>(
     if (!enabled) return;
     const pollMs = 30_000;
     let interval: ReturnType<typeof setInterval> | null = null;
+    let previousState = liveConnection.getState();
     const unsubscribe = liveConnection.subscribeState((state) => {
+      const reconnected =
+        previousState === "disconnected" &&
+        state === "open" &&
+        liveConnection.isAccessEnabled();
+      previousState = state;
       if (interval) {
         clearInterval(interval);
         interval = null;
       }
       if (state === "disconnected" && liveConnection.isAccessEnabled()) {
-        interval = setInterval(run, pollMs);
+        interval = setInterval(() => {
+          if (liveConnection.isAccessEnabled()) run();
+        }, pollMs);
+      } else if (reconnected) {
+        if (debounceRef.current) {
+          clearTimeout(debounceRef.current);
+          debounceRef.current = null;
+        }
+        run();
       }
     });
     return () => {

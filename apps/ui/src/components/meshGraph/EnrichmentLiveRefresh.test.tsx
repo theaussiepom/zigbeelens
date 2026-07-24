@@ -219,6 +219,19 @@ async function emitEnrichmentUpdate() {
   await flushAsyncWork();
 }
 
+async function emitDashboardCompanionWithoutExactEvent() {
+  act(() => {
+    eventSourceTestState.emit("dashboard_updated", {
+      type: "dashboard_updated",
+      causes: [HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT],
+    });
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(350);
+  });
+  await flushAsyncWork();
+}
+
 async function emitOrdinaryDashboardUpdate() {
   act(() => {
     eventSourceTestState.emit("dashboard_updated", {
@@ -428,6 +441,38 @@ describe("Mesh Home Assistant enrichment live refresh", () => {
     expect(apiMocks.topologyDeviceSnapshotHistory).not.toHaveBeenCalled();
   });
 
+  it("refreshes Mesh evidence and inventory when the exact event was missed", async () => {
+    apiMocks.topologyEvidenceGraph
+      .mockResolvedValueOnce(graphDetail(false))
+      .mockResolvedValueOnce(graphDetail(true));
+    apiMocks.devices
+      .mockResolvedValueOnce({ items: [summary("Accepted Mesh Device")] })
+      .mockResolvedValueOnce({ items: [summary("Companion Mesh Device Update")] });
+
+    render(
+      <MemoryRouter initialEntries={["/investigate/home"]}>
+        <Routes>
+          <Route
+            path="/investigate/:networkId"
+            element={<TopologyGraphPage />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await flushAsyncWork();
+    expect(screen.getByText("Accepted Mesh Device")).toBeInTheDocument();
+
+    await emitDashboardCompanionWithoutExactEvent();
+
+    expect(screen.getByText("Companion Mesh Device Update")).toBeInTheDocument();
+    expect(screen.getByText("HA areas not linked")).toBeInTheDocument();
+    expect(apiMocks.devices).toHaveBeenCalledTimes(2);
+    expect(apiMocks.topologyEvidenceGraph).toHaveBeenCalledTimes(2);
+    expect(apiMocks.topology).not.toHaveBeenCalled();
+    expect(apiMocks.topologyNetwork).not.toHaveBeenCalled();
+    expect(apiMocks.topologyDeviceSnapshotHistory).not.toHaveBeenCalled();
+  });
+
   it("refreshes an open Mesh drawer's Device Story and device coverage", async () => {
     apiMocks.deviceStory
       .mockResolvedValueOnce(story("Old Kitchen"))
@@ -478,6 +523,30 @@ describe("Mesh Home Assistant enrichment live refresh", () => {
     await emitOrdinaryDashboardUpdate();
 
     expect(screen.getByText("HA area: Fallback Kitchen")).toBeInTheDocument();
+    expect(apiMocks.deviceStory).toHaveBeenCalledTimes(2);
+    expect(apiMocks.deviceCoverage).toHaveBeenCalledTimes(2);
+    expect(apiMocks.topologyDeviceSnapshotHistory).not.toHaveBeenCalled();
+  });
+
+  it("refreshes an open Mesh drawer when only the Dashboard companion arrives", async () => {
+    apiMocks.deviceStory
+      .mockResolvedValueOnce(story("Old Kitchen"))
+      .mockResolvedValueOnce(story("Companion Kitchen"));
+    apiMocks.deviceCoverage
+      .mockResolvedValueOnce([coverage("Old Kitchen")])
+      .mockResolvedValueOnce([coverage("Companion Kitchen")]);
+
+    render(
+      <MemoryRouter>
+        <NodeDrawer device={drawerDevice} onClose={vi.fn()} />
+      </MemoryRouter>,
+    );
+    await flushAsyncWork();
+    expect(screen.getByText("HA area: Old Kitchen")).toBeInTheDocument();
+
+    await emitDashboardCompanionWithoutExactEvent();
+
+    expect(screen.getByText("HA area: Companion Kitchen")).toBeInTheDocument();
     expect(apiMocks.deviceStory).toHaveBeenCalledTimes(2);
     expect(apiMocks.deviceCoverage).toHaveBeenCalledTimes(2);
     expect(apiMocks.topologyDeviceSnapshotHistory).not.toHaveBeenCalled();

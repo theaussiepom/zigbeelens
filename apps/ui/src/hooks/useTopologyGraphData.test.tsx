@@ -78,7 +78,7 @@ describe("useTopologyGraphData", () => {
     vi.useRealTimers();
   });
 
-  it("separates topology and device-inventory invalidations", async () => {
+  it("separates topology and inventory ownership while accepting delayed companions", async () => {
     renderHook(() => useTopologyGraphData("home"));
     await act(async () => {
       await Promise.resolve();
@@ -121,31 +121,31 @@ describe("useTopologyGraphData", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(3);
-    expect(devices).toHaveBeenCalledTimes(2);
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(4);
+    expect(devices).toHaveBeenCalledTimes(3);
 
     act(() => emit("dashboard_updated", { type: "dashboard_updated" }));
     act(() => vi.advanceTimersByTime(350));
     await act(async () => {
       await Promise.resolve();
     });
-    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(4);
-    expect(devices).toHaveBeenCalledTimes(3);
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(5);
+    expect(devices).toHaveBeenCalledTimes(4);
 
     act(() => emit("incidents_updated"));
     act(() => vi.advanceTimersByTime(350));
     await act(async () => {
       await Promise.resolve();
     });
-    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(4);
-    expect(devices).toHaveBeenCalledTimes(4);
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(5);
+    expect(devices).toHaveBeenCalledTimes(5);
 
     act(() => emit("collector_status"));
     act(() => vi.advanceTimersByTime(350));
     await act(async () => {
       await Promise.resolve();
     });
-    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(4);
-    expect(devices).toHaveBeenCalledTimes(4);
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(5);
+    expect(devices).toHaveBeenCalledTimes(5);
   });
 });

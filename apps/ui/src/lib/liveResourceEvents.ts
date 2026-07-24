@@ -91,22 +91,26 @@ export const RAW_TOPOLOGY_HISTORY_EVENTS = ["topology_updated"] as const;
 
 /**
  * Enrichment publishes its exact invalidation before rebuilding Dashboard.
- * Every resource must ignore only the accompanying categorically attributed
- * Dashboard event, regardless of whether it owns the exact event or how late
- * the companion arrives.
+ * A resource that owns the exact event must also accept its Dashboard
+ * companion: the current browser may have missed the exact event. Resources
+ * whose payload does not change from enrichment can safely ignore the
+ * enrichment-only companion.
  */
 export function shouldRefetchForLiveEvent(
   refetchOn: readonly string[] | undefined,
   eventName: string,
   payload: LiveEventPayload,
 ): boolean {
-  if (
+  const enrichmentOnlyDashboard =
     eventName === "dashboard_updated" &&
-    payload &&
+    payload !== null &&
     Array.isArray(payload.causes) &&
     payload.causes.length === 1 &&
-    payload.causes[0] === HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT
-  ) {
+    payload.causes[0] === HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT;
+  const ownsEnrichment =
+    refetchOn === undefined ||
+    refetchOn.includes(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT);
+  if (enrichmentOnlyDashboard && !ownsEnrichment) {
     return false;
   }
   if (refetchOn && !refetchOn.includes(eventName)) return false;

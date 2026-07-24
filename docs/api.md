@@ -211,10 +211,13 @@ no event and schedule no Dashboard rebuild. These rules are identical through
 `/api` and `/api/v1`.
 
 The accompanying successful `dashboard_updated` event includes the categorical
-cause `home_assistant_enrichment_updated`. That identity-free cause lets the UI
-avoid a duplicate projection refetch even when the companion event is delayed.
-An ordinary or coalesced unattributed Dashboard update remains generic and is
-not suppressed.
+cause `home_assistant_enrichment_updated`. Resources whose payload cannot change
+from HA enrichment use that identity-free cause to ignore the companion.
+Enrichment-owning resources accept both event types because a browser may miss
+the preceding exact event. The normal immediate pair is debounced into one
+logical refresh; a delayed companion can produce a second at-least-once refresh
+to preserve convergence. An ordinary or coalesced unattributed Dashboard update
+remains generic and is not suppressed.
 
 ### Status
 

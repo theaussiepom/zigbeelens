@@ -134,14 +134,15 @@ HACS invariants have narrow production-test owners:
 | Durable options and exactly one effective reload | `test_config_flow.py`, setup tests |
 | Runtime plus declarative single-entry ownership | manifest/config-flow/setup/package tests |
 | Core storage/projection/report/redaction lifecycle plus independent post-commit, prefix-parity SSE/Dashboard attempts and categorical cause coalescing | Core `test_ha_enrichment.py`, `test_bearer_auth.py`, `test_evaluation_pipeline.py`, and report tests |
-| Precise two-event UI enrichment refresh ownership, delayed companion suppression, accepted/stale presentation, projection rename/area/removal, and raw-resource negative scope | UI `events.test.ts`, `liveResourceEvents.test.ts`, `EnrichmentLiveRefresh.test.tsx`, `AcceptedRefreshSafety.test.tsx`, and topology refresh tests |
+| Delivery-aware two-event UI enrichment refresh ownership, missed/delayed companion convergence, immediate SSE reconnect reconciliation, accepted/stale presentation, projection rename/area/removal, and raw-resource negative scope | UI `events.test.ts`, `liveResourceEvents.test.ts`, `useLiveResource.test.tsx`, `EnrichmentLiveRefresh.test.tsx`, `AcceptedRefreshSafety.test.tsx`, and topology refresh tests |
 | Live official HA registry → manager/client → Core SQLite/SSE/projection → mounted UI rename/area/removal convergence | `scripts/test-enrichment-live-e2e.sh` on exact HA `2025.1.0` / Python `3.12` |
 
 The production convergence chain has an owner at every boundary: HA manager
 tests prove the exact snapshot and retry decision, Core route tests prove
 commit-before-notification plus independent identity-free event and Dashboard
 attempts, and UI live-resource tests dispatch the real enrichment-then-Dashboard
-sequence while proving exact resource ownership and retained accepted data.
+sequence, missing-exact fallback, and reconnect paths while proving exact
+resource ownership and retained accepted data.
 Integration coverage must exercise rename/area and removal through those
 production schemas and hooks; a test-only shortcut may not publish the event,
 filter the companion Dashboard event, rewrite the payload, or project display

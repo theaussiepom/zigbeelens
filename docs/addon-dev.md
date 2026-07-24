@@ -138,7 +138,7 @@ Vite builds with `base: "./"` so static assets load under Ingress.
 
 React Router detects HA Ingress basename automatically.
 
-SSE connects via relative `api/events/stream`. If EventSource fails (some proxies), `useLiveResource` polls every 30 seconds and the connection dot shows **disconnected**.
+SSE connects via relative `api/events/stream`. If EventSource fails (some proxies), `useLiveResource` polls every 30 seconds and the connection dot shows **disconnected**. A real disconnected-to-open transition also reconciles mounted resources immediately and cancels that polling interval.
 
 ## Testing Ingress
 

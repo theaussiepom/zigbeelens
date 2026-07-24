@@ -383,6 +383,19 @@ async function emitDelayedDashboardCompanion() {
   await flushAsyncWork();
 }
 
+async function emitDashboardCompanionWithoutExactEvent() {
+  act(() => {
+    eventSourceTestState.emit("dashboard_updated", {
+      type: "dashboard_updated",
+      causes: [HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT],
+    });
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(350);
+  });
+  await flushAsyncWork();
+}
+
 async function emitOrdinaryDashboardUpdate() {
   act(() => {
     eventSourceTestState.emit("dashboard_updated", {
@@ -669,9 +682,10 @@ describe("Home Assistant enrichment live refresh", () => {
     expect(apiMocks.timeline).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores an attributed Dashboard companion even after the debounce window", async () => {
+  it("accepts a delayed attributed Dashboard companion as an at-least-once refresh", async () => {
     apiMocks.dashboard
       .mockResolvedValueOnce(dashboardWithCoverage(true))
+      .mockResolvedValueOnce(dashboardWithCoverage(false))
       .mockResolvedValueOnce(dashboardWithCoverage(false))
       .mockResolvedValueOnce(dashboardWithCoverage(false));
     apiMocks.incidents.mockResolvedValue({ items: [], total: 0 });
@@ -696,7 +710,7 @@ describe("Home Assistant enrichment live refresh", () => {
     expect(apiMocks.incidents).toHaveBeenCalledTimes(1);
 
     await emitDelayedDashboardCompanion();
-    expect(apiMocks.dashboard).toHaveBeenCalledTimes(2);
+    expect(apiMocks.dashboard).toHaveBeenCalledTimes(3);
     expect(apiMocks.incidents).toHaveBeenCalledTimes(1);
 
     act(() => {
@@ -708,8 +722,59 @@ describe("Home Assistant enrichment live refresh", () => {
       await vi.advanceTimersByTimeAsync(350);
     });
     await flushAsyncWork();
-    expect(apiMocks.dashboard).toHaveBeenCalledTimes(3);
+    expect(apiMocks.dashboard).toHaveBeenCalledTimes(4);
     expect(apiMocks.incidents).toHaveBeenCalledTimes(1);
+  });
+
+  it("converges every page projection family when only the Dashboard companion arrives", async () => {
+    apiMocks.devices
+      .mockResolvedValueOnce({
+        items: [deviceSummary({ home_assistant_name: "Old Companion Device" })],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        items: [deviceSummary({ home_assistant_name: "Updated Companion Device" })],
+        total: 1,
+      });
+    apiMocks.networks
+      .mockResolvedValueOnce({
+        items: [networkWithCoverage(1)],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        items: [networkWithCoverage(0)],
+        total: 1,
+      });
+    apiMocks.dashboard
+      .mockResolvedValueOnce(dashboardWithCoverage(true))
+      .mockResolvedValueOnce(dashboardWithCoverage(false));
+    apiMocks.health
+      .mockResolvedValueOnce(health(1))
+      .mockResolvedValueOnce(health(2));
+    apiMocks.incidents.mockResolvedValue({ items: [], total: 0 });
+    apiMocks.storageStatus.mockResolvedValue(storageStatus);
+
+    render(
+      <MemoryRouter>
+        <DevicesPage />
+        <NetworksPage />
+        <OverviewPage />
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+    await flushAsyncWork();
+    expect(screen.getByText("Old Companion Device")).toBeInTheDocument();
+    expect(rowValue("Matched devices")).toBe("1");
+
+    await emitDashboardCompanionWithoutExactEvent();
+
+    expect(screen.getByText("Updated Companion Device")).toBeInTheDocument();
+    expect(rowValue("Matched devices")).toBe("2");
+    expect(apiMocks.devices).toHaveBeenCalledTimes(2);
+    expect(apiMocks.networks).toHaveBeenCalledTimes(2);
+    expect(apiMocks.dashboard).toHaveBeenCalledTimes(2);
+    expect(apiMocks.health).toHaveBeenCalledTimes(2);
+    expect(apiMocks.storageStatus).toHaveBeenCalledTimes(1);
   });
 
   it("refreshes Settings enrichment health without refetching storage", async () => {

@@ -22,9 +22,19 @@ type Listener = EventListenerOrEventListenerObject;
 
 const networkState = {
   rawEvents: new Map<string, number>(),
+  deliveredEvents: new Map<string, number>(),
+  droppedEvents: new Map<string, number>(),
+  dropNextEvents: new Map<string, number>(),
   openCount: 0,
   lastError: "",
 };
+
+function dropNextNetworkEvent(eventName: string): void {
+  networkState.dropNextEvents.set(
+    eventName,
+    (networkState.dropNextEvents.get(eventName) ?? 0) + 1,
+  );
+}
 
 class NetworkEventSource {
   static readonly CONNECTING = 0;
@@ -87,6 +97,23 @@ class NetworkEventSource {
     }
     if (data.length === 0) return;
     networkState.rawEvents.set(type, (networkState.rawEvents.get(type) ?? 0) + 1);
+    const remainingDrops = networkState.dropNextEvents.get(type) ?? 0;
+    if (remainingDrops > 0) {
+      networkState.droppedEvents.set(
+        type,
+        (networkState.droppedEvents.get(type) ?? 0) + 1,
+      );
+      if (remainingDrops === 1) {
+        networkState.dropNextEvents.delete(type);
+      } else {
+        networkState.dropNextEvents.set(type, remainingDrops - 1);
+      }
+      return;
+    }
+    networkState.deliveredEvents.set(
+      type,
+      (networkState.deliveredEvents.get(type) ?? 0) + 1,
+    );
     this.dispatch(type, data.join("\n"));
   }
 
@@ -161,6 +188,9 @@ describe("Home Assistant enrichment live production path", () => {
       );
     }
     networkState.rawEvents.clear();
+    networkState.deliveredEvents.clear();
+    networkState.droppedEvents.clear();
+    networkState.dropNextEvents.clear();
     networkState.openCount = 0;
     networkState.lastError = "";
     detailFetches = 0;
@@ -194,7 +224,7 @@ describe("Home Assistant enrichment live production path", () => {
   });
 
   it(
-    "keeps one mounted device page converged across rename, area, and metadata removal",
+    "keeps one mounted device page converged when one exact event is lost",
     async () => {
       const initial = await applyHomeAssistantState("initial");
 
@@ -232,6 +262,10 @@ describe("Home Assistant enrichment live production path", () => {
       );
       expect(networkState.rawEvents.get("dashboard_updated") ?? 0).toBe(0);
 
+      // Simulate the bounded broadcaster/network loss mode without synthesizing
+      // an event: the real Core companion still traverses production
+      // LiveConnection and must refresh enrichment-owning resources.
+      dropNextNetworkEvent(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT);
       const renamed = await applyHomeAssistantState("renamed");
       expect(renamed.ha_device_id).toBe(initial.ha_device_id);
       await screen.findByRole("heading", { level: 1, name: "HA Study Lamp" });
@@ -240,6 +274,13 @@ describe("Home Assistant enrichment live production path", () => {
         expect(networkState.rawEvents.get(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT)).toBe(1);
         expect(networkState.rawEvents.get("dashboard_updated")).toBe(1);
       });
+      expect(
+        networkState.deliveredEvents.get(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT) ?? 0,
+      ).toBe(0);
+      expect(
+        networkState.droppedEvents.get(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT),
+      ).toBe(1);
+      expect(networkState.deliveredEvents.get("dashboard_updated")).toBe(1);
       expect(detailFetches).toBe(2);
       expect(deviceStoryFetches).toBe(2);
       expect(incidentFetches).toBe(1);
@@ -256,6 +297,13 @@ describe("Home Assistant enrichment live production path", () => {
         expect(networkState.rawEvents.get(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT)).toBe(2);
         expect(networkState.rawEvents.get("dashboard_updated")).toBe(2);
       });
+      expect(
+        networkState.deliveredEvents.get(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT),
+      ).toBe(1);
+      expect(
+        networkState.droppedEvents.get(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT),
+      ).toBe(1);
+      expect(networkState.deliveredEvents.get("dashboard_updated")).toBe(2);
       expect(detailFetches).toBe(3);
       expect(deviceStoryFetches).toBe(3);
       expect(incidentFetches).toBe(1);

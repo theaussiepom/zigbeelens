@@ -107,7 +107,7 @@ describe("live event to resource ownership", () => {
     ).toBe(true);
   });
 
-  it("suppresses only the attributed companion Dashboard event globally without timing", () => {
+  it("accepts the attributed companion for enrichment owners even if the exact event was missed", () => {
     expect(
       shouldRefetchForLiveEvent(
         OVERVIEW_DASHBOARD_EVENTS,
@@ -124,7 +124,6 @@ describe("live event to resource ownership", () => {
       DEVICE_STORY_EVENTS,
       DEVICE_COVERAGE_EVENTS,
       ENRICHMENT_HEALTH_EVENTS,
-      TIMELINE_COLLECTION_EVENTS,
     ]) {
       expect(
         shouldRefetchForLiveEvent(
@@ -135,14 +134,33 @@ describe("live event to resource ownership", () => {
             causes: [ENRICHMENT],
           },
         ),
-      ).toBe(false);
+      ).toBe(true);
     }
+    expect(
+      shouldRefetchForLiveEvent(
+        undefined,
+        "dashboard_updated",
+        {
+          type: "dashboard_updated",
+          causes: [ENRICHMENT],
+        },
+      ),
+    ).toBe(true);
+  });
 
+  it("keeps Timeline outside enrichment while preserving ordinary and health invalidations", () => {
     expect(
       shouldRefetchForLiveEvent(
         TIMELINE_COLLECTION_EVENTS,
         ENRICHMENT,
         { type: ENRICHMENT },
+      ),
+    ).toBe(false);
+    expect(
+      shouldRefetchForLiveEvent(
+        TIMELINE_COLLECTION_EVENTS,
+        "dashboard_updated",
+        { type: "dashboard_updated", causes: [ENRICHMENT] },
       ),
     ).toBe(false);
 
@@ -160,5 +178,12 @@ describe("live event to resource ownership", () => {
         ),
       ).toBe(true);
     }
+    expect(
+      shouldRefetchForLiveEvent(
+        TIMELINE_COLLECTION_EVENTS,
+        "health_updated",
+        { type: "health_updated" },
+      ),
+    ).toBe(true);
   });
 });
