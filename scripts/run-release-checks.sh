@@ -32,6 +32,7 @@ CORE_ENVIRONMENT="${RELEASE_STATE_DIR}/core-environment"
   --no-config \
   --python "${CORE_ENVIRONMENT}/bin/python" \
   --editable "${ROOT}/apps/core[dev]"
+export PATH="${CORE_ENVIRONMENT}/bin:${PATH}"
 export CORE_PYTHON="${CORE_ENVIRONMENT}/bin/python"
 export ZIGBEELENS_CORE_PYTHON="${CORE_PYTHON}"
 CORE_RUFF="${CORE_ENVIRONMENT}/bin/ruff"

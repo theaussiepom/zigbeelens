@@ -326,6 +326,7 @@ def test_smoke_script_is_hermetic_and_release_owned() -> None:
     assert '--editable "${ROOT}/apps/core[dev]"' in helper
     assert "\n  --project " not in helper
     assert "--locked" not in helper
+    assert 'export PATH="${CORE_ENVIRONMENT}/bin:${PATH}"' in helper
     assert 'export CORE_PYTHON="${CORE_ENVIRONMENT}/bin/python"' in helper
     assert 'export ZIGBEELENS_CORE_PYTHON="${CORE_PYTHON}"' in helper
     assert 'CORE_RUFF="${CORE_ENVIRONMENT}/bin/ruff"' in helper
