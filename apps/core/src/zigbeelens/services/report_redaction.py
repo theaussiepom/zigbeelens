@@ -58,6 +58,16 @@ _SECRET_SUFFIX = (
 
 _USERNAME_KEYS = {"username", "user"}
 
+_HA_DEVICE_NAME_KEYS = frozenset({"home_assistant_name", "ha_device_name"})
+_HA_AREA_NAME_KEYS = frozenset(
+    {"home_assistant_area_name", "ha_area", "area_name"}
+)
+_HA_AREA_ID_KEYS = frozenset({"home_assistant_area_id", "area_id"})
+_HA_DEVICE_ID_KEYS = frozenset(
+    {"home_assistant_device_id", "ha_device_id"}
+)
+_HA_ENTITY_ID_KEYS = frozenset({"home_assistant_entity_id", "entity_id"})
+
 # Categorical / enum string fields must not pass through free-text scrubbing.
 # Friendly names like "Router" or "Battery" would otherwise corrupt values such
 # as device_type or power_source when those tokens appear as substrings.
@@ -263,6 +273,11 @@ class Redactor:
     def __post_init__(self) -> None:
         self._friendly_map: dict[str, str] = {}
         self._friendly_counter = 0
+        self._area_name_map: dict[str, str] = {}
+        self._area_name_counter = 0
+        self._area_id_map: dict[str, str] = {}
+        self._ha_device_id_map: dict[str, str] = {}
+        self._entity_id_map: dict[str, str] = {}
         self._ieee_map: dict[str, str] = {}
         self._net_id_map: dict[str, str] = {}
         self._net_name_map: dict[str, str] = {}
@@ -293,6 +308,52 @@ class Redactor:
                 self._friendly_counter += 1
                 self._friendly_map[value] = f"device_{self._friendly_counter:03d}"
         return self._friendly_map[value]
+
+    def _area_name(self, value: str) -> str:
+        mode = self.resolved.friendly_mode
+        if mode == "preserved" or not value:
+            return value
+        if value not in self._area_name_map:
+            if mode == "hashed":
+                self._area_name_map[value] = self._hash(value, "area")
+            else:
+                self._area_name_counter += 1
+                self._area_name_map[value] = f"area_{self._area_name_counter:03d}"
+        return self._area_name_map[value]
+
+    def _sensitive_identifier(
+        self,
+        value: str,
+        *,
+        mapping: dict[str, str],
+        prefix: str,
+    ) -> str:
+        if not value:
+            return value
+        if value not in mapping:
+            mapping[value] = self._hash(value, prefix)
+        return mapping[value]
+
+    def _area_id(self, value: str) -> str:
+        return self._sensitive_identifier(
+            value,
+            mapping=self._area_id_map,
+            prefix="area_id",
+        )
+
+    def _ha_device_id(self, value: str) -> str:
+        return self._sensitive_identifier(
+            value,
+            mapping=self._ha_device_id_map,
+            prefix="ha_device",
+        )
+
+    def _entity_id(self, value: str) -> str:
+        return self._sensitive_identifier(
+            value,
+            mapping=self._entity_id_map,
+            prefix="entity",
+        )
 
     def _network_id(self, value: str) -> str:
         """Stable per-report network-ID mapping, including orphaned IDs."""
@@ -352,6 +413,16 @@ class Redactor:
                             self._network_id(item)
                 elif lk == "friendly_name" and isinstance(v, str):
                     self._friendly(v)
+                elif lk in _HA_DEVICE_NAME_KEYS and isinstance(v, str):
+                    self._friendly(v)
+                elif lk in _HA_AREA_NAME_KEYS and isinstance(v, str):
+                    self._area_name(v)
+                elif lk in _HA_AREA_ID_KEYS and isinstance(v, str):
+                    self._area_id(v)
+                elif lk in _HA_DEVICE_ID_KEYS and isinstance(v, str):
+                    self._ha_device_id(v)
+                elif lk in _HA_ENTITY_ID_KEYS and isinstance(v, str):
+                    self._entity_id(v)
                 else:
                     self._collect(v)
         elif isinstance(obj, list):
@@ -364,6 +435,10 @@ class Redactor:
             pairs.extend(self._ieee_map.items())
         if self.resolved.friendly_mode != "preserved":
             pairs.extend(self._friendly_map.items())
+            pairs.extend(self._area_name_map.items())
+        pairs.extend(self._area_id_map.items())
+        pairs.extend(self._ha_device_id_map.items())
+        pairs.extend(self._entity_id_map.items())
         if self.resolved.network_anon:
             pairs.extend(self._net_name_map.items())
             pairs.extend(self._net_id_map.items())
@@ -429,6 +504,16 @@ class Redactor:
             return self._net_name_map[value]
         if lk == "friendly_name" and isinstance(value, str):
             return self._friendly(value)
+        if lk in _HA_DEVICE_NAME_KEYS and isinstance(value, str):
+            return self._friendly(value)
+        if lk in _HA_AREA_NAME_KEYS and isinstance(value, str):
+            return self._area_name(value)
+        if lk in _HA_AREA_ID_KEYS and isinstance(value, str):
+            return self._area_id(value)
+        if lk in _HA_DEVICE_ID_KEYS and isinstance(value, str):
+            return self._ha_device_id(value)
+        if lk in _HA_ENTITY_ID_KEYS and isinstance(value, str):
+            return self._entity_id(value)
         if lk in _STRUCTURED_STRING_KEYS and isinstance(value, str):
             return value
         if lk in ("server", "mqtt_server") and isinstance(value, str):

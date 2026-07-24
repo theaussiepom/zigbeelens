@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
 from zigbeelens.config import AppConfig, ConfigError, load_effective_config
 from zigbeelens.config.security_status import log_security_posture
@@ -39,6 +39,30 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _log_post_commit_notification_failure(
+    side_effect: Literal["event", "dashboard"],
+) -> None:
+    message = (
+        "Post-commit notification failed (side_effect=event)"
+        if side_effect == "event"
+        else "Post-commit notification failed (side_effect=dashboard)"
+    )
+    try:
+        logger.error(message)
+    except Exception:
+        # A broken logging handler is another post-commit side effect and cannot
+        # change an already-accepted mutation response.
+        return
+
+
+@dataclass(frozen=True, slots=True)
+class PostCommitNotificationStatus:
+    """Identity-free outcome of best-effort post-commit projection work."""
+
+    event: Literal["succeeded", "failed"]
+    dashboard: Literal["succeeded", "failed"]
+
+
 @dataclass
 class AppContext:
     config: AppConfig
@@ -63,6 +87,39 @@ class AppContext:
     def uptime_seconds(self) -> int:
         return int(time.time() - self.started_at)
 
+    def notify_committed_mutation(
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> PostCommitNotificationStatus:
+        """Best-effort publish and Dashboard request after a committed mutation.
+
+        Mutation owners call this only after their repository transaction has
+        committed. Dashboard scheduling remains context-owned so API and service
+        layers do not import bootstrap-private helpers.
+        """
+        event_status: Literal["succeeded", "failed"] = "succeeded"
+        dashboard_status: Literal["succeeded", "failed"] = "succeeded"
+        event_handed_off = False
+        try:
+            self.broadcaster.publish_sync(event_type, payload)
+            event_handed_off = True
+        except Exception:
+            event_status = "failed"
+            _log_post_commit_notification_failure("event")
+        try:
+            _schedule_dashboard_only(
+                self,
+                cause=event_type if event_handed_off else None,
+            )
+        except Exception:
+            dashboard_status = "failed"
+            _log_post_commit_notification_failure("dashboard")
+        return PostCommitNotificationStatus(
+            event=event_status,
+            dashboard=dashboard_status,
+        )
+
     def close(self) -> None:
         # Stop storage maintenance first so its completion callback still sees a
         # coherent application context (topology/collector still available).
@@ -83,15 +140,25 @@ _context: AppContext | None = None
 
 def _schedule_dashboard(ctx: AppContext, event_type: str) -> None:
     ctx.broadcaster.publish_sync(event_type, {"type": event_type})
-    _schedule_dashboard_only(ctx)
+    _schedule_dashboard_only(ctx, cause=event_type)
 
 
-def _schedule_dashboard_only(ctx: AppContext) -> None:
+def _schedule_dashboard_only(
+    ctx: AppContext,
+    *,
+    cause: str | None = None,
+) -> None:
     if ctx.dashboard_scheduler is not None:
-        ctx.dashboard_scheduler.schedule()
+        ctx.dashboard_scheduler.schedule(cause=cause)
         return
     dashboard = ctx.data.dashboard()
-    ctx.broadcaster.publish_dashboard_update(dashboard.model_dump_json())
+    if cause is None:
+        ctx.broadcaster.publish_dashboard_update(dashboard.model_dump_json())
+    else:
+        ctx.broadcaster.publish_dashboard_update(
+            dashboard.model_dump_json(),
+            causes=(cause,),
+        )
     if ctx.discovery is not None:
         ctx.discovery.schedule_update()
 
@@ -235,4 +302,11 @@ def reset_context() -> None:
     _context = None
 
 
-__all__ = ["AppContext", "ConfigError", "bootstrap", "get_context", "reset_context"]
+__all__ = [
+    "AppContext",
+    "ConfigError",
+    "PostCommitNotificationStatus",
+    "bootstrap",
+    "get_context",
+    "reset_context",
+]

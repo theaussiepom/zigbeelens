@@ -9,16 +9,16 @@ reviewed package and is not evidence for this branch.
 | GitHub owner | `theaussiepom` |
 | Main repo | https://github.com/theaussiepom/zigbeelens |
 | Public HACS satellite | `theaussiepom/zigbeelens-hacs` — unsynchronized; do not install for this branch test |
-| Add-on repo | https://github.com/theaussiepom/zigbeelens-addons |
+| Add-on repo | Deferred; not part of this HACS release |
 | GHCR image | `ghcr.io/theaussiepom/zigbeelens` |
 | Pre-release tag | **`edge`** (rolling image from `main`) |
 
 ## Phase 7 release boundary
 
-Phase 7A (PR #100) and Phase 7B (PR #101) are merged. Phase 7C1 aligns
-documentation. Current screenshot capture is Phase 7C2. The live checks in this
-guide are Phase 7D and remain incomplete until they are run against the actual
-Beast deployment.
+Phase 7A (PR #100), Phase 7B (PR #101), and Phase 7C1 documentation truth are
+merged. Screenshot capture is deferred to Phase 7C2. The live checks in this
+guide are deferred to Phase 7D and remain incomplete until they are run against
+the actual Beast deployment.
 
 Do not treat local results as remote CI results. Record exact skips, xfails, and
 warnings. The known non-strict xfail is
@@ -52,6 +52,7 @@ Before release testing, confirm you understand:
 - Diagnostics/logs contain neither API token nor Home Assistant user ID
 - ZigbeeLens is **read-only for Zigbee control** (no permit join, remove, reset, bind/unbind, OTA, or channel changes)
 - Some Core API routes modify **ZigbeeLens local data only** (reports, topology snapshots, HA enrichment)
+- The HACS integration reads Core diagnostic/configuration/Decision/capability/inventory data and writes only the strict Core-local HA enrichment snapshot/explicit-removal clear; it does not publish MQTT
 - If Core is reachable beyond users or networks you trust, **access-control decisions are your responsibility**
 - **HTTPS is not authentication** — it may be needed for optional HACS embedded view only
 
@@ -385,6 +386,10 @@ path is the Ingress UI.
 ### Staged integration smoke checklist
 
 - [ ] Generated package validator passed
+- [ ] Exact minimum lane passed: Home Assistant `2025.1.0` / Python `3.12`
+- [ ] Exact current lane passed: Home Assistant `2026.7.3` / Python `3.14`
+- [ ] Generated CI owns both exact lanes plus pinned official hassfest/HACS
+      jobs, and generated release publication depends on that CI
 - [ ] The reviewed `custom_components/zigbeelens` directory is installed at the
       Home Assistant configuration path
 - [ ] Integration installs without errors
@@ -413,12 +418,20 @@ path is the Ingress UI.
 - [ ] Decision mode has no Health authority badge and no Current finding card
 - [ ] Valid empty priorities show: `No current investigation priorities from stored evidence.`
 - [ ] Unsupported/malformed/older/newer contract disables decision mode, raises the incompatibility repair, and does not restore Health/Lens diagnostic fallback
-- [ ] Exact-v2 capabilities plus missing/malformed Dashboard decision surfaces disable cards without the unsupported-contract/upgrade-Core repair (currently blocked: both states collapse into `shared_decisions_available: false`)
-- [ ] Disconnected, missing-version, and malformed-version Core states show compatibility Unknown, not Compatible, and cannot enable shared decisions (currently blocked: the compatibility helper returns true)
+- [ ] Exact-v2 capabilities plus missing/malformed Dashboard decision surfaces disable cards with the payload-specific repair, not unsupported-contract/upgrade-Core guidance
+- [ ] Disconnected, missing-version, and malformed-version Core states show compatibility Unknown, not Compatible, and cannot enable shared decisions
+- [ ] Older/newer/malformed Decision contracts show distinct truthful repair guidance
 - [ ] Open Full Dashboard opens Core in a new tab
 - [ ] Try Embedded View shows a friendly explanation if Home Assistant is HTTPS and Core is HTTP
 - [ ] Settings → Devices & services → ZigbeeLens → Reconfigure can change Core URL / token without delete/re-add
-- [ ] Configure adjusts panel visibility and durably persists a 15–900-second polling interval (currently blocked: the empty OptionsFlow result overwrites the intermediate interval update)
+- [ ] Configure adjusts panel visibility and durably persists a 15–900-second polling interval through one effective reload
+- [ ] HA device name and area reach the correct Core/UI/report device while the original Zigbee2MQTT friendly name stays visible
+- [ ] Duplicate IEEE across networks is omitted as ambiguous unless reviewed original registry-name evidence selects exactly one Core identity
+- [ ] HA rename changes metadata only and never changes identity
+- [ ] Complete accepted empty registry snapshot clears enrichment
+- [ ] Unavailable/partial registry or Core inventory sends no replacement and retains prior enrichment
+- [ ] Transient enrichment POST failure retains prior enrichment and schedules bounded retry
+- [ ] Registry bursts coalesce; periodic 15-minute reconciliation has one owner; reload/unload does not duplicate listeners/timers or clear accepted data
 - [ ] If using an HTTPS Core URL, Try Embedded View displays the full dashboard inside Home Assistant
 - [ ] *(Optional advanced)* Caddy HTTPS stack from [hacs-embedded-view.md](hacs-embedded-view.md), started with `ZIGBEELENS_IMAGE=ghcr.io/theaussiepom/zigbeelens:edge`: Core URL updated, cert trusted, embedded view works
 - [ ] Core connected state appears
@@ -457,10 +470,11 @@ path is the Ingress UI.
 
 ---
 
-## 4b. Add-on validation path
+## 4b. Add-on validation path (deferred)
 
-The current packaged add-on is blocked from publication. Do not interpret the
-structural checks below as closing these runtime gaps.
+The add-on is not part of this HACS release. Do not run this section as a
+current HACS publication gate or interpret structural checks as supported-route
+evidence. Preserve it for a separately scoped future add-on task.
 
 - [ ] `./scripts/validate-addon.sh`
 - [ ] `./scripts/prepare-addon.sh`
@@ -513,20 +527,19 @@ Regenerate the local HACS staging tree if integration source changed:
 checkout or authorization to publish. Do not synchronize or push the public
 satellite from this guide. A separate explicitly authorized publication task
 must first prove exact staged/satellite tree equality, assign a version that
-uniquely identifies that tree, pass exact-minimum/current Home Assistant plus
-official HACS/hassfest validation, and then inspect the external repository
-diff before publication.
+uniquely identifies that tree, pass exact Home Assistant 2025.1.0/Python 3.12
+and 2026.7.3/Python 3.14 plus generated remote official HACS/hassfest
+validation, and then inspect the external repository diff before publication.
 
 ---
 
-## 7. Add-on repo (later)
+## 7. Add-on repo (deferred)
 
 HAOS add-on store: https://github.com/theaussiepom/zigbeelens-addons
 
-The add-on release version must match the versioned
-`ghcr.io/theaussiepom/zigbeelens` image. Use `:edge` via standalone Docker only
-for pre-release testing. Do not publish the add-on repository until every
-runtime blocker in §4b is closed against the packaged HAOS artifact.
+The add-on is outside this release. Do not publish or advertise the add-on
+repository from this track; a future add-on task must close §4b against the
+packaged HAOS artifact.
 
 ---
 

@@ -2,6 +2,9 @@ import { eventStreamUrl } from "@/lib/api";
 
 export type ConnectionState = "connecting" | "open" | "disconnected";
 
+export const HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT =
+  "home_assistant_enrichment_updated" as const;
+
 /** Known SSE event names emitted by ZigbeeLens Core. */
 export const LIVE_EVENTS = [
   "dashboard_update",
@@ -20,13 +23,32 @@ export const LIVE_EVENTS = [
   "timeline_updated",
   "reports_updated",
   "storage_maintenance_completed",
+  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
 ] as const;
 
 export type SessionProbeReason = "sse_error";
 
 type SessionProbeRequester = (reason: SessionProbeReason) => void;
-type EventListener = (eventName: string) => void;
+export type LiveEventPayload = Record<string, unknown> | null;
+type EventListener = (
+  eventName: string,
+  payload: LiveEventPayload,
+) => void;
 type StateListener = (state: ConnectionState) => void;
+
+function eventPayload(event: Event): LiveEventPayload {
+  if (!(event instanceof MessageEvent) || typeof event.data !== "string") {
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(event.data);
+    return parsed !== null && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Single shared EventSource connection to Core.
@@ -166,10 +188,13 @@ class LiveConnection {
       this.scheduleStatusProbe(source);
     };
 
-    const notify = (eventName: string) => () => {
+    const notify = (eventName: string) => (event: Event) => {
       if (!this.accessEnabled || this.source !== source) return;
       this.setState("open");
-      for (const listener of this.eventListeners) listener(eventName);
+      const payload = eventPayload(event);
+      for (const listener of this.eventListeners) {
+        listener(eventName, payload);
+      }
     };
 
     for (const name of LIVE_EVENTS) {

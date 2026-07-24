@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import voluptuous as vol
 
 from homeassistant.components import frontend
+from homeassistant.config_entries import ConfigEntries, ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.selector import TextSelector
 
+from zigbeelens import async_reload_entry, async_setup_entry
 from zigbeelens.config_flow import (
     ZigbeeLensConfigFlow,
     ZigbeeLensOptionsFlow,
@@ -25,6 +29,7 @@ from zigbeelens.const import (
     CONF_REMOVE_API_TOKEN,
     CONF_SCAN_INTERVAL,
     CONF_VERIFY_SSL,
+    DOMAIN,
 )
 from zigbeelens.exceptions import (
     ZigbeeLensAuthError,
@@ -88,6 +93,9 @@ async def test_config_flow_trusted_open_blank_token():
         )
     assert result["type"] == "create_entry"
     assert result["data"][CONF_API_TOKEN] == ""
+    assert CONF_PANEL_ENABLED not in result["data"]
+    assert result["options"][CONF_PANEL_ENABLED] is True
+    assert result["options"][CONF_SCAN_INTERVAL] == 60
     validate.assert_awaited_once()
     assert validate.await_args.args[3] == ""
 
@@ -296,9 +304,8 @@ async def test_reauth_replaces_token_and_reloads_once():
         CONF_API_TOKEN: "old" + ("x" * 29),
     }
     flow._get_reauth_entry = MagicMock(return_value=entry)
-    flow.async_update_reload_and_abort = MagicMock(
-        return_value={"type": "abort", "reason": "reauth_successful"}
-    )
+    entry.update_listeners = (MagicMock(),)
+    flow.hass.config_entries.async_update_entry = MagicMock(return_value=True)
 
     with patch(
         "zigbeelens.config_flow._validate_core",
@@ -307,12 +314,63 @@ async def test_reauth_replaces_token_and_reloads_once():
         result = await flow.async_step_reauth_confirm({CONF_API_TOKEN: VALID_TOKEN})
 
     assert result["reason"] == "reauth_successful"
-    flow.async_update_reload_and_abort.assert_called_once()
-    kwargs = flow.async_update_reload_and_abort.call_args.kwargs
-    assert kwargs["data_updates"][CONF_API_TOKEN] == VALID_TOKEN
+    flow.hass.config_entries.async_update_entry.assert_called_once()
+    kwargs = flow.hass.config_entries.async_update_entry.call_args.kwargs
+    assert kwargs["data"][CONF_API_TOKEN] == VALID_TOKEN
     assert validate.await_args.args[3] == VALID_TOKEN
     # Old token retained until success — entry data not mutated before helper.
     assert entry.data[CONF_API_TOKEN].startswith("old")
+    flow.hass.config_entries.async_schedule_reload.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reauth_same_token_schedules_one_fallback_reload():
+    flow = _flow()
+    entry = MagicMock()
+    entry.entry_id = "entry1"
+    entry.update_listeners = (MagicMock(),)
+    entry.data = {
+        CONF_CORE_URL: "http://localhost:8377",
+        CONF_VERIFY_SSL: False,
+        CONF_API_TOKEN: VALID_TOKEN,
+    }
+    flow._get_reauth_entry = MagicMock(return_value=entry)
+    flow.hass.config_entries.async_update_entry = MagicMock(return_value=False)
+
+    with patch(
+        "zigbeelens.config_flow._validate_core",
+        new=AsyncMock(return_value={"status": "ok"}),
+    ):
+        result = await flow.async_step_reauth_confirm({CONF_API_TOKEN: VALID_TOKEN})
+
+    assert result["reason"] == "reauth_successful"
+    flow.hass.config_entries.async_update_entry.assert_called_once()
+    flow.hass.config_entries.async_schedule_reload.assert_called_once_with("entry1")
+
+
+@pytest.mark.asyncio
+async def test_reauth_changed_token_without_setup_listener_schedules_one_reload():
+    flow = _flow()
+    entry = MagicMock()
+    entry.entry_id = "entry1"
+    entry.update_listeners = ()
+    entry.data = {
+        CONF_CORE_URL: "http://localhost:8377",
+        CONF_VERIFY_SSL: False,
+        CONF_API_TOKEN: "old" + ("x" * 29),
+    }
+    flow._get_reauth_entry = MagicMock(return_value=entry)
+    flow.hass.config_entries.async_update_entry = MagicMock(return_value=True)
+
+    with patch(
+        "zigbeelens.config_flow._validate_core",
+        new=AsyncMock(return_value={"status": "ok"}),
+    ):
+        result = await flow.async_step_reauth_confirm({CONF_API_TOKEN: VALID_TOKEN})
+
+    assert result["reason"] == "reauth_successful"
+    flow.hass.config_entries.async_update_entry.assert_called_once()
+    flow.hass.config_entries.async_schedule_reload.assert_called_once_with("entry1")
 
 
 @pytest.mark.asyncio
@@ -325,9 +383,7 @@ async def test_reauth_blank_clears_token_for_trusted_open():
         CONF_API_TOKEN: VALID_TOKEN,
     }
     flow._get_reauth_entry = MagicMock(return_value=entry)
-    flow.async_update_reload_and_abort = MagicMock(
-        return_value={"type": "abort", "reason": "reauth_successful"}
-    )
+    flow.hass.config_entries.async_update_entry = MagicMock(return_value=True)
     with patch(
         "zigbeelens.config_flow._validate_core",
         new=AsyncMock(return_value={"status": "ok"}),
@@ -335,7 +391,9 @@ async def test_reauth_blank_clears_token_for_trusted_open():
         result = await flow.async_step_reauth_confirm({CONF_API_TOKEN: ""})
     assert result["reason"] == "reauth_successful"
     assert (
-        flow.async_update_reload_and_abort.call_args.kwargs["data_updates"][CONF_API_TOKEN]
+        flow.hass.config_entries.async_update_entry.call_args.kwargs["data"][
+            CONF_API_TOKEN
+        ]
         == ""
     )
 
@@ -351,7 +409,7 @@ async def test_reauth_failed_validation_keeps_old_token():
         CONF_API_TOKEN: old,
     }
     flow._get_reauth_entry = MagicMock(return_value=entry)
-    flow.async_update_reload_and_abort = MagicMock()
+    flow.hass.config_entries.async_update_entry = MagicMock()
     with patch(
         "zigbeelens.config_flow._validate_core",
         new=AsyncMock(side_effect=ZigbeeLensAuthError("Authentication required")),
@@ -359,7 +417,7 @@ async def test_reauth_failed_validation_keeps_old_token():
         result = await flow.async_step_reauth_confirm({CONF_API_TOKEN: VALID_TOKEN})
     assert result["type"] == "form"
     assert result["errors"]["base"] == "invalid_auth"
-    flow.async_update_reload_and_abort.assert_not_called()
+    flow.hass.config_entries.async_update_entry.assert_not_called()
     assert entry.data[CONF_API_TOKEN] == old
 
 
@@ -368,6 +426,8 @@ async def test_reconfigure_keeps_token_when_blank_and_not_removed():
     flow = _flow()
     entry = MagicMock()
     entry.entry_id = "entry1"
+    entry.unique_id = "http://localhost:8377"
+    entry.update_listeners = (MagicMock(),)
     entry.data = {
         CONF_CORE_URL: "http://localhost:8377",
         CONF_VERIFY_SSL: False,
@@ -376,9 +436,7 @@ async def test_reconfigure_keeps_token_when_blank_and_not_removed():
     }
     flow._get_reconfigure_entry = MagicMock(return_value=entry)
     flow.hass.config_entries.async_entry_for_domain_unique_id = MagicMock(return_value=entry)
-    flow.async_update_reload_and_abort = MagicMock(
-        return_value={"type": "abort", "reason": "reconfigure_successful"}
-    )
+    flow.hass.config_entries.async_update_entry = MagicMock(return_value=False)
     with patch(
         "zigbeelens.config_flow._validate_core",
         new=AsyncMock(return_value={"status": "ok"}),
@@ -394,9 +452,12 @@ async def test_reconfigure_keeps_token_when_blank_and_not_removed():
     assert result["reason"] == "reconfigure_successful"
     assert validate.await_args.args[3] == VALID_TOKEN
     assert (
-        flow.async_update_reload_and_abort.call_args.kwargs["data"][CONF_API_TOKEN]
+        flow.hass.config_entries.async_update_entry.call_args.kwargs["data"][
+            CONF_API_TOKEN
+        ]
         == VALID_TOKEN
     )
+    flow.hass.config_entries.async_schedule_reload.assert_called_once_with("entry1")
 
 
 @pytest.mark.asyncio
@@ -404,6 +465,7 @@ async def test_reconfigure_remove_token():
     flow = _flow()
     entry = MagicMock()
     entry.entry_id = "entry1"
+    entry.update_listeners = ()
     entry.data = {
         CONF_CORE_URL: "http://localhost:8377",
         CONF_VERIFY_SSL: False,
@@ -411,9 +473,7 @@ async def test_reconfigure_remove_token():
     }
     flow._get_reconfigure_entry = MagicMock(return_value=entry)
     flow.hass.config_entries.async_entry_for_domain_unique_id = MagicMock(return_value=entry)
-    flow.async_update_reload_and_abort = MagicMock(
-        return_value={"type": "abort", "reason": "reconfigure_successful"}
-    )
+    flow.hass.config_entries.async_update_entry = MagicMock(return_value=True)
     with patch(
         "zigbeelens.config_flow._validate_core",
         new=AsyncMock(return_value={"status": "ok"}),
@@ -425,9 +485,15 @@ async def test_reconfigure_remove_token():
                 CONF_REMOVE_API_TOKEN: True,
                 CONF_VERIFY_SSL: False,
             }
-        )
+    )
     assert result["reason"] == "reconfigure_successful"
-    assert flow.async_update_reload_and_abort.call_args.kwargs["data"][CONF_API_TOKEN] == ""
+    assert (
+        flow.hass.config_entries.async_update_entry.call_args.kwargs["data"][
+            CONF_API_TOKEN
+        ]
+        == ""
+    )
+    flow.hass.config_entries.async_schedule_reload.assert_called_once_with("entry1")
 
 
 @pytest.mark.asyncio
@@ -440,7 +506,7 @@ async def test_reconfigure_token_and_remove_conflict():
         CONF_API_TOKEN: VALID_TOKEN,
     }
     flow._get_reconfigure_entry = MagicMock(return_value=entry)
-    flow.async_update_reload_and_abort = MagicMock()
+    flow.hass.config_entries.async_update_entry = MagicMock()
     result = await flow.async_step_reconfigure(
         {
             CONF_CORE_URL: "http://localhost:8377",
@@ -450,7 +516,7 @@ async def test_reconfigure_token_and_remove_conflict():
         }
     )
     assert result["errors"]["base"] == "token_conflict"
-    flow.async_update_reload_and_abort.assert_not_called()
+    flow.hass.config_entries.async_update_entry.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -480,7 +546,7 @@ async def test_reconfigure_duplicate_core_url_rejected():
 
 
 @pytest.mark.asyncio
-async def test_options_flow_updates_panel_and_scan_only():
+async def test_options_flow_returns_panel_and_scan_without_manual_reload():
     hass = MagicMock(spec=HomeAssistant)
     hass.config_entries = MagicMock()
     hass.config_entries.async_update_entry = MagicMock()
@@ -510,13 +576,173 @@ async def test_options_flow_updates_panel_and_scan_only():
     )
 
     assert result["type"] == "create_entry"
-    update_kwargs = hass.config_entries.async_update_entry.call_args.kwargs
-    assert update_kwargs["data"][CONF_PANEL_ENABLED] is False
-    assert update_kwargs["data"][CONF_CORE_URL] == "http://192.168.100.5:8377"
-    assert update_kwargs["data"][CONF_API_TOKEN] == SENTINEL
-    assert update_kwargs["options"][CONF_SCAN_INTERVAL] == 90
-    assert CONF_CORE_URL not in update_kwargs.get("options", {})
-    hass.config_entries.async_reload.assert_awaited_once_with("entry1")
+    assert result["data"] == {
+        CONF_PANEL_ENABLED: False,
+        CONF_SCAN_INTERVAL: 90,
+    }
+    hass.config_entries.async_update_entry.assert_not_called()
+    hass.config_entries.async_reload.assert_not_awaited()
+    assert entry.data[CONF_CORE_URL] == "http://192.168.100.5:8377"
+    assert entry.data[CONF_API_TOKEN] == SENTINEL
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("interval", [15, 60, 900])
+async def test_options_flow_accepts_exact_interval_boundaries(interval: int):
+    hass = MagicMock(spec=HomeAssistant)
+    hass.config_entries = MagicMock()
+    entry = MagicMock()
+    entry.data = {CONF_PANEL_ENABLED: True}
+    entry.options = {
+        CONF_PANEL_ENABLED: False,
+        CONF_SCAN_INTERVAL: 60,
+    }
+    hass.config_entries.async_get_known_entry.return_value = entry
+    flow = ZigbeeLensOptionsFlow()
+    flow.hass = hass
+    flow.handler = "entry1"
+
+    result = await flow.async_step_init(
+        {CONF_PANEL_ENABLED: True, CONF_SCAN_INTERVAL: interval}
+    )
+
+    assert result["data"][CONF_SCAN_INTERVAL] == interval
+
+
+@pytest.mark.asyncio
+async def test_options_flow_reopens_with_persisted_values_and_rejects_boundaries():
+    hass = MagicMock(spec=HomeAssistant)
+    hass.config_entries = MagicMock()
+    entry = MagicMock()
+    entry.data = {CONF_PANEL_ENABLED: True}
+    entry.options = {
+        CONF_PANEL_ENABLED: False,
+        CONF_SCAN_INTERVAL: 900,
+    }
+    hass.config_entries.async_get_known_entry.return_value = entry
+    flow = ZigbeeLensOptionsFlow()
+    flow.hass = hass
+    flow.handler = "entry1"
+
+    result = await flow.async_step_init()
+    schema = result["data_schema"]
+    assert schema({}) == {
+        CONF_PANEL_ENABLED: False,
+        CONF_SCAN_INTERVAL: 900,
+    }
+    with pytest.raises(vol.Invalid):
+        schema({CONF_PANEL_ENABLED: True, CONF_SCAN_INTERVAL: 14})
+    with pytest.raises(vol.Invalid):
+        schema({CONF_PANEL_ENABLED: True, CONF_SCAN_INTERVAL: 901})
+
+
+def _manager_test_entry() -> ConfigEntry:
+    """Build a real ConfigEntry across the exact minimum/current HA lanes."""
+    kwargs = {
+        "version": 2,
+        "minor_version": 1,
+        "domain": DOMAIN,
+        "title": "ZigbeeLens",
+        "data": {
+            CONF_CORE_URL: "http://127.0.0.1:8377",
+            CONF_VERIFY_SSL: False,
+            CONF_API_TOKEN: "",
+        },
+        "options": {
+            CONF_PANEL_ENABLED: True,
+            CONF_SCAN_INTERVAL: 60,
+        },
+        "source": "user",
+        "unique_id": DOMAIN,
+        "entry_id": "entry1",
+        "discovery_keys": {},
+        "subentries_data": [],
+    }
+    parameters = inspect.signature(ConfigEntry).parameters
+    return ConfigEntry(**{key: value for key, value in kwargs.items() if key in parameters})
+
+
+@pytest.mark.asyncio
+async def test_options_manager_persists_reloads_once_and_drives_setup(tmp_path):
+    """Exercise HA's manager, not the OptionsFlow step in isolation."""
+    hass = HomeAssistant(str(tmp_path))
+    hass.config_entries = ConfigEntries(hass, {})
+    entry = _manager_test_entry()
+    hass.config_entries._entries[entry.entry_id] = entry
+    unsubscribe = entry.add_update_listener(async_reload_entry)
+
+    with patch(
+        "homeassistant.config_entries._async_get_flow_handler",
+        new=AsyncMock(return_value=ZigbeeLensConfigFlow),
+    ), patch.object(
+        hass.config_entries,
+        "async_reload",
+        new=AsyncMock(),
+    ) as reload_entry:
+        form = await hass.config_entries.options.async_init(entry.entry_id)
+        saved = await hass.config_entries.options.async_configure(
+            form["flow_id"],
+            user_input={
+                CONF_PANEL_ENABLED: False,
+                CONF_SCAN_INTERVAL: 90,
+            },
+        )
+        await hass.async_block_till_done()
+
+        assert saved["type"] == "create_entry"
+        assert dict(entry.options) == {
+            CONF_PANEL_ENABLED: False,
+            CONF_SCAN_INTERVAL: 90,
+        }
+        reload_entry.assert_awaited_once_with(entry.entry_id)
+
+        reopened = await hass.config_entries.options.async_init(entry.entry_id)
+        assert reopened["data_schema"]({}) == {
+            CONF_PANEL_ENABLED: False,
+            CONF_SCAN_INTERVAL: 90,
+        }
+        await hass.config_entries.options.async_configure(
+            reopened["flow_id"],
+            user_input=dict(entry.options),
+        )
+        await hass.async_block_till_done()
+        assert reload_entry.await_count == 1
+
+    unsubscribe()
+    client = MagicMock(core_url="http://127.0.0.1:8377")
+    coordinator = MagicMock()
+    coordinator.async_config_entry_first_refresh = AsyncMock()
+    coordinator.async_add_listener = MagicMock(return_value=lambda: None)
+    manager = MagicMock()
+    manager.async_start = AsyncMock()
+    manager.async_request_sync = MagicMock()
+    manager.diagnostics = {"sync_state": "never_attempted"}
+
+    with patch(
+        "zigbeelens.async_get_clientsession", return_value=MagicMock()
+    ), patch(
+        "zigbeelens.ZigbeeLensApiClient", return_value=client
+    ), patch(
+        "zigbeelens.ZigbeeLensDataUpdateCoordinator", return_value=coordinator
+    ) as coordinator_class, patch(
+        "zigbeelens.HomeAssistantEnrichmentManager", return_value=manager
+    ), patch(
+        "zigbeelens.async_register_panel", new=AsyncMock()
+    ) as register_panel, patch(
+        "zigbeelens.async_unregister_panel", new=AsyncMock()
+    ) as unregister_panel, patch(
+        "zigbeelens.async_manage_repairs"
+    ), patch.object(
+        hass.config_entries,
+        "async_forward_entry_setups",
+        new=AsyncMock(return_value=True),
+    ):
+        assert await async_setup_entry(hass, entry) is True
+
+    assert coordinator_class.call_args.args[2] == 90
+    register_panel.assert_not_awaited()
+    unregister_panel.assert_awaited_once_with(hass, entry.entry_id)
+    await hass.async_stop()
 
 
 def test_translation_strings_mention_https_embed_guidance():

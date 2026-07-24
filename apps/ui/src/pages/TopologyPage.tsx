@@ -6,6 +6,7 @@ import { api, type TopologyNetworkDetail, type TopologyOverview } from "@/lib/ap
 import { Badge, Card, EmptyState, ErrorState, LoadingState, MetricPill } from "@/components/ui";
 import { relativeTime } from "@/lib/format";
 import { RAW_SNAPSHOT_REFRESH_FAILED_COPY } from "@/lib/meshGraphCopy";
+import { RAW_TOPOLOGY_HISTORY_EVENTS } from "@/lib/liveResourceEvents";
 import { topologyRequestedByLabel } from "@/lib/topologyLabels";
 import { TopologyViewTabs } from "@/components/meshGraph/TopologyViewTabs";
 import { topologySnapshotPath } from "@/lib/routes";
@@ -366,7 +367,7 @@ function TopologyNetworkDetailPage({
   const detail = useLiveResource(
     () => api.topologyNetwork(networkId),
     [networkId],
-    { refetchOn: ["topology_updated"], enabled: known },
+    { refetchOn: RAW_TOPOLOGY_HISTORY_EVENTS, enabled: known },
   );
 
   if (!known) {
@@ -444,7 +445,7 @@ export function TopologyPage() {
   // React Router already decodes path params — use the logical ID once.
   const networkId = routeNetworkId || undefined;
   const overview = useLiveResource(() => api.topology(), [], {
-    refetchOn: ["topology_updated"],
+    refetchOn: RAW_TOPOLOGY_HISTORY_EVENTS,
   });
   const [modalNetwork, setModalNetwork] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);

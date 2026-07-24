@@ -950,11 +950,15 @@ class PayloadBuilder:
             ha_enrichment = self.repo.get_ha_device_enrichment(
                 row.network_id, row.ieee_address
             )
-        ha_area = None
+        home_assistant_name = None
+        home_assistant_area_name = None
         if ha_enrichment:
+            device_name = ha_enrichment.get("ha_device_name")
+            if isinstance(device_name, str) and device_name.strip():
+                home_assistant_name = device_name.strip()
             area_name = ha_enrichment.get("area_name")
             if isinstance(area_name, str) and area_name.strip():
-                ha_area = area_name.strip()
+                home_assistant_area_name = area_name.strip()
         return DeviceSummary(
             network_id=row.network_id,
             ieee_address=row.ieee_address,
@@ -977,7 +981,9 @@ class PayloadBuilder:
             else InterviewState.unknown,
             incident_affected=incident_affected,
             decision=decision_badge or data_unavailable_device_badge(),
-            ha_area=ha_area,
+            home_assistant_name=home_assistant_name,
+            home_assistant_area_name=home_assistant_area_name,
+            ha_area=home_assistant_area_name,
         )
 
     def _incident_from_row(

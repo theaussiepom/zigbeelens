@@ -36,6 +36,9 @@ from zigbeelens.decisions.types import (  # noqa: E402
     DecisionPriority,
     DecisionStatus,
 )
+from zigbeelens.enrichment.ha import (  # noqa: E402
+    HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+)
 from zigbeelens.mock.fixtures import BUILDERS, NOW  # noqa: E402
 from zigbeelens.schemas import RedactionOptions, ReportRequest  # noqa: E402
 from zigbeelens.services import report_redaction as report_redaction_mod  # noqa: E402
@@ -71,6 +74,9 @@ def build_vocabulary_manifest() -> dict[str, list[str]]:
         "coverage_dimensions": _sorted_unique(m.value for m in CoverageDimension),
         "coverage_states": _sorted_unique(m.value for m in CoverageState),
         "coverage_label_codes": _sorted_unique(m.value for m in CoverageLabelCode),
+        "live_event_types": _sorted_unique(
+            [HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT]
+        ),
     }
 
 

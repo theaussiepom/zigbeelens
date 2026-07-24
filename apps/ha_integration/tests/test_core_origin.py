@@ -12,7 +12,20 @@ import pytest
 from zigbeelens.core_origin import InvalidCoreOrigin, canonicalize_core_origin
 from zigbeelens.exceptions import ZigbeeLensInvalidResponseError
 
-CORE_VECTORS = Path(__file__).resolve().parents[2] / "core" / "tests" / "fixtures" / "http_origin_vectors.json"
+TEST_ROOT = Path(__file__).resolve().parent
+MONOREPO_CORE_VECTORS = (
+    Path(__file__).resolve().parents[2]
+    / "core"
+    / "tests"
+    / "fixtures"
+    / "http_origin_vectors.json"
+)
+PACKAGED_CORE_VECTORS = TEST_ROOT / "fixtures" / "http_origin_vectors.json"
+CORE_VECTORS = (
+    MONOREPO_CORE_VECTORS
+    if MONOREPO_CORE_VECTORS.is_file()
+    else PACKAGED_CORE_VECTORS
+)
 VECTORS = json.loads(CORE_VECTORS.read_text(encoding="utf-8"))
 SENTINEL_ORIGIN = "http://[credential-sentinel]"
 

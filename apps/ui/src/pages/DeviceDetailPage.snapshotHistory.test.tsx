@@ -21,6 +21,8 @@ import {
 import { DeviceDetailPage } from "./DevicesPage";
 
 vi.mock("@/lib/events", () => ({
+  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT:
+    "home_assistant_enrichment_updated",
   liveConnection: {
     subscribeEvents: () => () => {},
     subscribeState: () => () => {},
@@ -53,7 +55,7 @@ function makeDetail(overrides: Partial<DeviceDetail> = {}): DeviceDetail {
     linkquality: 118,
     last_seen: "2026-07-13T01:00:00Z",
     last_payload_at: "2026-07-13T01:05:00Z",
-    ha_area: "Kitchen",
+    home_assistant_area_name: "Kitchen",
     decision: {
       status: "review_first",
       priority: "high",

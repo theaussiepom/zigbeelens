@@ -32,6 +32,8 @@ function makeDevice(overrides: Partial<DeviceSummary> = {}): DeviceSummary {
     battery: null,
     linkquality: null,
     last_seen: null,
+    home_assistant_name: null,
+    home_assistant_area_name: null,
     ha_area: null,
     decision: {
       status: "data_unavailable",
@@ -100,6 +102,8 @@ describe("unknown never becomes zero/healthy (UI behavioral)", () => {
       battery: null,
       linkquality: null,
       last_seen: null,
+      home_assistant_name: null,
+      home_assistant_area_name: null,
       ha_area: null,
       decision: {
         status: "data_unavailable",

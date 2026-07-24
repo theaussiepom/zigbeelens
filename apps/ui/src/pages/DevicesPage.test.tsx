@@ -52,7 +52,7 @@ function makeDevice(overrides: Partial<DeviceSummary> = {}): DeviceSummary {
       headline_code: "current_issue_present",
       coverage_label_codes: ["availability_tracking_off"],
     },
-    ha_area: "Kitchen",
+    home_assistant_area_name: "Kitchen",
     ...overrides,
   };
 }
@@ -131,6 +131,23 @@ describe("DevicesPage decision inventory", () => {
     expect(screen.queryByText("future_status_v2")).not.toBeInTheDocument();
     expect(screen.queryByText("future_coverage_v2")).not.toBeInTheDocument();
     expect(screen.queryByText("availability_tracking_off")).not.toBeInTheDocument();
+  });
+
+  it("shows the HA preferred name without hiding the Zigbee2MQTT name", () => {
+    mockState.devices = [
+      makeDevice({
+        friendly_name: "z2m_kitchen_lamp",
+        home_assistant_name: "Kitchen Lamp",
+      }),
+    ];
+    renderDevices();
+    expect(screen.getByText("Kitchen Lamp")).toBeInTheDocument();
+    expect(screen.getByText("Zigbee2MQTT: z2m_kitchen_lamp")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText(/Name, IEEE/i), {
+      target: { value: "z2m_kitchen" },
+    });
+    expect(screen.getByText("Kitchen Lamp")).toBeInTheDocument();
   });
 
   it("filters availability and coverage independently", () => {

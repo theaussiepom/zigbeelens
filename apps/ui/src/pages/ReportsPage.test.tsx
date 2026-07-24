@@ -53,6 +53,8 @@ vi.mock("@/context/ScenarioContext", async () => {
 });
 
 vi.mock("@/lib/events", () => ({
+  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT:
+    "home_assistant_enrichment_updated",
   liveConnection: {
     subscribeEvents: (listener: (e: string) => void) => liveEvents.subscribe(listener),
     subscribeState: () => () => {},

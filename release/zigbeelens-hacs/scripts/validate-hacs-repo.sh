@@ -18,6 +18,19 @@ REQUIRED=(
   CHANGELOG.md
   .github/workflows/ci.yml
   .github/workflows/release.yml
+  ha-test-matrix.json
+  pytest.ini
+  requirements-test.txt
+  requirements-test-minimum.txt
+  requirements-test-current.txt
+  docs/zigbeelens-icon.svg
+  docs/zigbeelens-logo.svg
+  scripts/test-ha-integration-matrix.sh
+  tests/conftest.py
+  tests/fixtures/http_origin_vectors.json
+  tests/test_core_origin.py
+  tests/test_manifest.py
+  tests/test_matrix_contract.py
   custom_components/zigbeelens/manifest.json
   custom_components/zigbeelens/__init__.py
   custom_components/zigbeelens/api.py
@@ -29,8 +42,10 @@ REQUIRED=(
   custom_components/zigbeelens/coordinator.py
   custom_components/zigbeelens/core_origin.py
   custom_components/zigbeelens/diagnostics.py
+  custom_components/zigbeelens/enrichment_manager.py
   custom_components/zigbeelens/entity.py
   custom_components/zigbeelens/exceptions.py
+  custom_components/zigbeelens/ha_enrichment.py
   custom_components/zigbeelens/panel_data.py
   custom_components/zigbeelens/panel.py
   custom_components/zigbeelens/panel_embed_logic.py
@@ -48,6 +63,11 @@ REQUIRED=(
 for f in "${REQUIRED[@]}"; do
   if [[ -f "${ROOT}/${f}" ]]; then ok "$f"; else fail "missing $f"; fi
 done
+if [[ -x "${ROOT}/scripts/test-ha-integration-matrix.sh" ]]; then
+  ok "scripts/test-ha-integration-matrix.sh is executable"
+else
+  fail "scripts/test-ha-integration-matrix.sh must be executable"
+fi
 
 python3 - "${ROOT}" <<'PY'
 import json, re, sys
@@ -91,6 +111,8 @@ if not manifest.get("version"):
     sys.exit("manifest version required")
 if manifest.get("config_flow") is not True:
     sys.exit("manifest config_flow must be true")
+if manifest.get("single_config_entry") is not True:
+    sys.exit("manifest single_config_entry must be true")
 if manifest.get("iot_class") != "local_polling":
     sys.exit("manifest iot_class must be local_polling")
 if not manifest.get("codeowners"):
@@ -313,11 +335,173 @@ if "issues" not in translations or "incompatible_core_version" not in translatio
     sys.exit("translations/en.json missing incompatible_core_version")
 if strings != translations:
     sys.exit("English translation must match strings.json")
+
+expected_matrix = {
+    "reviewed_on": "2026-07-23",
+    "lanes": [
+        {
+            "name": "minimum",
+            "homeassistant": "2025.1.0",
+            "python": "3.12",
+            "requirements": "requirements-test-minimum.txt",
+        },
+        {
+            "name": "current",
+            "homeassistant": "2026.7.3",
+            "python": "3.14",
+            "requirements": "requirements-test-current.txt",
+        },
+    ],
+}
+matrix = json.loads((root / "ha-test-matrix.json").read_text(encoding="utf-8"))
+if matrix != expected_matrix:
+    sys.exit("ha-test-matrix.json must contain only the exact reviewed lanes")
+
+
+def requirement_lines(name: str) -> list[str]:
+    return [
+        line.strip()
+        for line in (root / name).read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+common_requirements = requirement_lines("requirements-test.txt")
+if any(
+    re.match(r"(?i)^homeassistant(?:$|[\s\[<>=!~;])", line)
+    for line in common_requirements
+):
+    sys.exit(
+        "requirements-test.txt must not contain a Home Assistant requirement"
+    )
+expected_lane_requirements = {
+    "requirements-test-minimum.txt": [
+        "-r requirements-test.txt",
+        "homeassistant==2025.1.0",
+    ],
+    "requirements-test-current.txt": [
+        "-r requirements-test.txt",
+        "homeassistant==2026.7.3",
+    ],
+}
+for name, expected_lines in expected_lane_requirements.items():
+    if requirement_lines(name) != expected_lines:
+        sys.exit(f"{name} must inherit common tests and use its exact HA pin")
+
+ci_workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+release_workflow = (
+    root / ".github/workflows/release.yml"
+).read_text(encoding="utf-8")
+required_ci_fragments = (
+    "workflow_call:",
+    "bash scripts/validate-hacs-repo.sh",
+    'bash scripts/test-ha-integration-matrix.sh "${{ matrix.lane }}"',
+    (
+        "home-assistant/actions/hassfest@"
+        "e3fb68ebda13d88a0d695082f471ba2c83d025fb"
+    ),
+    "hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa",
+    "category: integration",
+)
+for fragment in required_ci_fragments:
+    if ci_workflow.count(fragment) != 1:
+        sys.exit(
+            "generated CI must contain exactly one required validation "
+            f"fragment: {fragment}"
+        )
+expected_ci_lanes = [
+    ("minimum", "2025.1.0", "3.12"),
+    ("current", "2026.7.3", "3.14"),
+]
+actual_ci_lanes = re.findall(
+    r"(?m)^\s+- lane:\s*(\S+)\s*\n"
+    r"\s+homeassistant:\s*[\"']([^\"']+)[\"']\s*\n"
+    r"\s+python:\s*[\"']([^\"']+)[\"']\s*$",
+    ci_workflow,
+)
+if actual_ci_lanes != expected_ci_lanes:
+    sys.exit("generated CI Home Assistant/Python matrix is not exact")
+for action in (
+    "home-assistant/actions/hassfest@",
+    "hacs/action@",
+):
+    references = re.findall(re.escape(action) + r"([^\s]+)", ci_workflow)
+    if len(references) != 1 or re.fullmatch(
+        r"[0-9a-f]{40}", references[0]
+    ) is None:
+        sys.exit(f"{action} must use exactly one immutable commit reference")
+
+
+def workflow_job(workflow: str, name: str) -> str:
+    match = re.search(
+        rf"(?ms)^  {re.escape(name)}:[ \t]*\n"
+        r"(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:[ \t]*$|\Z)",
+        workflow,
+    )
+    if match is None:
+        raise SystemExit(f"generated CI is missing the {name} job")
+    return match.group("body")
+
+
+hassfest_job = workflow_job(ci_workflow, "hassfest")
+if (
+    hassfest_job.count("uses: actions/checkout@v4") != 1
+    or (
+        "uses: home-assistant/actions/hassfest@"
+        "e3fb68ebda13d88a0d695082f471ba2c83d025fb"
+    )
+    not in hassfest_job
+):
+    sys.exit("hassfest job must validate the checked-out repository tree")
+hacs_job = workflow_job(ci_workflow, "hacs")
+if (
+    re.search(r"(?m)^\s{4}permissions:\s*\{\}\s*$", hacs_job) is None
+    or (
+        "uses: hacs/action@"
+        "1ebf01c408f29afcb6406bd431bc98fd8cbb15aa"
+    )
+    not in hacs_job
+    or re.search(r"(?m)^\s{10}category:\s*integration\s*$", hacs_job)
+    is None
+):
+    sys.exit("HACS job must use the official no-permissions validation contract")
+
+validation_job = re.search(
+    r"(?ms)^  validation:[ \t]*\n"
+    r"(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:[ \t]*$|\Z)",
+    release_workflow,
+)
+if (
+    release_workflow.count("uses: ./.github/workflows/ci.yml") != 1
+    or validation_job is None
+    or re.search(
+        r"(?m)^\s{4}uses:\s*\./\.github/workflows/ci\.yml\s*$",
+        validation_job.group("body"),
+    )
+    is None
+):
+    sys.exit(
+        "generated release validation job must call the local CI workflow"
+    )
+release_job = re.search(
+    r"(?ms)^  release:[ \t]*\n"
+    r"(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:[ \t]*$|\Z)",
+    release_workflow,
+)
+if release_job is None or re.search(
+    r"(?m)^\s{4}needs:\s*validation\s*$",
+    release_job.group("body"),
+) is None:
+    sys.exit("generated release publish job must depend on validation")
 print(
     "OK: SOURCE_COMMIT agrees with README and pinned manifest documentation"
 )
 print("OK: source, future, and reviewed repository identities are separated")
-print("OK: hacs.json, manifest.json, strings.json, translations/en.json parse")
+print("OK: exact Home Assistant matrix and requirement pins are sealed")
+print("OK: generated CI and release validation semantics are sealed")
+print(
+    "OK: hacs.json, manifest.json, strings.json, translations/en.json parse"
+)
 PY
 
 if python3 - "${ROOT}/custom_components/zigbeelens" <<'PY'
@@ -378,7 +562,8 @@ require_readme "reviewed public-satellite state (historical evidence)"
 require_readme "re-check its current tree before publication"
 require_readme "staged tree must match the intended satellite tree"
 require_readme "version must uniquely identify that tree"
-require_readme "exact home assistant 2025.1.0 plus current-version coverage"
+require_readme '| minimum | `2025.1.0` | `3.12` |'
+require_readme '| current | `2026.7.3` | `3.14` |'
 require_readme "official hacs and hassfest"
 require_readme "explicit publication authorization"
 

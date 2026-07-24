@@ -14,6 +14,13 @@ if str(COMPONENTS) not in sys.path:
     sys.path.insert(0, str(COMPONENTS))
 
 from zigbeelens.coordinator import ZigbeeLensCoordinatorData, ZigbeeLensDataUpdateCoordinator
+from zigbeelens.compatibility import (
+    CapabilitiesState,
+    CoreVersionState,
+    DecisionContractState,
+    DecisionPayloadState,
+    EnrichmentContractState,
+)
 
 
 @pytest.fixture
@@ -83,10 +90,32 @@ def sample_dashboard():
                 },
             }
         ],
-        "router_risks": [{"network_id": "home", "friendly_name": "router"}],
+        "router_risks": [
+            {
+                "network_id": "home",
+                "ieee_address": "0x00124b0000000001",
+                "friendly_name": "router",
+                "availability": "online",
+                "linkquality": 100,
+                "last_seen": "2026-06-14T12:00:00+00:00",
+                "possibly_dependent_devices": 2,
+                "correlated_affected_devices": 1,
+                "risk": {},
+            }
+        ],
         "recent_timeline": [],
         "investigation_priorities": [],
-        "data_coverage_warnings": [{"id": "w1", "network_id": "home", "label_code": "x"}],
+        "data_coverage_warnings": [
+            {
+                "id": "w1",
+                "network_id": "home",
+                "dimension": "availability",
+                "state": "limited",
+                "label_code": "availability_history_building",
+                "scope_type": "network",
+                "params": {},
+            }
+        ],
     }
 
 
@@ -125,11 +154,17 @@ def mock_coordinator(sample_health, sample_dashboard, sample_config_status):
         core_version="0.1.0",
         collector_connected=True,
         last_update_success=True,
+        capabilities_state=CapabilitiesState.ACCEPTED,
         decision_contract_version=2,
+        decision_contract_state=DecisionContractState.SUPPORTED_EXACT,
+        decision_payload_state=DecisionPayloadState.VALID,
+        enrichment_contract_state=EnrichmentContractState.SUPPORTED,
+        core_version_state=CoreVersionState.COMPATIBLE,
         shared_decisions_available=True,
         core_version_compatible=True,
     )
     coordinator.last_update_success = True
     coordinator.last_exception = None
+    coordinator.auth_failed = False
     coordinator.client = MagicMock(core_url="http://localhost:8377")
     return coordinator

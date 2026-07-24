@@ -7,7 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .compatibility import nonneg_int_not_bool
+from .compatibility import nonneg_int_not_bool, validate_router_risks
 from .const import DOMAIN
 from .coordinator import ZigbeeLensDataUpdateCoordinator
 from .entity import ZigbeeLensEntity
@@ -38,6 +38,7 @@ _DECISION_COUNT_KEYS = frozenset(
         "worth_reviewing_devices",
         "coverage_warning_count",
         "watch_devices",
+        "router_risks",
     }
 )
 
@@ -92,7 +93,16 @@ async def async_setup_entry(
 def _networks(coordinator: ZigbeeLensDataUpdateCoordinator) -> list[dict]:
     if coordinator.data is None:
         return []
-    return list(coordinator.data.dashboard.get("networks") or [])
+    networks = coordinator.data.dashboard.get("networks")
+    if not isinstance(networks, list):
+        return []
+    return [
+        network
+        for network in networks
+        if isinstance(network, dict)
+        and isinstance(network.get("id"), str)
+        and bool(network["id"].strip())
+    ]
 
 
 def _decision_summary(dashboard: dict) -> dict:
@@ -184,7 +194,7 @@ class ZigbeeLensSensor(ZigbeeLensEntity, SensorEntity):
             return nonneg_int_not_bool(dashboard.get("unavailable_device_count"))
         if key == "router_risks":
             risks = dashboard.get("router_risks")
-            if not isinstance(risks, list):
+            if not validate_router_risks(risks):
                 return None
             return len(risks)
         if key == "network_count":
@@ -203,17 +213,29 @@ class ZigbeeLensSensor(ZigbeeLensEntity, SensorEntity):
             return {}
         if self.entity_description.key != "overall_decision":
             return {}
-        if not self.coordinator.data.shared_decisions_available:
-            return {}
-        summary = _decision_summary(self.dashboard)
-        return {
-            "highest_priority": summary.get("highest_priority"),
-            "status_counts": summary.get("status_counts") or {},
-            "priority_counts": summary.get("priority_counts") or {},
-            "coverage_warning_count": summary.get("coverage_warning_count"),
-            "active_incident_count": self.dashboard.get("active_incident_count"),
-            "subject_count": summary.get("subject_count"),
+        data = self.coordinator.data
+        attrs = {
+            "core_version_state": data.core_version_state.value,
+            "capabilities_state": data.capabilities_state.value,
+            "decision_contract_version": data.decision_contract_version,
+            "decision_contract_state": data.decision_contract_state.value,
+            "decision_payload_state": data.decision_payload_state.value,
+            "enrichment_contract_state": data.enrichment_contract_state.value,
         }
+        if not self.coordinator.data.shared_decisions_available:
+            return attrs
+        summary = _decision_summary(self.dashboard)
+        attrs.update(
+            {
+                "highest_priority": summary.get("highest_priority"),
+                "status_counts": summary.get("status_counts") or {},
+                "priority_counts": summary.get("priority_counts") or {},
+                "coverage_warning_count": summary.get("coverage_warning_count"),
+                "active_incident_count": self.dashboard.get("active_incident_count"),
+                "subject_count": summary.get("subject_count"),
+            }
+        )
+        return attrs
 
 
 class ZigbeeLensNetworkSensor(ZigbeeLensEntity, SensorEntity):
@@ -243,7 +265,7 @@ class ZigbeeLensNetworkSensor(ZigbeeLensEntity, SensorEntity):
     def available(self) -> bool:
         if not super().available:
             return False
-        if self._metric == "decision":
+        if self._metric in {"decision", "router_risks"}:
             data = self.coordinator.data
             return bool(data and data.shared_decisions_available)
         return True
@@ -269,7 +291,11 @@ class ZigbeeLensNetworkSensor(ZigbeeLensEntity, SensorEntity):
             return nonneg_int_not_bool(network.get("unavailable_count"))
         if self._metric == "router_risks":
             risks = self.dashboard.get("router_risks")
-            if not isinstance(risks, list):
+            if (
+                not self.coordinator.data
+                or not self.coordinator.data.shared_decisions_available
+                or not validate_router_risks(risks)
+            ):
                 return None
             return len(
                 [

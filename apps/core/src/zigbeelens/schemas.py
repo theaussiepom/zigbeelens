@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
@@ -9,6 +10,7 @@ from pydantic import (
     Field,
     StrictBool,
     StrictInt,
+    StrictStr,
     field_validator,
     model_validator,
 )
@@ -93,6 +95,153 @@ class InterviewState(str, Enum):
     failed = "failed"
     in_progress = "in_progress"
     unknown = "unknown"
+
+
+HOME_ASSISTANT_ENRICHMENT_CONTRACT_VERSION = 1
+HOME_ASSISTANT_ENRICHMENT_MAX_DEVICES = 5000
+
+
+class HomeAssistantEnrichmentDeviceV1(BaseModel):
+    """One exact Home Assistant registry row linked to a Core device identity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    network_id: StrictStr = Field(min_length=1, max_length=128)
+    ieee_address: StrictStr = Field(
+        min_length=18,
+        max_length=18,
+        pattern=r"^0x[0-9a-f]{16}$",
+    )
+    ha_device_id: StrictStr = Field(min_length=1, max_length=255)
+    ha_device_name: StrictStr | None = Field(default=None, max_length=255)
+    area_id: StrictStr | None = Field(default=None, max_length=255)
+    area_name: StrictStr | None = Field(default=None, max_length=255)
+    entity_id: StrictStr | None = Field(default=None, max_length=255)
+
+    @field_validator("network_id", "ha_device_id", mode="before")
+    @classmethod
+    def _trim_required_strings(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("ieee_address", mode="before")
+    @classmethod
+    def _normalize_ieee_address(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
+
+    @field_validator(
+        "ha_device_name",
+        "area_id",
+        "area_name",
+        "entity_id",
+        mode="before",
+    )
+    @classmethod
+    def _trim_optional_strings(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            normalized = value.strip()
+            return normalized or None
+        return value
+
+
+class HomeAssistantEnrichmentRequestV1(BaseModel):
+    """Exact complete-snapshot request accepted by the Core enrichment endpoint."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    home_assistant_enrichment_contract_version: Literal[1]
+    devices: list[HomeAssistantEnrichmentDeviceV1] = Field(
+        max_length=HOME_ASSISTANT_ENRICHMENT_MAX_DEVICES
+    )
+
+    @field_validator("home_assistant_enrichment_contract_version", mode="before")
+    @classmethod
+    def _exact_contract_version(cls, value: Any) -> Any:
+        if isinstance(value, bool) or type(value) is not int:
+            raise ValueError("home_assistant_enrichment_contract_version must be integer 1")
+        return value
+
+    @model_validator(mode="after")
+    def _reject_duplicate_or_conflicting_rows(self) -> HomeAssistantEnrichmentRequestV1:
+        seen_identities: set[tuple[str, str]] = set()
+        ha_device_owners: dict[str, tuple[str, str]] = {}
+        entity_owners: dict[str, tuple[str, str]] = {}
+        for device in self.devices:
+            identity = (device.network_id, device.ieee_address)
+            if identity in seen_identities:
+                raise ValueError(
+                    "duplicate Home Assistant enrichment identity "
+                    f"{device.network_id}/{device.ieee_address}"
+                )
+            seen_identities.add(identity)
+
+            ha_device_owner = ha_device_owners.get(device.ha_device_id)
+            if ha_device_owner is not None and ha_device_owner != identity:
+                raise ValueError(
+                    "one Home Assistant device registry ID cannot target "
+                    "multiple Core identities"
+                )
+            ha_device_owners[device.ha_device_id] = identity
+
+            if device.entity_id is None:
+                continue
+            entity_owner = entity_owners.get(device.entity_id)
+            if entity_owner is not None and entity_owner != identity:
+                raise ValueError(
+                    "one representative entity ID cannot target "
+                    "multiple Core identities"
+                )
+            entity_owners[device.entity_id] = identity
+        return self
+
+
+class HomeAssistantEnrichmentResultV1(BaseModel):
+    """Deterministic factual result for one accepted complete snapshot."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    home_assistant_enrichment_contract_version: Literal[1]
+    submitted: StrictInt = Field(ge=0)
+    matched: StrictInt = Field(ge=0)
+    unmatched: StrictInt = Field(ge=0)
+    ambiguous: StrictInt = Field(ge=0)
+    stored: StrictInt = Field(ge=0)
+    last_push_at: StrictStr = Field(
+        min_length=1,
+        max_length=64,
+        json_schema_extra={"format": "date-time"},
+    )
+
+    @field_validator("home_assistant_enrichment_contract_version", mode="before")
+    @classmethod
+    def _exact_contract_version(cls, value: Any) -> Any:
+        if isinstance(value, bool) or type(value) is not int:
+            raise ValueError("home_assistant_enrichment_contract_version must be integer 1")
+        return value
+
+    @field_validator("last_push_at")
+    @classmethod
+    def _timezone_aware_iso_timestamp(cls, value: str) -> str:
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError(
+                "last_push_at must be a timezone-aware ISO timestamp"
+            ) from exc
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError("last_push_at must be a timezone-aware ISO timestamp")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_counts(self) -> HomeAssistantEnrichmentResultV1:
+        if self.submitted != self.matched + self.unmatched + self.ambiguous:
+            raise ValueError("submitted must equal matched + unmatched + ambiguous")
+        if self.stored != self.matched:
+            raise ValueError("stored must equal matched")
+        return self
 
 
 class EvidenceItem(BaseModel):
@@ -285,6 +434,9 @@ class DeviceSummary(BaseModel):
     interview_state: InterviewState
     incident_affected: bool = False
     decision: DeviceDecisionBadge
+    home_assistant_name: str | None = None
+    home_assistant_area_name: str | None = None
+    # Backward-compatible public alias retained for existing 0.1.x consumers.
     ha_area: str | None = None
 
 

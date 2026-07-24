@@ -625,6 +625,157 @@ def test_dashboard_publish_is_serialized_and_cancel_clears_pending():
     assert calls == ["dashboard"]
 
 
+def test_dashboard_scheduler_coalesces_sorted_categorical_causes():
+    from zigbeelens.mqtt.dashboard_scheduler import DashboardPublishScheduler
+
+    published: list[tuple[str, tuple[str, ...]]] = []
+
+    class Data:
+        def dashboard(self):
+            return type(
+                "Dashboard",
+                (),
+                {"model_dump_json": lambda self: "{}"},
+            )()
+
+    class Broadcaster:
+        def publish_dashboard_update(self, payload, *, causes=()):
+            published.append((payload, causes))
+
+    scheduler = DashboardPublishScheduler(
+        type("Ctx", (), {"data": Data(), "discovery": None})(),
+        Broadcaster(),
+    )
+    scheduler.schedule(cause="network_health_updated")
+    scheduler.schedule(cause="home_assistant_enrichment_updated")
+    scheduler.flush()
+
+    assert published == [
+        (
+            "{}",
+            (
+                "home_assistant_enrichment_updated",
+                "network_health_updated",
+            ),
+        )
+    ]
+
+
+def test_dashboard_scheduler_preserves_unattributed_coalesced_work():
+    from zigbeelens.mqtt.dashboard_scheduler import DashboardPublishScheduler
+
+    published: list[tuple[str, tuple[str, ...]]] = []
+
+    class Data:
+        def dashboard(self):
+            return type(
+                "Dashboard",
+                (),
+                {"model_dump_json": lambda self: "{}"},
+            )()
+
+    class Broadcaster:
+        def publish_dashboard_update(self, payload, *, causes=()):
+            published.append((payload, causes))
+
+    scheduler = DashboardPublishScheduler(
+        type("Ctx", (), {"data": Data(), "discovery": None})(),
+        Broadcaster(),
+    )
+    scheduler.schedule(cause="home_assistant_enrichment_updated")
+    scheduler.schedule()
+    scheduler.flush()
+
+    assert published == [("{}", ())]
+
+
+def test_dashboard_scheduler_stale_cancelled_timer_cannot_steal_causes(
+    monkeypatch,
+):
+    from zigbeelens.mqtt import dashboard_scheduler as scheduler_module
+
+    timers = []
+    published: list[tuple[str, tuple[str, ...]]] = []
+
+    class ControlledTimer:
+        def __init__(self, _delay, callback):
+            self.callback = callback
+            self.cancelled = False
+            self.daemon = False
+            timers.append(self)
+
+        def start(self):
+            return None
+
+        def cancel(self):
+            self.cancelled = True
+
+        def fire_despite_cancel(self):
+            self.callback()
+
+    class Data:
+        def dashboard(self):
+            return type(
+                "Dashboard",
+                (),
+                {"model_dump_json": lambda self: "{}"},
+            )()
+
+    class Broadcaster:
+        def publish_dashboard_update(self, payload, *, causes=()):
+            published.append((payload, causes))
+
+    monkeypatch.setattr(
+        scheduler_module.threading,
+        "Timer",
+        ControlledTimer,
+    )
+    scheduler = scheduler_module.DashboardPublishScheduler(
+        type("Ctx", (), {"data": Data(), "discovery": None})(),
+        Broadcaster(),
+    )
+    scheduler.schedule(cause="home_assistant_enrichment_updated")
+    scheduler.schedule(cause="home_assistant_enrichment_updated")
+    assert len(timers) == 2
+    assert timers[0].cancelled is True
+
+    timers[0].fire_despite_cancel()
+    assert published == []
+    timers[1].fire_despite_cancel()
+
+    assert published == [
+        ("{}", ("home_assistant_enrichment_updated",))
+    ]
+
+
+def test_dashboard_scheduler_failure_log_is_fixed_and_identity_free(caplog):
+    import logging
+
+    from zigbeelens.mqtt.dashboard_scheduler import DashboardPublishScheduler
+
+    private_sentinel = "private-device-name-0x00124b0024abcdef"
+
+    class Data:
+        def dashboard(self):
+            raise RuntimeError(private_sentinel)
+
+    scheduler = DashboardPublishScheduler(
+        type("Ctx", (), {"data": Data(), "discovery": None})(),
+        object(),
+    )
+    with caplog.at_level(
+        logging.ERROR,
+        logger="zigbeelens.mqtt.dashboard_scheduler",
+    ):
+        scheduler.flush()
+
+    assert caplog.messages == [
+        "Dashboard publish failed (category=dashboard_projection)"
+    ]
+    assert private_sentinel not in caplog.text
+    assert "Traceback" not in caplog.text
+
+
 def test_discovery_stop_waits_for_active_publish_and_clears_pending(tmp_path: Path):
     from zigbeelens.mqtt_discovery.service import MqttDiscoveryService
 

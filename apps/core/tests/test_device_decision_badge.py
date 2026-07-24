@@ -97,9 +97,9 @@ def _link_ha_area(repo: Repository, ieee: str, *, network_id: str = "home") -> N
     repo.db.conn.execute(
         """
         INSERT INTO ha_device_enrichment (
-            network_id, ieee_address, entity_id, area_id, area_name,
+            network_id, ieee_address, ha_device_name, entity_id, area_id, area_name,
             match_confidence, updated_at
-        ) VALUES (?, ?, 'light.kitchen', 'area-1', 'Kitchen', 'high', ?)
+        ) VALUES (?, ?, 'Kitchen Lamp', 'light.kitchen', 'area-1', 'Kitchen', 'high', ?)
         """,
         (network_id, ieee, NOW.isoformat()),
     )
@@ -223,7 +223,9 @@ def test_device_list_payload_includes_decision_badge(tmp_path: Path):
     assert devices[0].decision.headline_code == str(story.headline_code)
 
 
-def test_device_summary_includes_ha_area_when_enriched(tmp_path: Path):
+def test_device_summary_includes_additional_ha_name_and_area_when_enriched(
+    tmp_path: Path,
+):
     repo, config = _repo(tmp_path)
     _add_device(repo, "0xa1", availability="online")
     _link_ha_area(repo, "0xa1")
@@ -231,6 +233,9 @@ def test_device_summary_includes_ha_area_when_enriched(tmp_path: Path):
     health.recalculate_all()
     devices = PayloadBuilder(config, repo, health).devices()
     assert len(devices) == 1
+    assert devices[0].friendly_name == "Device 0xa1"
+    assert devices[0].home_assistant_name == "Kitchen Lamp"
+    assert devices[0].home_assistant_area_name == "Kitchen"
     assert devices[0].ha_area == "Kitchen"
 
 

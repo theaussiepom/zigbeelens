@@ -5,25 +5,25 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: write
-
 jobs:
+  validation:
+    name: Validate exact release tree
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
   release:
+    name: Publish GitHub release
+    needs: validation
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Validate packaged repository
-        run: bash scripts/validate-hacs-repo.sh
+          python-version: "3.14"
 
       - name: Verify strict SemVer tag matches manifest
         run: |

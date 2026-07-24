@@ -21,6 +21,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up pinned uv for Core smoke
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.16"
+          enable-cache: true
+
       - name: Install Python dependencies
         run: pip install -e "apps/core[dev]"
 
@@ -44,6 +50,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Set up pinned uv for Core smoke
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.16"
+          enable-cache: true
 
       - name: Install Core
         run: pip install -e "apps/core[dev]"
@@ -106,8 +118,12 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Validate HA integration
-        run: bash scripts/validate-ha-integration.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate HA integration structure and generated HACS repository
+        run: bash scripts/validate-ha-integration.sh --skip-matrix
 
       - name: Package HACS release layout
         run: bash scripts/package-hacs-repo.sh
@@ -115,10 +131,83 @@ jobs:
       - name: Verify HACS repo layout
         run: test -f dist/zigbeelens-hacs/custom_components/zigbeelens/manifest.json
 
+  ha-integration-matrix:
+    name: HA ${{ matrix.homeassistant }} / Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: minimum
+            homeassistant: "2025.1.0"
+            python: "3.12"
+          - lane: current
+            homeassistant: "2026.7.3"
+            python: "3.14"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run the exact Home Assistant compatibility lane
+        env:
+          ZIGBEELENS_HA_TEST_PYTHON: python
+        run: bash scripts/test-ha-integration-matrix.sh "${{ matrix.lane }}"
+
+  enrichment-live-e2e:
+    name: Live HA enrichment convergence / Python 3.12
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.16"
+          enable-cache: true
+
+      - name: Install Core dependencies
+        run: uv sync --project apps/core --python 3.12 --extra dev
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared types
+        run: pnpm --filter @zigbeelens/shared build
+
+      - name: Run canonical live enrichment E2E
+        run: bash scripts/test-enrichment-live-e2e.sh
+
   packaging:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [contracts, backend, ui, ha-integration]
+    needs:
+      [
+        contracts,
+        backend,
+        ui,
+        ha-integration,
+        ha-integration-matrix,
+        enrichment-live-e2e,
+      ]
     steps:
       - uses: actions/checkout@v4
 
@@ -132,6 +221,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Set up pinned uv for Core smoke
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.16"
+          enable-cache: true
 
       - name: Install dependencies
         run: |

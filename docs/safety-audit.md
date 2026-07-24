@@ -114,6 +114,7 @@ Tests: `apps/core/tests/test_mqtt_discovery.py`
 | Every new stored body is exact `ReportDetailV3` | Enforced |
 | Saved list/detail/download fail closed for malformed or non-v3 bodies | Enforced |
 | Migration 014 removes all development-era saved reports once at schema 13 → 14 | Enforced |
+| HA names, area names/IDs, registry/entity IDs, and IEEE values follow the selected report redaction profile | Enforced |
 
 `standard` deliberately retains some non-secret local context, while
 `public_safe` and `strict` remove more identifiers. See
@@ -136,7 +137,9 @@ Tests: report/redaction tests and `apps/core/tests/contracts/test_report_v3_cont
 
 Creating/deleting reports, requesting topology capture, and replacing/clearing
 Home Assistant enrichment change ZigbeeLens-local state. They do not control a
-Zigbee device.
+Zigbee device. The Home Assistant integration can reach only the exact,
+versioned enrichment POST and optional explicit-removal DELETE; it has no
+generic mutation method.
 
 ## Evidence semantics
 
@@ -168,7 +171,10 @@ Human-facing terminology follows [ubiquitous-language.md](ubiquitous-language.md
 | Manual topology capture shows a warning and requires confirmation | Enforced |
 | Incident and Decision copy carries evidence/limitations rather than causal claims | Enforced |
 | Contextual report dialog shows scope, redaction profile, and preview before save | Enforced |
-| Home Assistant integration reads Core; it does not publish Zigbee device-control commands | Enforced |
+| Home Assistant integration reads Core diagnostic/configuration/Decision/capability/inventory data | Enforced |
+| Its only write is the strict Core-local HA enrichment snapshot/explicit clear | Enforced |
+| Final identity is exact `network_id` + IEEE; ambiguous candidates are omitted | Enforced |
+| Complete-empty clears; unavailable source/inventory or transient failure retains the accepted snapshot | Enforced |
 | Home Assistant diagnostics redact secrets | Enforced |
 | No Home Assistant control services/entities are introduced | Enforced |
 
@@ -187,7 +193,10 @@ zero collected tests and any skip, failure, or error.
 
 Core topology's allowlisted network-map request and optional MQTT Discovery
 publishes are Core policies, not actions performed by the Home Assistant
-integration.
+integration. The enrichment manager owns its initial reconciliation, debounced
+official registry listeners, bounded retries, forced 15-minute reconciliation,
+and unload cleanup; none of those paths publishes MQTT or invokes Zigbee
+control.
 
 ## Verification commands
 

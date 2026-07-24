@@ -11,7 +11,7 @@ from zigbeelens.decisions.availability_tracking import availability_tracking_ena
 from zigbeelens.decisions.topology_coverage import build_network_topology_coverage
 from zigbeelens.decisions.topology_facts import TopologyFactCode
 from zigbeelens.decisions.types import CoverageDimension, CoverageLabelCode, CoverageState, EvidenceFact
-from zigbeelens.enrichment.ha import apply_ha_enrichment
+from zigbeelens.enrichment.ha import MatchResult
 from zigbeelens.storage.repository import Repository
 
 NOW = datetime(2026, 7, 6, 12, 0, 0, tzinfo=timezone.utc)
@@ -48,6 +48,34 @@ def _upsert_device(
         network_id="home",
         ieee_address=ieee,
         availability=availability,
+    )
+
+
+def _store_ha_enrichment(
+    repo: Repository,
+    ieee: str,
+    *,
+    area_id: str | None = None,
+    area_name: str | None = None,
+) -> None:
+    repo.replace_ha_device_enrichment(
+        [
+            MatchResult(
+                network_id="home",
+                ieee_address=ieee,
+                ha_device_id=f"ha-{ieee}",
+                ha_device_name="Hall lamp",
+                area_id=area_id,
+                area_name=area_name,
+                entity_id="light.hall",
+                match_confidence="high",
+            )
+        ]
+    )
+    repo.update_ha_enrichment_status(
+        enabled=True,
+        matched_devices=1,
+        source="test",
     )
 
 
@@ -144,19 +172,7 @@ def test_snapshot_stale_only_when_stale_fact_present():
 def test_ha_areas_not_linked_without_area_assignments(tmp_path: Path):
     repo = _repo(tmp_path)
     _upsert_device(repo, "0xa1")
-    apply_ha_enrichment(
-        repo,
-        {
-            "devices": [
-                {
-                    "network_id": "home",
-                    "ieee_address": "0xa1",
-                    "ha_device_name": "Hall lamp",
-                    "entity_id": "light.hall",
-                }
-            ]
-        },
-    )
+    _store_ha_enrichment(repo, "0xa1")
     assert repo.network_has_usable_ha_area_assignments("home") is False
     items = _build_coverage(has_usable_ha_area_assignments=False)
     assert any(
@@ -177,20 +193,7 @@ def test_ha_areas_not_linked_when_no_enrichment_rows(tmp_path: Path):
 def test_ha_areas_linked_when_area_name_present(tmp_path: Path):
     repo = _repo(tmp_path)
     _upsert_device(repo, "0xa1")
-    apply_ha_enrichment(
-        repo,
-        {
-            "devices": [
-                {
-                    "network_id": "home",
-                    "ieee_address": "0xa1",
-                    "ha_device_name": "Hall lamp",
-                    "area_name": "Hall",
-                    "entity_id": "light.hall",
-                }
-            ]
-        },
-    )
+    _store_ha_enrichment(repo, "0xa1", area_name="Hall")
     assert repo.network_has_usable_ha_area_assignments("home") is True
     assert not any(
         item.label_code == CoverageLabelCode.ha_areas_not_linked
@@ -201,21 +204,7 @@ def test_ha_areas_linked_when_area_name_present(tmp_path: Path):
 def test_matched_device_count_alone_does_not_clear_ha_areas_not_linked(tmp_path: Path):
     repo = _repo(tmp_path)
     _upsert_device(repo, "0xa1")
-    apply_ha_enrichment(
-        repo,
-        {
-            "devices": [
-                {
-                    "network_id": "home",
-                    "ieee_address": "0xa1",
-                    "ha_device_name": "Hall lamp",
-                    "area_id": "   ",
-                    "area_name": "",
-                    "entity_id": "light.hall",
-                }
-            ]
-        },
-    )
+    _store_ha_enrichment(repo, "0xa1", area_id="   ", area_name="")
     assert repo.network_has_usable_ha_area_assignments("home") is False
 
 

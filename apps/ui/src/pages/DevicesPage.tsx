@@ -12,6 +12,7 @@ import {
   ErrorState,
   LoadingState,
   NetworkBadge,
+  StaleRefreshNotice,
 } from "@/components/ui";
 import { ContextualReportDialog } from "@/components/reports/ContextualReportDialog";
 import { DeviceDecisionBadge } from "@/components/devices/DeviceDecisionBadge";
@@ -33,26 +34,20 @@ import {
   type DeviceRowViewModel,
 } from "@/viewModels/devices/deviceRowViewModel";
 import { buildDeviceDecisionBadgeViewModel } from "@/viewModels/devices/deviceDecisionBadgeViewModel";
-
-const DEVICE_EVENTS = [
-  "device_health_updated",
-  "health_updated",
-  "dashboard_updated",
-  "incidents_updated",
-  "incident_opened",
-  "incident_updated",
-  "incident_resolved",
-];
+import {
+  DEVICE_PROJECTION_EVENTS,
+  INCIDENT_COLLECTION_EVENTS,
+} from "@/lib/liveResourceEvents";
 
 export function DevicesPage() {
   const { scenario } = useScenario();
   const [searchParams] = useSearchParams();
   const initialNetwork = searchParams.get("network") ?? "";
 
-  const { data, error, loading, refetch } = useLiveResource(
+  const { data, error, loading, refreshing, refetch } = useLiveResource(
     () => api.devices(scenario || undefined).then((r) => r.items),
     [scenario],
-    { refetchOn: DEVICE_EVENTS },
+    { refetchOn: DEVICE_PROJECTION_EVENTS },
   );
 
   const [network, setNetwork] = useState(initialNetwork);
@@ -97,11 +92,27 @@ export function DevicesPage() {
     [inventoryRows],
   );
 
-  if (error) return <ErrorState message={error} onRetry={refetch} />;
-  if (loading) return <LoadingState />;
+  if (loading && data === null) return <LoadingState />;
+  if (error && data === null) {
+    return (
+      <ErrorState
+        message={error}
+        onRetry={refetch}
+        retryLabel="Retry device inventory"
+      />
+    );
+  }
+  if (data === null) return <LoadingState />;
 
   return (
-    <div className="max-w-6xl space-y-6">
+    <div className="max-w-6xl space-y-6" aria-busy={refreshing}>
+      {error && (
+        <StaleRefreshNotice
+          resourceLabel="Device inventory"
+          onRetry={refetch}
+          retryLabel="Retry device inventory"
+        />
+      )}
       <div>
         <h1 className="text-2xl font-semibold">Devices</h1>
         <p className="mt-1 text-zl-muted">
@@ -216,6 +227,9 @@ function DeviceInventoryRow({ row }: { row: DeviceRowViewModel }) {
     <tr className="align-top">
       <td className="px-4 py-3">
         <div className="font-medium text-zl-text">{row.name}</div>
+        {row.sourceNameLabel && (
+          <div className="mt-0.5 text-xs text-zl-muted">{row.sourceNameLabel}</div>
+        )}
         <div className="mt-0.5 text-xs text-zl-muted">{row.secondaryLabel}</div>
         <div className="mt-2 space-y-1 md:hidden">
           <div className="text-xs text-zl-muted">
@@ -314,7 +328,10 @@ export function DeviceDetailPage() {
   const detail = useLiveResource(
     () => api.device(networkId, ieee, s),
     [networkId, ieee, scenario],
-    { refetchOn: DEVICE_EVENTS, enabled: Boolean(networkId && ieee) },
+    {
+      refetchOn: DEVICE_PROJECTION_EVENTS,
+      enabled: Boolean(networkId && ieee),
+    },
   );
   const incidents = useLiveResource(
     () =>
@@ -327,23 +344,46 @@ export function DeviceDetailPage() {
         })
         .then((r) => r.items),
     [networkId, ieee, scenario],
-    { refetchOn: DEVICE_EVENTS, enabled: Boolean(networkId && ieee) },
+    {
+      refetchOn: INCIDENT_COLLECTION_EVENTS,
+      enabled: Boolean(networkId && ieee),
+    },
   );
 
-  if (detail.error) return <ErrorState message={detail.error} onRetry={detail.refetch} />;
-  if (detail.loading || !detail.data) return <LoadingState />;
+  if (detail.loading && !detail.data) return <LoadingState />;
+  if (detail.error && !detail.data) {
+    return (
+      <ErrorState
+        message={detail.error}
+        onRetry={detail.refetch}
+        retryLabel="Retry device details"
+      />
+    );
+  }
+  if (!detail.data) return <LoadingState />;
   const device = detail.data;
   const related = incidents.data ?? [];
   const decision = buildDeviceDecisionBadgeViewModel(device.decision);
+  const homeAssistantName = device.home_assistant_name?.trim() || null;
+  const homeAssistantAreaName =
+    device.home_assistant_area_name?.trim() || device.ha_area?.trim() || null;
+  const displayName = homeAssistantName || device.friendly_name;
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="max-w-4xl space-y-6" aria-busy={detail.refreshing}>
+      {detail.error && (
+        <StaleRefreshNotice
+          resourceLabel="Device details"
+          onRetry={detail.refetch}
+          retryLabel="Retry device details"
+        />
+      )}
       <div>
         <Link to="/devices" className="text-sm text-zl-accent hover:underline">
           ← Devices
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold">{device.friendly_name}</h1>
+          <h1 className="text-2xl font-semibold">{displayName}</h1>
           <DeviceDecisionBadge decision={decision} />
           <button
             ref={reportButtonRef}
@@ -372,7 +412,7 @@ export function DeviceDetailPage() {
           scope: "device",
           networkId: device.network_id,
           deviceIeee: device.ieee_address,
-          subjectLabel: device.friendly_name,
+          subjectLabel: displayName,
         }}
       />
 
@@ -410,8 +450,16 @@ export function DeviceDetailPage() {
           <dl className="space-y-2 text-sm">
             <Row label="Network" value={device.network_id} mono />
             <Row label="IEEE address" value={device.ieee_address} mono />
-            <Row label="Friendly name" value={device.friendly_name} />
-            <Row label="Area" value={device.ha_area} />
+            {homeAssistantName && (
+              <Row label="Home Assistant name" value={homeAssistantName} />
+            )}
+            <Row
+              label="Zigbee2MQTT friendly name"
+              value={device.friendly_name}
+            />
+            {homeAssistantAreaName && (
+              <Row label="Home Assistant area" value={homeAssistantAreaName} />
+            )}
             <Row label="Manufacturer" value={device.manufacturer} />
             <Row label="Model" value={device.model} />
             <Row label="Device type" value={deviceTypeLabel(device.device_type)} />

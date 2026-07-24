@@ -2,14 +2,19 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTopologyEvidenceGraphDetail } from "@/test/topologyEvidenceGraphFixture";
 
-const listeners = new Set<(eventName: string) => void>();
-const emit = (eventName: string) => {
-  for (const listener of listeners) listener(eventName);
+type TestPayload = Record<string, unknown> | null;
+const listeners = new Set<
+  (eventName: string, payload: TestPayload) => void
+>();
+const emit = (eventName: string, payload: TestPayload = null) => {
+  for (const listener of listeners) listener(eventName, payload);
 };
 
 vi.mock("@/lib/events", () => ({
   liveConnection: {
-    subscribeEvents: (listener: (e: string) => void) => {
+    subscribeEvents: (
+      listener: (eventName: string, payload: TestPayload) => void,
+    ) => {
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
@@ -19,7 +24,14 @@ vi.mock("@/lib/events", () => ({
     getState: () => "open",
     isAccessEnabled: () => true,
   },
-  LIVE_EVENTS: ["topology_updated", "dashboard_updated", "incidents_updated"],
+  HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT:
+    "home_assistant_enrichment_updated",
+  LIVE_EVENTS: [
+    "topology_updated",
+    "dashboard_updated",
+    "incidents_updated",
+    "home_assistant_enrichment_updated",
+  ],
 }));
 
 vi.mock("@/context/ScenarioContext", () => ({
@@ -66,7 +78,7 @@ describe("useTopologyGraphData", () => {
     vi.useRealTimers();
   });
 
-  it("separates topology and device-inventory invalidations", async () => {
+  it("separates topology and inventory ownership while accepting delayed companions", async () => {
     renderHook(() => useTopologyGraphData("home"));
     await act(async () => {
       await Promise.resolve();
@@ -82,28 +94,58 @@ describe("useTopologyGraphData", () => {
     expect(topologyEvidenceGraph).toHaveBeenCalledTimes(2);
     expect(devices).toHaveBeenCalledTimes(1);
 
-    act(() => emit("dashboard_updated"));
+    act(() => {
+      emit("home_assistant_enrichment_updated", {
+        type: "home_assistant_enrichment_updated",
+      });
+      emit("dashboard_updated", {
+        type: "dashboard_updated",
+        causes: ["home_assistant_enrichment_updated"],
+      });
+    });
     act(() => vi.advanceTimersByTime(350));
     await act(async () => {
       await Promise.resolve();
     });
-    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(2);
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(3);
     expect(devices).toHaveBeenCalledTimes(2);
+
+    act(() => vi.advanceTimersByTime(1_000));
+    act(() =>
+      emit("dashboard_updated", {
+        type: "dashboard_updated",
+        causes: ["home_assistant_enrichment_updated"],
+      }),
+    );
+    act(() => vi.advanceTimersByTime(350));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(4);
+    expect(devices).toHaveBeenCalledTimes(3);
+
+    act(() => emit("dashboard_updated", { type: "dashboard_updated" }));
+    act(() => vi.advanceTimersByTime(350));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(5);
+    expect(devices).toHaveBeenCalledTimes(4);
 
     act(() => emit("incidents_updated"));
     act(() => vi.advanceTimersByTime(350));
     await act(async () => {
       await Promise.resolve();
     });
-    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(2);
-    expect(devices).toHaveBeenCalledTimes(3);
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(5);
+    expect(devices).toHaveBeenCalledTimes(5);
 
     act(() => emit("collector_status"));
     act(() => vi.advanceTimersByTime(350));
     await act(async () => {
       await Promise.resolve();
     });
-    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(2);
-    expect(devices).toHaveBeenCalledTimes(3);
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(5);
+    expect(devices).toHaveBeenCalledTimes(5);
   });
 });

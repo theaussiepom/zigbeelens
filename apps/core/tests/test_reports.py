@@ -260,6 +260,68 @@ def test_public_safe_preserves_device_type_when_friendly_name_collides():
     assert out["devices"][1]["power_source"] == "Battery"
 
 
+def test_ha_metadata_redaction_profiles_and_free_text_are_safe():
+    raw = {
+        "networks": [],
+        "devices": [
+            {
+                "friendly_name": "z2m_kitchen_lamp",
+                "home_assistant_name": "Kitchen Lamp",
+                "home_assistant_area_name": "Kitchen",
+                "ha_area": "Kitchen",
+                "ieee_address": "0x00124b0024abc999",
+                "ha_device_name": "Kitchen Lamp",
+                "area_name": "Kitchen",
+                "area_id": "area-kitchen",
+                "ha_device_id": "ha-registry-kitchen",
+                "entity_id": "light.kitchen_lamp",
+                "narrative": (
+                    "Kitchen Lamp in Kitchen uses area-kitchen, "
+                    "ha-registry-kitchen, light.kitchen_lamp and "
+                    "0x00124b0024abc999."
+                ),
+            }
+        ],
+    }
+    prohibited_identifiers = (
+        "area-kitchen",
+        "ha-registry-kitchen",
+        "light.kitchen_lamp",
+        "0x00124b0024abc999",
+    )
+
+    for profile in (
+        RedactionProfile.standard,
+        RedactionProfile.strict,
+        RedactionProfile.public_safe,
+    ):
+        resolved = resolve_redaction(RedactionOptions(profile=profile))
+        out = Redactor(resolved, salt="ha-redaction-test").redact(raw)
+        device = out["devices"][0]
+        blob = json.dumps(out)
+        for identifier in prohibited_identifiers:
+            assert identifier not in blob
+        assert device["area_id"].startswith("area_id_")
+        assert device["ha_device_id"].startswith("ha_device_")
+        assert device["entity_id"].startswith("entity_")
+        assert device["ieee_address"].startswith("ieee_")
+        assert device["ha_area"] == device["home_assistant_area_name"]
+
+        if profile is RedactionProfile.standard:
+            assert device["home_assistant_name"] == "Kitchen Lamp"
+            assert device["home_assistant_area_name"] == "Kitchen"
+        elif profile is RedactionProfile.strict:
+            assert device["home_assistant_name"].startswith("device_")
+            assert device["home_assistant_area_name"].startswith("area_")
+            assert "Kitchen Lamp" not in blob
+            assert "Kitchen" not in blob
+        else:
+            assert device["home_assistant_name"].startswith("device_")
+            assert device["home_assistant_area_name"].startswith("area_")
+            for prohibited in ("Kitchen Lamp", "Kitchen"):
+                assert prohibited not in blob
+
+
 def test_redactor_redacts_secret_keys_keeps_linkquality():
     resolved = resolve_redaction(RedactionOptions(profile=RedactionProfile.standard))
     redactor = Redactor(resolved)

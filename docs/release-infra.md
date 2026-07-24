@@ -31,14 +31,15 @@ ghcr.io/theaussiepom/zigbeelens:latest    # release tag only
 |-------|--------|
 | 7A — query/cardinality/runtime baseline | Merged in PR #100 |
 | 7B — test architecture / exact-v3 reset | Merged in PR #101 |
-| 7C1 — documentation truth | Current documentation phase |
-| 7C2 — screenshots / visual evidence | Deferred until after 7C1 |
+| 7C1 — documentation truth | Merged |
+| 7C2 — screenshots / visual evidence | Deferred |
 | 7D — live Beast validation | Deferred; not satisfied by docs or local CI |
 
 ## Add-on publication status
 
-The add-on repository is **blocked from publication** even if its structural
-validator passes:
+The add-on is deferred and is not part of the current HACS release. Keep its
+non-regression checks green, but do not publish, advertise, or count it as a
+supported route. Its future publication gates still include:
 
 - the packaged repository currently uses the standalone GHCR image entrypoint;
   it generates add-on options and Ingress configuration, but does not install
@@ -54,12 +55,13 @@ validator passes:
 Close these blockers and run the packaged HAOS Ingress, bearer, and
 non-Supervisor spoofing smokes before publishing the add-on repository.
 
-## HACS integration release blocker
+## HACS integration publication boundary
 
 The public HACS satellite is not synchronized with the reviewed monorepo
-stage. It still contains a materially older integration while both trees
-advertise version `0.1.13`; this same-version/different-tree collision prevents
-the version from identifying an artifact. Validate the current branch only
+stage. It still contains a materially older integration and advertises
+`0.1.13`, while the candidate stage uses the previously unused version
+`0.1.14`. The candidate version identifies the staged tree uniquely, but the
+tree mismatch remains a publication blocker. Validate the current branch only
 with the locally generated package from `./scripts/package-hacs-repo.sh`.
 External synchronization or publication requires a separate explicitly
 authorized task.
@@ -98,38 +100,35 @@ repository, commit, and review date above. The selected tree, provenance file,
 README, and manifest must agree. This identifies the reviewed monorepo source;
 it does not establish satellite synchronization or publication readiness.
 
-The integration's OptionsFlow accepts a 15–900-second polling interval, manually
-updates the entry, and then returns an empty options result. Home Assistant
-persists that result over the intermediate update, so the custom interval is
-not durable and polling returns to the 60-second default. Fix the flow to return
-the selected options and add a persistence/reload test before advertising
-configurable polling as release-ready.
+The reviewed monorepo/stage now owns:
 
-The compatibility helper also returns `true` for missing or malformed Core
-versions. That violates the documented Unknown tri-state and can contribute to
-enabling shared decisions without an observed compatible version. Make unknown
-versions fail closed and cover the coordinator/panel projection before HACS
-publication.
+- durable 15–900-second options plus one effective reload;
+- fail-closed Core version and capabilities states;
+- distinct older/newer/malformed Decision contract and exact-v2 payload repairs;
+- `single_config_entry: true` plus runtime concurrency/setup ownership;
+- exact Home Assistant `2025.1.0` / Python `3.12` and Home Assistant
+  `2026.7.3` / Python `3.14` lanes; and
+- generated CI jobs for structural/provenance validation, both exact HA lanes,
+  pinned official hassfest, and pinned official HACS validation.
 
-The coordinator currently collapses exact-v2 payload-shape failure and an
-unsupported contract into the same boolean. Repairs consequently emits an
-unsupported-contract/upgrade-Core message for malformed or missing Dashboard
-decision surfaces. Preserve the failure reason and emit truthful repair state
-before publication.
+Generated `release.yml` calls the generated CI workflow and makes release
+publication depend on it. These templates establish ownership, not a remote
+pass: the official jobs must still run successfully on the synchronized
+satellite tree.
 
-Package metadata declares Home Assistant 2025.1.0 as the minimum, but the
-current test dependency resolves a newer version. Add exact-minimum plus current
-Home Assistant matrix coverage. The config flow also enforces one entry while
-the manifest lacks declarative `single_config_entry` metadata. Run official
-HACS/hassfest validation for the staged satellite repository in addition to the
-local structural validator before publication.
+The integration reads Core diagnostic/configuration/Decision/capability and
+bounded inventory data. Its sole write is the exact Core-local Home Assistant
+enrichment snapshot, with optional exact clear during explicit config-entry
+removal. The manager owns initial/event/retry/15-minute reconciliation and
+retains the prior accepted snapshot on unavailable or transient failure.
 
 Before restoring public HACS installation guidance or publishing the satellite:
 
 - prove the complete staged tree matches the intended satellite tree;
 - assign a manifest/package version that uniquely identifies that exact tree;
-- pass exact Home Assistant 2025.1.0 plus current-version coverage;
-- pass official HACS and hassfest validation; and
+- pass the generated exact Home Assistant 2025.1.0/Python 3.12 and
+  2026.7.3/Python 3.14 lanes remotely;
+- pass generated official HACS and hassfest validation remotely; and
 - record explicit publication authorization before modifying the external
   repository.
 

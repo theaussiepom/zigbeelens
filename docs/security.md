@@ -8,7 +8,10 @@ For vulnerability reporting see [SECURITY.md](../SECURITY.md).
 
 ZigbeeLens is read-only with respect to Zigbee control. It does not perform device-control actions such as permit join, remove, reset, bind/unbind, OTA, or channel changes.
 
-Some API routes can modify ZigbeeLens’ own local data, such as creating/deleting reports, requesting a topology snapshot, or storing Home Assistant enrichment metadata.
+Some API routes can modify ZigbeeLens’ own local data, such as creating/deleting
+reports, requesting a topology snapshot, or storing Home Assistant enrichment
+metadata. The Home Assistant integration is restricted to the exact enrichment
+snapshot/clear routes; it does not receive a generic mutation client.
 
 When an API token is configured, Core requires authentication for protected
 reads, mutations, SSE, and report downloads. Direct API clients use:
@@ -110,6 +113,33 @@ smoke test.
 
 Bearer and session authentication authenticate the HTTP request. They do **not**
 replace TLS on untrusted networks.
+
+### Home Assistant integration data boundary
+
+The HACS integration's server-side client reads Core health/diagnostic,
+configuration status, Decision Dashboard, capability, and bounded device
+inventory data. Its only write is strict contract-v1
+`POST /api/v1/enrichment/homeassistant`; explicit config-entry removal may call
+the matching DELETE. It does not publish MQTT, talk to Zigbee2MQTT, or expose
+Zigbee controls.
+
+The enrichment payload contains exact Core `network_id` + IEEE identity and
+Home Assistant registry metadata: device registry ID, optional user-facing
+device name, optional area ID/name, and optional representative entity ID. The
+HA user name is display metadata, not identity. Duplicate/ambiguous ownership
+fails closed, and Core preserves its Zigbee2MQTT friendly name independently.
+
+The manager sends a replacement only after complete official HA registry and
+Core inventory reads. A successfully accepted complete-empty snapshot clears
+enrichment; unavailable/partial source data, unsupported capability,
+authentication/connection/server failure, or request rejection retains the
+last accepted snapshot. Registry events are debounced, retries are bounded,
+forced reconciliation runs every 15 minutes, and unload cancels all owners.
+
+Diagnostics expose categorical states and counts, not registry names, areas,
+IDs, entity IDs, IEEE addresses, tokens, or payloads. API exceptions and logs
+do not include the enrichment payload. Core report redaction covers HA name,
+area name/ID, device registry ID, representative entity ID, and IEEE fields.
 
 ## Security modes
 
@@ -310,7 +340,7 @@ It **must not** be combined with `ZIGBEELENS_SECURITY_API_TOKEN` or `ZIGBEELENS_
 |--------|------------------------|------------------|---------------------|
 | Direct API (`curl`, scripts) | Open | Use `Authorization: Bearer` | Bearer only when optional add-on token is set |
 | Bundled UI | Trusted-open enters directly | Token login when `session_secret` is set | Opens through HA ingress; no token form |
-| HACS integration | Works | Configure the same Core API token | No portable packaged add-on origin; optional token propagation is also blocked |
+| HACS integration | Works | Configure the same Core API token | Add-on route is deferred; no portable packaged add-on origin |
 
 Do not weaken bearer protection to preserve unauthenticated clients in authenticated mode. The add-on does not auto-copy tokens into HACS.
 
@@ -325,7 +355,7 @@ Do not weaken bearer protection to preserve unauthenticated clients in authentic
 
 | Install | Exposure |
 |---------|----------|
-| HAOS add-on source | Via Home Assistant Ingress — Supervisor panel admin-only; packaged artifact remains blocked pending HAOS validation |
+| HAOS add-on source | Deferred from the current HACS release; source architecture uses Supervisor Ingress |
 | Docker standalone | Port 8377 when published — prefer loopback publish or a reviewed authenticated reverse proxy |
 | Dev | Loopback by default |
 

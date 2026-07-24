@@ -18,6 +18,7 @@ from zigbeelens.decisions.types import (
     DecisionPriority,
     DecisionStatus,
 )
+from zigbeelens.enrichment.ha import HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT
 from support.contracts import load_oracle_fixture, oracle_scenarios  # type: ignore[import-not-found]
 
 GENERATOR_ROOT = Path(__file__).resolve().parents[2] / "scripts"
@@ -36,6 +37,7 @@ def test_vocabulary_manifest_equals_core_registries():
         "coverage_dimensions": sorted(m.value for m in CoverageDimension),
         "coverage_states": sorted(m.value for m in CoverageState),
         "coverage_label_codes": sorted(m.value for m in CoverageLabelCode),
+        "live_event_types": [HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT],
     }
     assert build_vocabulary_manifest() == expected
     payload = load_oracle_fixture()

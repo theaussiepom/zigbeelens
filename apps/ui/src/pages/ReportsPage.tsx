@@ -9,6 +9,7 @@ import {
 import { authRuntime } from "@/lib/authRuntime";
 import { useScenario } from "@/context/ScenarioContext";
 import { useLiveResource } from "@/hooks/useLiveResource";
+import { REPORT_COLLECTION_EVENTS } from "@/lib/liveResourceEvents";
 import { ContextualReportDialog } from "@/components/reports/ContextualReportDialog";
 import { Card, EmptyState, ErrorState, LoadingState } from "@/components/ui";
 import { formatTime } from "@/lib/format";
@@ -51,7 +52,7 @@ export function ReportsPage() {
   }, []);
 
   const stored = useLiveResource(() => api.listReports(), [reloadKey], {
-    refetchOn: ["reports_updated"],
+    refetchOn: REPORT_COLLECTION_EVENTS,
   });
 
   const hasAcceptedList = stored.data !== null;

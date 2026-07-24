@@ -383,7 +383,7 @@ class ZigbeeLensPanel extends HTMLElement {
             ? this._decisionPrioritiesCard(s)
             : ""
         }
-        ${!this._loading && connected && !decisionMode ? this._contractIncompatibleCard() : ""}
+        ${!this._loading && connected && !decisionMode ? this._contractIncompatibleCard(s) : ""}
         ${!this._loading && connected && decisionMode ? this._statsCard(s) : ""}
         ${!this._loading && connected && decisionMode ? this._networksCard(s) : ""}
         ${!this._loading ? this._integrationCard(s, coreUrl, connected) : ""}
@@ -451,7 +451,9 @@ class ZigbeeLensPanel extends HTMLElement {
       : `<span class="badge off">Not connected</span>`;
     let modeBadge = "";
     if (connected && decisionMode) {
-      const contract = s.decision_contract_version
+      const contract =
+        s.decision_contract_version !== null &&
+        s.decision_contract_version !== undefined
         ? `Decision contract v${esc(s.decision_contract_version)}`
         : "Shared decisions";
       const status = s.overall_decision_status
@@ -460,8 +462,14 @@ class ZigbeeLensPanel extends HTMLElement {
       modeBadge = `<span class="badge ok">${contract}${status}</span>`;
     } else if (connected && s.core_update_required) {
       modeBadge = `<span class="badge watch">Core update required</span>`;
+    } else if (connected && s.integration_update_required) {
+      modeBadge = `<span class="badge watch">Integration update required</span>`;
+    } else if (connected && s.decision_payload_invalid) {
+      modeBadge = `<span class="badge watch">Decision data invalid</span>`;
+    } else if (connected && s.core_version_state === "unknown") {
+      modeBadge = `<span class="badge watch">Core version unknown</span>`;
     } else if (connected && !decisionMode) {
-      modeBadge = `<span class="badge watch">Decision contract incompatible</span>`;
+      modeBadge = `<span class="badge watch">Shared decisions unavailable</span>`;
     }
     const mockBadge = s.mock_mode ? `<span class="badge watch">Mock data</span>` : "";
     return `
@@ -503,14 +511,48 @@ class ZigbeeLensPanel extends HTMLElement {
     `;
   }
 
-  _contractIncompatibleCard() {
+  _contractIncompatibleCard(s) {
+    let title = "Shared decisions unavailable";
+    let message =
+      "ZigbeeLens could not establish a compatible Decision contract. Review integration diagnostics and try again after Core is reachable.";
+
+    if (s.core_version_state === "unknown") {
+      title = "Core version unknown";
+      message =
+        "Core did not provide a valid version, so compatibility cannot be established. Shared decisions remain disabled until a valid version is observed.";
+    } else if (s.core_version_state === "incompatible") {
+      title = "Core version incompatible";
+      message =
+        "This Core version is older than the integration supports. Update Core, then reload the integration.";
+    } else if (s.capabilities_state === "unavailable") {
+      title = "Core capabilities unavailable";
+      message =
+        "The capabilities response could not be fetched. The integration will retry; no compatibility conclusion is being inferred from the outage.";
+    } else if (s.capabilities_state === "malformed") {
+      title = "Core capabilities malformed";
+      message =
+        "The capabilities response could not be validated. Shared decisions remain disabled until a valid response is observed.";
+    } else if (s.integration_update_required) {
+      title = "Integration update required";
+      message =
+        "Core exposes a newer Decision contract than this integration supports. Update the ZigbeeLens integration, then reload it.";
+    } else if (s.core_update_required) {
+      title = "Core update required";
+      message =
+        "Core does not expose the required Decision contract and capabilities. Update Core, then reload the integration.";
+    } else if (s.decision_contract_state === "malformed") {
+      title = "Decision contract malformed";
+      message =
+        "The observed Decision contract version is invalid. Compatibility cannot be established from this response.";
+    } else if (s.decision_payload_invalid) {
+      title = "Decision data malformed";
+      message =
+        "Core exposes the exact supported Decision contract, but its Dashboard decision data is missing or malformed. No upgrade remedy is inferred.";
+    }
     return `
       <section class="card">
-        <h2>Update required</h2>
-        <p class="muted">
-          ZigbeeLens Core decision contract is incompatible.
-          Update Core and reload the integration.
-        </p>
+        <h2>${esc(title)}</h2>
+        <p class="muted">${esc(message)}</p>
       </section>
     `;
   }
@@ -643,9 +685,11 @@ class ZigbeeLensPanel extends HTMLElement {
 
   _integrationCard(s, coreUrl, connected) {
     const collector = connected
-      ? s.collector_connected
+      ? s.collector_connected === true
         ? `<span class="ok-text">Connected</span>`
-        : `<span class="warn">Disconnected</span>`
+        : s.collector_connected === false
+          ? `<span class="warn">Disconnected</span>`
+          : `<span class="muted">Unknown</span>`
       : `<span class="muted">Unknown</span>`;
     const lastUpdate = connected ? relativeTime(s.last_update) : "—";
     const version = s.core_version ? ` · v${esc(s.core_version)}` : "";
@@ -654,9 +698,10 @@ class ZigbeeLensPanel extends HTMLElement {
         ? `<span class="ok-text">Available</span>`
         : `<span class="muted">Unavailable</span>`;
     const contract =
-      s.decision_contract_version > 0
+      s.decision_contract_version !== null &&
+      s.decision_contract_version !== undefined
         ? `v${esc(s.decision_contract_version)}`
-        : "unavailable";
+        : "unobserved";
     let compatibility;
     if (s.core_version_compatible === true) {
       compatibility = `<span class="ok-text">Compatible</span>`;
@@ -672,6 +717,10 @@ class ZigbeeLensPanel extends HTMLElement {
           <div><dt>Core URL</dt><dd><code>${esc(coreUrl || "not configured")}</code>${version}</dd></div>
           <div><dt>Shared decisions</dt><dd>${decisions}</dd></div>
           <div><dt>Decision contract</dt><dd>${esc(contract)}</dd></div>
+          <div><dt>Contract state</dt><dd>${esc(s.decision_contract_state || "unknown")}</dd></div>
+          <div><dt>Decision payload</dt><dd>${esc(s.decision_payload_state || "unknown")}</dd></div>
+          <div><dt>Capabilities</dt><dd>${esc(s.capabilities_state || "unknown")}</dd></div>
+          <div><dt>HA enrichment contract</dt><dd>${esc(s.enrichment_contract_state || "unknown")}</dd></div>
           <div><dt>Core compatibility</dt><dd>${compatibility}</dd></div>
           <div><dt>Collector</dt><dd>${collector}</dd></div>
           <div><dt>Last update</dt><dd>${esc(lastUpdate)}</dd></div>

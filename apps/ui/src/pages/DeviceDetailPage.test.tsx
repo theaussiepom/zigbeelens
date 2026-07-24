@@ -66,6 +66,14 @@ vi.mock("@/hooks/useLiveResource", () => ({
         refetch: vi.fn(),
       };
     }
+    if (source.includes("deviceStory")) {
+      return {
+        data: mockState.story,
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+    }
     if (source.includes("topologyDeviceSnapshotHistory")) {
       return {
         data: {
@@ -113,7 +121,7 @@ function makeDetail(overrides: Partial<DeviceDetail> = {}): DeviceDetail {
     linkquality: 118,
     last_seen: "2026-07-13T01:00:00Z",
     last_payload_at: "2026-07-13T01:05:00Z",
-    ha_area: "Kitchen",
+    home_assistant_area_name: "Kitchen",
     decision: {
       status: "review_first",
       priority: "high",
@@ -318,6 +326,36 @@ describe("DeviceDetailPage decision authority", () => {
     expect(screen.getByText("Kitchen")).toBeInTheDocument();
     expect(screen.getAllByText("0xa1").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/End ?[Dd]evice/).length).toBeGreaterThan(0);
+  });
+
+  it("uses the HA name as preferred display and keeps the original identity", () => {
+    mockState.detail = makeDetail({
+      friendly_name: "z2m_kitchen_lamp",
+      home_assistant_name: "Kitchen Lamp",
+      home_assistant_area_name: "Kitchen",
+    });
+    renderDetail();
+    expect(
+      screen.getByRole("heading", { name: "Kitchen Lamp" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Home Assistant name")).toBeInTheDocument();
+    expect(screen.getByText("Home Assistant area")).toBeInTheDocument();
+    expect(screen.getByText("Zigbee2MQTT friendly name")).toBeInTheDocument();
+    expect(screen.getByText("z2m_kitchen_lamp")).toBeInTheDocument();
+  });
+
+  it("falls back without rendering empty HA metadata", () => {
+    mockState.detail = makeDetail({
+      friendly_name: "z2m_kitchen_lamp",
+      home_assistant_name: null,
+      home_assistant_area_name: null,
+    });
+    renderDetail();
+    expect(
+      screen.getByRole("heading", { name: "z2m_kitchen_lamp" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Home Assistant name")).not.toBeInTheDocument();
+    expect(screen.queryByText("Home Assistant area")).not.toBeInTheDocument();
   });
 
   it("does not hard-code decision status mappings in the page source", () => {

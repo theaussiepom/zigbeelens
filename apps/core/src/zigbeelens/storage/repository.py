@@ -2604,11 +2604,16 @@ class Repository:
         )
         self.db.conn.commit()
 
-    def replace_ha_device_enrichment(self, matches) -> None:
+    def replace_ha_device_enrichment(
+        self,
+        matches,
+        *,
+        updated_at: str | None = None,
+    ) -> None:
         from zigbeelens.enrichment.ha import MatchResult
 
         self.db.conn.execute("DELETE FROM ha_device_enrichment")
-        now = utc_now_iso()
+        now = updated_at or utc_now_iso()
         for match in matches:
             assert isinstance(match, MatchResult)
             self.db.conn.execute(
@@ -2634,9 +2639,6 @@ class Repository:
 
     def clear_ha_device_enrichment(self) -> None:
         self.db.conn.execute("DELETE FROM ha_device_enrichment")
-        self.db.conn.execute(
-            "UPDATE ha_enrichment_status SET enabled = 0, matched_devices = 0, source = NULL WHERE id = 1"
-        )
         self.db.conn.commit()
 
     def get_ha_device_enrichment(self, network_id: str, ieee_address: str) -> dict[str, Any] | None:

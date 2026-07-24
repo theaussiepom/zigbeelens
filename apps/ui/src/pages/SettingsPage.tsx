@@ -5,15 +5,19 @@ import { useLiveResource } from "@/hooks/useLiveResource";
 import { api } from "@/lib/api";
 import { Badge, Card, LoadingState } from "@/components/ui";
 import { relativeTime } from "@/lib/format";
+import {
+  ENRICHMENT_HEALTH_EVENTS,
+  STORAGE_STATUS_EVENTS,
+} from "@/lib/liveResourceEvents";
 
 export function SettingsPage() {
   const auth = useAuth();
   const { status, refreshStatus, scenario, dataMode, isScenarioMode } = useScenario();
   const health = useLiveResource(() => api.health(), [], {
-    refetchOn: ["collector_status", "collector_connected", "collector_disconnected"],
+    refetchOn: ENRICHMENT_HEALTH_EVENTS,
   });
   const storage = useLiveResource(() => api.storageStatus(), [], {
-    refetchOn: ["storage_maintenance_completed"],
+    refetchOn: STORAGE_STATUS_EVENTS,
   });
 
   if (!status) return <LoadingState />;
@@ -28,6 +32,12 @@ export function SettingsPage() {
     lastMessageAt: healthPresent ? collector?.last_message_at : undefined,
     networkCount: status.configured_networks.length,
   });
+  if (health.error && healthPresent) {
+    warnings.unshift({
+      text: "Core health refresh failed — showing the last accepted status.",
+      severity: "watch",
+    });
+  }
 
   return (
     <div className="max-w-3xl space-y-6">
