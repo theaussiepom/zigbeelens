@@ -11,6 +11,7 @@ import {
 } from "@/lib/meshGraphCopy";
 import {
   buildDeviceDetailsViewModel,
+  DEVICE_COVERAGE_EMPTY_MESSAGE,
   DEVICE_COVERAGE_UNAVAILABLE_MESSAGE,
   type DeviceCoverageLoadState,
 } from "@/viewModels/topology/deviceDetailsViewModel";
@@ -183,10 +184,11 @@ describe("deviceDetailsViewModel", () => {
     expect(section.items).toEqual([]);
   });
 
-  it("shows unavailable message for loaded empty device coverage", () => {
+  it("keeps loaded empty device coverage distinct from unavailable", () => {
     const vm = buildDeviceDetailsViewModel(makeDevice(), [], "loaded");
     const section = vm.sections.find((item) => item.id === "dataCoverage");
-    expect(section?.message).toBe(DEVICE_COVERAGE_UNAVAILABLE_MESSAGE);
+    expect(section?.message).toBe(DEVICE_COVERAGE_EMPTY_MESSAGE);
+    expect(section?.message).not.toBe(DEVICE_COVERAGE_UNAVAILABLE_MESSAGE);
     expect(section?.items).toEqual([]);
   });
 

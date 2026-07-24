@@ -241,6 +241,10 @@ window; malformed-payload tests must use the builder's named
 inconsistent-override opt-in. Resource-state tests separately
 represent no accepted data, accepted empty data, accepted nonempty data, and
 retained accepted data with a refresh error.
+`DeviceStorySection.test.tsx`, `NodeDrawer.test.tsx`, and the Mesh
+`EnrichmentLiveRefresh.test.tsx` integration own nested drawer initial versus
+retained states, contextual retries, independent recovery, and identity
+masking.
 
 Mesh history-control evaluation copy is owned by
 `connectionHistoryPresentationViewModel.test.ts`; page tests own the control and

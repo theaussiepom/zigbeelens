@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { DrawerFact, DrawerSection, DrawerShell } from "@/components/meshGraph/DrawerShell";
 import { DeviceStorySection } from "@/components/meshGraph/DeviceStorySection";
 import { EvidenceCoverageStrip } from "@/components/meshGraph/EvidenceCoverageStrip";
+import { StaleRefreshNotice } from "@/components/ui";
 import { devicePath } from "@/lib/format";
 import { DEVICE_DETAILS_OPEN_FULL_LABEL } from "@/lib/meshGraphCopy";
 import type { MeshEvidenceDevice } from "@/lib/meshEvidence";
@@ -17,9 +18,13 @@ import { DEVICE_COVERAGE_EVENTS } from "@/lib/liveResourceEvents";
 
 function DeviceDetailsSection({
   section,
+  coverageRefreshing = false,
+  coverageRefreshError = false,
   onRetryCoverage,
 }: {
   section: DeviceDetailsSectionViewModel;
+  coverageRefreshing?: boolean;
+  coverageRefreshError?: boolean;
   onRetryCoverage?: () => void;
 }) {
   switch (section.id) {
@@ -78,23 +83,36 @@ function DeviceDetailsSection({
     case "dataCoverage":
       return (
         <DrawerSection title={section.title}>
-          {section.message ? (
-            <div>
-              <p className="text-zl-muted">{section.message}</p>
-              {onRetryCoverage && (
-                <button
-                  type="button"
-                  aria-label="Retry device coverage"
-                  onClick={onRetryCoverage}
-                  className="mt-2 min-h-11 rounded-lg border border-zl-border px-3 py-1.5 text-sm text-zl-text hover:bg-zl-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
-                >
-                  Retry
-                </button>
-              )}
-            </div>
-          ) : (
-            <EvidenceCoverageStrip items={section.items} />
-          )}
+          <div
+            data-testid="device-coverage-section"
+            className="space-y-3"
+            aria-busy={coverageRefreshing}
+          >
+            {coverageRefreshError && onRetryCoverage ? (
+              <StaleRefreshNotice
+                resourceLabel="Device coverage"
+                onRetry={onRetryCoverage}
+                retryLabel="Retry device coverage"
+              />
+            ) : null}
+            {section.message ? (
+              <div>
+                <p className="text-zl-muted">{section.message}</p>
+                {onRetryCoverage && !coverageRefreshError ? (
+                  <button
+                    type="button"
+                    aria-label="Retry device coverage"
+                    onClick={onRetryCoverage}
+                    className="mt-2 min-h-11 rounded-lg border border-zl-border px-3 py-1.5 text-sm text-zl-text hover:bg-zl-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zl-accent/50"
+                  >
+                    Retry
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <EvidenceCoverageStrip items={section.items} />
+            )}
+          </div>
         </DrawerSection>
       );
     case "openIssue":
@@ -122,18 +140,15 @@ export function NodeDrawer({
     [device.network_id, device.ieee_address],
     { refetchOn: DEVICE_COVERAGE_EVENTS },
   );
-  const deviceCoverage =
-    deviceCoverageResource.error === null
-      ? (deviceCoverageResource.data ?? [])
-      : [];
+  const deviceCoverage = deviceCoverageResource.data ?? [];
   const deviceCoverageLoadState: DeviceCoverageLoadState =
-    deviceCoverageResource.error !== null
-      ? "unavailable"
-      : deviceCoverageResource.data !== null
+    deviceCoverageResource.data !== null
       ? "loaded"
       : deviceCoverageResource.loading
         ? "loading"
         : "unavailable";
+  const coverageRefreshError =
+    deviceCoverageResource.data !== null && deviceCoverageResource.error !== null;
 
   const viewModel = useMemo(
     () => buildDeviceDetailsViewModel(device, deviceCoverage, deviceCoverageLoadState),
@@ -170,6 +185,12 @@ export function NodeDrawer({
         <DeviceDetailsSection
           key={section.id}
           section={section}
+          coverageRefreshing={
+            section.id === "dataCoverage" && deviceCoverageResource.refreshing
+          }
+          coverageRefreshError={
+            section.id === "dataCoverage" && coverageRefreshError
+          }
           onRetryCoverage={
             section.id === "dataCoverage" && deviceCoverageResource.error
               ? deviceCoverageResource.refetch

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { api } from "@/lib/api";
 import { DrawerSection } from "@/components/meshGraph/DrawerShell";
 import { EvidenceCoverageStrip } from "@/components/meshGraph/EvidenceCoverageStrip";
+import { StaleRefreshNotice } from "@/components/ui";
 import { useLiveResource } from "@/hooks/useLiveResource";
 import { DEVICE_STORY_EVENTS } from "@/lib/liveResourceEvents";
 import {
@@ -54,13 +55,24 @@ export function DeviceStorySection({
 
   const viewModel = useMemo(() => {
     if (storyResource.loading && !story) return loadingDeviceStoryViewModel();
-    if (storyResource.error || !story) return errorDeviceStoryViewModel();
+    if (!story) return errorDeviceStoryViewModel();
     return buildDeviceStoryViewModel(story);
-  }, [storyResource.error, storyResource.loading, story]);
+  }, [storyResource.loading, story]);
 
   return (
     <DrawerSection title={viewModel.sectionTitle}>
-      <div data-testid="device-story-section" className="space-y-3">
+      <div
+        data-testid="device-story-section"
+        className="space-y-3"
+        aria-busy={storyResource.refreshing}
+      >
+        {story && storyResource.error ? (
+          <StaleRefreshNotice
+            resourceLabel="Device story"
+            onRetry={storyResource.refetch}
+            retryLabel="Retry device story"
+          />
+        ) : null}
         {viewModel.loadState === "loading" ? (
           <p className="text-xs text-zl-muted">{viewModel.loadingCopy}</p>
         ) : viewModel.loadState === "error" ? (
