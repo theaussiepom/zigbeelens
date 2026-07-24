@@ -99,11 +99,12 @@ export const RAW_TOPOLOGY_HISTORY_EVENTS = ["topology_updated"] as const;
 export function shouldRefetchForLiveEvent(
   refetchOn: readonly string[] | undefined,
   eventName: string,
-  payload: LiveEventPayload,
+  payload: LiveEventPayload | undefined,
 ): boolean {
   const enrichmentOnlyDashboard =
     eventName === "dashboard_updated" &&
     payload !== null &&
+    payload !== undefined &&
     Array.isArray(payload.causes) &&
     payload.causes.length === 1 &&
     payload.causes[0] === HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT;

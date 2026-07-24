@@ -186,4 +186,21 @@ describe("live event to resource ownership", () => {
       ),
     ).toBe(true);
   });
+
+  it("fails toward refresh when a Dashboard payload is missing", () => {
+    expect(
+      shouldRefetchForLiveEvent(
+        TIMELINE_COLLECTION_EVENTS,
+        "dashboard_updated",
+        undefined,
+      ),
+    ).toBe(true);
+    expect(
+      shouldRefetchForLiveEvent(
+        OVERVIEW_DASHBOARD_EVENTS,
+        "dashboard_updated",
+        undefined,
+      ),
+    ).toBe(true);
+  });
 });
