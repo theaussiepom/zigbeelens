@@ -732,6 +732,27 @@ describe("Home Assistant enrichment live refresh", () => {
     expect(apiMocks.storageStatus).toHaveBeenCalledTimes(1);
   });
 
+  it("refreshes Settings enrichment health from an unattributed Dashboard fallback", async () => {
+    apiMocks.health
+      .mockResolvedValueOnce(health(1))
+      .mockResolvedValueOnce(health(2));
+    apiMocks.storageStatus.mockResolvedValue(storageStatus);
+
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+    await flushAsyncWork();
+    expect(rowValue("Matched devices")).toBe("1");
+
+    await emitOrdinaryDashboardUpdate();
+
+    expect(rowValue("Matched devices")).toBe("2");
+    expect(apiMocks.health).toHaveBeenCalledTimes(2);
+    expect(apiMocks.storageStatus).toHaveBeenCalledTimes(1);
+  });
+
   it("labels a retained enrichment count as last accepted after a failed refresh", async () => {
     apiMocks.health
       .mockResolvedValueOnce(health(1))

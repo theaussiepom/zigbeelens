@@ -218,7 +218,7 @@ async function emitEnrichmentUpdate() {
 }
 
 function staleCopy(resourceLabel: string): string {
-  return `${resourceLabel} could not be refreshed. Showing the last accepted view; it may not include the newest Home Assistant enrichment.`;
+  return `${resourceLabel} could not be refreshed. Showing the last accepted view; it may not include the newest Core data or Home Assistant enrichment.`;
 }
 
 function defaultApiResponses() {

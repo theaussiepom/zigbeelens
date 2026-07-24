@@ -26,8 +26,10 @@ export const INCIDENT_COLLECTION_EVENTS = [
   ...INCIDENT_LIFECYCLE_EVENTS,
 ] as const;
 
-/** Timeline ownership is explicit and excludes generic Dashboard rebuilds. */
+/** Timeline rows follow ordinary Dashboard/health ingestion invalidations. */
 export const TIMELINE_COLLECTION_EVENTS = [
+  "dashboard_updated",
+  "health_updated",
   ...INCIDENT_LIFECYCLE_EVENTS,
   "timeline_updated",
   "collector_status",
@@ -51,8 +53,9 @@ export const NETWORK_PROJECTION_EVENTS = [
   HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
 ] as const;
 
-/** Evidence graph facts and coverage change on topology or HA enrichment only. */
+/** Evidence graph facts and coverage change on topology or enrichment fallback. */
 export const EVIDENCE_GRAPH_EVENTS = [
+  "dashboard_updated",
   "topology_updated",
   HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
 ] as const;
@@ -64,13 +67,16 @@ export const MESH_INVENTORY_EVENTS = [
 
 /** Volatile HA-derived nested projections. */
 export const DEVICE_STORY_EVENTS = [
+  "dashboard_updated",
   HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
 ] as const;
 export const DEVICE_COVERAGE_EVENTS = [
+  "dashboard_updated",
   HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
 ] as const;
 
 export const ENRICHMENT_HEALTH_EVENTS = [
+  "dashboard_updated",
   "collector_status",
   "collector_connected",
   "collector_disconnected",
@@ -83,37 +89,26 @@ export const STORAGE_STATUS_EVENTS = [
 export const REPORT_COLLECTION_EVENTS = ["reports_updated"] as const;
 export const RAW_TOPOLOGY_HISTORY_EVENTS = ["topology_updated"] as const;
 
-function categoricalDashboardCauses(
-  payload: LiveEventPayload,
-): string[] {
-  if (!payload || !Array.isArray(payload.causes)) return [];
-  return payload.causes.filter(
-    (cause): cause is string => typeof cause === "string",
-  );
-}
-
 /**
  * Enrichment publishes its exact invalidation before rebuilding Dashboard.
- * A resource that owns that exact event must ignore only the accompanying
- * categorically attributed Dashboard event, regardless of delivery delay.
+ * Every resource must ignore only the accompanying categorically attributed
+ * Dashboard event, regardless of whether it owns the exact event or how late
+ * the companion arrives.
  */
 export function shouldRefetchForLiveEvent(
   refetchOn: readonly string[] | undefined,
   eventName: string,
   payload: LiveEventPayload,
 ): boolean {
-  if (refetchOn && !refetchOn.includes(eventName)) return false;
-  const dashboardCauses =
-    eventName === "dashboard_updated"
-      ? categoricalDashboardCauses(payload)
-      : [];
   if (
     eventName === "dashboard_updated" &&
-    refetchOn?.includes(HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT) &&
-    dashboardCauses.length === 1 &&
-    dashboardCauses[0] === HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT
+    payload &&
+    Array.isArray(payload.causes) &&
+    payload.causes.length === 1 &&
+    payload.causes[0] === HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT
   ) {
     return false;
   }
+  if (refetchOn && !refetchOn.includes(eventName)) return false;
   return true;
 }

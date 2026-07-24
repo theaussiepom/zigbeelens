@@ -198,6 +198,28 @@ describe("primary-copy guardrails", () => {
     expect(() => assertPrimarySafe(unsafe, "deliberate")).toThrow();
   });
 
+  it("keeps retained-refresh copy truthful for Core, enrichment, and Mesh evidence", () => {
+    const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
+    const sharedNotice = readFileSync(
+      path.join(repoRoot, "apps/ui/src/components/ui.tsx"),
+      "utf8",
+    );
+    const meshPage = readFileSync(
+      path.join(repoRoot, "apps/ui/src/pages/TopologyGraphPage.tsx"),
+      "utf8",
+    );
+
+    expect(sharedNotice).toContain(
+      "it may not include the newest Core data or Home Assistant enrichment.",
+    );
+    expect(sharedNotice).not.toContain(
+      "it may not include the newest Home Assistant enrichment.",
+    );
+    expect(meshPage).toContain(
+      "it may not include newer topology evidence, Core data, or Home Assistant enrichment.",
+    );
+  });
+
   it("maps oracle decision and coverage presenters primary-safe across representative params", () => {
     const vocab = oracleFixture.vocabulary;
     expect(vocab.decision_statuses.length).toBeGreaterThan(0);

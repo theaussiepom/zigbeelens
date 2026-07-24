@@ -129,7 +129,7 @@ describe("useTopologyGraphData", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(3);
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(4);
     expect(devices).toHaveBeenCalledTimes(3);
 
     act(() => emit("incidents_updated"));
@@ -137,7 +137,7 @@ describe("useTopologyGraphData", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(3);
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(4);
     expect(devices).toHaveBeenCalledTimes(4);
 
     act(() => emit("collector_status"));
@@ -145,7 +145,7 @@ describe("useTopologyGraphData", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(3);
+    expect(topologyEvidenceGraph).toHaveBeenCalledTimes(4);
     expect(devices).toHaveBeenCalledTimes(4);
   });
 });

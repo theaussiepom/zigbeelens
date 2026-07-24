@@ -854,7 +854,7 @@ describe("TopologyGraphPage live mode", () => {
     );
     expect(
       screen.getByText(
-        "Mesh device inventory could not be refreshed. Showing the last accepted view; it may not include the newest Home Assistant enrichment.",
+        "Mesh device inventory could not be refreshed. Showing the last accepted view; it may not include the newest Core data or Home Assistant enrichment.",
       ),
     ).toBeInTheDocument();
     expect(drawer).toHaveTextContent("In Zigbee2MQTT device inventory");

@@ -298,10 +298,12 @@ export function StaleRefreshNotice({
   resourceLabel,
   onRetry,
   retryLabel,
+  staleDetail = "it may not include the newest Core data or Home Assistant enrichment.",
 }: {
   resourceLabel: string;
   onRetry: () => void;
   retryLabel: string;
+  staleDetail?: string;
 }) {
   return (
     <div
@@ -310,8 +312,7 @@ export function StaleRefreshNotice({
       className="rounded-lg border border-zl-watch/40 bg-zl-watch/10 px-4 py-3 text-sm text-zl-watch"
     >
       <p>
-        {resourceLabel} could not be refreshed. Showing the last accepted view; it may not include
-        the newest Home Assistant enrichment.
+        {resourceLabel} could not be refreshed. Showing the last accepted view; {staleDetail}
       </p>
       <button
         type="button"

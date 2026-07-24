@@ -64,6 +64,59 @@ def test_write_outside_transaction_commits_immediately(tmp_path: Path):
     assert repo.get_device("home", "0x1") is not None
 
 
+def test_dashboard_emitting_mqtt_ingest_commits_event_before_ordinary_dashboard_callback(
+    tmp_path: Path,
+):
+    repo, config = _repo(tmp_path)
+    counter = install_counter(repo)
+    counter.reset()
+    callbacks: list[tuple[str, str, int, int]] = []
+
+    def on_dashboard_update(event_type: str, network_id: str) -> None:
+        other = sqlite3.connect(repo.db.path)
+        try:
+            persisted_events = int(
+                other.execute(
+                    "SELECT COUNT(*) FROM events WHERE network_id = ?",
+                    (network_id,),
+                ).fetchone()[0]
+            )
+        finally:
+            other.close()
+        callbacks.append(
+            (
+                event_type,
+                network_id,
+                _locked(repo).transaction_depth,
+                persisted_events,
+            )
+        )
+
+    service = MqttIngestionService(
+        config,
+        repo,
+        on_dashboard_update=on_dashboard_update,
+    )
+    service.ingest(
+        NormalizedMqttEvent(
+            event_type="bridge_state_seen",
+            network_id="home",
+            title="Bridge state: online",
+            summary="Bridge reported online",
+            bridge_state="online",
+            emit_dashboard=True,
+        )
+    )
+
+    rows = repo.list_events("home")
+    assert len(rows) == 1
+    assert rows[0]["event_type"] == "bridge_state_seen"
+    assert rows[0]["title"] == "Bridge state: online"
+    assert callbacks == [("dashboard_updated", "home", 0, 1)]
+    assert counter.stats.commit_count == 1
+    assert counter.stats.rollback_count == 0
+
+
 def test_repository_transaction_defers_internal_commits_and_commits_once(tmp_path: Path):
     repo, _config = _repo(tmp_path)
     counter = install_counter(repo)

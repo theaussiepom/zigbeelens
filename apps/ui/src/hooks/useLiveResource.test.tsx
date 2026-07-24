@@ -122,6 +122,48 @@ describe("useLiveResource", () => {
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
+  it("suppresses the enrichment-attributed Dashboard companion for a Dashboard-only resource", async () => {
+    const fetcher = vi.fn().mockResolvedValue("ok");
+    renderHook(() =>
+      useLiveResource(fetcher, [], {
+        refetchOn: ["dashboard_updated", "health_updated"],
+        debounceMs: 300,
+      }),
+    );
+    await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    act(() =>
+      emit("home_assistant_enrichment_updated", {
+        type: "home_assistant_enrichment_updated",
+      }),
+    );
+    act(() =>
+      emit("dashboard_updated", {
+        type: "dashboard_updated",
+        causes: ["home_assistant_enrichment_updated"],
+      }),
+    );
+    act(() => vi.advanceTimersByTime(300));
+    await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    act(() =>
+      emit("dashboard_updated", {
+        type: "dashboard_updated",
+        causes: ["health_updated"],
+      }),
+    );
+    act(() => vi.advanceTimersByTime(300));
+    await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+
+    act(() => emit("dashboard_updated", { type: "dashboard_updated" }));
+    act(() => vi.advanceTimersByTime(300));
+    await flushAsyncWork();
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
   it("does not fetch when disabled", () => {
     const fetcher = vi.fn().mockResolvedValue("ok");
     const { result } = renderHook(() => useLiveResource(fetcher, [], { enabled: false }));

@@ -96,6 +96,7 @@ export function TopologyGraphPage() {
           resourceLabel="Mesh evidence graph"
           onRetry={detail.refetch}
           retryLabel="Retry Mesh evidence graph"
+          staleDetail="it may not include newer topology evidence, Core data, or Home Assistant enrichment."
         />
       )}
 

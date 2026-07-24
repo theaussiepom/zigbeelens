@@ -300,7 +300,7 @@ describe("Mesh Home Assistant enrichment live refresh", () => {
     expect(screen.getByText("HA areas not linked")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Mesh evidence graph could not be refreshed. Showing the last accepted view; it may not include the newest Home Assistant enrichment.",
+        "Mesh evidence graph could not be refreshed. Showing the last accepted view; it may not include newer topology evidence, Core data, or Home Assistant enrichment.",
       ),
     ).toBeInTheDocument();
 
@@ -396,8 +396,10 @@ describe("Mesh Home Assistant enrichment live refresh", () => {
     expect(apiMocks.topologyDeviceSnapshotHistory).not.toHaveBeenCalled();
   });
 
-  it("refreshes only Mesh inventory for an ordinary unattributed Dashboard update", async () => {
-    apiMocks.topologyEvidenceGraph.mockResolvedValue(graphDetail(false));
+  it("refreshes Mesh evidence and inventory for an ordinary unattributed Dashboard fallback", async () => {
+    apiMocks.topologyEvidenceGraph
+      .mockResolvedValueOnce(graphDetail(false))
+      .mockResolvedValueOnce(graphDetail(true));
     apiMocks.devices
       .mockResolvedValueOnce({ items: [summary("Accepted Mesh Device")] })
       .mockResolvedValueOnce({ items: [summary("Ordinary Mesh Device Update")] });
@@ -418,8 +420,9 @@ describe("Mesh Home Assistant enrichment live refresh", () => {
     await emitOrdinaryDashboardUpdate();
 
     expect(screen.getByText("Ordinary Mesh Device Update")).toBeInTheDocument();
+    expect(screen.getByText("HA areas not linked")).toBeInTheDocument();
     expect(apiMocks.devices).toHaveBeenCalledTimes(2);
-    expect(apiMocks.topologyEvidenceGraph).toHaveBeenCalledTimes(1);
+    expect(apiMocks.topologyEvidenceGraph).toHaveBeenCalledTimes(2);
     expect(apiMocks.topology).not.toHaveBeenCalled();
     expect(apiMocks.topologyNetwork).not.toHaveBeenCalled();
     expect(apiMocks.topologyDeviceSnapshotHistory).not.toHaveBeenCalled();
@@ -453,6 +456,30 @@ describe("Mesh Home Assistant enrichment live refresh", () => {
     expect(screen.getByText("HA area: missing")).toBeInTheDocument();
     expect(apiMocks.deviceStory).toHaveBeenCalledTimes(3);
     expect(apiMocks.deviceCoverage).toHaveBeenCalledTimes(3);
+    expect(apiMocks.topologyDeviceSnapshotHistory).not.toHaveBeenCalled();
+  });
+
+  it("refreshes an open Mesh drawer from an unattributed Dashboard fallback", async () => {
+    apiMocks.deviceStory
+      .mockResolvedValueOnce(story("Old Kitchen"))
+      .mockResolvedValueOnce(story("Fallback Kitchen"));
+    apiMocks.deviceCoverage
+      .mockResolvedValueOnce([coverage("Old Kitchen")])
+      .mockResolvedValueOnce([coverage("Fallback Kitchen")]);
+
+    render(
+      <MemoryRouter>
+        <NodeDrawer device={drawerDevice} onClose={vi.fn()} />
+      </MemoryRouter>,
+    );
+    await flushAsyncWork();
+    expect(screen.getByText("HA area: Old Kitchen")).toBeInTheDocument();
+
+    await emitOrdinaryDashboardUpdate();
+
+    expect(screen.getByText("HA area: Fallback Kitchen")).toBeInTheDocument();
+    expect(apiMocks.deviceStory).toHaveBeenCalledTimes(2);
+    expect(apiMocks.deviceCoverage).toHaveBeenCalledTimes(2);
     expect(apiMocks.topologyDeviceSnapshotHistory).not.toHaveBeenCalled();
   });
 
