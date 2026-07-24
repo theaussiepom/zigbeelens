@@ -100,13 +100,18 @@ class AppContext:
         """
         event_status: Literal["succeeded", "failed"] = "succeeded"
         dashboard_status: Literal["succeeded", "failed"] = "succeeded"
+        event_handed_off = False
         try:
             self.broadcaster.publish_sync(event_type, payload)
+            event_handed_off = True
         except Exception:
             event_status = "failed"
             _log_post_commit_notification_failure("event")
         try:
-            _schedule_dashboard_only(self, cause=event_type)
+            _schedule_dashboard_only(
+                self,
+                cause=event_type if event_handed_off else None,
+            )
         except Exception:
             dashboard_status = "failed"
             _log_post_commit_notification_failure("dashboard")

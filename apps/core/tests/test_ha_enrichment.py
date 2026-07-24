@@ -725,7 +725,7 @@ def test_route_matching_exception_emits_and_schedules_nothing(
 
 
 @pytest.mark.parametrize("prefix", ["/api", "/api/v1"])
-@pytest.mark.parametrize("mutation", ["post", "delete"])
+@pytest.mark.parametrize("mutation", ["post", "empty", "delete"])
 def test_route_transaction_rollback_emits_and_schedules_nothing(
     mock_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -769,20 +769,25 @@ def test_route_transaction_rollback_emits_and_schedules_nothing(
     )
 
     with pytest.raises(RuntimeError, match="injected status failure"):
-        if mutation == "post":
-            mock_client.post(
-                f"{prefix}/enrichment/homeassistant",
-                json=_request(
+        if mutation == "delete":
+            mock_client.delete(f"{prefix}/enrichment/homeassistant")
+        else:
+            body = (
+                _request()
+                if mutation == "empty"
+                else _request(
                     _device(
                         ieee_address=IEEE_2,
                         ha_device_id="replacement-ha-device",
                         area_name="Replacement area",
                         entity_id="sensor.replacement",
                     )
-                ).model_dump(mode="json"),
+                )
             )
-        else:
-            mock_client.delete(f"{prefix}/enrichment/homeassistant")
+            mock_client.post(
+                f"{prefix}/enrichment/homeassistant",
+                json=body.model_dump(mode="json"),
+            )
 
     assert repo.get_ha_device_enrichment("home", IEEE_1) == before_row
     assert repo.get_ha_device_enrichment("home", IEEE_2) is None
@@ -797,6 +802,7 @@ def test_route_transaction_rollback_emits_and_schedules_nothing(
     ("failure_mode", "expected_event_status", "expected_dashboard_status"),
     [
         ("broadcaster", "failed", "succeeded"),
+        ("broadcaster_sync_fallback", "failed", "succeeded"),
         ("scheduler", "succeeded", "failed"),
         ("synchronous_dashboard", "succeeded", "failed"),
         ("both", "failed", "failed"),
@@ -840,16 +846,26 @@ def test_route_post_commit_side_effect_failures_preserve_accepted_result(
     injected_error = RuntimeError(" ".join(PRIVATE_FAILURE_SENTINELS))
     publish = MagicMock()
     scheduler = MagicMock()
-    dashboard = MagicMock()
+    dashboard = MagicMock(wraps=ctx.data.dashboard)
     if failure_mode in {"broadcaster", "both"}:
         publish.side_effect = injected_error
+    elif failure_mode == "broadcaster_sync_fallback":
+
+        def fail_exact_event(event_type: str, _payload: dict) -> None:
+            if event_type == HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT:
+                raise injected_error
+
+        publish.side_effect = fail_exact_event
     if failure_mode in {"scheduler", "both"}:
         scheduler.schedule.side_effect = injected_error
     monkeypatch.setattr(ctx.broadcaster, "publish_sync", publish)
-    if failure_mode == "synchronous_dashboard":
+    if failure_mode in {"broadcaster_sync_fallback", "synchronous_dashboard"}:
         monkeypatch.setattr(ctx, "dashboard_scheduler", None)
-        dashboard.side_effect = injected_error
+        if failure_mode == "synchronous_dashboard":
+            dashboard.side_effect = injected_error
         monkeypatch.setattr(ctx.data, "dashboard", dashboard)
+        if ctx.discovery is not None:
+            monkeypatch.setattr(ctx.discovery, "schedule_update", MagicMock())
     else:
         monkeypatch.setattr(ctx, "dashboard_scheduler", scheduler)
 
@@ -935,22 +951,36 @@ def test_route_post_commit_side_effect_failures_preserve_accepted_result(
         assert status["last_push_at"] is None
         expected_payload = home_assistant_enrichment_updated_payload()
 
-    publish.assert_called_once_with(
-        HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
-        expected_payload,
-    )
-    if failure_mode == "synchronous_dashboard":
+    if failure_mode == "broadcaster_sync_fallback":
+        assert [item.args[0] for item in publish.call_args_list] == [
+            HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+            "dashboard_updated",
+        ]
+        assert publish.call_args_list[0].args[1] == expected_payload
+        dashboard_payload = publish.call_args_list[1].args[1]
+        assert dashboard_payload["type"] == "dashboard_updated"
+        assert "causes" not in dashboard_payload
+    else:
+        publish.assert_called_once_with(
+            HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT,
+            expected_payload,
+        )
+    if failure_mode in {"broadcaster_sync_fallback", "synchronous_dashboard"}:
         dashboard.assert_called_once_with()
     else:
         scheduler.schedule.assert_called_once_with(
-            cause=HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT
+            cause=(
+                None
+                if failure_mode in {"broadcaster", "both"}
+                else HOME_ASSISTANT_ENRICHMENT_UPDATED_EVENT
+            )
         )
     assert len(notification_statuses) == 1
     assert notification_statuses[0].event == expected_event_status
     assert notification_statuses[0].dashboard == expected_dashboard_status
 
     expected_logs = []
-    if failure_mode in {"broadcaster", "both"}:
+    if failure_mode in {"broadcaster", "broadcaster_sync_fallback", "both"}:
         expected_logs.append(EVENT_FAILURE_LOG)
     if failure_mode in {"scheduler", "synchronous_dashboard", "both"}:
         expected_logs.append(DASHBOARD_FAILURE_LOG)
