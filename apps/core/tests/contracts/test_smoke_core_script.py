@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import time
+import tomllib
 
 import pytest
 
@@ -325,6 +326,16 @@ def test_smoke_script_is_hermetic_and_release_owned() -> None:
     assert "--locked" not in helper
     assert 'export CORE_PYTHON="${CORE_PYTHON_WRAPPER}"' in helper
     assert 'export ZIGBEELENS_CORE_PYTHON="${CORE_PYTHON_WRAPPER}"' in helper
+    assert "ruff check src tests" in helper
+    core_project = tomllib.loads(
+        (ROOT / "apps" / "core" / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    assert core_project["tool"]["ruff"]["lint"]["select"] == [
+        "E4",
+        "E7",
+        "E9",
+        "F",
+    ]
     assert '"${CORE_PYTHON}" -m pytest -q' in addon_validator
 
 
