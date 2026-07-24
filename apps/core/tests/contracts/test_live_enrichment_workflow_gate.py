@@ -21,6 +21,7 @@ JOB_NAME = "enrichment-live-e2e"
 CANONICAL_COMMAND = "bash scripts/test-enrichment-live-e2e.sh"
 SETUP_UV_REF = "astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b"
 SETUP_UV_VERSION = "0.11.16"
+CORE_SYNC_COMMAND = "uv sync --project apps/core --python 3.12 --extra dev"
 
 
 def _job_body(workflow: str, job_name: str) -> str:
@@ -53,6 +54,7 @@ def _assert_live_job_contract(workflow: str) -> None:
     assert body.count(f"uses: {SETUP_UV_REF}") == 1
     assert body.count(f'version: "{SETUP_UV_VERSION}"') == 1
     assert body.count("enable-cache: true") == 1
+    assert body.count(f"run: {CORE_SYNC_COMMAND}") == 1
     assert body.count("uses: pnpm/action-setup@v4") == 1
     assert body.count("uses: actions/setup-node@v4") == 1
     assert body.count("node-version: 22") == 1
@@ -219,6 +221,7 @@ def test_live_e2e_runner_and_corpus_fail_closed() -> None:
         (f"uses: {SETUP_UV_REF}", "uses: astral-sh/setup-uv@main"),
         ('version: "0.11.16"', 'version: "latest"'),
         ("pnpm install --frozen-lockfile", "pnpm install"),
+        (CORE_SYNC_COMMAND, "uv sync --project apps/core"),
         (
             "- name: Run canonical live enrichment E2E",
             "- name: Run canonical live enrichment E2E\n        continue-on-error: true",

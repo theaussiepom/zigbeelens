@@ -654,6 +654,7 @@ def validate_live_enrichment_gate_ownership() -> int:
                 'python-version: "3.12"',
                 setup_uv,
                 'version: "0.11.16"',
+                "uv sync --project apps/core --python 3.12 --extra dev",
                 "pnpm install --frozen-lockfile",
                 "pnpm --filter @zigbeelens/shared build",
                 command,

@@ -56,6 +56,9 @@ jobs:
           version: "0.11.16"
           enable-cache: true
 
+      - name: Install Core dependencies
+        run: uv sync --project apps/core --python 3.12 --extra dev
+
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
