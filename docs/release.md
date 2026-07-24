@@ -119,6 +119,15 @@ ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 ./scripts/validate-compose.sh
 git diff --check
 ```
 
+`scripts/smoke-core.sh` is the canonical isolated Core runtime proof. It does
+not activate or repair `apps/core/.venv`, invoke pip, read `config/config.yaml`,
+or use repository `data/`. It resolves a verified checkout Python (explicit
+`ZIGBEELENS_CORE_PYTHON`, then an isolated, lock-enforcing uv run, then an
+already-usable `python3`), creates a temporary config and SQLite database on a
+free loopback port, disables collector, Discovery, and topology activity,
+verifies schema/integrity and the public endpoints, and removes its exact
+child/state on every exit path.
+
 Record exact test counts, skips, xfails, and warnings. The known non-strict
 xfail is
 `test_incident_badge_matches_device_story_for_model_pattern` (`watch` versus

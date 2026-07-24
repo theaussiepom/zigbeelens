@@ -25,7 +25,10 @@ helper does not replace the Phase 7-specific checks or manual gates.
 - [ ] Strict Compose validation renders all maintained configurations
       (`ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 ./scripts/validate-compose.sh`);
       source-only non-strict output is partial evidence, not a release pass
-- [ ] Core smoke passes (`./scripts/smoke-core.sh`)
+- [ ] Hermetic Core smoke passes (`./scripts/smoke-core.sh`): it selects a
+      verified checkout Python without pip, uses a free loopback port plus a
+      temporary config/database, and leaves repository `config/` and `data/`
+      untouched
 - [ ] Version alignment check passes (`./scripts/check-version-alignment.sh`)
 - [ ] Storage retention policy v2: telemetry / resolved incidents / reports; startup + periodic maintenance
 - [ ] `zigbeelens storage check` / `backup` / `maintenance --dry-run` validated on a release candidate DB
