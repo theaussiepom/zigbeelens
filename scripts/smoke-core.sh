@@ -26,15 +26,15 @@ capture_core_pid() {
 terminate_pid() {
   local pid="$1"
   if [[ -z "$pid" || ! "$pid" =~ ^[0-9]+$ ]] || (( pid <= 1 )) || (( pid == $$ )); then
-    return
+    return 0
   fi
   if ! kill -0 "$pid" 2>/dev/null; then
-    return
+    return 0
   fi
   kill "$pid" 2>/dev/null || true
   for _attempt in {1..50}; do
     if ! kill -0 "$pid" 2>/dev/null; then
-      return
+      return 0
     fi
     sleep 0.1
   done

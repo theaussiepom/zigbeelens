@@ -266,26 +266,51 @@ def _write_uv_process_runner(path: Path, child_pid: Path) -> None:
         f"    {shlex_quote(sys.executable)} "
         f"{shlex_quote(str(term_ignoring_child))} "
         f'"$2" {shlex_quote(str(child_pid))} <&0 &\n'
+        "    runner_child=$!\n"
+        '    wait "$runner_child"\n'
         "    ;;\n"
         "  *)\n"
-        f"    {shlex_quote(sys.executable)} \"$@\" <&0 &\n"
+        f"    exec {shlex_quote(sys.executable)} \"$@\"\n"
         "    ;;\n"
-        "esac\n"
-        "runner_child=$!\n"
-        'wait "$runner_child"\n',
+        "esac\n",
         encoding="utf-8",
     )
     path.chmod(0o755)
+
+
+def test_fake_uv_process_runner_forwards_probe_stdin(tmp_path: Path) -> None:
+    fake_uv = tmp_path / "uv"
+    child_pid = tmp_path / "server-child.pid"
+    _write_uv_process_runner(fake_uv, child_pid)
+
+    result = subprocess.run(
+        [str(fake_uv), "run", "--no-project", "python", "-"],
+        input='print("probe-stdin-forwarded")\n',
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == "probe-stdin-forwarded"
+    assert not child_pid.exists()
 
 
 def test_smoke_script_is_hermetic_and_release_owned() -> None:
     text = SMOKE.read_text(encoding="utf-8")
     helper = RELEASE_HELPER.read_text(encoding="utf-8")
     addon_validator = ADDON_VALIDATOR.read_text(encoding="utf-8")
+    terminate_pid_body = text.split("terminate_pid() {", 1)[1].split(
+        "\n}\n\ncleanup()",
+        1,
+    )[0]
 
     assert "apps/core/.venv" not in text
     assert "source " not in text
     assert "pip install" not in text
+    assert re.search(r"(?m)^\s+return\s*$", terminate_pid_body) is None
+    assert terminate_pid_body.count("return 0") == 3
     assert "config/config.yaml" not in text
     assert "./data/" not in text
     assert '"$UV_COMMAND" run' in text
