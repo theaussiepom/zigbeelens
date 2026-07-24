@@ -331,6 +331,12 @@ def test_smoke_script_is_hermetic_and_release_owned() -> None:
     assert 'export ZIGBEELENS_CORE_PYTHON="${CORE_PYTHON}"' in helper
     assert 'CORE_RUFF="${CORE_ENVIRONMENT}/bin/ruff"' in helper
     assert '"${CORE_RUFF}" check src tests' in helper
+    assert 'HA_MATRIX_STATE_DIR="${RELEASE_STATE_DIR}/ha-matrix"' in helper
+    assert 'ZIGBEELENS_HA_MATRIX_STATE_DIR="${HA_MATRIX_STATE_DIR}"' in helper
+    assert (
+        'export ZIGBEELENS_HA_PYTHON="${HA_MATRIX_STATE_DIR}/minimum/bin/python"'
+        in helper
+    )
     core_project = tomllib.loads(
         (ROOT / "apps" / "core" / "pyproject.toml").read_text(encoding="utf-8")
     )

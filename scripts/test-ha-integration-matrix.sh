@@ -27,9 +27,26 @@ if ! command -v "${MATRIX_READER}" >/dev/null 2>&1; then
   exit 1
 fi
 
-HA_MATRIX_TMP="$(mktemp -d "${TMPDIR:-/tmp}/zigbeelens-ha-matrix.XXXXXX")"
+if [[ -n "${ZIGBEELENS_HA_MATRIX_STATE_DIR:-}" ]]; then
+  if [[ "${ZIGBEELENS_HA_MATRIX_STATE_DIR}" != /* ]]; then
+    echo "FAIL: ZIGBEELENS_HA_MATRIX_STATE_DIR must be an absolute path" >&2
+    exit 1
+  fi
+  if [[ -e "${ZIGBEELENS_HA_MATRIX_STATE_DIR}" ]]; then
+    echo "FAIL: ZIGBEELENS_HA_MATRIX_STATE_DIR must not already exist" >&2
+    exit 1
+  fi
+  HA_MATRIX_TMP="${ZIGBEELENS_HA_MATRIX_STATE_DIR}"
+  mkdir -p "${HA_MATRIX_TMP}"
+  HA_MATRIX_OWNS_TMP=false
+else
+  HA_MATRIX_TMP="$(mktemp -d "${TMPDIR:-/tmp}/zigbeelens-ha-matrix.XXXXXX")"
+  HA_MATRIX_OWNS_TMP=true
+fi
 cleanup() {
-  rm -rf "${HA_MATRIX_TMP}"
+  if [[ "${HA_MATRIX_OWNS_TMP}" == true ]]; then
+    rm -rf "${HA_MATRIX_TMP}"
+  fi
 }
 trap cleanup EXIT
 

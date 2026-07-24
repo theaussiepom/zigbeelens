@@ -72,7 +72,14 @@ pnpm --filter @zigbeelens/ui build
 
 echo "==> HA integration"
 bash scripts/validate-ha-integration.sh --skip-matrix
-bash scripts/test-ha-integration-matrix.sh
+HA_MATRIX_STATE_DIR="${RELEASE_STATE_DIR}/ha-matrix"
+ZIGBEELENS_HA_MATRIX_STATE_DIR="${HA_MATRIX_STATE_DIR}" \
+  bash scripts/test-ha-integration-matrix.sh
+export ZIGBEELENS_HA_PYTHON="${HA_MATRIX_STATE_DIR}/minimum/bin/python"
+if [[ ! -x "${ZIGBEELENS_HA_PYTHON}" ]]; then
+  echo "run-release-checks.sh: minimum HA matrix Python was not preserved" >&2
+  exit 1
+fi
 echo "==> Live Home Assistant enrichment convergence"
 bash scripts/test-enrichment-live-e2e.sh
 bash scripts/package-hacs-repo.sh
