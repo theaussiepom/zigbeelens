@@ -23,32 +23,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
-export ZIGBEELENS_RELEASE_ROOT="${ROOT}"
-export ZIGBEELENS_RELEASE_UV_COMMAND="${UV_COMMAND}"
-CORE_PYTHON_WRAPPER="${RELEASE_STATE_DIR}/core-python"
-cat >"${CORE_PYTHON_WRAPPER}" <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-exec "${ZIGBEELENS_RELEASE_UV_COMMAND}" run \
-  --isolated \
+CORE_ENVIRONMENT="${RELEASE_STATE_DIR}/core-environment"
+"${UV_COMMAND}" venv \
   --no-project \
   --no-config \
-  --no-env-file \
-  --with-editable "${ZIGBEELENS_RELEASE_ROOT}/apps/core[dev]" \
-  python "$@"
-SH
-chmod +x "${CORE_PYTHON_WRAPPER}"
-export CORE_PYTHON="${CORE_PYTHON_WRAPPER}"
-export ZIGBEELENS_CORE_PYTHON="${CORE_PYTHON_WRAPPER}"
-
-CORE_UV_RUN=(
-  "${UV_COMMAND}" run
-  --isolated
-  --no-project
-  --no-config
-  --no-env-file
-  --with-editable "${ROOT}/apps/core[dev]"
-)
+  "${CORE_ENVIRONMENT}"
+"${UV_COMMAND}" pip install \
+  --no-config \
+  --python "${CORE_ENVIRONMENT}/bin/python" \
+  --editable "${ROOT}/apps/core[dev]"
+export CORE_PYTHON="${CORE_ENVIRONMENT}/bin/python"
+export ZIGBEELENS_CORE_PYTHON="${CORE_PYTHON}"
+CORE_RUFF="${CORE_ENVIRONMENT}/bin/ruff"
 
 echo "==> Version alignment"
 bash scripts/check-version-alignment.sh
@@ -57,13 +43,13 @@ echo "==> Cross-surface contracts and documentation"
 bash scripts/validate-contracts.sh
 
 echo "==> Backend lint"
-(cd apps/core && "${CORE_UV_RUN[@]}" ruff check src tests)
+(cd apps/core && "${CORE_RUFF}" check src tests)
 
 echo "==> Backend tests"
-(cd apps/core && "${CORE_UV_RUN[@]}" pytest -q)
+(cd apps/core && "${CORE_PYTHON}" -m pytest -q)
 
 echo "==> Performance baselines"
-(cd apps/core && "${CORE_UV_RUN[@]}" pytest -q tests/performance)
+(cd apps/core && "${CORE_PYTHON}" -m pytest -q tests/performance)
 
 echo "==> SQLite 3.34.1 runtime smoke"
 bash scripts/smoke-sqlite-3.34.1.sh

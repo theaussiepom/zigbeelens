@@ -127,11 +127,11 @@ installs the checkout as an editable dependency, then an already-usable
 `python3`), creates a temporary config and SQLite database on a free loopback
 port, disables collector, Discovery, and topology activity, verifies
 schema/integrity and the public endpoints, and removes its exact child/state on
-every exit path. The release helper uses the same lockless, isolated,
-non-project uv execution shape for Core lint, full tests, and performance tests,
-and supplies a temporary external Core Python wrapper to its nested contract,
-safety, live-E2E, and add-on gates. Those gates do not create or update
-`apps/core/uv.lock` or `apps/core/.venv`.
+every exit path. The release helper resolves the same tracked Core inputs once
+into a uv-managed environment under its temporary external state directory,
+then uses that environment for Core lint, full tests, performance tests, and
+its nested contract, safety, live-E2E, add-on, and smoke gates. Those gates do
+not create or update `apps/core/uv.lock` or `apps/core/.venv`.
 
 Record exact test counts, skips, xfails, and warnings. The known non-strict
 xfail is

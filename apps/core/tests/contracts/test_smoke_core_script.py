@@ -319,14 +319,17 @@ def test_smoke_script_is_hermetic_and_release_owned() -> None:
     assert "quick_check" in text
     assert "foreign_key_check" in text
     assert "bash scripts/smoke-core.sh" in helper
-    assert "--isolated" in helper
+    assert 'CORE_ENVIRONMENT="${RELEASE_STATE_DIR}/core-environment"' in helper
+    assert '"${UV_COMMAND}" venv' in helper
+    assert '"${UV_COMMAND}" pip install' in helper
     assert "--no-project" in helper
-    assert "--with-editable" in helper
+    assert '--editable "${ROOT}/apps/core[dev]"' in helper
     assert "\n  --project " not in helper
     assert "--locked" not in helper
-    assert 'export CORE_PYTHON="${CORE_PYTHON_WRAPPER}"' in helper
-    assert 'export ZIGBEELENS_CORE_PYTHON="${CORE_PYTHON_WRAPPER}"' in helper
-    assert "ruff check src tests" in helper
+    assert 'export CORE_PYTHON="${CORE_ENVIRONMENT}/bin/python"' in helper
+    assert 'export ZIGBEELENS_CORE_PYTHON="${CORE_PYTHON}"' in helper
+    assert 'CORE_RUFF="${CORE_ENVIRONMENT}/bin/ruff"' in helper
+    assert '"${CORE_RUFF}" check src tests' in helper
     core_project = tomllib.loads(
         (ROOT / "apps" / "core" / "pyproject.toml").read_text(encoding="utf-8")
     )
