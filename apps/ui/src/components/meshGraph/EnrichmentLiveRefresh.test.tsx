@@ -32,6 +32,9 @@ const apiMocks = vi.hoisted(() => ({
   topology: vi.fn(),
   topologyNetwork: vi.fn(),
   topologyDeviceSnapshotHistory: vi.fn(),
+  incidents: vi.fn(),
+  incident: vi.fn(),
+  timeline: vi.fn(),
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -195,6 +198,16 @@ const drawerDevice: MeshEvidenceDevice = {
   passive_observation_summary: "",
   diagnostic_stats: [],
 };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 async function flushAsyncWork() {
   await act(async () => {
@@ -552,41 +565,177 @@ describe("Mesh Home Assistant enrichment live refresh", () => {
     expect(apiMocks.topologyDeviceSnapshotHistory).not.toHaveBeenCalled();
   });
 
-  it("does not present retained HA coverage as current when the live refetch fails", async () => {
+  it("retains both drawer subsections through failed refreshes, independent recovery, and device identity change", async () => {
+    const storyRefresh = deferred<DeviceStoryDto>();
+    const coverageRefresh = deferred<DataCoverageDto[]>();
+    const acceptedStory: DeviceStoryDto = {
+      ...story("Old Kitchen"),
+      status: "review_first",
+      priority: "high",
+      headline_code: "current_issue_present",
+      reasons: [{ code: "current_issue_present", params: {} }],
+    };
+    const recoveredStory: DeviceStoryDto = {
+      ...story("Recovered Kitchen"),
+      status: "watch",
+      priority: "medium",
+      headline_code: "stale_last_seen",
+      reasons: [{ code: "last_seen_stale", params: {} }],
+    };
     apiMocks.deviceStory
-      .mockResolvedValueOnce(story("Old Kitchen"))
-      .mockRejectedValueOnce(new Error("injected story refresh failure"))
-      .mockResolvedValueOnce(story("Recovered Kitchen"));
+      .mockResolvedValueOnce(acceptedStory)
+      .mockReturnValueOnce(storyRefresh.promise)
+      .mockResolvedValueOnce(recoveredStory)
+      .mockReturnValueOnce(new Promise(() => {}));
     apiMocks.deviceCoverage
       .mockResolvedValueOnce([coverage("Old Kitchen")])
-      .mockRejectedValueOnce(new Error("injected coverage refresh failure"))
-      .mockResolvedValueOnce([coverage("Recovered Kitchen")]);
+      .mockReturnValueOnce(coverageRefresh.promise)
+      .mockResolvedValueOnce([coverage("Recovered Kitchen")])
+      .mockReturnValueOnce(new Promise(() => {}));
 
-    render(
+    const { rerender } = render(
       <MemoryRouter>
         <NodeDrawer device={drawerDevice} onClose={vi.fn()} />
       </MemoryRouter>,
     );
     await flushAsyncWork();
+    expect(screen.getByText("Kitchen Router")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Open full device details/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Current issue needs attention")).toBeInTheDocument();
     expect(screen.getByText("HA area: Old Kitchen")).toBeInTheDocument();
 
     await emitEnrichmentUpdate();
+    expect(screen.getByTestId("device-story-section")).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    expect(screen.getByTestId("device-coverage-section")).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    expect(apiMocks.deviceStory).toHaveBeenCalledTimes(2);
+    expect(apiMocks.deviceCoverage).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Current issue needs attention")).toBeInTheDocument();
+    expect(screen.getByText("HA area: Old Kitchen")).toBeInTheDocument();
+
+    await act(async () => {
+      storyRefresh.reject(new Error("injected story refresh failure"));
+      coverageRefresh.reject(new Error("injected coverage refresh failure"));
+      await Promise.resolve();
+    });
 
     expect(
       screen.getByText(
-        "Device story is unavailable right now. Other device details still reflect stored evidence.",
+        "Device story could not be refreshed. Showing the last accepted view; it may not include the newest Core data or Home Assistant enrichment.",
       ),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Device coverage is currently unavailable."),
+      screen.getByText(
+        "Device coverage could not be refreshed. Showing the last accepted view; it may not include the newest Core data or Home Assistant enrichment.",
+      ),
     ).toBeInTheDocument();
-    expect(screen.queryByText("HA area: Old Kitchen")).not.toBeInTheDocument();
+    expect(screen.getByText("Current issue needs attention")).toBeInTheDocument();
+    expect(screen.getByText("HA area: Old Kitchen")).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Device story is unavailable right now. Other device details still reflect stored evidence.",
+      ),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Device coverage is currently unavailable."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Retry device story" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Retry device coverage" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Kitchen Router")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Open full device details/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("device-story-section")).toHaveAttribute(
+      "aria-busy",
+      "false",
+    );
+    expect(screen.getByTestId("device-coverage-section")).toHaveAttribute(
+      "aria-busy",
+      "false",
+    );
+    expect(apiMocks.deviceStory).toHaveBeenCalledTimes(2);
+    expect(apiMocks.deviceCoverage).toHaveBeenCalledTimes(2);
+    expect(apiMocks.topologyEvidenceGraph).not.toHaveBeenCalled();
+    expect(apiMocks.devices).not.toHaveBeenCalled();
+    expect(apiMocks.topology).not.toHaveBeenCalled();
+    expect(apiMocks.topologyNetwork).not.toHaveBeenCalled();
+    expect(apiMocks.topologyDeviceSnapshotHistory).not.toHaveBeenCalled();
+    expect(apiMocks.incidents).not.toHaveBeenCalled();
+    expect(apiMocks.incident).not.toHaveBeenCalled();
+    expect(apiMocks.timeline).not.toHaveBeenCalled();
+
     fireEvent.click(screen.getByRole("button", { name: "Retry device story" }));
-    fireEvent.click(screen.getByRole("button", { name: "Retry device coverage" }));
+    await flushAsyncWork();
+
+    expect(screen.getByText("Last seen looks stale")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Current issue needs attention"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Device story could not be refreshed/i),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("HA area: Old Kitchen")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Device coverage could not be refreshed/i),
+    ).toBeInTheDocument();
+    expect(apiMocks.deviceStory).toHaveBeenCalledTimes(3);
+    expect(apiMocks.deviceCoverage).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Retry device coverage" }),
+    );
     await flushAsyncWork();
 
     expect(screen.getByText("HA area: Recovered Kitchen")).toBeInTheDocument();
+    expect(screen.getByText("Last seen looks stale")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/could not be refreshed/i),
+    ).not.toBeInTheDocument();
     expect(apiMocks.deviceStory).toHaveBeenCalledTimes(3);
     expect(apiMocks.deviceCoverage).toHaveBeenCalledTimes(3);
+
+    const nextDevice: MeshEvidenceDevice = {
+      ...drawerDevice,
+      ieee_address: "0xb2",
+      friendly_name: "Hall Router",
+    };
+    rerender(
+      <MemoryRouter>
+        <NodeDrawer device={nextDevice} onClose={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Hall Router")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Open full device details/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Last seen looks stale")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("HA area: Recovered Kitchen"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/could not be refreshed/i),
+    ).not.toBeInTheDocument();
+    expect(apiMocks.deviceStory).toHaveBeenCalledTimes(4);
+    expect(apiMocks.deviceCoverage).toHaveBeenCalledTimes(4);
+    expect(apiMocks.topologyEvidenceGraph).not.toHaveBeenCalled();
+    expect(apiMocks.devices).not.toHaveBeenCalled();
+    expect(apiMocks.topology).not.toHaveBeenCalled();
+    expect(apiMocks.topologyNetwork).not.toHaveBeenCalled();
+    expect(apiMocks.topologyDeviceSnapshotHistory).not.toHaveBeenCalled();
+    expect(apiMocks.incidents).not.toHaveBeenCalled();
+    expect(apiMocks.incident).not.toHaveBeenCalled();
+    expect(apiMocks.timeline).not.toHaveBeenCalled();
   });
 });

@@ -98,6 +98,8 @@ export type DeviceCoverageLoadState = "loading" | "loaded" | "unavailable";
 
 export const DEVICE_COVERAGE_UNAVAILABLE_MESSAGE =
   "Device coverage is currently unavailable.";
+export const DEVICE_COVERAGE_EMPTY_MESSAGE =
+  "No device coverage entries were returned.";
 
 export type DeviceDetailsSectionViewModel =
   | DeviceDetailsSummarySectionViewModel
@@ -232,7 +234,7 @@ function buildDataCoverageSection(
     return null;
   }
 
-  if (loadState === "unavailable" || deviceCoverage.length === 0) {
+  if (loadState === "unavailable") {
     return {
       id: "dataCoverage",
       title: DEVICE_SECTION_DATA_COVERAGE,
@@ -246,7 +248,8 @@ function buildDataCoverageSection(
     id: "dataCoverage",
     title: DEVICE_SECTION_DATA_COVERAGE,
     items: strip.items,
-    message: null,
+    message:
+      deviceCoverage.length === 0 ? DEVICE_COVERAGE_EMPTY_MESSAGE : null,
   };
 }
 
