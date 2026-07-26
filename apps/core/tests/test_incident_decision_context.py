@@ -336,12 +336,13 @@ def test_single_incident_batches_affected_devices_once(tmp_path: Path):
 
 
 def test_resolved_incident_preserves_stored_fields_and_current_decision(tmp_path: Path):
+    reference_now = datetime.now(timezone.utc)
     repo, config = _repo(tmp_path)
     _add_device(
         repo,
         "0xa1",
         availability="online",
-        last_seen=REF_NOW + timedelta(days=10),
+        last_seen=reference_now + timedelta(days=10),
     )
     _insert_incident(
         repo,
@@ -360,7 +361,7 @@ def test_resolved_incident_preserves_stored_fields_and_current_decision(tmp_path
     _link_device(repo, "inc-resolved", "0xa1")
 
     health = HealthDiagnosticService(config, repo)
-    health.clock = MagicMock(now=lambda: REF_NOW)
+    health.clock = MagicMock(now=lambda: reference_now)
     health.recalculate_all()
     incident = PayloadBuilder(config, repo, health).incident("inc-resolved")
     assert incident is not None
@@ -370,7 +371,7 @@ def test_resolved_incident_preserves_stored_fields_and_current_decision(tmp_path
     assert [e.summary for e in incident.evidence] == ["stored evidence"]
     assert [e.summary for e in incident.counter_evidence] == ["stored counter"]
     assert [lim.summary for lim in incident.limitations] == ["stored limitation"]
-    story = device_story_for_device(repo, "home", "0xa1", now=REF_NOW)
+    story = device_story_for_device(repo, "home", "0xa1", now=reference_now)
     assert story is not None
     assert incident.affected_devices[0].decision == device_decision_badge_from_story(
         story
