@@ -26,6 +26,15 @@ EXPECTED_MATRIX = {
     ],
 }
 
+EXPECTED_REQUIRED_SCHEDULER_TESTS = [
+    "test_enrichment_scheduler_runtime.py::"
+    "test_default_debounce_registry_event_runs_on_hass_loop_and_stops_cleanly",
+    "test_enrichment_scheduler_runtime.py::"
+    "test_default_retry_runs_on_hass_loop_and_stop_cancels_pending_retry",
+    "test_enrichment_scheduler_runtime.py::"
+    "test_default_periodic_reconciliation_runs_on_hass_loop_without_overlap_and_stops",
+]
+
 
 def _requirement_lines(name: str) -> list[str]:
     return [
@@ -61,3 +70,33 @@ def test_lane_requirements_inherit_common_and_pin_home_assistant() -> None:
         "-r requirements-test.txt",
         "homeassistant==2026.7.3",
     ]
+
+
+def test_both_exact_lanes_execute_required_real_scheduler_regressions() -> None:
+    runner = INTEGRATION_ROOT / "scripts" / "test-ha-integration-matrix.sh"
+    if not runner.is_file():
+        runner = (
+            INTEGRATION_ROOT.parents[1]
+            / "scripts"
+            / "test-ha-integration-matrix.sh"
+        )
+    script = runner.read_text(encoding="utf-8")
+    run_lane = script.split("run_lane() {", 1)[1].split(
+        'if [[ "${LANE}" == "all" ]]',
+        1,
+    )[0]
+
+    for node_id in EXPECTED_REQUIRED_SCHEDULER_TESTS:
+        assert node_id in script
+    assert '"${REQUIRED_SCHEDULER_TESTS[@]}"' in run_lane
+    assert '--junitxml="${required_scheduler_junit}"' in run_lane
+    assert "PYTHONASYNCIODEBUG=1" in run_lane
+    assert 'ZIGBEELENS_HA_TEST_COMPONENTS="${SCHEDULER_COMPONENTS}"' in run_lane
+    assert "staged scheduler integration provenance does not equal HEAD" in script
+    assert "SOURCE_COMMIT" in script
+    assert '"tests": 3, "failures": 0, "errors": 0, "skipped": 0' in run_lane
+    assert run_lane.index('"${REQUIRED_SCHEDULER_TESTS[@]}"') < run_lane.index(
+        '"${venv}/bin/python" -m pytest -q "${HA_DIR}"'
+    )
+    assert "run_lane minimum" in script
+    assert "run_lane current" in script

@@ -89,6 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Mesh drawer refresh resilience:** Device Story and device coverage retain the last accepted evidence after a background refresh failure, with contextual retry notices; initial no-data failures remain unavailable and accepted-empty coverage remains distinct.
+- **Home Assistant enrichment event-loop scheduling:** debounce, retry, and periodic reconciliation callbacks are explicitly classified to remain on the Home Assistant event loop; both exact HA minimum/current matrix lanes now execute the production scheduler paths.
 
 ## [0.1.13] - 2026-06-16
 

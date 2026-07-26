@@ -664,7 +664,7 @@ def validate_live_enrichment_gate_ownership() -> int:
     assertions += require_document_fragments(
         "scripts/run-release-checks.sh",
         (
-            "bash scripts/test-ha-integration-matrix.sh",
+            "bash dist/zigbeelens-hacs/scripts/test-ha-integration-matrix.sh",
             command,
             "bash scripts/package-hacs-repo.sh",
         ),

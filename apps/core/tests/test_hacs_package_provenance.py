@@ -676,7 +676,9 @@ def test_monorepo_release_paths_own_exact_ha_matrix_and_structure() -> None:
     structural = helper.index(
         "bash scripts/validate-ha-integration.sh --skip-matrix"
     )
-    matrix = helper.index("bash scripts/test-ha-integration-matrix.sh")
+    matrix = helper.index(
+        "bash dist/zigbeelens-hacs/scripts/test-ha-integration-matrix.sh"
+    )
     live = helper.index("bash scripts/test-enrichment-live-e2e.sh")
     package = helper.index("bash scripts/package-hacs-repo.sh")
     assert structural < matrix < live < package
