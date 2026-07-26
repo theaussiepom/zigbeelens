@@ -169,9 +169,10 @@ Both requirements files use `homeassistant==...`, and
 `scripts/test-ha-integration-matrix.sh` verifies the imported version before
 running the same integration suite. Each lane first executes the three required
 real-scheduler regressions and rejects missing, skipped, failed, or zero
-collection before the complete suite. The release helper runs the generated
-staged integration through that matrix; monorepo CI and generated HACS CI use
-the same exact pins and regression ownership.
+collection before the complete suite. The canonical HA validator, each isolated
+monorepo CI/tag matrix lane, and the release helper all generate, validate, and
+run the exact matrix from the staged HACS tree. Generated HACS CI uses the same
+exact pins and regression ownership.
 
 The generated HACS `ci.yml` owns structural/provenance validation, both exact
 matrix lanes, the pinned official `home-assistant/actions/hassfest` action, and

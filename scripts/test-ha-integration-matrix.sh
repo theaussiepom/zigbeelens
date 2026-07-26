@@ -15,6 +15,12 @@ fi
 
 MATRIX="${HA_DIR}/ha-test-matrix.json"
 LANE="${1:-all}"
+MATRIX_READER="${ZIGBEELENS_HA_MATRIX_READER:-python3}"
+if ! command -v "${MATRIX_READER}" >/dev/null 2>&1; then
+  echo "FAIL: matrix reader not found: ${MATRIX_READER}" >&2
+  exit 1
+fi
+
 if [[ -f "${ROOT}/SOURCE_COMMIT" ]]; then
   SCHEDULER_STAGE_ROOT="${ROOT}"
   SCHEDULER_SOURCE_COMMIT="$(tr -d '[:space:]' < "${ROOT}/SOURCE_COMMIT")"
@@ -31,10 +37,52 @@ else
   fi
 fi
 SCHEDULER_COMPONENTS="${SCHEDULER_STAGE_ROOT}/custom_components"
-if [[ ! -f "${SCHEDULER_COMPONENTS}/zigbeelens/manifest.json" ]]; then
+SCHEDULER_MANIFEST="${SCHEDULER_COMPONENTS}/zigbeelens/manifest.json"
+if [[ ! -f "${SCHEDULER_MANIFEST}" ]]; then
   echo "FAIL: staged scheduler integration is missing its manifest" >&2
   exit 1
 fi
+"${MATRIX_READER}" - \
+  "${SCHEDULER_STAGE_ROOT}/SOURCE_COMMIT" \
+  "${SCHEDULER_MANIFEST}" \
+  "${SCHEDULER_SOURCE_COMMIT}" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+source_commit_path = Path(sys.argv[1])
+manifest_path = Path(sys.argv[2])
+selected_commit = sys.argv[3]
+source_commit_raw = source_commit_path.read_text(encoding="utf-8")
+if re.fullmatch(r"[0-9a-f]{40}\n", source_commit_raw) is None:
+    raise SystemExit(
+        "FAIL: staged scheduler SOURCE_COMMIT must be one normalized commit"
+    )
+source_commit = source_commit_raw[:-1]
+if source_commit != selected_commit:
+    raise SystemExit(
+        "FAIL: staged scheduler SOURCE_COMMIT does not equal the selected commit"
+    )
+
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+documentation = manifest.get("documentation")
+match = (
+    re.fullmatch(
+        r"https://github\.com/[^/\s]+/[^/\s]+/blob/"
+        r"(?P<commit>[0-9a-f]{40})/docs/hacs\.md",
+        documentation,
+    )
+    if isinstance(documentation, str)
+    else None
+)
+if match is None or match.group("commit") != source_commit:
+    raise SystemExit(
+        "FAIL: staged scheduler SOURCE_COMMIT does not match "
+        "manifest documentation"
+    )
+PY
+
 REQUIRED_SCHEDULER_TESTS=(
   "${HA_DIR}/tests/test_enrichment_scheduler_runtime.py::test_default_debounce_registry_event_runs_on_hass_loop_and_stops_cleanly"
   "${HA_DIR}/tests/test_enrichment_scheduler_runtime.py::test_default_retry_runs_on_hass_loop_and_stop_cancels_pending_retry"
@@ -44,12 +92,6 @@ REQUIRED_SCHEDULER_TESTS=(
 if [[ "${LANE}" != "all" && "${LANE}" != "minimum" && "${LANE}" != "current" ]]; then
   echo "Usage: $0 [all|minimum|current]" >&2
   exit 2
-fi
-
-MATRIX_READER="${ZIGBEELENS_HA_MATRIX_READER:-python3}"
-if ! command -v "${MATRIX_READER}" >/dev/null 2>&1; then
-  echo "FAIL: matrix reader not found: ${MATRIX_READER}" >&2
-  exit 1
 fi
 
 if [[ -n "${ZIGBEELENS_HA_MATRIX_STATE_DIR:-}" ]]; then

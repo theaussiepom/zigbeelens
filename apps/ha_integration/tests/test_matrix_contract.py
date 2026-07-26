@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 INTEGRATION_ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +50,17 @@ def _requirement_lines(name: str) -> list[str]:
     ]
 
 
+def _matrix_runner() -> Path:
+    runner = INTEGRATION_ROOT / "scripts" / "test-ha-integration-matrix.sh"
+    if runner.is_file():
+        return runner
+    return (
+        INTEGRATION_ROOT.parents[1]
+        / "scripts"
+        / "test-ha-integration-matrix.sh"
+    )
+
+
 def test_matrix_contains_only_exact_reviewed_lanes() -> None:
     matrix = json.loads(
         (INTEGRATION_ROOT / "ha-test-matrix.json").read_text(encoding="utf-8")
@@ -73,14 +88,7 @@ def test_lane_requirements_inherit_common_and_pin_home_assistant() -> None:
 
 
 def test_both_exact_lanes_execute_required_real_scheduler_regressions() -> None:
-    runner = INTEGRATION_ROOT / "scripts" / "test-ha-integration-matrix.sh"
-    if not runner.is_file():
-        runner = (
-            INTEGRATION_ROOT.parents[1]
-            / "scripts"
-            / "test-ha-integration-matrix.sh"
-        )
-    script = runner.read_text(encoding="utf-8")
+    script = _matrix_runner().read_text(encoding="utf-8")
     run_lane = script.split("run_lane() {", 1)[1].split(
         'if [[ "${LANE}" == "all" ]]',
         1,
@@ -100,3 +108,58 @@ def test_both_exact_lanes_execute_required_real_scheduler_regressions() -> None:
     )
     assert "run_lane minimum" in script
     assert "run_lane current" in script
+
+
+def test_staged_runner_rejects_source_commit_manifest_mismatch(
+    tmp_path: Path,
+) -> None:
+    stage = tmp_path / "stage"
+    scripts = stage / "scripts"
+    component = stage / "custom_components" / "zigbeelens"
+    scripts.mkdir(parents=True)
+    component.mkdir(parents=True)
+    runner = scripts / "test-ha-integration-matrix.sh"
+    shutil.copy2(_matrix_runner(), runner)
+    (stage / "SOURCE_COMMIT").write_text("b" * 40 + "\n", encoding="utf-8")
+    (component / "manifest.json").write_text(
+        json.dumps(
+            {
+                "documentation": (
+                    "https://github.com/theaussiepom/zigbeelens/blob/"
+                    + "a" * 40
+                    + "/docs/hacs.md"
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    env = dict(os.environ)
+    env["ZIGBEELENS_HA_MATRIX_READER"] = sys.executable
+    result = subprocess.run(
+        ["bash", str(runner), "minimum"],
+        cwd=stage,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert (
+        "staged scheduler SOURCE_COMMIT does not match manifest documentation"
+        in result.stderr
+    )
+
+
+def test_required_scheduler_gate_rejects_a_nonselected_component_tree() -> None:
+    runtime_test = (
+        INTEGRATION_ROOT / "tests" / "test_enrichment_scheduler_runtime.py"
+    ).read_text(encoding="utf-8")
+
+    assert runtime_test.count(
+        "_assert_imported_manager_uses_selected_stage()"
+    ) == 4
+    assert 'os.environ["ZIGBEELENS_HA_TEST_COMPONENTS"]' in runtime_test
+    assert "inspect.getfile(HomeAssistantEnrichmentManager)" in runtime_test
+    assert 'components / "zigbeelens"' in runtime_test

@@ -64,15 +64,20 @@ branch test. The canonical compatibility matrix is exact and reviewed on
 | Current | `2026.7.3` | `3.14` |
 
 `apps/ha_integration/ha-test-matrix.json`, the two exact requirements files,
-monorepo CI, and the generated HACS CI use those same pins. Run either lane
-locally with `bash scripts/test-ha-integration-matrix.sh minimum` or
-`bash scripts/test-ha-integration-matrix.sh current`.
+monorepo CI, and the generated HACS CI use those same pins.
 
 1. From the monorepo root, generate and validate the reviewed staged package:
 
    ```bash
    ./scripts/package-hacs-repo.sh
    bash dist/zigbeelens-hacs/scripts/validate-hacs-repo.sh
+   ```
+
+   Run either exact lane from that generated tree:
+
+   ```bash
+   bash dist/zigbeelens-hacs/scripts/test-ha-integration-matrix.sh minimum
+   bash dist/zigbeelens-hacs/scripts/test-ha-integration-matrix.sh current
    ```
 
 2. Run ZigbeeLens Core at an HTTP(S) origin reachable from Home Assistant. The

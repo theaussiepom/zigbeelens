@@ -87,8 +87,8 @@ done
 echo "OK: packaged Phase 5E critical sources match monorepo"
 
 if [[ "${SKIP_MATRIX}" -eq 0 ]]; then
-  echo "==> Running exact Home Assistant integration matrix"
-  bash "${ROOT}/scripts/test-ha-integration-matrix.sh"
+  echo "==> Running exact staged Home Assistant integration matrix"
+  bash "${ROOT}/dist/zigbeelens-hacs/scripts/test-ha-integration-matrix.sh"
 else
   echo "==> Exact Home Assistant integration matrix is owned by separate CI jobs"
 fi

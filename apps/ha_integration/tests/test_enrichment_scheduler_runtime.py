@@ -209,6 +209,14 @@ def _assert_no_thread_safety_errors(
     assert loop_errors == []
 
 
+def _assert_imported_manager_uses_selected_stage() -> None:
+    components = Path(os.environ["ZIGBEELENS_HA_TEST_COMPONENTS"]).resolve()
+    imported_component = Path(
+        inspect.getfile(HomeAssistantEnrichmentManager)
+    ).resolve().parent
+    assert imported_component == components / "zigbeelens"
+
+
 def test_thread_safety_guard_rejects_marker_held_only_in_exception_info(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -227,6 +235,7 @@ def test_thread_safety_guard_rejects_marker_held_only_in_exception_info(
 def test_default_debounce_registry_event_runs_on_hass_loop_and_stops_cleanly(
     tmp_path: Path,
 ) -> None:
+    _assert_imported_manager_uses_selected_stage()
     components = Path(os.environ["ZIGBEELENS_HA_TEST_COMPONENTS"]).resolve()
     staged_root = components.parent
     source_commit = os.environ["ZIGBEELENS_HA_TEST_SOURCE_COMMIT"]
@@ -287,6 +296,7 @@ async def test_default_retry_runs_on_hass_loop_and_stop_cancels_pending_retry(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    _assert_imported_manager_uses_selected_stage()
     caplog.set_level(logging.WARNING)
     hass = _plain_hass(tmp_path)
     loop_errors, restore_loop_handler = _capture_loop_errors(hass.loop)
@@ -372,6 +382,7 @@ async def test_default_periodic_reconciliation_runs_on_hass_loop_without_overlap
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    _assert_imported_manager_uses_selected_stage()
     caplog.set_level(logging.WARNING)
     hass = _plain_hass(tmp_path)
     loop_errors, restore_loop_handler = _capture_loop_errors(hass.loop)

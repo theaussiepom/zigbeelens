@@ -23,8 +23,35 @@ INTEGRATION_SOURCE = (
 INTEGRATION_ROOT = ROOT / "apps" / "ha_integration"
 INTEGRATION_TESTS = INTEGRATION_ROOT / "tests"
 MATRIX_RUNNER = ROOT / "scripts" / "test-ha-integration-matrix.sh"
+HA_VALIDATOR = ROOT / "scripts" / "validate-ha-integration.sh"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release-check.yml"
 WORKFLOW_SOURCE = (
     ROOT / "release" / "zigbeelens-hacs" / ".github" / "workflows"
+)
+
+HA_MATRIX_JOB_NAME = "ha-integration-matrix"
+HACS_PACKAGE_COMMAND = "bash scripts/package-hacs-repo.sh"
+HACS_VALIDATE_COMMAND = (
+    "bash dist/zigbeelens-hacs/scripts/validate-hacs-repo.sh"
+)
+STAGED_HA_MATRIX_COMMAND = (
+    "bash dist/zigbeelens-hacs/scripts/test-ha-integration-matrix.sh "
+    '"${{ matrix.lane }}"'
+)
+SOURCE_HA_MATRIX_COMMAND = (
+    'bash scripts/test-ha-integration-matrix.sh "${{ matrix.lane }}"'
+)
+LOCAL_HACS_PACKAGE_COMMAND = 'bash "${ROOT}/scripts/package-hacs-repo.sh"'
+LOCAL_HACS_VALIDATE_COMMAND = (
+    'bash "${ROOT}/dist/zigbeelens-hacs/scripts/validate-hacs-repo.sh"'
+)
+LOCAL_STAGED_HA_MATRIX_COMMAND = (
+    'bash "${ROOT}/dist/zigbeelens-hacs/scripts/'
+    'test-ha-integration-matrix.sh"'
+)
+LOCAL_SOURCE_HA_MATRIX_COMMAND = (
+    'bash "${ROOT}/scripts/test-ha-integration-matrix.sh"'
 )
 
 DEFAULT_SOURCE_REPOSITORY = "theaussiepom/zigbeelens"
@@ -51,6 +78,248 @@ EXPECTED_HA_MATRIX = {
         },
     ],
 }
+
+
+def _job_body(workflow: str, job_name: str) -> str:
+    match = re.search(
+        rf"(?ms)^  {re.escape(job_name)}:[ \t]*\n"
+        rf"(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:[ \t]*\n|\Z)",
+        workflow,
+    )
+    assert match is not None, f"missing workflow job: {job_name}"
+    return match.group("body")
+
+
+def _single_line_run_commands(body: str) -> list[str]:
+    return [
+        match.group("command").strip()
+        for match in re.finditer(
+            r"(?m)^[ \t]+run:[ \t]*(?P<command>[^\n]+)$",
+            body,
+        )
+    ]
+
+
+def _exact_run_position(body: str, command: str) -> int:
+    matches = list(
+        re.finditer(
+            rf"(?m)^[ \t]+run:[ \t]*{re.escape(command)}[ \t]*$",
+            body,
+        )
+    )
+    assert len(matches) == 1, f"expected exactly one workflow run: {command}"
+    return matches[0].start()
+
+
+def _shell_invocations(script: str, basename: str) -> list[str]:
+    return [
+        match.group(0).strip()
+        for match in re.finditer(
+            rf"(?m)^[ \t]*bash[^\n]*{re.escape(basename)}[^\n]*$",
+            script,
+        )
+    ]
+
+
+def _exact_shell_position(script: str, command: str) -> int:
+    matches = list(
+        re.finditer(
+            rf"(?m)^[ \t]*{re.escape(command)}[ \t]*$",
+            script,
+        )
+    )
+    assert len(matches) == 1, f"expected exactly one shell command: {command}"
+    return matches[0].start()
+
+
+def _assert_ha_matrix_job_contract(workflow: str) -> None:
+    assert re.search(r"(?m)^defaults:\s*$", workflow) is None
+    workflow_lowered = workflow.lower()
+    for forbidden in (
+        "theaussiepom/zigbeelens-hacs",
+        "zigbeelens_source_repository",
+        "zigbeelens_source_commit",
+    ):
+        assert forbidden not in workflow_lowered
+
+    body = _job_body(workflow, HA_MATRIX_JOB_NAME)
+    assert re.search(r"(?m)^    timeout-minutes:\s*30\s*$", body)
+    assert re.findall(
+        r"(?m)^\s+- lane:\s*(\S+)\s*\n"
+        r"\s+homeassistant:\s*[\"']([^\"']+)[\"']\s*\n"
+        r"\s+python:\s*[\"']([^\"']+)[\"']\s*$",
+        body,
+    ) == [
+        ("minimum", "2025.1.0", "3.12"),
+        ("current", "2026.7.3", "3.14"),
+    ]
+
+    commands = _single_line_run_commands(body)
+    assert commands == [
+        HACS_PACKAGE_COMMAND,
+        HACS_VALIDATE_COMMAND,
+        STAGED_HA_MATRIX_COMMAND,
+    ]
+    assert [
+        command
+        for command in commands
+        if "package-hacs-repo.sh" in command
+    ] == [HACS_PACKAGE_COMMAND]
+    assert [
+        command
+        for command in commands
+        if "validate-hacs-repo.sh" in command
+    ] == [HACS_VALIDATE_COMMAND]
+    assert [
+        command
+        for command in commands
+        if "test-ha-integration-matrix.sh" in command
+    ] == [STAGED_HA_MATRIX_COMMAND]
+    assert SOURCE_HA_MATRIX_COMMAND not in body
+
+    package = _exact_run_position(body, HACS_PACKAGE_COMMAND)
+    validate = _exact_run_position(body, HACS_VALIDATE_COMMAND)
+    matrix = _exact_run_position(body, STAGED_HA_MATRIX_COMMAND)
+    assert package < validate < matrix
+    assert "dist/zigbeelens-hacs" not in body[:package]
+
+    for setup in (
+        "uses: actions/setup-python@v5",
+        "uses: actions/setup-node@v4",
+    ):
+        assert body.count(setup) == 1
+        assert body.index(setup) < package
+    assert body.count("uses: actions/checkout@v4") == 1
+    assert body.count("python-version: ${{ matrix.python }}") == 1
+    assert body.count("node-version: 22") == 1
+    assert body.count("ZIGBEELENS_HA_TEST_PYTHON: python") == 1
+
+    lowered = body.lower()
+    for forbidden in (
+        "continue-on-error:",
+        "--skip-matrix",
+        "|| true",
+        "if: false",
+        "if: ${{ false }}",
+        "run: true",
+        "run: echo",
+        "artifact",
+        "git clone",
+        "gh repo clone",
+        "apps/ha_integration/custom_components",
+    ):
+        assert forbidden not in lowered, (
+            f"Home Assistant matrix job contains weakening: {forbidden}"
+        )
+    assert re.search(
+        r"(?m)^\s+(?:defaults|exclude|if|needs|repository|ref|shell):\s*",
+        body,
+    ) is None
+    assert re.search(
+        r"(?i)https?://github\.com/[^\s\"']*/zigbeelens-hacs",
+        body,
+    ) is None
+
+
+def _assert_canonical_ha_validator_contract(script: str) -> None:
+    assert script.count("set -euo pipefail") == 1
+    assert re.findall(
+        r"(?m)^[ \t]*set[ \t]+[^\n]+$",
+        script,
+    ) == ["set -euo pipefail"]
+    assert _shell_invocations(script, "package-hacs-repo.sh") == [
+        LOCAL_HACS_PACKAGE_COMMAND
+    ]
+    assert _shell_invocations(script, "validate-hacs-repo.sh") == [
+        LOCAL_HACS_VALIDATE_COMMAND
+    ]
+    assert _shell_invocations(script, "test-ha-integration-matrix.sh") == [
+        LOCAL_STAGED_HA_MATRIX_COMMAND
+    ]
+    assert re.search(
+        rf"(?m)^[ \t]*{re.escape(LOCAL_SOURCE_HA_MATRIX_COMMAND)}[ \t]*$",
+        script,
+    ) is None
+
+    package = _exact_shell_position(script, LOCAL_HACS_PACKAGE_COMMAND)
+    validate = _exact_shell_position(script, LOCAL_HACS_VALIDATE_COMMAND)
+    matrix = _exact_shell_position(script, LOCAL_STAGED_HA_MATRIX_COMMAND)
+    assert package < validate < matrix
+    assert "dist/zigbeelens-hacs" not in script[:package]
+
+    assert script.count(
+        'if [[ "${1:-}" == "--skip-matrix" ]]; then'
+    ) == 1
+    assert script.count("SKIP_MATRIX=1") == 1
+    assert script.count('if [[ "${SKIP_MATRIX}" -eq 0 ]]; then') == 1
+    matrix_gate = re.search(
+        r'(?ms)^if \[\[ "\${SKIP_MATRIX}" -eq 0 \]\]; then[ \t]*\n'
+        r"(?P<execute>.*?)^else[ \t]*\n"
+        r"(?P<skip>.*?)^fi[ \t]*$",
+        script,
+    )
+    assert matrix_gate is not None
+    assert package < validate < matrix_gate.start() < matrix
+    assert LOCAL_STAGED_HA_MATRIX_COMMAND in matrix_gate.group("execute")
+    assert LOCAL_STAGED_HA_MATRIX_COMMAND not in matrix_gate.group("skip")
+    assert (
+        "Exact Home Assistant integration matrix is owned by separate CI jobs"
+        in matrix_gate.group("skip")
+    )
+
+    lowered = script.lower()
+    for forbidden in (
+        "|| true",
+        "git clone",
+        "gh repo clone",
+        "theaussiepom/zigbeelens-hacs",
+        "zigbeelens_source_repository",
+        "zigbeelens_source_commit",
+    ):
+        assert forbidden not in lowered, (
+            f"canonical Home Assistant validator contains weakening: {forbidden}"
+        )
+    assert re.search(
+        r"(?i)https?://github\.com/[^\s\"']*/zigbeelens-hacs",
+        script,
+    ) is None
+
+
+def _assert_downstream_matrix_dependencies(
+    ci_workflow: str,
+    release_workflow: str,
+) -> None:
+    packaging = _job_body(ci_workflow, "packaging")
+    assert re.search(
+        r"(?ms)^    needs:\s*\[[^\]]*\bha-integration-matrix\b[^\]]*\]",
+        packaging,
+    )
+    release_gate = _job_body(release_workflow, "release-gate")
+    assert re.search(
+        r"(?m)^    needs:\s*\[[^\]]*\bha-integration-matrix\b"
+        r"[^\]]*\benrichment-live-e2e\b[^\]]*\]\s*$",
+        release_gate,
+    )
+
+
+def _mutate_ha_matrix_job(workflow: str, old: str, new: str) -> str:
+    body = _job_body(workflow, HA_MATRIX_JOB_NAME)
+    assert old in body
+    weakened = body.replace(old, new, 1)
+    assert weakened != body
+    return workflow.replace(body, weakened, 1)
+
+
+def _swap_once(text: str, first: str, second: str) -> str:
+    assert text.count(first) == 1
+    assert text.count(second) == 1
+    sentinel = "__ZIGBEELENS_CONTRACT_SWAP__"
+    assert sentinel not in text
+    return (
+        text.replace(first, sentinel, 1)
+        .replace(second, first, 1)
+        .replace(sentinel, second, 1)
+    )
 
 
 def _copy_file(source: Path, destination: Path) -> None:
@@ -636,39 +905,17 @@ def test_generated_release_infrastructure_is_sealed(tmp_path: Path):
 
 
 def test_monorepo_release_paths_own_exact_ha_matrix_and_structure() -> None:
-    expected_lanes = [
-        ("minimum", "2025.1.0", "3.12"),
-        ("current", "2026.7.3", "3.14"),
-    ]
-    for workflow_name in ("ci.yml", "release-check.yml"):
-        workflow = (
-            ROOT / ".github" / "workflows" / workflow_name
-        ).read_text(encoding="utf-8")
-        assert re.findall(
-            r"(?m)^\s+- lane:\s*(\S+)\s*\n"
-            r"\s+homeassistant:\s*[\"']([^\"']+)[\"']\s*\n"
-            r"\s+python:\s*[\"']([^\"']+)[\"']\s*$",
-            workflow,
-        ) == expected_lanes
-        assert (
-            'bash scripts/test-ha-integration-matrix.sh "${{ matrix.lane }}"'
-            in workflow
-        )
+    for workflow_path in (CI_WORKFLOW, RELEASE_WORKFLOW):
+        workflow = workflow_path.read_text(encoding="utf-8")
+        _assert_ha_matrix_job_contract(workflow)
         assert "bash scripts/validate-ha-integration.sh --skip-matrix" in workflow
+    _assert_canonical_ha_validator_contract(
+        HA_VALIDATOR.read_text(encoding="utf-8")
+    )
 
-    ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    assert re.search(
-        r"needs:\s*\[[^\]]*\bha-integration-matrix\b[^\]]*\]",
-        ci,
-    )
-    release_check = (
-        ROOT / ".github/workflows/release-check.yml"
-    ).read_text(encoding="utf-8")
-    assert re.search(
-        r"needs:\s*\[[^\]]*\bha-integration-matrix\b"
-        r"[^\]]*\benrichment-live-e2e\b[^\]]*\]",
-        release_check,
-    )
+    ci = CI_WORKFLOW.read_text(encoding="utf-8")
+    release_check = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    _assert_downstream_matrix_dependencies(ci, release_check)
 
     helper = (
         ROOT / "scripts" / "run-release-checks.sh"
@@ -683,6 +930,224 @@ def test_monorepo_release_paths_own_exact_ha_matrix_and_structure() -> None:
     package = helper.index("bash scripts/package-hacs-repo.sh")
     assert structural < matrix < live < package
     assert "pnpm --filter @zigbeelens/shared typecheck" in helper
+
+
+@pytest.mark.parametrize("workflow_path", (CI_WORKFLOW, RELEASE_WORKFLOW))
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        (HACS_PACKAGE_COMMAND, "true"),
+        (HACS_VALIDATE_COMMAND, "true"),
+        (STAGED_HA_MATRIX_COMMAND, SOURCE_HA_MATRIX_COMMAND),
+        (
+            STAGED_HA_MATRIX_COMMAND,
+            (
+                "bash dist/zigbeelens-hacs/scripts/"
+                "test-ha-integration-matrix.sh minimum"
+            ),
+        ),
+        (HACS_PACKAGE_COMMAND, f"{HACS_PACKAGE_COMMAND} || true"),
+        (HACS_VALIDATE_COMMAND, f"{HACS_VALIDATE_COMMAND} || true"),
+        (
+            STAGED_HA_MATRIX_COMMAND,
+            f"{STAGED_HA_MATRIX_COMMAND} || true",
+        ),
+        (
+            HACS_PACKAGE_COMMAND,
+            "test -f dist/zigbeelens-hacs/SOURCE_COMMIT",
+        ),
+        (
+            "uses: actions/checkout@v4",
+            (
+                "uses: actions/checkout@v4\n"
+                "        with:\n"
+                "          repository: theaussiepom/zigbeelens-hacs"
+            ),
+        ),
+        (
+            "uses: actions/checkout@v4",
+            "uses: actions/checkout@v4\n        if: false",
+        ),
+        (
+            "timeout-minutes: 30",
+            (
+                "timeout-minutes: 30\n"
+                "    defaults:\n"
+                "      run:\n"
+                "        shell: bash {0}; exit 0"
+            ),
+        ),
+        (
+            "timeout-minutes: 30",
+            (
+                "timeout-minutes: 30\n"
+                "    env:\n"
+                "      ZIGBEELENS_SOURCE_REPOSITORY: "
+                "theaussiepom/zigbeelens-hacs"
+            ),
+        ),
+    ),
+)
+def test_ha_matrix_job_contract_rejects_adversarial_weakening(
+    workflow_path: Path,
+    old: str,
+    new: str,
+) -> None:
+    workflow = workflow_path.read_text(encoding="utf-8")
+    weakened = _mutate_ha_matrix_job(workflow, old, new)
+    with pytest.raises(AssertionError):
+        _assert_ha_matrix_job_contract(weakened)
+
+
+@pytest.mark.parametrize("workflow_path", (CI_WORKFLOW, RELEASE_WORKFLOW))
+def test_ha_matrix_job_contract_rejects_global_success_shell(
+    workflow_path: Path,
+) -> None:
+    workflow = workflow_path.read_text(encoding="utf-8")
+    weakened = (
+        "defaults:\n"
+        "  run:\n"
+        "    shell: bash {0}; exit 0\n"
+        f"{workflow}"
+    )
+    with pytest.raises(AssertionError):
+        _assert_ha_matrix_job_contract(weakened)
+
+
+@pytest.mark.parametrize("workflow_path", (CI_WORKFLOW, RELEASE_WORKFLOW))
+def test_ha_matrix_job_contract_rejects_matrix_before_validation(
+    workflow_path: Path,
+) -> None:
+    workflow = workflow_path.read_text(encoding="utf-8")
+    body = _job_body(workflow, HA_MATRIX_JOB_NAME)
+    weakened_body = _swap_once(
+        body,
+        HACS_VALIDATE_COMMAND,
+        STAGED_HA_MATRIX_COMMAND,
+    )
+    weakened = workflow.replace(body, weakened_body, 1)
+    with pytest.raises(AssertionError):
+        _assert_ha_matrix_job_contract(weakened)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        (LOCAL_HACS_PACKAGE_COMMAND, "true"),
+        (LOCAL_HACS_VALIDATE_COMMAND, "true"),
+        (
+            LOCAL_STAGED_HA_MATRIX_COMMAND,
+            LOCAL_SOURCE_HA_MATRIX_COMMAND,
+        ),
+        (
+            LOCAL_STAGED_HA_MATRIX_COMMAND,
+            f"{LOCAL_STAGED_HA_MATRIX_COMMAND} minimum",
+        ),
+        (
+            LOCAL_HACS_PACKAGE_COMMAND,
+            f"{LOCAL_HACS_PACKAGE_COMMAND} || true",
+        ),
+        (
+            LOCAL_HACS_VALIDATE_COMMAND,
+            f"{LOCAL_HACS_VALIDATE_COMMAND} || true",
+        ),
+        (
+            LOCAL_STAGED_HA_MATRIX_COMMAND,
+            f"{LOCAL_STAGED_HA_MATRIX_COMMAND} || true",
+        ),
+        (
+            LOCAL_HACS_PACKAGE_COMMAND,
+            'test -f "${ROOT}/dist/zigbeelens-hacs/SOURCE_COMMIT"',
+        ),
+        (
+            "set -euo pipefail",
+            (
+                "set -euo pipefail\n"
+                "git clone "
+                "https://github.com/theaussiepom/zigbeelens-hacs"
+            ),
+        ),
+        (
+            "set -euo pipefail",
+            "set -euo pipefail\nset +e",
+        ),
+        (
+            'if [[ "${SKIP_MATRIX}" -eq 0 ]]; then',
+            'if [[ "${SKIP_MATRIX}" -eq 1 ]]; then',
+        ),
+    ),
+)
+def test_canonical_ha_validator_rejects_adversarial_weakening(
+    old: str,
+    new: str,
+) -> None:
+    validator = HA_VALIDATOR.read_text(encoding="utf-8")
+    assert old in validator
+    weakened = validator.replace(old, new, 1)
+    with pytest.raises(AssertionError):
+        _assert_canonical_ha_validator_contract(weakened)
+
+
+def test_canonical_ha_validator_rejects_matrix_before_validation() -> None:
+    validator = HA_VALIDATOR.read_text(encoding="utf-8")
+    weakened = _swap_once(
+        validator,
+        LOCAL_HACS_VALIDATE_COMMAND,
+        LOCAL_STAGED_HA_MATRIX_COMMAND,
+    )
+    with pytest.raises(AssertionError):
+        _assert_canonical_ha_validator_contract(weakened)
+
+
+def test_canonical_ha_validator_rejects_packaging_inside_matrix_gate() -> None:
+    validator = HA_VALIDATOR.read_text(encoding="utf-8")
+    weakened = validator.replace(
+        f"{LOCAL_HACS_PACKAGE_COMMAND}\n",
+        "",
+        1,
+    ).replace(
+        f"{LOCAL_HACS_VALIDATE_COMMAND}\n",
+        "",
+        1,
+    )
+    gate = 'if [[ "${SKIP_MATRIX}" -eq 0 ]]; then'
+    weakened = weakened.replace(
+        gate,
+        (
+            f"{gate}\n"
+            f"  {LOCAL_HACS_PACKAGE_COMMAND}\n"
+            f"  {LOCAL_HACS_VALIDATE_COMMAND}"
+        ),
+        1,
+    )
+    with pytest.raises(AssertionError):
+        _assert_canonical_ha_validator_contract(weakened)
+
+
+@pytest.mark.parametrize(
+    ("workflow_path", "job_name"),
+    (
+        (CI_WORKFLOW, "packaging"),
+        (RELEASE_WORKFLOW, "release-gate"),
+    ),
+)
+def test_downstream_job_contract_rejects_missing_matrix_dependency(
+    workflow_path: Path,
+    job_name: str,
+) -> None:
+    ci = CI_WORKFLOW.read_text(encoding="utf-8")
+    release = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    workflow = ci if workflow_path == CI_WORKFLOW else release
+    body = _job_body(workflow, job_name)
+    weakened_body = body.replace("ha-integration-matrix", "matrix-decoy", 1)
+    assert weakened_body != body
+    weakened = workflow.replace(body, weakened_body, 1)
+
+    with pytest.raises(AssertionError):
+        _assert_downstream_matrix_dependencies(
+            weakened if workflow_path == CI_WORKFLOW else ci,
+            weakened if workflow_path == RELEASE_WORKFLOW else release,
+        )
 
 
 def test_package_validator_rejects_missing_single_config_entry(

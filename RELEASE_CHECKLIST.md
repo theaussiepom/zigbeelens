@@ -39,12 +39,12 @@ These checks validate source/package shape only. Passing them does **not**
 establish publication readiness or replace the artifact-specific live gates
 below.
 
-- [ ] HA integration source validates (`./scripts/validate-ha-integration.sh`)
+- [ ] Generated HACS integration validates (`./scripts/validate-ha-integration.sh`)
 - [ ] Exact HA minimum lane passes
-      (`bash scripts/test-ha-integration-matrix.sh minimum`:
+      (`bash dist/zigbeelens-hacs/scripts/test-ha-integration-matrix.sh minimum`:
       Home Assistant `2025.1.0`, Python `3.12`)
 - [ ] Exact HA current lane passes
-      (`bash scripts/test-ha-integration-matrix.sh current`:
+      (`bash dist/zigbeelens-hacs/scripts/test-ha-integration-matrix.sh current`:
       Home Assistant `2026.7.3`, Python `3.14`)
 - [ ] Live enrichment convergence passes
       (`./scripts/test-enrichment-live-e2e.sh`: official HA registry →

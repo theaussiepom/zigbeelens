@@ -35,10 +35,16 @@ jobs:
         with:
           node-version: 22
 
+      - name: Package exact HACS stage
+        run: bash scripts/package-hacs-repo.sh
+
+      - name: Validate exact HACS stage
+        run: bash dist/zigbeelens-hacs/scripts/validate-hacs-repo.sh
+
       - name: Run the exact Home Assistant compatibility lane
         env:
           ZIGBEELENS_HA_TEST_PYTHON: python
-        run: bash scripts/test-ha-integration-matrix.sh "${{ matrix.lane }}"
+        run: bash dist/zigbeelens-hacs/scripts/test-ha-integration-matrix.sh "${{ matrix.lane }}"
 
   enrichment-live-e2e:
     name: Live HA enrichment convergence / Python 3.12

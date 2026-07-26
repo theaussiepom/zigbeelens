@@ -108,8 +108,6 @@ pnpm --filter @zigbeelens/ui typecheck
 pnpm --filter @zigbeelens/ui lint
 pnpm --filter @zigbeelens/ui build
 ./scripts/validate-ha-integration.sh
-bash scripts/test-ha-integration-matrix.sh minimum
-bash scripts/test-ha-integration-matrix.sh current
 ./scripts/validate-addon.sh
 ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 ./scripts/validate-compose.sh
 ./scripts/package-hacs-repo.sh
