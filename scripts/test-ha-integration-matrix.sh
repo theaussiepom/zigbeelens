@@ -183,6 +183,9 @@ if totals != {"tests": 3, "failures": 0, "errors": 0, "skipped": 0}:
 print("Required real-scheduler tests confirmed: 3 passed, 0 skipped")
 PY
 
+  PYTHONASYNCIODEBUG=1 \
+  ZIGBEELENS_HA_TEST_COMPONENTS="${SCHEDULER_COMPONENTS}" \
+  ZIGBEELENS_HA_TEST_SOURCE_COMMIT="${SCHEDULER_SOURCE_COMMIT}" \
   "${venv}/bin/python" -m pytest -q "${HA_DIR}"
 }
 

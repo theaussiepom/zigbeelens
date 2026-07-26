@@ -23,7 +23,12 @@ const panelPath = path.join(
   "panel",
   "zigbeelens-panel.js"
 );
-const vectorsPath = path.join(
+const stagedVectorsPath = path.join(
+  __dirname,
+  "fixtures",
+  "http_origin_vectors.json"
+);
+const sourceVectorsPath = path.join(
   __dirname,
   "..",
   "..",
@@ -32,6 +37,9 @@ const vectorsPath = path.join(
   "fixtures",
   "http_origin_vectors.json"
 );
+const vectorsPath = fs.existsSync(stagedVectorsPath)
+  ? stagedVectorsPath
+  : sourceVectorsPath;
 
 const { canonicalizeCoreOrigin } = require(panelPath);
 const vectors = JSON.parse(fs.readFileSync(vectorsPath, "utf8"));
