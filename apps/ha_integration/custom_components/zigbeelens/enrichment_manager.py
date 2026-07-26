@@ -350,16 +350,24 @@ class HomeAssistantEnrichmentManager:
         delay: float,
         action: Callable[[], None],
     ) -> CancelCallback:
-        return async_call_later(self._hass, delay, lambda _now: action())
+        @callback
+        def run_action(_now: datetime) -> None:
+            action()
+
+        return async_call_later(self._hass, delay, run_action)
 
     def _default_interval_scheduler(
         self,
         interval: timedelta,
         action: Callable[[], None],
     ) -> CancelCallback:
+        @callback
+        def run_action(_now: datetime) -> None:
+            action()
+
         return async_track_time_interval(
             self._hass,
-            lambda _now: action(),
+            run_action,
             interval,
         )
 

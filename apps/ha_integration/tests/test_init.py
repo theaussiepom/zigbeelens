@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from homeassistant.components.sensor import SensorEntityDescription
+from homeassistant.core import is_callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 
 from zigbeelens import (
@@ -357,6 +358,7 @@ async def test_coordinator_listener_requests_enrichment_and_repairs_synchronousl
     ) as repairs:
         assert await async_setup_entry(hass, entry) is True
         assert len(listeners) == 1
+        assert is_callback(listeners[0])
         result = listeners[0]()
 
     assert result is None

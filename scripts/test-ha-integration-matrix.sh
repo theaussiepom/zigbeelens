@@ -15,16 +15,83 @@ fi
 
 MATRIX="${HA_DIR}/ha-test-matrix.json"
 LANE="${1:-all}"
-
-if [[ "${LANE}" != "all" && "${LANE}" != "minimum" && "${LANE}" != "current" ]]; then
-  echo "Usage: $0 [all|minimum|current]" >&2
-  exit 2
-fi
-
 MATRIX_READER="${ZIGBEELENS_HA_MATRIX_READER:-python3}"
 if ! command -v "${MATRIX_READER}" >/dev/null 2>&1; then
   echo "FAIL: matrix reader not found: ${MATRIX_READER}" >&2
   exit 1
+fi
+
+if [[ -f "${ROOT}/SOURCE_COMMIT" ]]; then
+  SCHEDULER_STAGE_ROOT="${ROOT}"
+  SCHEDULER_SOURCE_COMMIT="$(tr -d '[:space:]' < "${ROOT}/SOURCE_COMMIT")"
+else
+  SCHEDULER_STAGE_ROOT="${ROOT}/dist/zigbeelens-hacs"
+  if [[ ! -f "${SCHEDULER_STAGE_ROOT}/SOURCE_COMMIT" ]]; then
+    echo "FAIL: package and validate dist/zigbeelens-hacs before the exact scheduler matrix" >&2
+    exit 1
+  fi
+  SCHEDULER_SOURCE_COMMIT="$(git -C "${ROOT}" rev-parse HEAD)"
+  if [[ "$(tr -d '[:space:]' < "${SCHEDULER_STAGE_ROOT}/SOURCE_COMMIT")" != "${SCHEDULER_SOURCE_COMMIT}" ]]; then
+    echo "FAIL: staged scheduler integration provenance does not equal HEAD" >&2
+    exit 1
+  fi
+fi
+SCHEDULER_COMPONENTS="${SCHEDULER_STAGE_ROOT}/custom_components"
+SCHEDULER_MANIFEST="${SCHEDULER_COMPONENTS}/zigbeelens/manifest.json"
+if [[ ! -f "${SCHEDULER_MANIFEST}" ]]; then
+  echo "FAIL: staged scheduler integration is missing its manifest" >&2
+  exit 1
+fi
+"${MATRIX_READER}" - \
+  "${SCHEDULER_STAGE_ROOT}/SOURCE_COMMIT" \
+  "${SCHEDULER_MANIFEST}" \
+  "${SCHEDULER_SOURCE_COMMIT}" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+source_commit_path = Path(sys.argv[1])
+manifest_path = Path(sys.argv[2])
+selected_commit = sys.argv[3]
+source_commit_raw = source_commit_path.read_text(encoding="utf-8")
+if re.fullmatch(r"[0-9a-f]{40}\n", source_commit_raw) is None:
+    raise SystemExit(
+        "FAIL: staged scheduler SOURCE_COMMIT must be one normalized commit"
+    )
+source_commit = source_commit_raw[:-1]
+if source_commit != selected_commit:
+    raise SystemExit(
+        "FAIL: staged scheduler SOURCE_COMMIT does not equal the selected commit"
+    )
+
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+documentation = manifest.get("documentation")
+match = (
+    re.fullmatch(
+        r"https://github\.com/[^/\s]+/[^/\s]+/blob/"
+        r"(?P<commit>[0-9a-f]{40})/docs/hacs\.md",
+        documentation,
+    )
+    if isinstance(documentation, str)
+    else None
+)
+if match is None or match.group("commit") != source_commit:
+    raise SystemExit(
+        "FAIL: staged scheduler SOURCE_COMMIT does not match "
+        "manifest documentation"
+    )
+PY
+
+REQUIRED_SCHEDULER_TESTS=(
+  "${HA_DIR}/tests/test_enrichment_scheduler_runtime.py::test_default_debounce_registry_event_runs_on_hass_loop_and_stops_cleanly"
+  "${HA_DIR}/tests/test_enrichment_scheduler_runtime.py::test_default_retry_runs_on_hass_loop_and_stop_cancels_pending_retry"
+  "${HA_DIR}/tests/test_enrichment_scheduler_runtime.py::test_default_periodic_reconciliation_runs_on_hass_loop_without_overlap_and_stops"
+)
+
+if [[ "${LANE}" != "all" && "${LANE}" != "minimum" && "${LANE}" != "current" ]]; then
+  echo "Usage: $0 [all|minimum|current]" >&2
+  exit 2
 fi
 
 if [[ -n "${ZIGBEELENS_HA_MATRIX_STATE_DIR:-}" ]]; then
@@ -83,6 +150,7 @@ run_lane() {
   local expected_python
   local requirements
   local python_command
+  local required_scheduler_junit
   local actual_python
   local venv
 
@@ -129,6 +197,37 @@ if actual != expected:
 print(f"Exact Home Assistant version confirmed: {actual}")
 PY
 
+  required_scheduler_junit="${venv}/required-scheduler-tests.xml"
+  PYTHONASYNCIODEBUG=1 \
+  ZIGBEELENS_HA_TEST_COMPONENTS="${SCHEDULER_COMPONENTS}" \
+  ZIGBEELENS_HA_TEST_SOURCE_COMMIT="${SCHEDULER_SOURCE_COMMIT}" \
+  "${venv}/bin/python" -m pytest \
+    -q \
+    --junitxml="${required_scheduler_junit}" \
+    "${REQUIRED_SCHEDULER_TESTS[@]}"
+  "${venv}/bin/python" - "${required_scheduler_junit}" <<'PY'
+import sys
+from pathlib import Path
+from xml.etree import ElementTree
+
+report = Path(sys.argv[1])
+root = ElementTree.parse(report).getroot()
+suites = [root] if root.tag == "testsuite" else root.findall("testsuite")
+totals = {
+    name: sum(int(suite.attrib.get(name, "0")) for suite in suites)
+    for name in ("tests", "failures", "errors", "skipped")
+}
+if totals != {"tests": 3, "failures": 0, "errors": 0, "skipped": 0}:
+    raise SystemExit(
+        "required real-scheduler gate did not execute exactly three passing tests: "
+        f"{totals}"
+    )
+print("Required real-scheduler tests confirmed: 3 passed, 0 skipped")
+PY
+
+  PYTHONASYNCIODEBUG=1 \
+  ZIGBEELENS_HA_TEST_COMPONENTS="${SCHEDULER_COMPONENTS}" \
+  ZIGBEELENS_HA_TEST_SOURCE_COMMIT="${SCHEDULER_SOURCE_COMMIT}" \
   "${venv}/bin/python" -m pytest -q "${HA_DIR}"
 }
 

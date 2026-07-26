@@ -129,6 +129,7 @@ HACS invariants have narrow production-test owners:
 | Exact Core inventory resolution and duplicate-network behavior | `test_ha_enrichment.py` |
 | Strict request/response route and allowed-mutation architecture | `test_api_enrichment.py` |
 | Initial/event/retry/periodic reconciliation, exact builder/Core count aggregation, partial-acceptance recovery, complete-empty vs unavailable, and cleanup | `test_enrichment_manager.py` |
+| Real HA registry debounce, retry, and interval callbacks remain on `hass.loop`; production timer cancellation and no-overlap behavior | `test_enrichment_scheduler_runtime.py` in both exact matrix lanes |
 | Identity-free coverage states, immediate owner-aware repair transitions, reauth precedence, promotion, and unload safety | `test_enrichment_manager.py`, setup/repair/diagnostics tests |
 | Core version, capabilities, Decision contract/payload, enrichment contract, repairs, and panel projection states | compatibility/coordinator/repairs/panel tests |
 | Durable options and exactly one effective reload | `test_config_flow.py`, setup tests |
@@ -166,8 +167,12 @@ The exact compatibility matrix is checked in at
 
 Both requirements files use `homeassistant==...`, and
 `scripts/test-ha-integration-matrix.sh` verifies the imported version before
-running the same integration suite. Monorepo CI/release-check and generated
-HACS CI use those exact pins.
+running the same integration suite. Each lane first executes the three required
+real-scheduler regressions and rejects missing, skipped, failed, or zero
+collection before the complete suite. The canonical HA validator, each isolated
+monorepo CI/tag matrix lane, and the release helper all generate, validate, and
+run the exact matrix from the staged HACS tree. Generated HACS CI uses the same
+exact pins and regression ownership.
 
 The generated HACS `ci.yml` owns structural/provenance validation, both exact
 matrix lanes, the pinned official `home-assistant/actions/hassfest` action, and

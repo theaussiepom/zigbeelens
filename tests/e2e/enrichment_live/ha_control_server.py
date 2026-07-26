@@ -5,10 +5,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 from collections.abc import Callable
-from dataclasses import dataclass
+from datetime import timedelta
+import importlib
 from importlib.metadata import version as distribution_version
+import inspect
 import json
+import logging
 from pathlib import Path
+import re
 import signal
 import socket
 import sys
@@ -16,20 +20,20 @@ from types import SimpleNamespace
 from typing import Any
 
 from aiohttp import ClientSession, web
+from homeassistant import loader
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-COMPONENTS = REPOSITORY_ROOT / "apps" / "ha_integration" / "custom_components"
-sys.path.insert(0, str(COMPONENTS))
-
-from zigbeelens.api import ZigbeeLensApiClient  # noqa: E402
-from zigbeelens.compatibility import EnrichmentContractState  # noqa: E402
-from zigbeelens.enrichment_manager import HomeAssistantEnrichmentManager  # noqa: E402
+from homeassistant.helpers import frame
 
 IEEE = "0x00124b0024abcd01"
+INTEGRATION_VERSION = "0.1.14"
+PUBLISH_TIMEOUT_SECONDS = 5
+THREAD_SAFETY_MARKERS = (
+    "from a thread other than the event loop",
+    "non-thread-safe operation invoked on an event loop",
+)
 STATES: dict[str, tuple[str | None, str | None]] = {
     "initial": ("HA Kitchen Lamp", "kitchen"),
     "renamed": ("HA Study Lamp", "study"),
@@ -55,39 +59,69 @@ class _ManagerEntry:
         self.reauth_calls += 1
 
 
-@dataclass
-class _ScheduledAction:
-    action: Callable[[], None]
-    cancelled: bool = False
+class _ObservedApiClient:
+    """Observe completed production Core publishes without scheduling manager work."""
+
+    def __init__(self, delegate: Any, hass: HomeAssistant) -> None:
+        self._delegate = delegate
+        self._hass = hass
+        self._publish_count = 0
+        self._publish_changed = asyncio.Condition()
+
+    @property
+    def publish_count(self) -> int:
+        return self._publish_count
+
+    async def async_get_device_inventory(self) -> Any:
+        return await self._delegate.async_get_device_inventory()
+
+    async def async_publish_home_assistant_enrichment(
+        self,
+        devices: tuple[Any, ...],
+    ) -> Any:
+        if asyncio.get_running_loop() is not self._hass.loop:
+            raise RuntimeError("Core publish did not run on the Home Assistant loop")
+        result = await self._delegate.async_publish_home_assistant_enrichment(
+            devices
+        )
+        async with self._publish_changed:
+            self._publish_count += 1
+            self._publish_changed.notify_all()
+        return result
+
+    async def async_wait_for_publish_count(self, expected: int) -> None:
+        async def wait_for_count() -> None:
+            async with self._publish_changed:
+                await self._publish_changed.wait_for(
+                    lambda: self._publish_count >= expected
+                )
+
+        await asyncio.wait_for(
+            wait_for_count(),
+            timeout=PUBLISH_TIMEOUT_SECONDS,
+        )
 
 
-class _ManualDebounce:
-    """Deterministically drain the real manager's registry-event debounce."""
+class _RuntimeErrorCapture(logging.Handler):
+    """Retain error logs and thread-safety reports for a fail-closed exit."""
 
     def __init__(self) -> None:
-        self._actions: list[_ScheduledAction] = []
+        super().__init__(level=logging.WARNING)
+        self.messages: list[str] = []
 
-    def schedule(
-        self,
-        _delay: float,
-        action: Callable[[], None],
-    ) -> Callable[[], None]:
-        scheduled = _ScheduledAction(action)
-        self._actions.append(scheduled)
+    def emit(self, record: logging.LogRecord) -> None:
+        message = self.format(record)
+        lowered = message.lower()
+        if record.levelno >= logging.ERROR or any(
+            marker in lowered for marker in THREAD_SAFETY_MARKERS
+        ):
+            self.messages.append(message)
 
-        def cancel() -> None:
-            scheduled.cancelled = True
-
-        return cancel
-
-    def drain_one(self) -> None:
-        pending = [item for item in self._actions if not item.cancelled]
-        self._actions.clear()
-        if len(pending) != 1:
+    def raise_if_any(self, loop_errors: list[dict[str, Any]]) -> None:
+        if self.messages or loop_errors:
             raise RuntimeError(
-                f"expected one coalesced registry debounce, got {len(pending)}"
+                "Home Assistant logged an error or reported an event-loop exception"
             )
-        pending[0].action()
 
 
 async def _load_registries(hass: HomeAssistant) -> None:
@@ -101,6 +135,19 @@ async def _load_registries(hass: HomeAssistant) -> None:
 
 async def _serve(args: argparse.Namespace) -> None:
     args.config_dir.mkdir(parents=True, exist_ok=True)
+    expected_components = (args.config_dir / "custom_components").resolve()
+    if args.components_dir.resolve() != expected_components:
+        raise RuntimeError(
+            "Home Assistant components are not in the disposable config directory"
+        )
+    if re.fullmatch(r"[0-9a-f]{40}", args.source_commit) is None:
+        raise RuntimeError("staged source commit is invalid")
+    staged_source_commit = (args.config_dir / "SOURCE_COMMIT").read_text(
+        encoding="utf-8"
+    )
+    if staged_source_commit != f"{args.source_commit}\n":
+        raise RuntimeError("disposable integration provenance does not match")
+
     args.version_file.write_text(
         (
             f"{sys.version_info.major}.{sys.version_info.minor}|"
@@ -109,6 +156,56 @@ async def _serve(args: argparse.Namespace) -> None:
         encoding="utf-8",
     )
     hass = HomeAssistant(str(args.config_dir))
+    hass.loop.set_debug(True)
+    loader.async_setup(hass)
+    setup_frame = getattr(frame, "async_setup", None)
+    if setup_frame is not None:
+        setup_frame(hass)
+
+    runtime_errors = _RuntimeErrorCapture()
+    root_logger = logging.getLogger()
+    root_logger.addHandler(runtime_errors)
+    loop_errors: list[dict[str, Any]] = []
+    previous_exception_handler = hass.loop.get_exception_handler()
+
+    def capture_loop_error(
+        loop: asyncio.AbstractEventLoop,
+        context: dict[str, Any],
+    ) -> None:
+        loop_errors.append(dict(context))
+        if previous_exception_handler is not None:
+            previous_exception_handler(loop, context)
+        else:
+            loop.default_exception_handler(context)
+
+    hass.loop.set_exception_handler(capture_loop_error)
+
+    integration = await loader.async_get_integration(hass, "zigbeelens")
+    manager_module = importlib.import_module(
+        f"{integration.pkg_path}.enrichment_manager"
+    )
+    api_module = importlib.import_module(f"{integration.pkg_path}.api")
+    compatibility_module = importlib.import_module(
+        f"{integration.pkg_path}.compatibility"
+    )
+    HomeAssistantEnrichmentManager = (
+        manager_module.HomeAssistantEnrichmentManager
+    )
+    ZigbeeLensApiClient = api_module.ZigbeeLensApiClient
+    EnrichmentContractState = compatibility_module.EnrichmentContractState
+    loaded_component = Path(
+        inspect.getfile(HomeAssistantEnrichmentManager)
+    ).resolve().parent
+    expected_component = (args.components_dir / "zigbeelens").resolve()
+    if loaded_component != expected_component:
+        raise RuntimeError("Home Assistant loaded a non-staged integration")
+    if integration.version != INTEGRATION_VERSION:
+        raise RuntimeError("staged integration version is not 0.1.14")
+    args.provenance_file.write_text(
+        f"{args.source_commit}|{integration.version}\n",
+        encoding="utf-8",
+    )
+
     config_entry = SimpleNamespace(domain="mqtt", title="", disabled_by=None)
     hass.config_entries = SimpleNamespace(
         async_get_entry=lambda _entry_id: config_entry
@@ -136,16 +233,18 @@ async def _serve(args: argparse.Namespace) -> None:
     )
 
     session = ClientSession()
-    client = ZigbeeLensApiClient(session, args.core_url)
+    client = _ObservedApiClient(
+        ZigbeeLensApiClient(session, args.core_url),
+        hass,
+    )
     entry = _ManagerEntry()
-    debounce = _ManualDebounce()
     manager = HomeAssistantEnrichmentManager(
         hass,
         entry,
         client,
         capability_provider=lambda: EnrichmentContractState.SUPPORTED,
-        later_scheduler=debounce.schedule,
-        interval_scheduler=lambda _interval, _action: lambda: None,
+        debounce_seconds=0.1,
+        reconciliation_interval=timedelta(days=1),
     )
     manager_started = False
 
@@ -159,6 +258,7 @@ async def _serve(args: argparse.Namespace) -> None:
         if state not in STATES:
             raise web.HTTPBadRequest(text="unknown state")
         name, area_key = STATES[state]
+        expected_publish_count = client.publish_count + 1
         device = device_registry.async_update_device(
             device.id,
             name_by_user=name,
@@ -168,12 +268,14 @@ async def _serve(args: argparse.Namespace) -> None:
             await manager.async_start()
             manager_started = True
         else:
-            # The official registry update fires the real HA bus event. Drain
-            # its injected debounce queue, then wait on the manager's bounded
-            # task seam instead of sleeping or calling reconcile directly.
-            await hass.async_block_till_done()
-            debounce.drain_one()
-            await manager.async_wait_for_idle()
+            # The official registry event owns the production later scheduler
+            # and task factory. The completed Core publish is the wait seam.
+            await client.async_wait_for_publish_count(expected_publish_count)
+        runtime_errors.raise_if_any(loop_errors)
+        if client.publish_count != expected_publish_count:
+            raise web.HTTPInternalServerError(
+                text="unexpected enrichment publish count"
+            )
         diagnostics = manager.diagnostics
         if (
             diagnostics["sync_state"] != "successful"
@@ -214,18 +316,26 @@ async def _serve(args: argparse.Namespace) -> None:
     try:
         await stopped.wait()
     finally:
-        await manager.async_stop()
-        await session.close()
-        await runner.cleanup()
-        await hass.async_stop(force=True)
+        try:
+            await manager.async_stop()
+            await session.close()
+            await runner.cleanup()
+            await hass.async_stop(force=True)
+            runtime_errors.raise_if_any(loop_errors)
+        finally:
+            hass.loop.set_exception_handler(previous_exception_handler)
+            root_logger.removeHandler(runtime_errors)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--core-url", required=True)
     parser.add_argument("--config-dir", type=Path, required=True)
+    parser.add_argument("--components-dir", type=Path, required=True)
+    parser.add_argument("--source-commit", required=True)
     parser.add_argument("--url-file", type=Path, required=True)
     parser.add_argument("--version-file", type=Path, required=True)
+    parser.add_argument("--provenance-file", type=Path, required=True)
     args = parser.parse_args()
     asyncio.run(_serve(args))
 

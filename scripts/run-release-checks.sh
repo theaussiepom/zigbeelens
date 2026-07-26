@@ -74,7 +74,7 @@ echo "==> HA integration"
 bash scripts/validate-ha-integration.sh --skip-matrix
 HA_MATRIX_STATE_DIR="${RELEASE_STATE_DIR}/ha-matrix"
 ZIGBEELENS_HA_MATRIX_STATE_DIR="${HA_MATRIX_STATE_DIR}" \
-  bash scripts/test-ha-integration-matrix.sh
+  bash dist/zigbeelens-hacs/scripts/test-ha-integration-matrix.sh
 export ZIGBEELENS_HA_PYTHON="${HA_MATRIX_STATE_DIR}/minimum/bin/python"
 if [[ ! -x "${ZIGBEELENS_HA_PYTHON}" ]]; then
   echo "run-release-checks.sh: minimum HA matrix Python was not preserved" >&2
