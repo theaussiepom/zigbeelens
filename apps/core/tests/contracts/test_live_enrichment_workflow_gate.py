@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 import re
 
@@ -12,6 +13,9 @@ CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release-check.yml"
 DOCKER_WORKFLOW = ROOT / ".github" / "workflows" / "docker.yml"
 RUNNER = ROOT / "scripts" / "test-enrichment-live-e2e.sh"
+HA_CONTROL_SERVER = (
+    ROOT / "tests" / "e2e" / "enrichment_live" / "ha_control_server.py"
+)
 E2E_CONFIG = ROOT / "apps" / "ui" / "vitest.e2e.config.ts"
 E2E_ROOT = ROOT / "apps" / "ui" / "src" / "e2e"
 MINIMUM_REQUIREMENTS = (
@@ -272,6 +276,168 @@ def _assert_e2e_corpus_contract(
         assert required in combined
 
 
+def _call_attribute(call: ast.Call) -> str | None:
+    if isinstance(call.func, ast.Attribute):
+        return call.func.attr
+    if isinstance(call.func, ast.Name):
+        return call.func.id
+    return None
+
+
+def _function(tree: ast.AST, name: str) -> ast.AsyncFunctionDef:
+    matches = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == name
+    ]
+    assert len(matches) == 1, f"expected exactly one async {name} function"
+    return matches[0]
+
+
+def _class(tree: ast.AST, name: str) -> ast.ClassDef:
+    matches = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name == name
+    ]
+    assert len(matches) == 1, f"expected exactly one {name} class"
+    return matches[0]
+
+
+def _assert_live_ha_ownership_contract(runner: str, control: str) -> None:
+    package_command = 'bash "$repo_root/scripts/package-hacs-repo.sh"'
+    validate_command = (
+        'bash "$hacs_stage/scripts/validate-hacs-repo.sh"'
+    )
+    stage_assignment = (
+        'hacs_stage="$repo_root/dist/zigbeelens-hacs"'
+    )
+    staged_copy = (
+        'cp -R "$hacs_stage/custom_components" "$ha_config_dir/"'
+    )
+    disposable_assignment = (
+        'ha_components_dir="$ha_config_dir/custom_components"'
+    )
+    launch = '"$repo_root/tests/e2e/enrichment_live/ha_control_server.py"'
+
+    assert runner.count(package_command) == 1
+    assert runner.count(validate_command) == 1
+    assert runner.count(stage_assignment) == 1
+    assert runner.count(staged_copy) == 1
+    assert runner.count(disposable_assignment) == 1
+    assert runner.count("SOURCE_COMMIT") >= 1
+    assert re.search(r"\bgit\b[^\n]*\brev-parse\b[^\n]*\bHEAD\b", runner)
+    assert (
+        'if [[ "$staged_source_commit" != "$source_commit" ]]'
+        in runner
+    )
+    assert (
+        'if [[ "$ha_provenance" != "$source_commit|0.1.14" ]]'
+        in runner
+    )
+    assert package_command in runner[: runner.index(validate_command)]
+    assert validate_command in runner[: runner.index(launch)]
+    assert stage_assignment in runner[: runner.index(package_command)]
+    assert staged_copy in runner[: runner.index(launch)]
+    assert disposable_assignment in runner[: runner.index(staged_copy)]
+    for argument in (
+        "--components-dir",
+        "--source-commit",
+        "--provenance-file",
+    ):
+        assert runner.count(argument) == 1
+    assert "PYTHONASYNCIODEBUG=1" in runner
+    assert "grep -Eiq" in runner
+    for marker in (
+        "from a thread other than the event loop",
+        "non-thread-safe operation invoked on an event loop",
+        "task exception was never retrieved",
+        "exception in callback",
+    ):
+        assert marker in runner.lower()
+
+    tree = ast.parse(control)
+    manager_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and _call_attribute(node) == "HomeAssistantEnrichmentManager"
+    ]
+    assert len(manager_calls) == 1
+    manager_keywords = {
+        keyword.arg
+        for keyword in manager_calls[0].keywords
+        if keyword.arg is not None
+    }
+    assert {"debounce_seconds", "reconciliation_interval"} <= manager_keywords
+    assert {
+        "later_scheduler",
+        "interval_scheduler",
+        "task_factory",
+    }.isdisjoint(manager_keywords)
+
+    calls = [
+        node for node in ast.walk(tree) if isinstance(node, ast.Call)
+    ]
+    call_attributes = {
+        attribute
+        for node in calls
+        if (attribute := _call_attribute(node)) is not None
+    }
+    assert "async_update_device" in call_attributes
+    assert "async_reconcile" not in call_attributes
+    assert "drain_one" not in call_attributes
+    assert "async_wait_for_idle" not in call_attributes
+    assert "sleep" not in call_attributes
+
+    apply_state = _function(tree, "apply_state")
+    apply_awaits = [
+        node for node in ast.walk(apply_state) if isinstance(node, ast.Await)
+    ]
+    assert any(
+        "publish" in ast.unparse(node.value).lower()
+        for node in apply_awaits
+    ), "apply_state must wait on publish observation"
+    observed_client = _class(tree, "_ObservedApiClient")
+    assert any(
+        isinstance(node, ast.Call)
+        and _call_attribute(node) in {"Condition", "Event"}
+        for node in ast.walk(observed_client)
+    ), "publish observation must be event-driven"
+
+    assert any(
+        _call_attribute(node) == "set_debug"
+        and len(node.args) == 1
+        and isinstance(node.args[0], ast.Constant)
+        and node.args[0].value is True
+        for node in calls
+    ), "the disposable HA loop must enable asyncio debug"
+    assert "THREAD_SAFETY_MARKERS" in control
+    assert "_RuntimeErrorCapture" in control
+    assert "from a thread other than the event loop" in control.lower()
+    assert "non-thread-safe operation" in control.lower()
+    assert sum(
+        _call_attribute(node) == "set_exception_handler"
+        for node in calls
+    ) == 2
+    assert "addHandler" in call_attributes
+    assert sum(
+        _call_attribute(node) == "raise_if_any"
+        for node in calls
+    ) >= 2
+
+    assert "apps/ha_integration/custom_components" not in control
+    for argument in (
+        "--components-dir",
+        "--source-commit",
+        "--provenance-file",
+    ):
+        assert argument in control
+    assert "SOURCE_COMMIT" in control
+    assert "inspect.getfile" in control
+    assert "0.1.14" in control
+
+
 @pytest.mark.parametrize("workflow_path", (CI_WORKFLOW, RELEASE_WORKFLOW))
 def test_monorepo_workflows_run_exact_live_enrichment_gate(
     workflow_path: Path,
@@ -425,7 +591,9 @@ def test_release_helper_orders_live_gate_before_hacs_packaging() -> None:
     structural = helper.index(
         "bash scripts/validate-ha-integration.sh --skip-matrix"
     )
-    matrix = helper.index("bash scripts/test-ha-integration-matrix.sh")
+    matrix = helper.index(
+        "bash dist/zigbeelens-hacs/scripts/test-ha-integration-matrix.sh"
+    )
     live = helper.index(CANONICAL_COMMAND)
     package = helper.index("bash scripts/package-hacs-repo.sh")
     assert structural < matrix < live < package
@@ -442,6 +610,134 @@ def test_live_e2e_runner_and_corpus_fail_closed() -> None:
         sources,
         MINIMUM_REQUIREMENTS.read_text(encoding="utf-8"),
     )
+
+
+def test_live_e2e_uses_staged_production_scheduler_ownership() -> None:
+    _assert_live_ha_ownership_contract(
+        RUNNER.read_text(encoding="utf-8"),
+        HA_CONTROL_SERVER.read_text(encoding="utf-8"),
+    )
+
+
+def test_live_ha_contract_rejects_source_or_unproven_integration() -> None:
+    runner = RUNNER.read_text(encoding="utf-8")
+    control = HA_CONTROL_SERVER.read_text(encoding="utf-8")
+    mutations = (
+        (
+            'bash "$repo_root/scripts/package-hacs-repo.sh"',
+            'bash "$repo_root/scripts/validate-ha-integration.sh"',
+        ),
+        (
+            'bash "$hacs_stage/scripts/validate-hacs-repo.sh"',
+            'bash "$repo_root/scripts/validate-ha-integration.sh"',
+        ),
+        (
+            'hacs_stage="$repo_root/dist/zigbeelens-hacs"',
+            'hacs_stage="$repo_root/apps/ha_integration"',
+        ),
+        (
+            'cp -R "$hacs_stage/custom_components" "$ha_config_dir/"',
+            'cp -R "$repo_root/apps/ha_integration/custom_components" '
+            '"$ha_config_dir/"',
+        ),
+        (
+            'if [[ "$staged_source_commit" != "$source_commit" ]]',
+            'if [[ "$staged_source_commit" == "$source_commit" ]]',
+        ),
+        ("SOURCE_COMMIT", "UNVERIFIED_COMMIT"),
+        ("--components-dir", "--source-components-dir"),
+        ("--source-commit", "--unverified-source-commit"),
+        ("--provenance-file", "--unverified-provenance-file"),
+    )
+    for old, new in mutations:
+        assert old in runner
+        weakened = runner.replace(old, new)
+        with pytest.raises(AssertionError):
+            _assert_live_ha_ownership_contract(weakened, control)
+
+
+def test_live_ha_contract_rejects_scheduler_path_masking() -> None:
+    runner = RUNNER.read_text(encoding="utf-8")
+    control = HA_CONTROL_SERVER.read_text(encoding="utf-8")
+    debounce = re.search(
+        r"(?m)^(?P<indent>\s*)debounce_seconds\s*=\s*[^,\n]+,\s*$",
+        control,
+    )
+    assert debounce is not None
+
+    for keyword in (
+        "later_scheduler",
+        "interval_scheduler",
+        "task_factory",
+    ):
+        injected = (
+            f"\n{debounce.group('indent')}{keyword}="
+            "lambda *_args: None,"
+        )
+        weakened = (
+            control[: debounce.end()]
+            + injected
+            + control[debounce.end() :]
+        )
+        with pytest.raises(AssertionError):
+            _assert_live_ha_ownership_contract(runner, weakened)
+
+    mutations = (
+        (
+            ".async_update_device(",
+            ".async_get_device(",
+        ),
+        (
+            "await client.async_wait_for_publish_count(",
+            "await manager.async_wait_for_idle(",
+        ),
+        (
+            "asyncio.Condition(",
+            "asyncio.Lock(",
+        ),
+    )
+    for old, new in mutations:
+        assert old in control
+        weakened = control.replace(old, new, 1)
+        with pytest.raises(AssertionError):
+            _assert_live_ha_ownership_contract(runner, weakened)
+
+
+def test_live_ha_contract_rejects_disabled_runtime_detection() -> None:
+    runner = RUNNER.read_text(encoding="utf-8")
+    control = HA_CONTROL_SERVER.read_text(encoding="utf-8")
+
+    assert "PYTHONASYNCIODEBUG=1" in runner
+    with pytest.raises(AssertionError):
+        _assert_live_ha_ownership_contract(
+            runner.replace("PYTHONASYNCIODEBUG=1", "PYTHONASYNCIODEBUG=0", 1),
+            control,
+        )
+    with pytest.raises(AssertionError):
+        _assert_live_ha_ownership_contract(
+            runner.replace("grep -Eiq", "grep -Eivq", 1),
+            control,
+        )
+
+    mutations = (
+        ("set_debug(True)", "set_debug(False)"),
+        ("set_exception_handler(", "call_exception_handler("),
+        (".addHandler(", ".addFilter("),
+        (
+            "from a thread other than the event loop",
+            "ignored off-loop scheduler call",
+        ),
+        (
+            "non-thread-safe operation",
+            "ignored unsafe operation",
+        ),
+        (".raise_if_any(", ".ignore_any("),
+    )
+    for old, new in mutations:
+        assert old in control
+        weakened = control.replace(old, new)
+        with pytest.raises(AssertionError):
+            _assert_live_ha_ownership_contract(runner, weakened)
 
 
 @pytest.mark.parametrize(
