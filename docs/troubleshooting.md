@@ -79,6 +79,13 @@ If two devices share a name within one network, use IEEE address in the UI and r
 - Mock mode — switch to live or select a scenario with incidents
 - Recent instability may still be in "watching" state
 
+![Incident detail showing status, affected scope, evidence, interpretation, and explicit limitations](screenshots/incidents-page.png)
+
+Illustrative synthetic release-candidate data. An Incident keeps status,
+affected scope, supporting evidence, counter-evidence, and limitations visible
+together. It records a pattern worth investigating; it does not establish a
+root cause.
+
 ## Reports redaction looks too aggressive
 
 - Try `standard` instead of `public_safe` or `strict` for local use

@@ -47,6 +47,22 @@ When a response is missing, incomplete, unparseable, or contains no usable
 node/link layout, ZigbeeLens reports limited/unavailable evidence. It does not
 turn unavailable evidence into a measured empty mesh.
 
+## Current investigation surfaces
+
+![Mesh Investigate showing a synthetic evidence graph, evidence metrics, and an HA-enriched device drawer](screenshots/mesh-investigate.png)
+
+Illustrative synthetic release-candidate data. Mesh / Investigate presents
+stored evidence around the selected network; graph lines and metric counts are
+capture-time observations, not proof of a current route, causation, or complete
+history. The displayed Home Assistant name and area are additional metadata.
+
+![Device Detail showing the Kitchen Lamp decision, snapshot history, HA area, and preserved source identity](screenshots/device-detail-history.png)
+
+Illustrative synthetic release-candidate data. Device Detail presents the
+preferred Home Assistant name and area alongside the preserved Zigbee2MQTT
+source identity. Its Device Story and snapshot comparisons remain historical
+evidence with explicit coverage limits, not proof of a current path or cause.
+
 ## Product surfaces
 
 Primary device comparison:
