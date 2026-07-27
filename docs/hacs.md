@@ -37,8 +37,9 @@ authorized publication task makes the intended satellite tree identical.
 Phase 7C1 is merged. The runtime package now owns durable options, fail-closed
 Core/Decision compatibility, distinct Decision payload repairs, declarative and
 runtime single-entry enforcement, exact Home Assistant compatibility lanes,
-and generated official-validation workflows. Phase 7C2 screenshots and Phase
-7D live Beast validation remain deferred.
+and generated official-validation workflows. Phase 7C2 publishes the reviewed
+local/staged release-candidate screenshots and provenance shown below. Phase 7D
+live Beast validation remains deferred.
 
 Public installation remains unavailable until a separately authorized
 publication task:
@@ -109,7 +110,9 @@ Only one ZigbeeLens config entry/Core target is supported. The manifest declares
 `single_config_entry: true`; config-flow concurrency checks and setup-time
 singleton ownership remain as runtime defenses.
 
-![HACS config flow](../docs/screenshots/hacs-config-flow.png)
+![Home Assistant ZigbeeLens config flow showing a synthetic Core URL, TLS verification, and companion panel options](screenshots/hacs-config-flow.png)
+
+Illustrative synthetic release-candidate data. This real Home Assistant 2026.7.3 config flow was captured from the exact locally staged ZigbeeLens 0.1.14 package built from source `747374adbf07fe07282a28c5902a335b2bdc80c4`; the public HACS satellite was not used.
 
 The setup dialog explains HTTP vs HTTPS Core URLs, optional SSL verification, and the companion panel sidebar toggle.
 
@@ -425,6 +428,10 @@ Decision payload. Repairs preserve the older/newer/malformed/payload distinction
 described above; authentication alone owns reauthentication.
 
 ### Native panel projection
+
+![Native Home Assistant ZigbeeLens companion panel showing accepted compatibility, Decision summary, factual counts, and dashboard actions](screenshots/hacs-companion-panel.png)
+
+Illustrative synthetic release-candidate data. This real native companion panel was captured in Home Assistant 2026.7.3 from the exact locally staged ZigbeeLens 0.1.14 package built from source `747374adbf07fe07282a28c5902a335b2bdc80c4`; the public HACS satellite was not used.
 
 - Pass-through Core `priority`, `title`, and `summary` (escaped for HTML)
 - Cap at three priorities; expose factual `more_investigation_priority_count`
