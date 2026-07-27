@@ -1,14 +1,15 @@
 # Pre-release smoke test — deployed GHCR image + staged HA integration
 
 Use this guide to validate the current local/staged integration path before
-tagging a release. The public HACS satellite is not synchronized with the
-reviewed package and is not evidence for this branch.
+tagging a release. The public HACS satellite contains the prior `0.1.14`
+candidate from source `906527063ad8bd594fbec51f69f6fc72205302dd`; it is not
+the corrected package and is not evidence for this branch.
 
 | Item | Value |
 |------|-------|
 | GitHub owner | `theaussiepom` |
 | Main repo | https://github.com/theaussiepom/zigbeelens |
-| Public HACS satellite | `theaussiepom/zigbeelens-hacs` — unsynchronized; do not install for this branch test |
+| Public HACS satellite | `theaussiepom/zigbeelens-hacs` — prior candidate commit `21c24e3355369b94c9ab596cf9fc0591f1282297`, tree `9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`, no `v0.1.14` tag/release; stale pending separate resynchronization |
 | Add-on repo | Deferred; not part of this HACS release |
 | GHCR image | `ghcr.io/theaussiepom/zigbeelens` |
 | Pre-release tag | **`edge`** (rolling image from `main`) |
@@ -16,14 +17,14 @@ reviewed package and is not evidence for this branch.
 ## Phase 7 release boundary
 
 Phase 7A (PR #100), Phase 7B (PR #101), and Phase 7C1 documentation truth are
-merged. Screenshot capture is deferred to Phase 7C2. The live checks in this
-guide are deferred to Phase 7D and remain incomplete until they are run against
-the actual Beast deployment.
+merged. The prior Phase 7C2 S1–S9 set predates the correction and is stale;
+recapture all nine from one final corrected runtime source. Phase 7D remains
+blocked until that recapture, corrected image, final HACS provenance, and all
+other release gates are complete.
 
 Do not treat local results as remote CI results. Record exact skips, xfails, and
-warnings. The known non-strict xfail is
-`test_incident_badge_matches_device_story_for_model_pattern` (`watch` versus
-`informational` Decision-surface mismatch); it is not a pass.
+warnings. The model-pattern Decision parity regression is strict; the full
+Core suite must have no unexplained xfail.
 
 ## Pre-flight checklist
 
@@ -36,6 +37,9 @@ Before you start, confirm:
 - [ ] You have MQTT credentials ready (do **not** commit them)
 - [ ] Port **8377** is free on the Docker host
 - [ ] GHCR image is public: `docker pull ghcr.io/theaussiepom/zigbeelens:edge`
+- [ ] Candidate OCI metadata reports package version `0.1.14`, the full final
+      source revision, and
+      `https://github.com/theaussiepom/zigbeelens`
 - [ ] Home Assistant can reach the Docker host IP on port 8377 (for the staged
       companion test)
 - [ ] You can install a manual custom component and fully restart the clean
@@ -198,6 +202,18 @@ EOF
 docker pull ghcr.io/theaussiepom/zigbeelens:edge
 ```
 
+Do not use manifest digest
+`sha256:8549c49bd3e0389def669ce2e6c14bcbe2b54c967a725fd6373f5d82921f6bc7`
+as Phase 7D evidence. It was built from the old source and its OCI version
+label was the channel `edge`, not package version `0.1.14`. The next candidate
+must report:
+
+```text
+org.opencontainers.image.version=0.1.14
+org.opencontainers.image.revision=<full final source SHA>
+org.opencontainers.image.source=https://github.com/theaussiepom/zigbeelens
+```
+
 **A. Token-enabled** (requires `ZIGBEELENS_TEST_API_TOKEN` from the security section above):
 
 ```bash
@@ -333,9 +349,15 @@ Open the dashboard: **http://localhost:8377**
 
 Run against the release-test data volume (or a copy). Prefer Core stopped for `--apply`; online backup is safe while Core runs.
 
-- [ ] Upgrade starts Core: migration version includes **012**, then integrity gates, then first maintenance cycle (check logs / Settings)
+- [ ] Upgrade starts Core at schema **15** (including **012**, unchanged report
+      reset **014**, and topology raw-data scrub **015**), then integrity gates
+      and the first maintenance cycle (check logs / Settings)
 - [ ] Schema 13 → 14 test: migration 014 deletes existing development-era `reports` rows once and leaves other tables intact
 - [ ] After migration 014, create an exact-v3 report, restart Core, and confirm the new report remains (the reset does not rerun)
+- [ ] Schema 14 → 15 test: migration 015 clears legacy node/link source
+      dictionaries, sets snapshot `parsed_json` to `NULL`, preserves normalized
+      counts in typed columns and governed `raw_redacted_json`, and leaves
+      migration 014 byte-identical
 - [ ] `GET /api/storage/status` returns policy defaults (`telemetry_retention_days: 7`, resolved incidents `90`, `report_retention_days: null`)
 - [ ] Before first successful maintenance persistence, deletion totals may be `null`; after success, timestamps and counts are present
 - [ ] Integrity facts expose `quick_check` and `foreign_key_check` (`status` / `checked_at` / `violation_count`)
@@ -366,7 +388,10 @@ Run against the release-test data volume (or a copy). Prefer Core stopped for `-
 4. Open **Settings → Devices & services → Add Integration → ZigbeeLens**.
 5. Enter the Core URL below and keep the companion panel enabled.
 
-Do not use the unsynchronized public HACS satellite to validate this branch.
+Do not use the stale prior-candidate public HACS satellite to validate this branch.
+It contains the prior `0.1.14` source, has no `v0.1.14` tag/release, and becomes
+current only after a separately authorized resynchronization from the final
+correction.
 
 ### Core URL examples
 
@@ -481,9 +506,9 @@ evidence. Preserve it for a separately scoped future add-on task.
 - [ ] Optional: `./scripts/build-addon.sh` when Docker is available
 - [ ] Packaged image entrypoint matches the add-on startup contract (option conversion, exact Ingress security, `/data` writability, optional token-file install/export)
 - [ ] `security.api_token` option reaches Core; bearer smoke succeeds
-- [ ] Add-on `reporting.max_*` values reject zero, matching Core's minimum of one
-- [ ] An omitted report profile uses the configured `reporting.default_profile`, or that ineffective option is removed
-- [ ] Unused report options are implemented or removed
+- [ ] Add-on `reporting.max_recent_events` accepts `1..1000` and rejects zero
+- [ ] An omitted report profile uses the configured `reporting.default_profile`
+- [ ] Removed report/raw-payload fields fail closed instead of becoming no-ops
 - [ ] HACS-to-add-on reachability is implemented and documented without assuming `localhost` across namespaces, or declared unsupported
 - [ ] Ingress loads current Core UI
 - [ ] `/api/capabilities` exposes exact contract v2
@@ -498,9 +523,15 @@ evidence. Preserve it for a separately scoped future add-on task.
 - [ ] `/api/health` shows the collector is subscribe-only; any topology publish is limited to the allowlisted confirmed/startup network-map request
 - [ ] Reports redacted before download
 - [ ] No permit join / remove / reset controls in UI
-- [ ] Discovery broker last will is validated against Zigbee2MQTT base topics before registration
-- [ ] Disabled topology plus a positive refresh interval does not advertise a scheduler that only rejects captures
-- [ ] Parsed topology `raw_json` has a reviewed local-storage scrub/retention contract
+- [ ] Discovery broker last will is validated against the exact publish-safety
+      contract before Paho construction, registration, credentials/TLS, or
+      connection
+- [ ] Disabled topology owns no service/scheduler and reports no capture
+      activity even when legacy/current capture gates are enabled
+- [ ] Topology persistence stores normalized typed node/link fields, `{}` in
+      legacy node/link `raw_json`, `NULL` snapshot `parsed_json`, normalized
+      counts in typed columns, and only the governed scrubbed snapshot
+      representation
 - [ ] **No Scenario selector** in the header (it is dev-only; the published image builds without `VITE_ENABLE_SCENARIOS`)
 
 > The Scenario (mock fixture) selector appears only on the Vite dev server, or in a build explicitly opted in with `VITE_ENABLE_SCENARIOS=true pnpm --filter @zigbeelens/ui build`. The published image never sets it.

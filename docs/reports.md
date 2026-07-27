@@ -5,11 +5,16 @@ history and the current decision-led diagnostic state. A report records what
 Core observed and the limitations of that evidence; it does not prove a root
 cause or a live Zigbee route.
 
-![Saved Reports showing current v3 scope, format, redaction profile, and download actions](screenshots/reports-page.png)
+> **Screenshot status:** The prior Phase 7C2 S1–S9 set predates the current
+> runtime/UI correction and is stale release evidence. All nine images must be
+> recaptured together from one final corrected runtime before Phase 7D.
 
-Illustrative synthetic release-candidate data. Saved Reports shows only the
-current exact-v3 report state, with each row's scope, format, redaction
-ownership, evidence counts, and supported download actions kept explicit.
+![Saved Reports showing exact-v3 scope, format, redaction profile, and download actions](screenshots/reports-page.png)
+
+Illustrative synthetic release-candidate data. This image belongs to the stale
+prior candidate. Saved Reports shows the captured exact-v3 report state, with
+each row's scope, format, redaction ownership, evidence counts, and supported
+download actions kept explicit.
 
 ## Current contract: exact ReportDetailV3
 
@@ -50,7 +55,7 @@ separate diagnostic contract.
 | `network_id` | string or `null` | `null` | Target for network scope; also disambiguates device scope |
 | `device` | string or `null` | `null` | IEEE address for device scope |
 | `incident_id` | string or `null` | `null` | Target for incident scope |
-| `redaction` | object | standard options | Profile and optional per-request overrides |
+| `redaction` | object | configured profile plus profile defaults | Profile and optional per-request overrides |
 
 The body itself may be omitted; Core then uses the defaults shown above.
 
@@ -65,10 +70,12 @@ Core can resolve a device IEEE without `network_id` only when it matches one
 network. If it matches more than one, the request fails with `422`; the UI
 supplies both identity fields.
 
-Current limitation: a syntactically valid but unknown network, incident, or
-device target does not return `404`; Core composes an exact-v3 report with an
-empty target plan. Clients that need “not found” semantics must verify the
-target through its read endpoint first.
+Missing required target identity fails with `422`. A syntactically valid but
+unknown network, incident, or device target fails with `404`; ambiguous
+device-only identity also fails with `422`. Preview and create use the same
+contract under `/api` and `/api/v1`, in live and scenario modes. No failure path
+stores an empty report. Full scope remains valid when the observed estate is
+empty.
 
 `redaction` is an object, never a profile string:
 
@@ -87,9 +94,9 @@ target through its read endpoint first.
 The object supports `profile` (`standard`, `public_safe`, or `strict`) and the
 optional overrides `preserve_friendly_names`, `hash_ieee_addresses`,
 `redact_hostnames`, `redact_ip_addresses`, `redact_network_names`,
-`include_timeline`, and `include_raw_payloads`. See [redaction.md](redaction.md)
-before relaxing a profile. The current exact-v3 body has no raw MQTT payload
-collection; `include_raw_payloads` does not create one.
+and `include_timeline`. See [redaction.md](redaction.md) before relaxing a
+profile. Exact-v3 has no raw MQTT payload collection, and unknown redaction
+fields are rejected.
 
 The preview endpoint expresses the same options as query parameters:
 
@@ -147,12 +154,12 @@ The UI fixes scope and target at the launching surface:
 | Mesh / Investigate | Create network report | `network` for that route's network |
 | Reports | Create full report | `full` |
 
-![Contextual device report dialog showing the fixed Kitchen Lamp target, current controls, and a nonempty v3 preview](screenshots/report-contextual-create.png)
+![Contextual device report dialog showing the fixed Kitchen Lamp target, exact-v3 controls, and a nonempty preview](screenshots/report-contextual-create.png)
 
-Illustrative synthetic release-candidate data. This contextual flow fixes the
-exact synthetic device target before preview, then applies the current scope,
-format, and redaction controls to a nonempty exact-v3 plan; it does not
-rediscover or guess the target.
+Illustrative synthetic release-candidate data. This image belongs to the stale
+prior candidate. This contextual flow fixes the exact synthetic device target
+before preview, then applies the captured scope, format, and redaction controls
+to a nonempty exact-v3 plan; it does not rediscover or guess the target.
 
 The Reports page is primarily Saved reports history. The shared dialog selects
 format and redaction profile, shows a compact preview, then offers Save or Save
@@ -170,17 +177,19 @@ default is `null`, meaning reports remain until manual deletion. The list API
 examines at most the newest 50 stored rows and returns summaries only for
 exact-v3 rows among them.
 
-`reporting.max_recent_events` bounds recent event/timeline composition (default
-`100`). Narrow scopes also bound the identity and history work performed.
+`reporting.max_recent_events` bounds recent event/timeline composition to a
+configured value from `1..1000` (default `100`). Narrow scopes also bound the
+identity and history work performed.
 Unavailable evidence remains unavailable; an empty list is not documented as a
 measurement when its source was not observable.
 
 ## Redaction
 
 Every generated report passes through the redaction pipeline before preview,
-storage, or download. The API request default is `standard`; choose
-`public_safe` for a report intended for a public issue and review the result
-before sharing.
+storage, or download. When `redaction.profile` is omitted, Core uses
+`reporting.default_profile` (default `standard`); an explicit request profile
+overrides it. Choose `public_safe` for a report intended for a public issue and
+review the result before sharing.
 
 | Profile | Default treatment |
 |---------|-------------------|
@@ -213,6 +222,10 @@ After migration 014:
 
 Keep this migration detail in pre-release upgrade and release guidance; it is
 not a recurring report operation.
+
+The current release schema target is `15` because the subsequent topology-only
+`015_topology_raw_scrub.sql` migration remediates legacy topology raw data.
+Migration 014 remains unchanged and continues to own only the report reset.
 
 ## API example
 

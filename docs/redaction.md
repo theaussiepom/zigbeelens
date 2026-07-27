@@ -19,8 +19,9 @@ All three profiles hash IEEE addresses by default. Hashes and labels are stable
 only within one report so related entries can still be followed; they are not
 stable identifiers across reports.
 
-The API request schema defaults to `standard`. Select a profile in the report
-dialog or send it as an object:
+When a request omits `redaction.profile`, Core uses
+`reporting.default_profile` (default `standard`). Select a profile in the
+report dialog or send it as an object:
 
 ```json
 {
@@ -44,11 +45,11 @@ The redaction object also accepts nullable boolean overrides:
 | `redact_ip_addresses` | Redact IPv4/IPv6 text |
 | `redact_network_names` | Label network names/IDs/topics when `true`; preserve them when `false` |
 | `include_timeline` | Include or clear report timeline/event collections |
-| `include_raw_payloads` | Accepted by the request contract; current exact-v3 reports have no raw MQTT payload collection to add |
 
 Overrides can relax a stricter profile. For a public issue, prefer the
 `public_safe` defaults without relaxation and inspect the generated file before
-uploading it.
+uploading it. Exact-v3 has no raw MQTT payload collection; removed/unknown
+redaction fields are rejected rather than silently accepted.
 
 ## Always scrubbed
 

@@ -41,26 +41,32 @@ Before tagging, all release phases must be complete:
 - Phase 7A query/cardinality/runtime baseline (merged in PR #100)
 - Phase 7B test architecture and exact-v3 report reset (merged in PR #101)
 - Phase 7C1 documentation truth (merged)
-- Phase 7C2 current screenshots (complete; synthetic, privacy-reviewed release-candidate evidence)
-- Phase 7D live Beast deployment validation (deferred)
+- Phase 7C2 screenshots (S1–S9 from the prior runtime are now stale; recapture
+  all nine from one final corrected runtime)
+- Phase 7D live Beast deployment validation (blocked)
 
 The add-on is deferred and is not part of the current HACS release. Keep its
 non-regression checks green, but do not publish or advertise it as a supported
 route.
 
-The documentation audit also found release gates outside add-on packaging:
-unused report controls, unknown report targets producing an empty plan,
-Discovery last-will validation order, disabled-topology scheduler/status
-drift, and parsed topology `raw_json` retention. Track them in
-[RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md); truthful documentation does
-not close those runtime contracts.
+The correction closes production ownership gaps found by the release audit:
+report controls and target failures, Discovery last-will validation order,
+disabled-topology lifecycle, parsed topology persistence, mixed-case IEEE
+lookups, investigation copy, artifact identity, and validation hardening.
+Keep their behavioral gates in
+[RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md); prose alone never closes a
+runtime contract.
 
-The HACS satellite is a separate publication gate. Its public `main` is not the
-reviewed staged tree and still advertises `0.1.13`, while the candidate stage
-uses the previously unused version `0.1.14`. The candidate version identifies
-the staged tree uniquely, but the tree mismatch remains. Use only the locally
-generated custom component for branch testing. Do not synchronize or publish
-the external satellite without a separate explicitly authorized task.
+The HACS satellite is a separate publication gate. At the release-state
+preflight, public `main` was commit
+`21c24e3355369b94c9ab596cf9fc0591f1282297`, tree
+`9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`, version `0.1.14`, with
+`SOURCE_COMMIT` `906527063ad8bd594fbec51f69f6fc72205302dd`; no `v0.1.14`
+tag or release exists. That is the prior candidate, not the corrected source,
+so the public tree is stale again until a separately authorized
+resynchronization. Use only a package generated from the final correction for
+branch testing. Public installation remains gated, and this task does not
+authorize satellite modification or publication.
 
 The monorepo and generated stage now own durable HACS options, fail-closed
 compatibility/repairs, exact enrichment lifecycle, declarative/runtime
@@ -133,10 +139,9 @@ minimum Home Assistant matrix environment inside the same temporary state and
 reuses that already-proven Python for live E2E. Those gates do not create or
 update `apps/core/uv.lock` or `apps/core/.venv`.
 
-Record exact test counts, skips, xfails, and warnings. The known non-strict
-xfail is
-`test_incident_badge_matches_device_story_for_model_pattern` (`watch` versus
-`informational` Decision-surface mismatch); it is not a pass.
+Record exact test counts, skips, xfails, and warnings. The model-pattern
+Decision parity regression is strict and uses one explicit reference clock;
+the full Core suite must have no unexplained xfail.
 
 ### 5. Build artifacts
 
@@ -157,6 +162,26 @@ Before public HACS guidance or publication is restored:
   synchronized satellite; and
 - explicit publication authorization must be recorded before the external
   repository is modified.
+
+The current schema target is `15`. Migration
+`015_topology_raw_scrub.sql` removes unsafe legacy topology source dictionaries
+while preserving normalized facts and the governed redacted capture.
+Migration `014_report_v3_only_reset.sql` remains unchanged and continues to own
+the one-time exact-v3 report reset.
+
+Before any local or remote candidate is accepted, inspect its OCI metadata:
+
+```text
+org.opencontainers.image.version=0.1.14
+org.opencontainers.image.revision=<full final source SHA>
+org.opencontainers.image.source=https://github.com/theaussiepom/zigbeelens
+```
+
+Channel names (`edge`, `main`, `sha-*`, `latest`) are tags, never
+package-version labels. GHCR manifest digest
+`sha256:8549c49bd3e0389def669ce2e6c14bcbe2b54c967a725fd6373f5d82921f6bc7`
+is rejected Phase 7D evidence because it reported OCI version `edge`; do not
+reuse it.
 
 ### 6. Tag and push
 
@@ -218,6 +243,17 @@ release:
 - [ ] **If the HACS integration was synchronized and published after its
   tree/version/validation/authorization gates closed:** install that exact
   published HACS artifact and verify it against the released Docker Core.
+
+## Review-thread closure before release
+
+Use the exact inventory in
+[RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md#review-thread-closure-inventory).
+PR #106 discussions `discussion_r3654140180` and
+`discussion_r3654140181`, PR #100 discussion `discussion_r3626646727`, PR #97
+discussion `discussion_r3618354267`, and the delayed approved-host bypass
+review remain unresolved until a future fixing PR is merged and an exact fixing
+PR/commit reply is posted. Resolve only after that reply, then re-query each
+source PR for non-outdated unresolved threads.
 
 ## Safety verification
 

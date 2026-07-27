@@ -11,10 +11,10 @@ This document is stricter than the general implementation plan. If there is a co
 
 **Current status:** This file is an execution record for completed
 decision-engine phases. Phase 7A merged in PR #100 and Phase 7B merged in PR
-#101 from approved tip `03c12d4`. Phase 7C1 documentation truth is current;
-Phase 7C2 screenshots and Phase 7D live Beast validation remain deferred.
-Completed-phase branch and model prompts below are historical and must not be
-used to reopen those phases.
+#101 from approved tip `03c12d4`. Phase 7C1 documentation truth is merged; the
+prior Phase 7C2 S1–S9 set is stale and requires one-runtime recapture; Phase 7D
+live Beast validation remains blocked. Completed-phase branch and model prompts
+below are historical and must not be used to reopen those phases.
 
 ## Required starting prompt
 
@@ -615,12 +615,12 @@ complete while the runtime/document contradictions in
 
 ### Phase 7C2 — Screenshot and visual evidence
 
-Deferred until Phase 7C1 is complete. Capture current Decision-led workflows
-without changing runtime behaviour.
+Recapture all S1–S9 from one final corrected runtime. Do not mix old and new
+assets.
 
 ### Phase 7D — Deployment validation
 
-Deferred. Preferred validation slices or release checklist entries:
+Blocked. Preferred validation slices or release checklist entries:
 
 ```text
 7D-1 Beast validation checklist

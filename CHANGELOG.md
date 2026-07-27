@@ -9,7 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Phase 7C2 current visual evidence:** nine synthetic, privacy-reviewed release-candidate screenshots now document the current Core and locally staged Home Assistant companion surfaces, with manifest-backed provenance and mechanical validation. This is documentation-only and does not change runtime or package behavior.
+- **Release-blocker contract ownership:** Docker OCI identity, Discovery last-will safety, topology raw-data storage, report configuration/target handling, disabled-topology lifecycle, mixed-case IEEE lookups, investigation copy, screenshot validation, and Decision clock parity now have narrow production tests.
+
+### Changed
+
+- **Release schema target:** migration `015_topology_raw_scrub.sql` advances the schema target to `15`, clears retained node/link source dictionaries, and sets legacy snapshot `parsed_json` to `NULL` while preserving normalized counts in typed columns. Migration `014_report_v3_only_reset.sql` remains unchanged.
+- **Reporting controls:** `reporting.max_recent_events` is bounded to `1..1000`, and an omitted request profile now uses the effective configured `reporting.default_profile`. The ineffective sample limits and raw-payload switches have been removed from Core, request, example, and add-on contracts.
+- **Phase 7C2 evidence status:** the existing synthetic S1–S9 set remains provenance-checked historical evidence for its captured source, but runtime/UI corrections make it stale for the next release candidate. All nine images must be recaptured from one new final runtime before Phase 7D.
+
+### Fixed
+
+- **Release artifact identity:** the Docker workflow owns package-version OCI metadata separately from channel tags and validates version, full revision, and source before Buildx consumes the labels.
+- **Safety and runtime boundaries:** Discovery validates its exact availability/last-will topic before Paho construction or connection side effects; disabled topology owns no service or scheduler; topology raw dictionaries are no longer retained; mixed-case IEEE lookups are canonicalized.
+- **Reports and investigation UX:** missing contextual report targets fail validation, unknown targets fail not-found without storage, configured report defaults are effective, and Router/Coordinator investigation actions now say **Open device details**.
+- **Validation hardening:** PNG decompression is bounded to the exact scanline budget, screenshot manifest/privacy parsing is fail-closed, and model-pattern Decision parity uses one explicit reference clock without an expected failure.
+
+### Release status
+
+- The public HACS `main` remains the prior `0.1.14` candidate at `21c24e3355369b94c9ab596cf9fc0591f1282297` (tree `9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`, source `906527063ad8bd594fbec51f69f6fc72205302dd`) with no `v0.1.14` tag or release. It is stale for this correction until a separately authorized resynchronization; public installation remains gated.
+- GHCR manifest digest `sha256:8549c49bd3e0389def669ce2e6c14bcbe2b54c967a725fd6373f5d82921f6bc7` is rejected Phase 7D evidence because its OCI version was the channel name `edge`, not package version `0.1.14`. Phase 7D and add-on publication remain blocked/deferred.
 
 ## [0.1.14] - 2026-07-23
 
