@@ -74,7 +74,7 @@ failure, never a skip.
 - [x] Phase 7A query/cardinality/runtime baseline merged (PR #100)
 - [x] Phase 7B release-quality test architecture and exact-v3 report reset merged (PR #101)
 - [x] Phase 7C1 documentation truth and cross-surface alignment merged
-- [ ] Phase 7C2 current screenshots captured and reviewed
+- [x] Phase 7C2 current screenshots captured and reviewed
 - [ ] Phase 7D live Beast deployment validation complete
 
 Local validation evidence is not remote CI evidence. Do not mark Phase 7C2 or
@@ -226,7 +226,7 @@ explicitly scoped future add-on task.
 - [ ] Current report docs promise exact `ReportDetailV3` only; no v1/v2 reader/download path
 - [ ] No docs promise iframe as normal HACS experience
 - [ ] No docs imply reverse proxy required for HACS sidebar value
-- [ ] Phase 7C2 screenshots show the current Decision-led UI and HACS contract-v2 companion
+- [x] Phase 7C2 screenshots show the current Decision-led UI and HACS contract-v2 companion
 
 ## Packaging and publish
 

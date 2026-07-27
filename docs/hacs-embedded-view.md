@@ -69,6 +69,10 @@ Traefik serves HTTPS on **port 443 only**. Appending `:8377` to an HTTPS hostnam
 
 If Home Assistant uses HTTPS and Core uses `http://192.168.100.5:8377`, the panel shows a friendly blocked explanation — not a broken iframe. **Open Full Dashboard** still works in a new tab.
 
+![Home Assistant ZigbeeLens panel explaining the blocked HTTPS Home Assistant and HTTP Core embedded-dashboard path with a return-to-summary action](screenshots/hacs-embedded-blocked.png)
+
+Illustrative synthetic release-candidate data. This real HTTPS-Home-Assistant/HTTP-Core mixed-content blocked path was captured in Home Assistant 2026.7.3 from the exact locally staged ZigbeeLens 0.1.14 package built from source `747374adbf07fe07282a28c5902a335b2bdc80c4`; the public HACS satellite was not used. The safe fallback is **Back to Summary** and **Open Full Dashboard** in a new tab.
+
 ## When to use HTTPS in front of Core
 
 Use an HTTPS dashboard address only if you **want** embedded view inside the

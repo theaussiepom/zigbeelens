@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Phase 7C2 current visual evidence:** nine synthetic, privacy-reviewed release-candidate screenshots now document the current Core and locally staged Home Assistant companion surfaces, with manifest-backed provenance and mechanical validation. This is documentation-only and does not change runtime or package behavior.
+
 ## [0.1.14] - 2026-07-23
 
 ### Added

@@ -5,6 +5,12 @@ history and the current decision-led diagnostic state. A report records what
 Core observed and the limitations of that evidence; it does not prove a root
 cause or a live Zigbee route.
 
+![Saved Reports showing current v3 scope, format, redaction profile, and download actions](screenshots/reports-page.png)
+
+Illustrative synthetic release-candidate data. Saved Reports shows only the
+current exact-v3 report state, with each row's scope, format, redaction
+ownership, evidence counts, and supported download actions kept explicit.
+
 ## Current contract: exact ReportDetailV3
 
 Previewed, newly stored, fetched, and structured downloaded reports use exact
@@ -140,6 +146,13 @@ The UI fixes scope and target at the launching surface:
 | Network Detail | Create network report | `network` |
 | Mesh / Investigate | Create network report | `network` for that route's network |
 | Reports | Create full report | `full` |
+
+![Contextual device report dialog showing the fixed Kitchen Lamp target, current controls, and a nonempty v3 preview](screenshots/report-contextual-create.png)
+
+Illustrative synthetic release-candidate data. This contextual flow fixes the
+exact synthetic device target before preview, then applies the current scope,
+format, and redaction controls to a nonempty exact-v3 plan; it does not
+rediscover or guess the target.
 
 The Reports page is primarily Saved reports history. The shared dialog selects
 format and redaction profile, shows a compact preview, then offers Save or Save

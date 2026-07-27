@@ -11,6 +11,13 @@ reports for troubleshooting. Its job is to show what is worth reviewing, why,
 which evidence supports that judgement, and what the available data cannot
 prove.
 
+![ZigbeeLens Overview showing its decision summary, investigation priorities, network context, and recent changes](docs/screenshots/overview-dashboard.png)
+
+Illustrative synthetic release-candidate data. The Overview leads with the
+current Decision summary, then places investigation priorities, network/device
+context, recent changes, and evidence limits together without inventing
+measurements for unavailable data.
+
 ZigbeeLens is part of the **Lens family** of read-only home-network observability tools, alongside [ThreadLens](https://github.com/theaussiepom/threadlens). The active public diagnostic contract is **decision contract v2** (not retired Lens-bucket fields); see [docs/api.md](docs/api.md) and [docs/lens-family.md](docs/lens-family.md).
 
 ZigbeeLens does **not** repair, reset, remove, re-pair, or mutate Zigbee devices.
@@ -65,8 +72,9 @@ See [docs/safety-audit.md](docs/safety-audit.md) for the full safety audit.
 | [MQTT Discovery](docs/mqtt-discovery.md) | Optional summary HA entities without HACS | Core configuration |
 | [Topology](docs/topology.md) | Optional mesh enrichment — enabled by default with one startup scan | Core configuration |
 
-Phase 7C1 documentation truth is merged. Phase 7C2 screenshot capture and
-Phase 7D live Beast validation remain deferred.
+Phase 7C1 documentation truth is merged. Phase 7C2 provides the current
+synthetic release-candidate screenshots and provenance; Phase 7D live Beast
+validation remains deferred.
 
 ## Using the UI
 
