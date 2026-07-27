@@ -60,8 +60,8 @@ function InvestigationCardView({
   onOpenPrimaryDevice?: (card: InvestigationCard) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const showOpenRouter =
-    Boolean(viewModel.openRouterDetailsLabel) &&
+  const showOpenDevice =
+    Boolean(viewModel.openDeviceDetailsLabel) &&
     Boolean(onOpenPrimaryDevice) &&
     (canOpenPrimaryDevice?.(card) ?? false);
 
@@ -115,14 +115,14 @@ function InvestigationCardView({
             {viewModel.focusLabel}
           </button>
         )}
-        {showOpenRouter && (
+        {showOpenDevice && (
           <button
             type="button"
             onClick={() => onOpenPrimaryDevice?.(card)}
             aria-label={viewModel.openPrimaryDeviceAriaLabel!}
             className="rounded-lg border border-zl-border bg-zl-surface px-2.5 py-1 text-[11px] font-medium text-zl-text hover:border-zl-accent/40"
           >
-            {viewModel.openRouterDetailsLabel}
+            {viewModel.openDeviceDetailsLabel}
           </button>
         )}
         <button

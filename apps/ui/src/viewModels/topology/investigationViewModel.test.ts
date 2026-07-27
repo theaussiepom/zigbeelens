@@ -49,7 +49,7 @@ describe("investigationViewModel", () => {
     expect(vm.actionLead).toMatch(/power and are reporting/i);
     expect(vm.contextTitle).toBe("Several recent missing links involve Live Lamp");
     expect(vm.focusLabel).toBe("Focus graph");
-    expect(vm.openRouterDetailsLabel).toBeNull();
+    expect(vm.openDeviceDetailsLabel).toBeNull();
   });
 
   it("builds human context from title, summary, evidence time, and supporting line", () => {
@@ -89,7 +89,7 @@ describe("investigationViewModel", () => {
       /Review observed router area — Review observed router area/i,
     );
     expect(vm.openPrimaryDeviceAriaLabel).toContain(
-      "Open router details: Review observed router area: Hall Router",
+      "Open device details: Review observed router area: Hall Router",
     );
   });
 
@@ -383,7 +383,7 @@ describe("investigationViewModel", () => {
       }),
     );
     expect(vm.focusLabel).toBe("Focus router area");
-    expect(vm.openRouterDetailsLabel).toBeNull();
+    expect(vm.openDeviceDetailsLabel).toBeNull();
   });
 
   it("maps each action group label", () => {

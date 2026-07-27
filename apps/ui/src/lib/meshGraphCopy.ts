@@ -326,7 +326,7 @@ export const INVESTIGATION_ACTION_LEADS: Record<InvestigationActionGroup, string
 /** Focus-action labels — identity is action_group, not rendered English elsewhere. */
 export const INVESTIGATION_FOCUS_LABEL_DEFAULT = "Focus graph";
 export const INVESTIGATION_FOCUS_LABEL_ROUTER_AREA = "Focus router area";
-export const INVESTIGATION_OPEN_ROUTER_DETAILS_LABEL = "Open router details";
+export const INVESTIGATION_OPEN_DEVICE_DETAILS_LABEL = "Open device details";
 
 
 /* ------------------------------------------------------------------------ */
@@ -615,6 +615,7 @@ export const FORBIDDEN_USER_FACING_PHRASES: readonly string[] = [
   "semantic inference",
   "nothing to see",
   "no problems found",
+  "Open router details",
   "drawer",
 ];
 

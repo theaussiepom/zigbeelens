@@ -9,7 +9,7 @@ import {
   INVESTIGATION_EMPTY_COPY,
   INVESTIGATION_FOCUS_LABEL_DEFAULT,
   INVESTIGATION_FOCUS_LABEL_ROUTER_AREA,
-  INVESTIGATION_OPEN_ROUTER_DETAILS_LABEL,
+  INVESTIGATION_OPEN_DEVICE_DETAILS_LABEL,
   INVESTIGATION_PANEL_SUBTITLE,
   INVESTIGATION_PANEL_TITLE,
   INVESTIGATION_SECTION_CHECKS,
@@ -33,15 +33,15 @@ export interface InvestigationCardViewModel {
   limitations: string[];
   suggestedChecks: string[];
   focusLabel: string;
-  /** IEEE for open-router-details; null when the card does not expose one. */
+  /** IEEE for open-device-details; null when the card does not expose one. */
   primaryNeighbourhoodIeee: string | null;
-  openRouterDetailsLabel: string | null;
+  openDeviceDetailsLabel: string | null;
   isRouterArea: boolean;
   /** Accessible name for Focus graph / Focus router area. */
   focusAriaLabel: string;
   /** Accessible name for Clear focus. */
   clearFocusAriaLabel: string;
-  /** Accessible name for Open router details; null when the action is absent. */
+  /** Accessible name for Open device details; null when the action is absent. */
   openPrimaryDeviceAriaLabel: string | null;
   /** Accessible name for View details. */
   detailsAriaLabel: string;
@@ -150,7 +150,7 @@ export function assignAccessibleContextKeys(
 
 function ariaLabelsForContext(
   focusLabel: string,
-  openRouterDetailsLabel: string | null,
+  openDeviceDetailsLabel: string | null,
   contextKey: string,
 ): Pick<
   InvestigationCardViewModel,
@@ -163,8 +163,8 @@ function ariaLabelsForContext(
   return {
     focusAriaLabel: `${focusLabel}: ${contextKey}`,
     clearFocusAriaLabel: `Clear focus: ${contextKey}`,
-    openPrimaryDeviceAriaLabel: openRouterDetailsLabel
-      ? `${openRouterDetailsLabel}: ${contextKey}`
+    openPrimaryDeviceAriaLabel: openDeviceDetailsLabel
+      ? `${openDeviceDetailsLabel}: ${contextKey}`
       : null,
     detailsAriaLabel: `View details: ${contextKey}`,
     hideDetailsAriaLabel: `Hide details: ${contextKey}`,
@@ -187,9 +187,9 @@ export function buildInvestigationCardViewModel(
   const focusLabel = isRouterArea
     ? INVESTIGATION_FOCUS_LABEL_ROUTER_AREA
     : INVESTIGATION_FOCUS_LABEL_DEFAULT;
-  const openRouterDetailsLabel =
+  const openDeviceDetailsLabel =
     isRouterArea && primaryNeighbourhoodIeee
-      ? INVESTIGATION_OPEN_ROUTER_DETAILS_LABEL
+      ? INVESTIGATION_OPEN_DEVICE_DETAILS_LABEL
       : null;
   // Standalone calls use unsuffixed human context; panel assignment adds ordinals.
   const contextKey =
@@ -208,9 +208,9 @@ export function buildInvestigationCardViewModel(
     suggestedChecks: card.suggested_next_steps,
     focusLabel,
     primaryNeighbourhoodIeee,
-    openRouterDetailsLabel,
+    openDeviceDetailsLabel,
     isRouterArea,
-    ...ariaLabelsForContext(focusLabel, openRouterDetailsLabel, contextKey),
+    ...ariaLabelsForContext(focusLabel, openDeviceDetailsLabel, contextKey),
   };
 }
 

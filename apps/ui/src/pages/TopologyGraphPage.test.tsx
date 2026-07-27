@@ -2605,10 +2605,10 @@ describe("TopologyGraphPage investigation panel", () => {
       within(card).getByRole("button", { name: /^focus router area:/i }),
     ).toBeInTheDocument();
     expect(
-      within(card).getByRole("button", { name: /^open router details:/i }),
+      within(card).getByRole("button", { name: /^open device details:/i }),
     ).toBeInTheDocument();
 
-    await user.click(within(card).getByRole("button", { name: /^open router details:/i }));
+    await user.click(within(card).getByRole("button", { name: /^open device details:/i }));
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: /device details/i })).toBeInTheDocument();
       expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(2);
@@ -2618,7 +2618,7 @@ describe("TopologyGraphPage investigation panel", () => {
     expect(preset.value).toBe(presetBefore);
   });
 
-  it("omits Open router details when the neighbourhood IEEE is absent from inventory", async () => {
+  it("omits Open device details when the neighbourhood IEEE is absent from inventory", async () => {
     mockDetail = {
       ...liveDetailWithInvestigations,
       investigations: [
@@ -2635,7 +2635,7 @@ describe("TopologyGraphPage investigation panel", () => {
     const card = screen.getByTestId("investigation-card");
     expect(within(card).getByRole("button", { name: /^focus router area:/i })).toBeInTheDocument();
     expect(
-      within(card).queryByRole("button", { name: /^open router details:/i }),
+      within(card).queryByRole("button", { name: /^open device details:/i }),
     ).not.toBeInTheDocument();
   });
 
