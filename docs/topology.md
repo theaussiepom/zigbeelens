@@ -23,7 +23,7 @@ Normalized router, end-device, and link counts remain in their typed columns.
 The only retained source-shaped representation is `raw_redacted_json`, after
 the existing snapshot scrubber.
 Schema target `15` applies the same contract to older rows through
-`015_topology_raw_scrub.sql`; it preserves normalized facts and leaves
+`015_topology_raw_data_scrub.sql`; it preserves normalized facts and leaves
 `014_report_v3_only_reset.sql` unchanged.
 
 Normalized topology rows still include IEEE addresses and may include friendly

@@ -172,7 +172,7 @@ facts are stored, legacy node/link `raw_json` columns receive `{}`, and snapshot
 in their typed columns.
 
 Schema target `15` applies the same contract to existing installations:
-`015_topology_raw_scrub.sql` clears legacy node/link source dictionaries and
+`015_topology_raw_data_scrub.sql` clears legacy node/link source dictionaries and
 sets snapshot `parsed_json` to `NULL`. It preserves normalized facts and typed
 count columns plus `raw_redacted_json`, touches no unrelated table, and leaves
 `014_report_v3_only_reset.sql` unchanged.

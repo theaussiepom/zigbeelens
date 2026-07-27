@@ -224,7 +224,7 @@ Keep this migration detail in pre-release upgrade and release guidance; it is
 not a recurring report operation.
 
 The current release schema target is `15` because the subsequent topology-only
-`015_topology_raw_scrub.sql` migration remediates legacy topology raw data.
+`015_topology_raw_data_scrub.sql` migration remediates legacy topology raw data.
 Migration 014 remains unchanged and continues to own only the report reset.
 
 ## API example

@@ -164,7 +164,7 @@ Before public HACS guidance or publication is restored:
   repository is modified.
 
 The current schema target is `15`. Migration
-`015_topology_raw_scrub.sql` removes unsafe legacy topology source dictionaries
+`015_topology_raw_data_scrub.sql` removes unsafe legacy topology source dictionaries
 while preserving normalized facts and the governed redacted capture.
 Migration `014_report_v3_only_reset.sql` remains unchanged and continues to own
 the one-time exact-v3 report reset.

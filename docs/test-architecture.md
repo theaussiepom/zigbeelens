@@ -95,7 +95,7 @@ This is a deliberate pre-release reset, not a user-facing migration feature.
 
 ## Topology raw-data scrub
 
-Migration `015_topology_raw_scrub.sql` advances the release schema target from
+Migration `015_topology_raw_data_scrub.sql` advances the release schema target from
 14 to 15. It clears legacy node/link source dictionaries and sets snapshot
 `parsed_json` to `NULL` while preserving the three normalized typed count
 columns. Parser/repository tests own new-write behavior; the migration contract owns

@@ -225,7 +225,7 @@ explicitly scoped future add-on task.
       registration, credentials/TLS, or connection
 - [ ] `topology.enabled: false` owns no topology service or scheduler and
       advertises no capture activity for every legacy/current gate combination
-- [ ] Schema target is `15`; migration `015_topology_raw_scrub.sql` removes
+- [ ] Schema target is `15`; migration `015_topology_raw_data_scrub.sql` removes
       legacy node/link source dictionaries and unsafe parsed snapshot fields
       while migration `014_report_v3_only_reset.sql` remains byte-identical
 - [ ] SSE `/api/events/stream` works (not shadowed by static SPA catch-all)
