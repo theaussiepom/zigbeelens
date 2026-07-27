@@ -8,10 +8,14 @@ seals a few high-risk public documentation contracts.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import struct
 import subprocess
 import sys
+import zlib
+from collections import Counter
 from datetime import date
 from pathlib import Path
 from types import UnionType
@@ -182,6 +186,860 @@ def validate_fenced_examples(markdown_files: list[Path]) -> int:
     if errors:
         raise DocumentationError("\n".join(errors))
     return count
+
+
+SCREENSHOT_MANIFEST = Path("docs/screenshots/manifest.json")
+SCREENSHOT_DIRECTORY = Path("docs/screenshots")
+PHASE_7C2_CAPTURE_SOURCE_SHA = "747374adbf07fe07282a28c5902a335b2bdc80c4"
+SCREENSHOT_CAPTION_PREFIX = "Illustrative synthetic release-candidate data."
+SCREENSHOT_PREFERRED_MAX_BYTES = 500 * 1024
+SCREENSHOT_HARD_MAX_BYTES = 750 * 1024
+SCREENSHOT_DEFAULT_WIDTH = 1440
+SCREENSHOT_DEFAULT_HEIGHT = 900
+SCREENSHOT_HOME_ASSISTANT_VERSION = "2026.7.3"
+SCREENSHOT_ASSETS: dict[str, tuple[str, str]] = {
+    "overview-dashboard.png": ("core", "README.md"),
+    "mesh-investigate.png": ("core", "docs/topology.md"),
+    "device-detail-history.png": ("core", "docs/topology.md"),
+    "incidents-page.png": ("core", "docs/troubleshooting.md"),
+    "reports-page.png": ("core", "docs/reports.md"),
+    "report-contextual-create.png": ("core", "docs/reports.md"),
+    "hacs-config-flow.png": ("home_assistant", "docs/hacs.md"),
+    "hacs-companion-panel.png": ("home_assistant", "docs/hacs.md"),
+    "hacs-embedded-blocked.png": (
+        "home_assistant",
+        "docs/hacs-embedded-view.md",
+    ),
+}
+SCREENSHOT_ASSET_FIELDS = {
+    "filename",
+    "surface_owner",
+    "route_or_state",
+    "data_source",
+    "capture_source_sha",
+    "width",
+    "height",
+    "device_scale_factor",
+    "zoom_percent",
+    "theme",
+    "byte_size",
+    "sha256",
+    "format",
+    "capture_method",
+    "identifier_presentation",
+    "privacy_review",
+    "visual_review",
+    "documentation_destinations",
+}
+SCREENSHOT_IDENTIFIER_PRESENTATIONS = {
+    "full_synthetic_fixture",
+    "application_abbreviated",
+    "not_visible",
+}
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+PNG_FORBIDDEN_METADATA_CHUNKS = {b"tEXt", b"zTXt", b"iTXt", b"eXIf", b"tIME"}
+PNG_ALLOWED_CRITICAL_CHUNKS = {b"IHDR", b"PLTE", b"IDAT", b"IEND"}
+# Canonical screenshots are opaque RGB captures. Retain only the fixed,
+# one-byte standard rendering-intent marker; broader ancillary chunks are
+# unnecessary here and can carry private/profile metadata.
+PNG_ALLOWED_ANCILLARY_CHUNKS = {b"sRGB"}
+PNG_CHANNELS = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}
+PNG_ALLOWED_BIT_DEPTHS = {
+    0: {1, 2, 4, 8, 16},
+    2: {8, 16},
+    3: {1, 2, 4, 8},
+    4: {8, 16},
+    6: {8, 16},
+}
+PNG_ADAM7_PASSES = (
+    (0, 0, 8, 8),
+    (4, 0, 8, 8),
+    (0, 4, 4, 8),
+    (2, 0, 4, 4),
+    (0, 2, 2, 4),
+    (1, 0, 2, 2),
+    (0, 1, 1, 2),
+)
+
+
+def _is_plain_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _path_label(path: Path) -> str:
+    try:
+        return path.relative_to(ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _load_json_without_duplicate_keys(path: Path) -> object:
+    def reject_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise DocumentationError(
+                    f"{path.relative_to(path.parents[2])}: duplicate JSON key {key!r}"
+                )
+            result[key] = value
+        return result
+
+    try:
+        return json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicates,
+        )
+    except OSError as exc:
+        raise DocumentationError(f"cannot read screenshot manifest: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise DocumentationError(f"invalid screenshot manifest JSON: {exc}") from exc
+
+
+def _png_passes(
+    width: int,
+    height: int,
+    interlace: int,
+) -> list[tuple[int, int]]:
+    if interlace == 0:
+        return [(width, height)]
+    passes: list[tuple[int, int]] = []
+    for x_start, y_start, x_step, y_step in PNG_ADAM7_PASSES:
+        pass_width = (
+            0 if width <= x_start else (width - x_start + x_step - 1) // x_step
+        )
+        pass_height = (
+            0 if height <= y_start else (height - y_start + y_step - 1) // y_step
+        )
+        if pass_width and pass_height:
+            passes.append((pass_width, pass_height))
+    return passes
+
+
+def _validate_png_scanlines(
+    path: Path,
+    compressed: bytes,
+    width: int,
+    height: int,
+    bit_depth: int,
+    color_type: int,
+    interlace: int,
+) -> None:
+    label = _path_label(path)
+    channels = PNG_CHANNELS[color_type]
+    passes = _png_passes(width, height, interlace)
+    rows = [
+        ((pass_width * channels * bit_depth + 7) // 8, pass_height)
+        for pass_width, pass_height in passes
+    ]
+    expected_size = sum((row_bytes + 1) * pass_height for row_bytes, pass_height in rows)
+    # Canonical documentation images are modest. Fail before decompression if a
+    # malformed IHDR claims an unreasonable decoded allocation.
+    if expected_size > 100_000_000:
+        raise DocumentationError(
+            f"{label}: decoded PNG exceeds the 100 MB safety limit"
+        )
+
+    try:
+        decompressor = zlib.decompressobj()
+        decoded = decompressor.decompress(compressed, expected_size + 1)
+        decoded += decompressor.flush()
+    except zlib.error as exc:
+        raise DocumentationError(
+            f"{label}: IDAT zlib stream does not decode: {exc}"
+        ) from exc
+    if (
+        not decompressor.eof
+        or decompressor.unused_data
+        or decompressor.unconsumed_tail
+    ):
+        raise DocumentationError(
+            f"{label}: IDAT is truncated or has trailing data"
+        )
+    if len(decoded) != expected_size:
+        raise DocumentationError(
+            f"{label}: decoded PNG scanline size is {len(decoded)}, "
+            f"expected {expected_size}"
+        )
+
+    offset = 0
+    for row_bytes, pass_height in rows:
+        for _ in range(pass_height):
+            filter_type = decoded[offset]
+            if filter_type > 4:
+                raise DocumentationError(
+                    f"{label}: invalid PNG filter {filter_type}"
+                )
+            offset += row_bytes + 1
+
+
+def parse_png(path: Path) -> tuple[int, int, tuple[str, ...]]:
+    """Decode enough PNG structure and image data to seal documentation assets."""
+    label = _path_label(path)
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        raise DocumentationError(f"cannot read {path}: {exc}") from exc
+    if not payload.startswith(PNG_SIGNATURE):
+        raise DocumentationError(f"{label}: invalid PNG signature")
+
+    offset = len(PNG_SIGNATURE)
+    chunks: list[tuple[bytes, bytes]] = []
+    saw_iend = False
+    while offset < len(payload):
+        if saw_iend:
+            raise DocumentationError(f"{label}: data appears after PNG IEND")
+        if len(payload) - offset < 12:
+            raise DocumentationError(f"{label}: truncated PNG chunk header")
+        length = struct.unpack(">I", payload[offset : offset + 4])[0]
+        chunk_type = payload[offset + 4 : offset + 8]
+        chunk_end = offset + 12 + length
+        if chunk_end > len(payload):
+            raise DocumentationError(
+                f"{label}: truncated {chunk_type!r} PNG chunk"
+            )
+        chunk_data = payload[offset + 8 : offset + 8 + length]
+        expected_crc = struct.unpack(
+            ">I", payload[offset + 8 + length : chunk_end]
+        )[0]
+        actual_crc = zlib.crc32(chunk_type)
+        actual_crc = zlib.crc32(chunk_data, actual_crc) & 0xFFFFFFFF
+        if actual_crc != expected_crc:
+            raise DocumentationError(
+                f"{label}: invalid CRC for {chunk_type!r}"
+            )
+        if chunk_type in PNG_FORBIDDEN_METADATA_CHUNKS:
+            raise DocumentationError(
+                f"{label}: forbidden PNG metadata chunk "
+                f"{chunk_type.decode('ascii', errors='replace')}"
+            )
+        ancillary = bool(chunk_type[0] & 0x20)
+        if ancillary and chunk_type not in PNG_ALLOWED_ANCILLARY_CHUNKS:
+            raise DocumentationError(
+                f"{label}: unsupported ancillary PNG chunk "
+                f"{chunk_type.decode('ascii', errors='replace')}; "
+                "metadata-bearing private chunks are not allowed"
+            )
+        if chunk_type == b"sRGB" and (
+            len(chunk_data) != 1 or chunk_data[0] not in range(4)
+        ):
+            raise DocumentationError(f"{label}: invalid PNG sRGB rendering intent")
+        if not ancillary and chunk_type not in PNG_ALLOWED_CRITICAL_CHUNKS:
+            raise DocumentationError(
+                f"{label}: unsupported critical PNG chunk {chunk_type!r}"
+            )
+        chunks.append((chunk_type, chunk_data))
+        saw_iend = chunk_type == b"IEND"
+        offset = chunk_end
+
+    if not chunks or chunks[0][0] != b"IHDR":
+        raise DocumentationError(f"{label}: IHDR must be first")
+    if len(chunks[0][1]) != 13:
+        raise DocumentationError(f"{label}: PNG IHDR must contain 13 bytes")
+    chunk_types = [chunk_type for chunk_type, _ in chunks]
+    if chunk_types.count(b"IHDR") != 1:
+        raise DocumentationError(f"{label}: PNG must contain exactly one IHDR")
+    if chunk_types.count(b"IEND") != 1 or chunk_types[-1] != b"IEND":
+        raise DocumentationError(f"{label}: PNG must end with exactly one IEND")
+    if b"IDAT" not in chunk_types:
+        raise DocumentationError(f"{label}: PNG has no IDAT data")
+    if chunk_types.count(b"sRGB") > 1:
+        raise DocumentationError(f"{label}: PNG must contain at most one sRGB chunk")
+    if (
+        b"sRGB" in chunk_types
+        and chunk_types.index(b"sRGB") > chunk_types.index(b"IDAT")
+    ):
+        raise DocumentationError(f"{label}: PNG sRGB must precede IDAT")
+    if (
+        b"sRGB" in chunk_types
+        and b"PLTE" in chunk_types
+        and chunk_types.index(b"sRGB") > chunk_types.index(b"PLTE")
+    ):
+        raise DocumentationError(f"{label}: PNG sRGB must precede PLTE")
+    if chunk_types.count(b"PLTE") > 1:
+        raise DocumentationError(f"{label}: PNG must contain at most one PLTE")
+    if chunks[-1][1]:
+        raise DocumentationError(f"{label}: PNG IEND must be empty")
+    idat_indexes = [
+        index for index, chunk_type in enumerate(chunk_types) if chunk_type == b"IDAT"
+    ]
+    if idat_indexes != list(range(idat_indexes[0], idat_indexes[-1] + 1)):
+        raise DocumentationError(f"{label}: PNG IDAT chunks must be consecutive")
+
+    width, height, bit_depth, color_type, compression, filtering, interlace = (
+        struct.unpack(">IIBBBBB", chunks[0][1])
+    )
+    if width <= 0 or height <= 0:
+        raise DocumentationError(f"{label}: PNG dimensions must be positive")
+    if color_type not in PNG_CHANNELS:
+        raise DocumentationError(
+            f"{label}: unsupported PNG color type {color_type}"
+        )
+    if bit_depth not in PNG_ALLOWED_BIT_DEPTHS[color_type]:
+        raise DocumentationError(
+            f"{label}: invalid bit depth {bit_depth} for PNG color type {color_type}"
+        )
+    if compression != 0 or filtering != 0 or interlace not in {0, 1}:
+        raise DocumentationError(
+            f"{label}: invalid PNG compression/filter/interlace"
+        )
+    if color_type == 3 and b"PLTE" not in chunk_types:
+        raise DocumentationError(f"{label}: indexed PNG is missing PLTE")
+    if b"PLTE" in chunk_types:
+        palette_index = chunk_types.index(b"PLTE")
+        if palette_index > idat_indexes[0]:
+            raise DocumentationError(f"{label}: PNG PLTE must precede IDAT")
+        palette = chunks[palette_index][1]
+        if not palette or len(palette) % 3 or len(palette) > 768:
+            raise DocumentationError(f"{label}: invalid PNG PLTE length")
+
+    compressed = b"".join(
+        chunk_data
+        for chunk_type, chunk_data in chunks
+        if chunk_type == b"IDAT"
+    )
+    _validate_png_scanlines(
+        path,
+        compressed,
+        width,
+        height,
+        bit_depth,
+        color_type,
+        interlace,
+    )
+    return width, height, tuple(
+        chunk_type.decode("ascii", errors="replace") for chunk_type in chunk_types
+    )
+
+
+def _manifest_string_values(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [
+            string
+            for item in value
+            for string in _manifest_string_values(item)
+        ]
+    if isinstance(value, dict):
+        return [
+            string
+            for item in value.values()
+            for string in _manifest_string_values(item)
+        ]
+    return []
+
+
+def _manifest_keys(value: object) -> list[str]:
+    if isinstance(value, dict):
+        return [
+            key
+            for item_key, item_value in value.items()
+            for key in (str(item_key), *_manifest_keys(item_value))
+        ]
+    if isinstance(value, list):
+        return [key for item in value for key in _manifest_keys(item)]
+    return []
+
+
+def _strip_approved_synthetic_hosts(text: str) -> str:
+    """Remove only the two exact synthetic hosts/origins allowed by the brief."""
+    approved = re.compile(
+        r"(?i)"
+        r"(?<![a-z0-9+.-])"
+        r"(?:https://zigbeelens\.example\.test|"
+        r"http://core\.zigbeelens\.test)"
+        r"(?![a-z0-9.-])|"
+        r"(?<![a-z0-9./:-])"
+        r"(?:zigbeelens\.example\.test|core\.zigbeelens\.test)"
+        r"(?![a-z0-9.-])"
+    )
+    return approved.sub("", text)
+
+
+def _normalized_manifest_key_parts(key: str) -> tuple[str, ...]:
+    separated = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", key)
+    separated = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", separated)
+    normalized = re.sub(r"[^a-z0-9]+", "_", separated.lower()).strip("_")
+    return tuple(part for part in normalized.split("_") if part)
+
+
+def _sensitive_manifest_key(key: str) -> bool:
+    parts = _normalized_manifest_key_parts(key)
+    if {"token", "cookie", "port"}.intersection(parts):
+        return True
+    pairs = set(zip(parts, parts[1:]))
+    return bool(
+        {
+            ("browser", "profile"),
+            ("filesystem", "path"),
+            ("absolute", "path"),
+        }.intersection(pairs)
+    )
+
+
+def _validate_manifest_privacy(manifest: dict[str, object], errors: list[str]) -> None:
+    approved_dotted_values = set(SCREENSHOT_ASSETS)
+    approved_dotted_values.update(
+        destination for _, destination in SCREENSHOT_ASSETS.values()
+    )
+    strings = [
+        value
+        for value in _manifest_string_values(manifest)
+        if value not in approved_dotted_values
+    ]
+    serialized = "\n".join((*strings, *_manifest_keys(manifest)))
+    serialized = _strip_approved_synthetic_hosts(serialized)
+    forbidden_values = {
+        "complete IEEE address": (
+            r"(?i)\b0x[0-9a-f]{16}\b|"
+            r"\b(?:[0-9a-f]{2}[:-]){7}[0-9a-f]{2}\b"
+        ),
+        "absolute filesystem path": (
+            r"(?i)(?:^|[\s\"'(])/(?:users|home|private|tmp|var|opt)/|"
+            r"\b[a-z]:\\"
+        ),
+        "URL/hostname": (
+            r"(?i)\b[a-z][a-z0-9+.-]*://|"
+            r"(?<![a-z0-9.-])(?:[a-z0-9-]+\.)+"
+            r"[a-z][a-z0-9-]{1,62}(?![a-z0-9.-])|"
+            r"\blocalhost\b|"
+            r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
+        ),
+        "explicit port": r"(?<!\d):[0-9]{2,5}\b",
+        "browser profile": r"(?i)\bbrowser[- ]profile\b",
+        "cookie": r"(?i)\bcookie\b",
+        "token value": r"(?i)\btoken\s*[:=]\s*[^\s,;]+",
+    }
+    for label, pattern in forbidden_values.items():
+        if re.search(pattern, serialized, flags=re.MULTILINE):
+            errors.append(f"screenshot manifest stores forbidden {label}")
+
+    sensitive = sorted(
+        {key for key in _manifest_keys(manifest) if _sensitive_manifest_key(key)}
+    )
+    if sensitive:
+        errors.append(
+            "screenshot manifest stores forbidden sensitive field(s): "
+            + ", ".join(sensitive)
+        )
+
+
+def _next_nonempty_line(text: str, offset: int) -> str:
+    for line in text[offset:].splitlines():
+        if line.strip():
+            return line.strip()
+    return ""
+
+
+def _validate_screenshot_markdown(
+    markdown_files: list[Path],
+    root: Path,
+    errors: list[str],
+) -> None:
+    screenshot_directory = (root / SCREENSHOT_DIRECTORY).resolve()
+    references: dict[str, list[tuple[str, str]]] = {
+        filename: [] for filename in SCREENSHOT_ASSETS
+    }
+    image_pattern = re.compile(r"!\[([^\]]*)]\(([^)]+)\)")
+
+    for source in markdown_files:
+        text = strip_fenced_blocks(source.read_text(encoding="utf-8"))
+        for match in image_pattern.finditer(text):
+            alt = match.group(1).strip()
+            destination = link_destination(match.group(2))
+            if not destination or re.match(
+                r"^(?:https?|data):", destination, flags=re.IGNORECASE
+            ):
+                continue
+            path_part = unquote(destination.partition("#")[0])
+            target = (source.parent / path_part).resolve()
+            try:
+                screenshot_relative = target.relative_to(screenshot_directory)
+            except ValueError:
+                continue
+            filename = screenshot_relative.as_posix()
+            source_relative = source.relative_to(root).as_posix()
+            if filename not in SCREENSHOT_ASSETS:
+                errors.append(
+                    f"{source_relative}: obsolete or unapproved screenshot "
+                    f"reference {filename!r}"
+                )
+                continue
+            references[filename].append((source_relative, alt))
+
+            normalized_alt = " ".join(alt.split()).lower()
+            if (
+                not normalized_alt
+                or normalized_alt == "screenshot"
+                or normalized_alt == filename.lower()
+                or normalized_alt == Path(filename).stem.lower()
+            ):
+                errors.append(
+                    f"{source_relative}: {filename} needs meaningful alt text"
+                )
+            caption = _next_nonempty_line(text, match.end())
+            if not caption.startswith(SCREENSHOT_CAPTION_PREFIX):
+                errors.append(
+                    f"{source_relative}: {filename} must have an immediate caption "
+                    f"starting {SCREENSHOT_CAPTION_PREFIX!r}"
+                )
+
+    for filename, (_, expected_destination) in SCREENSHOT_ASSETS.items():
+        found = references[filename]
+        if len(found) != 1:
+            errors.append(
+                f"{filename}: expected exactly one approved Markdown embed, "
+                f"found {len(found)}"
+            )
+            continue
+        found_destination, _ = found[0]
+        if found_destination != expected_destination:
+            errors.append(
+                f"{filename}: Markdown destination must be {expected_destination}, "
+                f"found {found_destination}"
+            )
+
+
+def validate_screenshot_manifest(
+    markdown_files: list[Path],
+    root: Path = ROOT,
+) -> int:
+    manifest_path = root / SCREENSHOT_MANIFEST
+    if not manifest_path.is_file():
+        raise DocumentationError(
+            f"missing screenshot manifest: {SCREENSHOT_MANIFEST.as_posix()}"
+        )
+    loaded = _load_json_without_duplicate_keys(manifest_path)
+    if not isinstance(loaded, dict):
+        raise DocumentationError("screenshot manifest root must be an object")
+    manifest: dict[str, object] = loaded
+    errors: list[str] = []
+
+    required_top_level = {
+        "screenshot_manifest_version",
+        "capture_source_sha",
+        "release_candidate_version",
+        "capture_date",
+        "data_classification",
+        "contains_real_device_identifiers",
+        "capture_provenance_note",
+        "assets",
+    }
+    missing_top_level = sorted(required_top_level - manifest.keys())
+    if missing_top_level:
+        errors.append(
+            "screenshot manifest missing top-level field(s): "
+            + ", ".join(missing_top_level)
+        )
+    if not (
+        _is_plain_int(manifest.get("screenshot_manifest_version"))
+        and manifest.get("screenshot_manifest_version") == 1
+    ):
+        errors.append("screenshot_manifest_version must be integer 1")
+    capture_sha = manifest.get("capture_source_sha")
+    if not isinstance(capture_sha, str) or not re.fullmatch(
+        r"[0-9a-f]{40}", capture_sha
+    ):
+        errors.append("capture_source_sha must be 40 lowercase hexadecimal characters")
+    elif capture_sha != PHASE_7C2_CAPTURE_SOURCE_SHA:
+        errors.append(
+            "capture_source_sha must match the accepted Phase 7C2 runtime source "
+            f"{PHASE_7C2_CAPTURE_SOURCE_SHA}"
+        )
+
+    try:
+        repository_version = json.loads(
+            (root / "package.json").read_text(encoding="utf-8")
+        )["version"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        errors.append(f"cannot read repository version from package.json: {exc}")
+        repository_version = None
+    if manifest.get("release_candidate_version") != repository_version:
+        errors.append(
+            "release_candidate_version must equal the repository version "
+            f"{repository_version!r}"
+        )
+    if repository_version != "0.1.14":
+        errors.append("Phase 7C2 repository version must remain 0.1.14")
+
+    capture_date = manifest.get("capture_date")
+    try:
+        parsed_date = date.fromisoformat(capture_date)  # type: ignore[arg-type]
+        if parsed_date.isoformat() != capture_date:
+            raise ValueError("non-canonical ISO date")
+    except (TypeError, ValueError):
+        errors.append("capture_date must be a canonical YYYY-MM-DD date")
+    if manifest.get("data_classification") != "synthetic":
+        errors.append("data_classification must be synthetic")
+    if manifest.get("contains_real_device_identifiers") is not False:
+        errors.append("contains_real_device_identifiers must be false")
+    provenance_note = manifest.get("capture_provenance_note")
+    if not isinstance(provenance_note, str) or not all(
+        fragment in provenance_note.lower()
+        for fragment in ("capture_source_sha", "final documentation commit", "not runtime")
+    ):
+        errors.append(
+            "capture_provenance_note must explain capture runtime versus final "
+            "documentation provenance"
+        )
+    _validate_manifest_privacy(manifest, errors)
+
+    assets = manifest.get("assets")
+    if not isinstance(assets, list):
+        errors.append("screenshot manifest assets must be a list")
+        assets = []
+    manifest_names = [
+        asset.get("filename")
+        for asset in assets
+        if isinstance(asset, dict) and isinstance(asset.get("filename"), str)
+    ]
+    counts = Counter(manifest_names)
+    duplicate_names = sorted(name for name, count in counts.items() if count != 1)
+    if duplicate_names:
+        errors.append(
+            "screenshot manifest filenames must appear exactly once: "
+            + ", ".join(duplicate_names)
+        )
+    manifest_inventory = set(manifest_names)
+    missing_assets = sorted(set(SCREENSHOT_ASSETS) - manifest_inventory)
+    extra_assets = sorted(manifest_inventory - set(SCREENSHOT_ASSETS))
+    if missing_assets:
+        errors.append("screenshot manifest missing: " + ", ".join(missing_assets))
+    if extra_assets:
+        errors.append("screenshot manifest has unapproved assets: " + ", ".join(extra_assets))
+    malformed_assets = sum(not isinstance(asset, dict) for asset in assets)
+    if malformed_assets:
+        errors.append(f"screenshot manifest has {malformed_assets} non-object asset(s)")
+
+    screenshots_root = root / SCREENSHOT_DIRECTORY
+    approved_directory_entries = {
+        "README.md",
+        SCREENSHOT_MANIFEST.name,
+        *SCREENSHOT_ASSETS,
+    }
+    actual_entries = {
+        path.relative_to(screenshots_root).as_posix()
+        for path in screenshots_root.rglob("*")
+    }
+    actual_files = {
+        path.relative_to(screenshots_root).as_posix()
+        for path in screenshots_root.rglob("*")
+        if path.is_file()
+    }
+    unexpected_entries = sorted(actual_entries - approved_directory_entries)
+    missing_files = sorted(set(SCREENSHOT_ASSETS) - actual_files)
+    if unexpected_entries:
+        errors.append(
+            "unmanifested screenshot directory entry(s): "
+            + ", ".join(unexpected_entries)
+        )
+    if missing_files:
+        errors.append("missing screenshot image(s): " + ", ".join(missing_files))
+
+    binary_owners: dict[str, list[str]] = {}
+    for asset_object in assets:
+        if not isinstance(asset_object, dict):
+            continue
+        asset: dict[str, object] = asset_object
+        filename_value = asset.get("filename")
+        if not isinstance(filename_value, str):
+            errors.append("screenshot asset filename must be a string")
+            continue
+        filename = filename_value
+        if Path(filename).name != filename or filename not in SCREENSHOT_ASSETS:
+            errors.append(
+                f"{filename}: filename must be an approved bare name relative "
+                "to docs/screenshots"
+            )
+            continue
+        missing_fields = sorted(SCREENSHOT_ASSET_FIELDS - asset.keys())
+        if missing_fields:
+            errors.append(
+                f"{filename}: missing manifest field(s): " + ", ".join(missing_fields)
+            )
+        expected_owner, expected_destination = SCREENSHOT_ASSETS[filename]
+        if asset.get("surface_owner") != expected_owner:
+            errors.append(f"{filename}: surface_owner must be {expected_owner}")
+        for field in ("route_or_state", "data_source", "capture_method"):
+            value = asset.get(field)
+            if not isinstance(value, str) or not value.strip():
+                errors.append(f"{filename}: {field} must be a nonempty string")
+        data_source = asset.get("data_source")
+        if isinstance(data_source, str) and "synthetic" not in data_source.lower():
+            errors.append(f"{filename}: data_source must disclose synthetic data")
+        capture_method = asset.get("capture_method")
+        if isinstance(capture_method, str) and not all(
+            fragment in capture_method.lower() for fragment in ("real", "reduced motion")
+        ):
+            errors.append(
+                f"{filename}: capture_method must record real UI capture "
+                "with reduced motion"
+            )
+        asset_capture_sha = asset.get("capture_source_sha")
+        if not isinstance(asset_capture_sha, str) or not re.fullmatch(
+            r"[0-9a-f]{40}", asset_capture_sha
+        ):
+            errors.append(
+                f"{filename}: capture_source_sha must be 40 lowercase "
+                "hexadecimal characters"
+            )
+        if asset_capture_sha != capture_sha:
+            errors.append(f"{filename}: capture_source_sha differs from manifest")
+
+        if expected_owner == "home_assistant":
+            hacs_contract = {
+                "hacs_package_source_sha": capture_sha,
+                "home_assistant_version": SCREENSHOT_HOME_ASSISTANT_VERSION,
+                "hacs_package_origin": "local_repository_stage",
+                "public_hacs_satellite_used": False,
+            }
+            for field, expected in hacs_contract.items():
+                value = asset.get(field)
+                if (
+                    field == "public_hacs_satellite_used"
+                    and value is not False
+                ) or (
+                    field != "public_hacs_satellite_used"
+                    and value != expected
+                ):
+                    errors.append(f"{filename}: {field} must be {expected!r}")
+        else:
+            inappropriate = sorted(
+                field
+                for field in (
+                    "hacs_package_source_sha",
+                    "home_assistant_version",
+                    "hacs_package_origin",
+                    "public_hacs_satellite_used",
+                )
+                if field in asset
+            )
+            if inappropriate:
+                errors.append(
+                    f"{filename}: Core asset has Home Assistant provenance "
+                    + ", ".join(inappropriate)
+                )
+
+        for field in ("width", "height", "byte_size", "zoom_percent"):
+            if not _is_plain_int(asset.get(field)):
+                errors.append(f"{filename}: {field} must be an integer")
+        scale = asset.get("device_scale_factor")
+        if not (
+            (_is_plain_int(scale) or isinstance(scale, float))
+            and not isinstance(scale, bool)
+            and scale > 0
+        ):
+            errors.append(f"{filename}: device_scale_factor must be numeric")
+        width = asset.get("width")
+        height = asset.get("height")
+        byte_size = asset.get("byte_size")
+        zoom = asset.get("zoom_percent")
+        if _is_plain_int(width) and width <= 0:
+            errors.append(f"{filename}: width must be positive")
+        if _is_plain_int(height) and height <= 0:
+            errors.append(f"{filename}: height must be positive")
+        if _is_plain_int(byte_size) and byte_size <= 0:
+            errors.append(f"{filename}: byte_size must be positive")
+        if scale != 1:
+            errors.append(f"{filename}: device_scale_factor must be 1")
+        if zoom != 100:
+            errors.append(f"{filename}: zoom_percent must be 100")
+        if asset.get("theme") != "production_default":
+            errors.append(f"{filename}: theme must be production_default")
+
+        exception_rationale = asset.get("capture_exception_rationale")
+        if exception_rationale is not None and (
+            not isinstance(exception_rationale, str)
+            or not exception_rationale.strip()
+        ):
+            errors.append(
+                f"{filename}: capture_exception_rationale must be nonempty"
+            )
+        if (
+            width != SCREENSHOT_DEFAULT_WIDTH
+            or height != SCREENSHOT_DEFAULT_HEIGHT
+        ) and not (
+            isinstance(exception_rationale, str) and exception_rationale.strip()
+        ):
+            errors.append(
+                f"{filename}: non-default viewport requires "
+                "capture_exception_rationale"
+            )
+
+        size_rationale = asset.get("size_exception_rationale")
+        if size_rationale is not None and (
+            not isinstance(size_rationale, str) or not size_rationale.strip()
+        ):
+            errors.append(f"{filename}: size_exception_rationale must be nonempty")
+        if _is_plain_int(byte_size):
+            if byte_size > SCREENSHOT_HARD_MAX_BYTES:
+                errors.append(
+                    f"{filename}: {byte_size} bytes exceeds the 750 KB hard maximum"
+                )
+            elif byte_size > SCREENSHOT_PREFERRED_MAX_BYTES and not (
+                isinstance(size_rationale, str) and size_rationale.strip()
+            ):
+                errors.append(
+                    f"{filename}: image over 500 KB requires "
+                    "size_exception_rationale"
+                )
+
+        sha256 = asset.get("sha256")
+        if not isinstance(sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", sha256):
+            errors.append(f"{filename}: sha256 must be 64 lowercase hexadecimal characters")
+        if asset.get("format") != "png":
+            errors.append(f"{filename}: format must be png")
+        identifier = asset.get("identifier_presentation")
+        if identifier not in SCREENSHOT_IDENTIFIER_PRESENTATIONS:
+            errors.append(
+                f"{filename}: identifier_presentation must be one of "
+                + ", ".join(sorted(SCREENSHOT_IDENTIFIER_PRESENTATIONS))
+            )
+        if asset.get("privacy_review") != "passed":
+            errors.append(f"{filename}: privacy_review must be passed")
+        if asset.get("visual_review") != "passed":
+            errors.append(f"{filename}: visual_review must be passed")
+        destinations = asset.get("documentation_destinations")
+        if destinations != [expected_destination]:
+            errors.append(
+                f"{filename}: documentation_destinations must be "
+                f"[{expected_destination!r}]"
+            )
+
+        asset_path = screenshots_root / filename
+        if not asset_path.is_file():
+            continue
+        actual_payload = asset_path.read_bytes()
+        actual_size = len(actual_payload)
+        actual_sha = hashlib.sha256(actual_payload).hexdigest()
+        binary_owners.setdefault(actual_sha, []).append(filename)
+        if actual_size != byte_size:
+            errors.append(
+                f"{filename}: byte_size is {byte_size!r}, actual {actual_size}"
+            )
+        if actual_sha != sha256:
+            errors.append(f"{filename}: sha256 does not match the image")
+        try:
+            actual_width, actual_height, _ = parse_png(asset_path)
+        except DocumentationError as exc:
+            errors.append(str(exc))
+        else:
+            if actual_width != width or actual_height != height:
+                errors.append(
+                    f"{filename}: manifest dimensions {width!r} x {height!r}, "
+                    f"actual {actual_width} x {actual_height}"
+                )
+
+    duplicate_binaries = [
+        filenames for filenames in binary_owners.values() if len(filenames) > 1
+    ]
+    for filenames in duplicate_binaries:
+        errors.append("duplicate binary screenshot images: " + ", ".join(filenames))
+
+    _validate_screenshot_markdown(markdown_files, root, errors)
+    if errors:
+        raise DocumentationError("\n".join(errors))
+    return len(SCREENSHOT_ASSETS)
 
 
 GENERIC_DATA_FILES = (
@@ -1530,6 +2388,7 @@ def main() -> int:
     links, external = validate_markdown_links(markdown_files)
     fenced = validate_fenced_examples(markdown_files)
     data_files, configs = validate_data_files()
+    screenshots = validate_screenshot_manifest(markdown_files)
     seals = validate_current_contract_copy()
 
     print(
@@ -1541,6 +2400,7 @@ def main() -> int:
         f"{data_files} maintained JSON/YAML files parsed, "
         f"{configs} Core configs validated, "
         "1 ReportRequest validated, "
+        f"{screenshots} canonical screenshots validated, "
         f"{seals} contract/status assertions."
     )
     return 0
