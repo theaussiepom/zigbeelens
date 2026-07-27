@@ -711,9 +711,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -1985,9 +1982,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -2906,9 +2900,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -4358,9 +4349,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -5785,9 +5773,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -6637,9 +6622,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -7946,9 +7928,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -9730,9 +9709,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -11496,9 +11472,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -12721,9 +12694,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -13638,9 +13608,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -14359,9 +14326,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -15099,9 +15063,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -15699,9 +15660,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {

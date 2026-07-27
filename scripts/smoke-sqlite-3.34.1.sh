@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runtime SQLite 3.34.1 smoke for Phase 7A migration 013.
+# Runtime SQLite 3.34.1 smoke for migrations 013–015 and production queries.
 # Uses python:3.12-slim-bullseye (linked SQLite 3.34.1).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

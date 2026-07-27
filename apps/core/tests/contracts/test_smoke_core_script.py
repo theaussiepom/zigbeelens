@@ -340,7 +340,7 @@ def test_smoke_script_is_hermetic_and_release_owned() -> None:
     assert '"startup_scan": False' in text
     assert '"manual_capture_enabled": False' in text
     assert '"automatic_capture_enabled": False' in text
-    assert '"schema_version") != 14' in text
+    assert '"schema_version") != 15' in text
     assert "quick_check" in text
     assert "foreign_key_check" in text
     assert "bash scripts/smoke-core.sh" in helper

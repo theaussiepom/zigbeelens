@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 
 from fastapi.testclient import TestClient
 
@@ -166,6 +167,63 @@ def test_evidence_graph_api_topology_facts_shape(topology_client: TestClient):
         assert set(item.keys()) == {"dimension", "state", "label_code", "params"}
 
 
+def test_snapshot_detail_never_exposes_stored_raw_topology_surfaces(
+    topology_client: TestClient,
+):
+    ctx = get_context()
+    _store_snapshot(
+        ctx.repo,
+        "snap-private-raw",
+        captured_at=_utc_now(),
+        links=[{"source": "0x02", "target": "0x01", "linkquality": 90}],
+    )
+    ctx.repo.db.conn.execute(
+        """
+        UPDATE topology_snapshots
+        SET raw_redacted_json = ?, parsed_json = ?
+        WHERE snapshot_id = ?
+        """,
+        (
+            '{"password":"legacy-snapshot-secret"}',
+            '{"token":"legacy-parsed-secret"}',
+            "snap-private-raw",
+        ),
+    )
+    ctx.repo.db.conn.execute(
+        """
+        UPDATE topology_nodes
+        SET raw_json = '{"network_key":"legacy-node-secret"}'
+        WHERE snapshot_id = ?
+        """,
+        ("snap-private-raw",),
+    )
+    ctx.repo.db.conn.execute(
+        """
+        UPDATE topology_links
+        SET raw_json = '{"api_key":"legacy-link-secret"}'
+        WHERE snapshot_id = ?
+        """,
+        ("snap-private-raw",),
+    )
+    ctx.repo.db.conn.commit()
+
+    for prefix in ("/api", "/api/v1"):
+        response = topology_client.get(
+            f"{prefix}/topology/home/snapshots/snap-private-raw"
+        )
+        assert response.status_code == 200
+        blob = json.dumps(response.json(), sort_keys=True)
+        for private_field in ("raw_redacted_json", "parsed_json", "raw_json"):
+            assert f'"{private_field}"' not in blob
+        for secret in (
+            "legacy-snapshot-secret",
+            "legacy-parsed-secret",
+            "legacy-node-secret",
+            "legacy-link-secret",
+        ):
+            assert secret not in blob
+
+
 def test_device_snapshot_history_api_topology_facts_shape_and_scoped_comparisons(
     topology_client: TestClient,
 ):
@@ -186,7 +244,36 @@ def test_device_snapshot_history_api_topology_facts_shape_and_scoped_comparisons
     ):
         _store_snapshot(ctx.repo, snapshot_id, captured_at=captured_at, links=links)
 
-    body = topology_client.get("/api/topology/home/devices/0x04/snapshot-history").json()
+    bodies = []
+    for prefix in ("/api", "/api/v1"):
+        lower_response = topology_client.get(
+            f"{prefix}/topology/home/devices/0x04/snapshot-history"
+        )
+        mixed_response = topology_client.get(
+            f"{prefix}/topology/home/devices/0X04/snapshot-history"
+        )
+        assert lower_response.status_code == mixed_response.status_code == 200
+        body = lower_response.json()
+        mixed_case_body = mixed_response.json()
+        assert mixed_case_body["device_ieee"] == body["device_ieee"] == "0x04"
+        assert mixed_case_body["latest_snapshot"] == body["latest_snapshot"]
+        assert mixed_case_body["snapshots"] == body["snapshots"]
+        assert mixed_case_body["topology_facts"] == body["topology_facts"]
+        bodies.append(body)
+    assert bodies[0] == bodies[1]
+    body = bodies[0]
+
+    unknown_responses = [
+        topology_client.get(
+            f"{prefix}/topology/home/devices/%20%200XMISSING%20%20/snapshot-history"
+        )
+        for prefix in ("/api", "/api/v1")
+    ]
+    assert {response.status_code for response in unknown_responses} == {404}
+    assert unknown_responses[0].json() == unknown_responses[1].json() == {
+        "detail": "Device '0xmissing' was not found in network 'home'"
+    }
+
     topology_facts = body["topology_facts"]
     assert set(topology_facts.keys()) == {
         "stale_threshold_hours",

@@ -62,10 +62,6 @@ Structural repository validation does not close its live HAOS/runtime gates:
   runner contract or propagate the optional API token;
 - UID-1000 \`/data\` writability, Supervisor Ingress, bearer behavior, and
   non-Supervisor spoof rejection require packaged HAOS smokes;
-- the \`reporting.max_*\` schema accepts \`0\` while Core requires at least
-  \`1\`;
-- \`reporting.default_profile\` is ineffective and other accepted reporting
-  controls have no current exact-v3 composition effect; and
 - the package publishes no portable HACS-to-Core origin.
 
 ## Conditional install after publication

@@ -525,12 +525,6 @@ export function ContextualReportDialog({
                 onChange={(v) => setOptions((o) => ({ ...o, includeTimeline: v }))}
                 disabled={creating}
               />
-              <Toggle
-                label="Include raw redacted payload snippets"
-                checked={options.includeRaw}
-                onChange={(v) => setOptions((o) => ({ ...o, includeRaw: v }))}
-                disabled={creating}
-              />
             </div>
           </details>
 

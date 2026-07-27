@@ -343,14 +343,13 @@ export type RedactionMode = "preserved" | "labeled" | "hashed" | "redacted";
 
 /** Per-request redaction overrides (null = use profile default) */
 export interface RedactionOptions {
-  profile: RedactionProfile;
+  profile?: RedactionProfile | null;
   preserve_friendly_names?: boolean | null;
   hash_ieee_addresses?: boolean | null;
   redact_hostnames?: boolean | null;
   redact_ip_addresses?: boolean | null;
   redact_network_names?: boolean | null;
   include_timeline?: boolean | null;
-  include_raw_payloads?: boolean | null;
 }
 
 /** Request body for generating a report */

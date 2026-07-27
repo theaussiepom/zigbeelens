@@ -11,7 +11,10 @@ from typing import Callable
 
 from zigbeelens.config.models import AppConfig
 from zigbeelens.mqtt.client import parse_mqtt_server
-from zigbeelens.mqtt_discovery.topics import validate_publish_topic
+from zigbeelens.mqtt_discovery.topics import (
+    validate_publish_topic,
+    validated_availability_topic,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,17 +36,25 @@ class SafeMqttPublisher:
         client_id_suffix: str = "-discovery",
         on_connect: Callable[[], None] | None = None,
     ) -> None:
+        base_topics = tuple(n.base_topic for n in config.networks)
+        availability = validated_availability_topic(
+            config.mqtt_discovery.state_topic_prefix,
+            zigbee_base_topics=base_topics,
+        )
+
+        # Topic validation must precede Paho client construction and every
+        # credential, TLS, will, or connection side effect.
         import paho.mqtt.client as mqtt
 
         self._config = config
         self._mqtt = config.mqtt
-        self._base_topics = tuple(n.base_topic for n in config.networks)
+        self._base_topics = base_topics
+        self._availability = availability
         self._records: list[PublishRecord] = []
         self._lock = threading.Lock()
         self._connected = False
         conn = parse_mqtt_server(self._mqtt.server)
         client_id = f"{self._mqtt.client_id}{client_id_suffix}"
-        availability = self._availability_topic()
         self._client = mqtt.Client(client_id=client_id, protocol=mqtt.MQTTv311)
         if self._mqtt.username:
             password_value = self._mqtt.password.get_secret_value()
@@ -60,8 +71,7 @@ class SafeMqttPublisher:
         self._port = conn.port
 
     def _availability_topic(self) -> str:
-        prefix = self._config.mqtt_discovery.state_topic_prefix.strip("/")
-        return f"{prefix}/status"
+        return self._availability
 
     def _handle_connect(self, _client, _userdata, _flags, rc) -> None:
         if rc == 0:
@@ -107,6 +117,7 @@ class SafeMqttPublisher:
             topic,
             zigbee_base_topics=self._base_topics,
             discovery_topic_prefix=self._config.mqtt_discovery.topic_prefix,
+            allowed_topic_prefixes=(self._config.mqtt_discovery.state_topic_prefix,),
         )
         with self._lock:
             self._records.append(PublishRecord(topic=topic, payload=payload, retain=retain))
@@ -129,9 +140,14 @@ class FakeDiscoveryPublisher:
     published: list[PublishRecord] = field(default_factory=list)
     _connected: bool = False
     _base_topics: tuple[str, ...] = field(default_factory=tuple)
+    _availability: str = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._base_topics = tuple(n.base_topic for n in self.config.networks)
+        self._availability = validated_availability_topic(
+            self.config.mqtt_discovery.state_topic_prefix,
+            zigbee_base_topics=self._base_topics,
+        )
 
     @property
     def connected(self) -> bool:
@@ -141,8 +157,7 @@ class FakeDiscoveryPublisher:
         self._connected = True
 
     def disconnect(self) -> None:
-        prefix = self.config.mqtt_discovery.state_topic_prefix.strip("/")
-        self.publish(f"{prefix}/status", "offline", retain=True)
+        self.publish(self._availability, "offline", retain=True)
         self._connected = False
 
     def publish(self, topic: str, payload: str, *, retain: bool = False) -> None:
@@ -150,6 +165,7 @@ class FakeDiscoveryPublisher:
             topic,
             zigbee_base_topics=self._base_topics,
             discovery_topic_prefix=self.config.mqtt_discovery.topic_prefix,
+            allowed_topic_prefixes=(self.config.mqtt_discovery.state_topic_prefix,),
         )
         self.published.append(PublishRecord(topic=topic, payload=payload, retain=retain))
 

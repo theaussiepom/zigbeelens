@@ -19,9 +19,9 @@ from zigbeelens.mqtt_discovery.payloads import (
 from zigbeelens.mqtt_discovery.publisher import FakeDiscoveryPublisher, SafeMqttPublisher
 from zigbeelens.mqtt_discovery.topics import (
     LEGACY_DISCOVERY_TOPICS,
-    availability_topic,
     summary_attributes_topic,
     summary_state_topic,
+    validated_availability_topic,
 )
 from zigbeelens.storage.repository import utc_now_iso
 
@@ -59,6 +59,10 @@ class MqttDiscoveryService:
         self._ctx = ctx
         self._config = ctx.config
         self._status = MqttDiscoveryStatus(enabled=True)
+        self._availability_topic = validated_availability_topic(
+            self._config.mqtt_discovery.state_topic_prefix,
+            zigbee_base_topics=tuple(network.base_topic for network in self._config.networks),
+        )
         self._publisher = publisher or SafeMqttPublisher(ctx.config)
         self._published_topics: set[str] = set()
         self._discovery_topics: set[str] = set()
@@ -175,7 +179,7 @@ class MqttDiscoveryService:
                 )
 
     def _publish_availability(self, state: str) -> None:
-        topic = availability_topic(self._config.mqtt_discovery.state_topic_prefix)
+        topic = self._availability_topic
         retain = self._config.mqtt_discovery.retain
         self._publisher.publish(topic, state, retain=retain)
         self._published_topics.add(topic)
@@ -190,7 +194,7 @@ class MqttDiscoveryService:
             device_name=self._config.mqtt_discovery.device_name,
             core_version=__version__,
         )
-        availability = availability_topic(self._config.mqtt_discovery.state_topic_prefix)
+        availability = self._availability_topic
         entities = all_discovery_entities(
             topic_prefix=self._config.mqtt_discovery.topic_prefix,
             state_topic_prefix=self._config.mqtt_discovery.state_topic_prefix,

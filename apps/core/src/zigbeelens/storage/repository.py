@@ -42,6 +42,11 @@ def _chunked(items: list[Any], size: int) -> Iterator[list[Any]]:
         yield items[index : index + size]
 
 
+def _canonical_ieee_address(value: Any) -> str:
+    """Canonical parameter form for exact indexed IEEE lookups."""
+    return str(value or "").strip().lower()
+
+
 def _dedupe_topology_links(links: list[Any]) -> list[Any]:
     """Collapse duplicate source→target rows from raw maps.
 
@@ -1625,7 +1630,7 @@ class Repository:
         """Bulk links involving one device across selected snapshots."""
         ordered_ids = list(dict.fromkeys(sid for sid in snapshot_ids if sid))
         result: dict[str, list[dict[str, Any]]] = {sid: [] for sid in ordered_ids}
-        ieee = str(ieee_address).strip()
+        ieee = _canonical_ieee_address(ieee_address)
         if not ordered_ids or not ieee:
             return result
         for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
@@ -2264,7 +2269,7 @@ class Repository:
             UPDATE topology_snapshots SET
                 status = ?,
                 raw_redacted_json = ?,
-                parsed_json = ?,
+                parsed_json = NULL,
                 router_count = ?,
                 end_device_count = ?,
                 link_count = ?,
@@ -2274,13 +2279,6 @@ class Repository:
             (
                 status,
                 json.dumps(parsed.raw_redacted),
-                json.dumps(
-                    {
-                        "router_count": parsed.router_count,
-                        "end_device_count": parsed.end_device_count,
-                        "link_count": link_count,
-                    }
-                ),
                 parsed.router_count,
                 parsed.end_device_count,
                 link_count,
@@ -2304,7 +2302,7 @@ class Repository:
                     node.node_type,
                     node.depth,
                     node.lqi,
-                    json.dumps(node.raw_json),
+                    "{}",
                 ),
             )
         for link in stored_links:
@@ -2326,7 +2324,7 @@ class Repository:
                     link.depth,
                     link.relationship,
                     link.route_count,
-                    json.dumps(link.raw_json),
+                    "{}",
                 ),
             )
         self.db.conn.commit()
@@ -2468,8 +2466,8 @@ class Repository:
         cur = self.db.conn.execute(
             """
             SELECT snapshot_id, network_id, captured_at, requested_by, status,
-                   router_count, end_device_count, link_count, warning_acknowledged, error,
-                   raw_redacted_json, parsed_json
+                   router_count, end_device_count, link_count,
+                   warning_acknowledged, error
             FROM topology_snapshots
             WHERE network_id = ? AND snapshot_id = ?
             """,
@@ -2501,9 +2499,10 @@ class Repository:
         return [dict(row) for row in cur.fetchall()]
 
     def get_topology_node_name(self, snapshot_id: str, ieee_address: str) -> str | None:
+        ieee = _canonical_ieee_address(ieee_address)
         cur = self.db.conn.execute(
             "SELECT friendly_name FROM topology_nodes WHERE snapshot_id = ? AND ieee_address = ?",
-            (snapshot_id, ieee_address),
+            (snapshot_id, ieee),
         )
         row = cur.fetchone()
         return row[0] if row else None
@@ -2511,6 +2510,7 @@ class Repository:
     def get_topology_node(
         self, snapshot_id: str, ieee_address: str
     ) -> dict[str, Any] | None:
+        ieee = _canonical_ieee_address(ieee_address)
         cur = self.db.conn.execute(
             """
             SELECT ieee_address, friendly_name, node_type, depth, lqi
@@ -2518,29 +2518,31 @@ class Repository:
             WHERE snapshot_id = ? AND ieee_address = ?
             LIMIT 1
             """,
-            (snapshot_id, ieee_address),
+            (snapshot_id, ieee),
         )
         row = cur.fetchone()
         return dict(row) if row else None
 
     def list_topology_children(self, snapshot_id: str, router_ieee: str) -> list[str]:
+        router = _canonical_ieee_address(router_ieee)
         cur = self.db.conn.execute(
             """
             SELECT target_ieee FROM topology_links
             WHERE snapshot_id = ? AND source_ieee = ?
             """,
-            (snapshot_id, router_ieee),
+            (snapshot_id, router),
         )
         return [row[0] for row in cur.fetchall()]
 
     def get_topology_parent_router(self, snapshot_id: str, ieee_address: str) -> str | None:
+        ieee = _canonical_ieee_address(ieee_address)
         cur = self.db.conn.execute(
             """
             SELECT source_ieee FROM topology_links
             WHERE snapshot_id = ? AND target_ieee = ?
             LIMIT 1
             """,
-            (snapshot_id, ieee_address),
+            (snapshot_id, ieee),
         )
         row = cur.fetchone()
         if not row:

@@ -22,6 +22,15 @@ if TYPE_CHECKING:
     from zigbeelens.services.evidence_graph import EvidenceGraphService
 
 
+class DeviceTopologyIdentityNotFoundError(LookupError):
+    """No current-device or latest-snapshot evidence owns the requested identity."""
+
+    def __init__(self, network_id: str, device_ieee: str) -> None:
+        super().__init__(
+            f"Device '{device_ieee}' was not found in network '{network_id}'"
+        )
+
+
 def topology_stale_threshold_hours(config: AppConfig) -> int | None:
     """Derive snapshot staleness threshold from topology configuration.
 
@@ -89,23 +98,47 @@ def compose_device_topology_facts_payload(
     evidence_graph: dict[str, Any] | None = None,
     network_evidence_context: Any | None = None,
 ) -> dict[str, Any]:
+    return _compose_device_topology_facts_payload(
+        service,
+        network_id=network_id,
+        canonical_device_ieee=normalize_device_ieee(device_ieee),
+        device_snapshot_history_payload=device_snapshot_history_payload,
+        stale_after_hours=stale_after_hours,
+        now=now,
+        evidence_graph=evidence_graph,
+        network_evidence_context=network_evidence_context,
+    )
+
+
+def _compose_device_topology_facts_payload(
+    service: EvidenceGraphService,
+    *,
+    network_id: str,
+    canonical_device_ieee: str,
+    device_snapshot_history_payload: dict[str, Any],
+    stale_after_hours: int | None,
+    now: datetime | None = None,
+    evidence_graph: dict[str, Any] | None = None,
+    network_evidence_context: Any | None = None,
+) -> dict[str, Any]:
     graph = (
         evidence_graph
         if evidence_graph is not None
         else service.build(network_id, now=now, context=network_evidence_context)
     )
-    device_key = normalize_device_ieee(device_ieee)
     facts = build_topology_facts_from_evidence_graph(
         network_id=network_id,
         evidence_graph=graph,
-        device_ieees=[device_ieee],
-        device_snapshot_histories={device_key: device_snapshot_history_payload},
+        device_ieees=[canonical_device_ieee],
+        device_snapshot_histories={
+            canonical_device_ieee: device_snapshot_history_payload
+        },
         now=now,
         stale_after_hours=stale_after_hours,
     )
     return topology_device_facts_payload(
         facts,
-        device_ieee=device_ieee,
+        device_ieee=canonical_device_ieee,
         stale_threshold_hours=stale_after_hours,
     )
 
@@ -138,11 +171,23 @@ def build_device_snapshot_history_response(
     reference_now = now or datetime.now(timezone.utc)
     if reference_now.tzinfo is None:
         reference_now = reference_now.replace(tzinfo=timezone.utc)
+    device_ieee = normalize_device_ieee(device_ieee)
 
     usable = list(
         repo.list_complete_topology_snapshots(network_id, limit=MAX_SNAPSHOT_HISTORY)
     )
     snapshot_ids = [str(row["snapshot_id"]) for row in usable]
+    latest = usable[0] if usable else None
+    latest_id = str(latest["snapshot_id"]) if latest is not None else None
+    device_row = repo.get_device(network_id, device_ieee)
+    latest_node = (
+        repo.get_topology_node(latest_id, device_ieee)
+        if latest_id is not None
+        else None
+    )
+    if device_row is None and latest_node is None:
+        raise DeviceTopologyIdentityNotFoundError(network_id, device_ieee)
+
     links_by_snapshot_id = (
         repo.list_topology_links_for_device_in_snapshots(snapshot_ids, device_ieee)
         if snapshot_ids
@@ -156,7 +201,6 @@ def build_device_snapshot_history_response(
         network_id,
         earliest_availability_at=earliest_availability_at,
     )
-    device_row = repo.get_device(network_id, device_ieee)
     has_current_issue = bool(
         device_row is not None and device_row.availability == "offline"
     )
@@ -179,13 +223,7 @@ def build_device_snapshot_history_response(
         has_current_issue=has_current_issue,
     )
 
-    latest = usable[0] if usable else None
-    latest_id = str(latest["snapshot_id"]) if latest is not None else None
-    latest_nodes: list[dict[str, Any]] = []
-    if latest_id is not None:
-        node_row = repo.get_topology_node(latest_id, device_ieee)
-        if node_row is not None:
-            latest_nodes = [node_row]
+    latest_nodes = [latest_node] if latest_node is not None else []
 
     evidence_graph = {
         "latest_snapshot": dict(latest) if latest is not None else None,
@@ -195,10 +233,10 @@ def build_device_snapshot_history_response(
     }
     return {
         **history,
-        "topology_facts": compose_device_topology_facts_payload(
+        "topology_facts": _compose_device_topology_facts_payload(
             service,
             network_id=network_id,
-            device_ieee=device_ieee,
+            canonical_device_ieee=device_ieee,
             device_snapshot_history_payload=history,
             stale_after_hours=stale_after_hours,
             now=reference_now,

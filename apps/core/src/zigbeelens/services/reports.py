@@ -31,7 +31,11 @@ from zigbeelens.schemas import (
     ReportSummary,
 )
 from zigbeelens.services.report_redaction import Redactor, resolve_redaction
-from zigbeelens.services.report_scope import ReportScopeAmbiguityError
+from zigbeelens.services.report_scope import (
+    ReportScopeAmbiguityError,
+    ReportScopeNotFoundError,
+    ReportScopeRequestError,
+)
 from zigbeelens.storage.repository import ReportRow, Repository
 
 STANDARD_LIMITATIONS: list[LimitationItem] = [
@@ -272,7 +276,6 @@ def generate_report(
     resolved = resolve_redaction(
         request.redaction,
         default_profile=reporting.default_profile,
-        default_include_raw=reporting.include_raw_payloads,
     )
     reference_now = now or datetime.now(timezone.utc)
     if reference_now.tzinfo is None:
@@ -316,8 +319,12 @@ def generate_report(
     return redacted
 
 
-# Re-export for API/route handlers that map scope ambiguity to HTTP errors.
-__all_report_errors__ = (ReportScopeAmbiguityError,)
+# Re-export for API/route handlers that map scope failures to HTTP errors.
+__all_report_errors__ = (
+    ReportScopeAmbiguityError,
+    ReportScopeNotFoundError,
+    ReportScopeRequestError,
+)
 
 
 # -- rendering -----------------------------------------------------------

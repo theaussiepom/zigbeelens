@@ -1,4 +1,4 @@
-"""Runtime SQLite 3.34.1 smoke for migrations 013–014 and Phase 7A production queries.
+"""Runtime SQLite 3.34.1 smoke for migrations 013–015 and Phase 7A production queries.
 
 Host developers typically run newer SQLite; this module skips unless the linked
 library is exactly 3.34.1. Use ``scripts/smoke-sqlite-3.34.1.sh`` for the Docker
@@ -47,14 +47,78 @@ def _apply_migrations_through(db: Database, through_version: int) -> None:
     db.migration_version = max(applied, default=0)
 
 
-def test_sqlite_3_34_1_migration_013_and_production_queries(tmp_path: Path):
+def test_sqlite_3_34_1_migrations_013_to_015_and_production_queries(tmp_path: Path):
     assert sqlite3.sqlite_version == "3.34.1"
     db = Database(tmp_path / "smoke3341.sqlite")
     _apply_migrations_through(db, 12)
     assert db.migration_version == 12
-    assert db.migrate() == 14
-    assert db.migrate() == 14
+    db.conn.execute(
+        """
+        INSERT INTO networks (id, name, base_topic, bridge_state, created_at, updated_at)
+        VALUES ('home', 'Home', 'z2m/home', 'online', '2026-07-15T12:00:00+00:00',
+                '2026-07-15T12:00:00+00:00')
+        """
+    )
+    db.conn.execute(
+        """
+        INSERT INTO topology_snapshots (
+            snapshot_id, network_id, captured_at, requested_by, status,
+            raw_redacted_json, parsed_json, router_count, end_device_count,
+            link_count
+        ) VALUES (
+            'snap-unsafe', 'home', '2026-07-14T12:00:00+00:00', 'manual',
+            'complete', '{"password":"***","safe":"retain"}',
+            '{"password":"unsafe","router_count":2}', 2, 3, 1
+        )
+        """
+    )
+    db.conn.execute(
+        """
+        INSERT INTO topology_nodes (
+            snapshot_id, network_id, ieee_address, node_type, raw_json
+        ) VALUES (
+            'snap-unsafe', 'home', '0x01', 'Coordinator',
+            '{"password":"unsafe-node"}'
+        )
+        """
+    )
+    db.conn.execute(
+        """
+        INSERT INTO topology_links (
+            snapshot_id, network_id, source_ieee, target_ieee, raw_json,
+            route_count
+        ) VALUES (
+            'snap-unsafe', 'home', '0x01', '0x02',
+            '{"token":"unsafe-link"}', 4
+        )
+        """
+    )
+    db.conn.commit()
+
+    assert db.migrate() == 15
+    assert db.migrate() == 15
     assert db.conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == 0
+    scrubbed = db.conn.execute(
+        """
+        SELECT raw_redacted_json, parsed_json, router_count,
+               end_device_count, link_count
+        FROM topology_snapshots
+        WHERE snapshot_id = 'snap-unsafe'
+        """
+    ).fetchone()
+    assert scrubbed["raw_redacted_json"] == '{"password":"***","safe":"retain"}'
+    assert scrubbed["parsed_json"] is None
+    assert (
+        scrubbed["router_count"],
+        scrubbed["end_device_count"],
+        scrubbed["link_count"],
+    ) == (2, 3, 1)
+    assert db.conn.execute(
+        "SELECT raw_json FROM topology_nodes WHERE snapshot_id = 'snap-unsafe'"
+    ).fetchone()[0] == "{}"
+    assert db.conn.execute(
+        "SELECT raw_json FROM topology_links WHERE snapshot_id = 'snap-unsafe'"
+    ).fetchone()[0] == "{}"
     assert db.conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
     assert db.conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
@@ -75,13 +139,6 @@ def test_sqlite_3_34_1_migration_013_and_production_queries(tmp_path: Path):
     assert "idx_topology_links_snapshot_source" not in indexes
 
     repo = Repository(db)
-    db.conn.execute(
-        """
-        INSERT INTO networks (id, name, base_topic, bridge_state, created_at, updated_at)
-        VALUES ('home', 'Home', 'z2m/home', 'online', '2026-07-15T12:00:00+00:00',
-                '2026-07-15T12:00:00+00:00')
-        """
-    )
     repo.insert_incident(
         incident_id="inc-1",
         dedup_key="device_offline:home:0xAA",

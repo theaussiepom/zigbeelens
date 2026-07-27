@@ -396,7 +396,6 @@ function reportParams(
     redact_ip_addresses: boolParam(r.redact_ip_addresses),
     redact_network_names: boolParam(r.redact_network_names),
     include_timeline: boolParam(r.include_timeline),
-    include_raw_payloads: boolParam(r.include_raw_payloads),
   };
 }
 

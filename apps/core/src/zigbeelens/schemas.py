@@ -615,14 +615,15 @@ class ReportFormat(str, Enum):
 class RedactionOptions(BaseModel):
     """Per-request redaction overrides. None means "use profile default"."""
 
-    profile: RedactionProfile = RedactionProfile.standard
+    model_config = ConfigDict(extra="forbid")
+
+    profile: RedactionProfile | None = None
     preserve_friendly_names: bool | None = None
     hash_ieee_addresses: bool | None = None
     redact_hostnames: bool | None = None
     redact_ip_addresses: bool | None = None
     redact_network_names: bool | None = None
     include_timeline: bool | None = None
-    include_raw_payloads: bool | None = None
 
 
 class ReportRequest(BaseModel):

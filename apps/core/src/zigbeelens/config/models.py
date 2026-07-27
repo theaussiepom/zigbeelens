@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from zigbeelens.config.api_token import (
@@ -254,11 +256,12 @@ class MqttDiscoveryConfig(BaseModel):
 
 
 class ReportingConfig(BaseModel):
-    max_recent_events: int = Field(default=100, ge=1)
-    max_metric_samples_per_device: int = Field(default=50, ge=1)
-    max_availability_changes_per_device: int = Field(default=50, ge=1)
-    include_raw_payloads: bool = False
-    default_profile: str = "standard"
+    """Report controls with direct, tested ownership in report-v3 composition."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_recent_events: int = Field(default=100, ge=1, le=1000)
+    default_profile: Literal["standard", "public_safe", "strict"] = "standard"
 
 
 class AppConfig(BaseModel):

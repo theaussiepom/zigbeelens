@@ -120,7 +120,6 @@ class ResolvedRedaction:
     friendly_mode: str  # preserved | labeled | hashed
     network_mode: str  # preserved | labeled | hashed
     include_timeline: bool
-    include_raw_payloads: bool
 
     @property
     def network_anon(self) -> bool:
@@ -172,7 +171,6 @@ def resolve_redaction(
     options: RedactionOptions,
     *,
     default_profile: str = "standard",
-    default_include_raw: bool = False,
 ) -> ResolvedRedaction:
     profile = (options.profile or RedactionProfile(default_profile)).value
     base = _PROFILE_DEFAULTS.get(profile, _PROFILE_DEFAULTS["standard"])
@@ -202,12 +200,6 @@ def resolve_redaction(
         network_mode = "preserved"
 
     include_timeline = options.include_timeline if options.include_timeline is not None else True
-    include_raw = (
-        options.include_raw_payloads
-        if options.include_raw_payloads is not None
-        else default_include_raw
-    )
-
     return ResolvedRedaction(
         profile=profile,
         redact_usernames=base["redact_usernames"],
@@ -217,7 +209,6 @@ def resolve_redaction(
         friendly_mode=friendly_mode,
         network_mode=network_mode,
         include_timeline=include_timeline,
-        include_raw_payloads=include_raw,
     )
 
 

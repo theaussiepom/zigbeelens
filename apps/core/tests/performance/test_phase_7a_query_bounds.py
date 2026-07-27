@@ -18,6 +18,7 @@ from zigbeelens.services.network_evidence_composition import (
     compose_network_evidence_context,
 )
 from zigbeelens.services.topology_facts_composition import (
+    DeviceTopologyIdentityNotFoundError,
     build_device_snapshot_history_response,
     compose_device_topology_facts_payload,
 )
@@ -510,7 +511,7 @@ def test_metric_samples_window_and_plan(tmp_path: Path):
 
 
 def test_topology_link_single_snapshot_source_still_uses_primary_key(tmp_path: Path):
-    """Single-snapshot source lookup remains on PK; no speculative source index."""
+    """Canonical parameters retain indexed single-snapshot query plans."""
     repo, _ = _repo(tmp_path, networks=["home"])
     _seed_complete_snapshot(
         repo,
@@ -532,8 +533,31 @@ def test_topology_link_single_snapshot_source_still_uses_primary_key(tmp_path: P
     )
     assert "sqlite_autoindex_topology_links_1" in children_plan
     assert "SCAN topology_links" not in children_plan
-    assert repo.list_topology_children("snap-1", "0xrouter")
-    assert repo.get_topology_parent_router("snap-1", "0xtarget") == "0xrouter"
+    parent_sql = """
+        SELECT source_ieee FROM topology_links
+        WHERE snapshot_id = ? AND target_ieee = ?
+        LIMIT 1
+    """
+    parent_plan = " | ".join(
+        str(row[-1])
+        for row in repo.db.conn.execute(
+            f"EXPLAIN QUERY PLAN {parent_sql}", ("snap-1", "0xtarget")
+        ).fetchall()
+    )
+    assert "USING" in parent_plan and "INDEX" in parent_plan
+    assert "SCAN topology_links" not in parent_plan
+    assert "LOWER(" not in (children_sql + parent_sql).upper()
+
+    assert repo.list_topology_children("snap-1", "  0xROUTER  ")
+    assert repo.get_topology_parent_router("snap-1", "  0xTARGET  ") == "0xrouter"
+    assert repo.get_topology_node_name("snap-1", "  0xROUTER  ") == "Router"
+    assert repo.get_topology_node("snap-1", "  0xTARGET  ") == {
+        "ieee_address": "0xtarget",
+        "friendly_name": "Target",
+        "node_type": "EndDevice",
+        "depth": 2,
+        "lqi": 120,
+    }
 
 
 def test_availability_offline_plan(tmp_path: Path):
@@ -897,17 +921,24 @@ def test_device_snapshot_history_missing_target_semantics(tmp_path: Path):
         captured_at=REFERENCE_TIME,
         link_count=2,
     )
-    payload = build_device_snapshot_history_response(
-        repo,
-        EvidenceGraphService(repo),
-        network_id="home",
-        device_ieee="0xmissing",
-        stale_after_hours=24,
-        now=REFERENCE_TIME,
-    )
-    assert payload["friendly_name"] is None
-    assert payload["has_current_issue"] is False
-    assert payload["latest_snapshot"] is not None
+    counter = install_counter(repo)
+    with pytest.raises(
+        DeviceTopologyIdentityNotFoundError,
+        match="Device '0xmissing' was not found in network 'home'",
+    ):
+        build_device_snapshot_history_response(
+            repo,
+            EvidenceGraphService(repo),
+            network_id="home",
+            device_ieee="  0XMISSING  ",
+            stale_after_hours=24,
+            now=REFERENCE_TIME,
+        )
+    assert counter.stats.category_counts["read.topology_snapshots"] == 1
+    assert counter.stats.category_counts["read.devices"] == 1
+    assert counter.stats.category_counts["read.topology_nodes"] == 1
+    assert counter.stats.category_counts["read.topology_links"] == 0
+    assert counter.stats.category_counts["read.availability_changes"] == 0
 
 
 def test_target_device_link_query_sparse_vs_dense_and_explain(tmp_path: Path):
@@ -949,6 +980,10 @@ def test_target_device_link_query_sparse_vs_dense_and_explain(tmp_path: Path):
             )
             repo.db.conn.commit()
     sparse = repo.list_topology_links_for_device_in_snapshots(selected, target)
+    mixed_case = repo.list_topology_links_for_device_in_snapshots(
+        selected, "  0xTARGET  "
+    )
+    assert mixed_case == sparse
     for sid in selected:
         _seed_extra_unrelated_links(repo, sid, count=2000, prefix=f"d{sid[-2:]}")
     dense = repo.list_topology_links_for_device_in_snapshots(selected, target)
@@ -965,6 +1000,7 @@ def test_target_device_link_query_sparse_vs_dense_and_explain(tmp_path: Path):
         str(row[-1]) for row in repo.db.conn.execute(f"EXPLAIN QUERY PLAN {sql}", params)
     )
     assert "UNION" in sql
+    assert "LOWER(" not in sql.upper()
     assert "SCAN topology_links" not in plan
     assert "USE TEMP B-TREE FOR ORDER BY" not in plan
     assert "idx_topology_links_snapshot_target" in plan
@@ -990,15 +1026,14 @@ def test_target_device_link_query_sparse_vs_dense_and_explain(tmp_path: Path):
 def test_device_snapshot_history_deep_parity_matrix(tmp_path: Path, case: str):
     repo, _ = _repo(tmp_path / case, networks=["home"])
     target = "0xtarget"
-    if case != "empty":
-        repo.upsert_device(
-            network_id="home",
-            ieee_address=target,
-            friendly_name="Target",
-            device_type="EndDevice",
-            power_source="Battery",
-            interview_state="successful",
-        )
+    repo.upsert_device(
+        network_id="home",
+        ieee_address=target,
+        friendly_name="Target",
+        device_type="EndDevice",
+        power_source="Battery",
+        interview_state="successful",
+    )
     stale = None if case == "stale_null" else 24
     if case == "tracking_off":
         repo.update_device_current_state(

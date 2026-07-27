@@ -302,34 +302,6 @@ def compose_live_report_scope(
         reference_now=reference_now,
         include_timeline=include_timeline,
     )
-    if plan.is_empty:
-        return ReportCompositionContext(
-            plan=plan,
-            network_rows=(),
-            networks=(),
-            device_rows=(),
-            devices=(),
-            stories_by_key=MappingProxyType({}),
-            decision_badges_by_key=MappingProxyType({}),
-            device_details=(),
-            incident_rows=(),
-            refs_by_incident_id=MappingProxyType({}),
-            incidents=(),
-            timeline=(),
-            router_risks=(),
-            investigation_priorities=(),
-            data_coverage_warnings=(),
-            limitations=tuple(_report_limitations_scoped(config, repo, ())),
-            raw_counts=MappingProxyType(
-                {
-                    "events_included": 0,
-                    "devices_included": 0,
-                    "incidents_included": 0,
-                    "topology_snapshots": 0,
-                }
-            ),
-        )
-
     # --- raw rows ---------------------------------------------------------
     if plan.scope == ReportScope.full:
         network_rows = list(repo.list_networks())
@@ -695,34 +667,6 @@ def compose_mock_report_scope(
         scenario_incident_networks=scenario_incident_networks,
         scenario_incident_devices=scenario_incident_devices,
     )
-    if plan.is_empty:
-        return ReportCompositionContext(
-            plan=plan,
-            network_rows=(),
-            networks=(),
-            device_rows=(),
-            devices=(),
-            stories_by_key=MappingProxyType({}),
-            decision_badges_by_key=MappingProxyType({}),
-            device_details=(),
-            incident_rows=(),
-            refs_by_incident_id=MappingProxyType({}),
-            incidents=(),
-            timeline=(),
-            router_risks=(),
-            investigation_priorities=(),
-            data_coverage_warnings=(),
-            limitations=(),
-            raw_counts=MappingProxyType(
-                {
-                    "events_included": 0,
-                    "devices_included": 0,
-                    "incidents_included": 0,
-                    "topology_snapshots": 0,
-                }
-            ),
-        )
-
     from zigbeelens.services.reports import (
         STANDARD_LIMITATIONS,
         _filter_coverage_warnings,

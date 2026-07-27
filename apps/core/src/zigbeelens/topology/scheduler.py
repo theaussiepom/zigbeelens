@@ -20,6 +20,8 @@ SleepFn = Callable[[float], None]
 
 def periodic_capture_interval_seconds(config: AppConfig) -> int:
     topo = config.topology
+    if not topo.enabled:
+        return 0
     if topo.refresh_interval_seconds > 0:
         return topo.refresh_interval_seconds
     if (
@@ -191,6 +193,12 @@ _scheduler: TopologyScheduler | None = None
 
 def start_topology_scheduler(ctx: AppContext, service: TopologyService) -> TopologyScheduler | None:
     global _scheduler
+    previous = _scheduler
+    _scheduler = None
+    if previous is not None:
+        previous.stop(wait=True)
+    if not startup_scan_allowed(ctx.config) and not periodic_capture_allowed(ctx.config):
+        return None
     scheduler = TopologyScheduler(ctx, service)
     scheduler.start()
     _scheduler = scheduler

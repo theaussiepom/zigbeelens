@@ -167,7 +167,7 @@ def test_pre_track6_upgrade_preserves_reports_and_active_incidents(tmp_path: Pat
     assert db.migration_version == 11
 
     # Upgrade path: migration 012, integrity, default Track 6 maintenance.
-    assert db.migrate() == 14
+    assert db.migrate() == 15
     quick_check(db)
     foreign_key_check(db)
     cfg = AppConfig(
@@ -180,7 +180,7 @@ def test_pre_track6_upgrade_preserves_reports_and_active_incidents(tmp_path: Pat
     foreign_key_check(db)
 
     # Migration 014 is a deliberate pre-release report wipe; older report rows
-    # are not retained across the Track 6 → schema 14 upgrade path.
+    # are not retained across the Track 6 → current-schema upgrade path.
     report_count = repo.db.conn.execute("SELECT COUNT(*) AS n FROM reports").fetchone()["n"]
     assert report_count == 0
     assert bodies  # seeded pre-upgrade development reports existed before wipe
