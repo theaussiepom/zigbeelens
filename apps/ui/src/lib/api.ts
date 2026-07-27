@@ -386,7 +386,7 @@ function reportParams(
     scenario,
     scope: request.scope,
     format: request.format,
-    profile: r.profile,
+    profile: r.profile ?? undefined,
     network_id: request.network_id ?? undefined,
     incident_id: request.incident_id ?? undefined,
     device: request.device ?? undefined,

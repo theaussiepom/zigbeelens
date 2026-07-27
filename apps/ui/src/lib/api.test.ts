@@ -157,6 +157,48 @@ describe("device API client path encoding", () => {
   });
 });
 
+describe("report preview query defaults", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("omits a null profile so Core can apply reporting.default_profile", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("missing", { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api
+      .previewReport({
+        scope: "full",
+        format: "json",
+        redaction: { profile: null },
+      })
+      .catch(() => undefined);
+
+    const call = fetchCallParts(fetchMock.mock.calls[0] ?? []);
+    const url = new URL(call.url, "http://localhost/");
+    expect(url.pathname).toContain("/api/reports/preview");
+    expect(url.searchParams.has("profile")).toBe(false);
+  });
+
+  it("preserves an explicit profile override", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("missing", { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api
+      .previewReport({
+        scope: "full",
+        format: "json",
+        redaction: { profile: "public_safe" },
+      })
+      .catch(() => undefined);
+
+    const call = fetchCallParts(fetchMock.mock.calls[0] ?? []);
+    const url = new URL(call.url, "http://localhost/");
+    expect(url.searchParams.get("profile")).toBe("public_safe");
+  });
+});
+
 describe("fetchJson retry policy", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
