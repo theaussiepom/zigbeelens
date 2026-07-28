@@ -16,6 +16,7 @@ import yaml
 
 from zigbeelens.config.models import AppConfig, ReportingConfig
 from zigbeelens.config.redaction import redact_mqtt_server
+from zigbeelens.decisions.types import coverage_params_as_dict
 from zigbeelens.schemas import (
     DataCoverageWarningSummary,
     DeviceDetail,
@@ -500,7 +501,9 @@ def render_markdown_v3(detail: ReportDetail) -> str:
             code = str(
                 item.get("label_code") if isinstance(item, dict) else item.label_code
             )
-            params = (item.get("params") if isinstance(item, dict) else item.params) or {}
+            params = coverage_params_as_dict(
+                item.get("params") if isinstance(item, dict) else item.params
+            )
             coverage_lines.append(f"  - {device_coverage_label(code, params)}")
     lines += ["", "## Data coverage", ""]
     lines += coverage_lines or ["No data coverage warnings in this scope."]

@@ -4,6 +4,8 @@ import {
   isCoverageLabelCode,
   isDecisionPriority,
   isDecisionStatus,
+  parseDataCoverage,
+  parseDataCoverageList,
   parseDecisionBadge,
   parseDecisionCountSummary,
   parseDeviceStory,
@@ -41,6 +43,28 @@ function validDeviceStory(overrides: Record<string, unknown> = {}) {
     headline_code: "device_watch",
     ...EMPTY_STORY_COLLECTIONS,
     ...overrides,
+  };
+}
+
+function topologyCoverage(
+  observed: number,
+  available: number,
+  limited: number,
+  state: string,
+  labelCode: string,
+) {
+  const complete = available + limited;
+  return {
+    dimension: "historical_snapshots",
+    state,
+    label_code: labelCode,
+    params: {
+      observed_snapshot_count: observed,
+      complete_snapshot_count: complete,
+      available_layout_snapshot_count: available,
+      limited_layout_snapshot_count: limited,
+      snapshot_window_count: complete,
+    },
   };
 }
 
@@ -473,6 +497,125 @@ describe("decisionContract", () => {
       ApiError,
     );
     expect(() => parseDeviceStory(validDeviceStory())).not.toThrow();
+  });
+
+  it("returns the validated live Device Story DTO", () => {
+    const reportStory = validDeviceStory();
+    const {
+      network_id: _networkId,
+      ieee_address: _ieeeAddress,
+      friendly_name: _friendlyName,
+      ...liveStory
+    } = reportStory;
+    expect(parseDeviceStory(liveStory)).toEqual(liveStory);
+  });
+
+  it.each([
+    [0, 0, 0, "not_observed", "topology_history_not_observed"],
+    [0, 0, 1, "unknown", "topology_history_unavailable"],
+    [0, 0, 3, "unknown", "topology_history_unavailable"],
+    [1, 1, 0, "available", "topology_history_available"],
+    [0, 1, 0, "not_observed", "topology_history_not_observed"],
+    [1, 1, 1, "sparse", "topology_history_sparse"],
+    [0, 1, 1, "sparse", "topology_history_sparse"],
+    [2, 3, 1, "sparse", "topology_history_sparse"],
+    [3, 3, 0, "available", "topology_history_available"],
+    [2, 3, 0, "sparse", "topology_history_sparse"],
+    [0, 3, 0, "not_observed", "topology_history_not_observed"],
+  ])(
+    "accepts exact topology coverage matrix O=%i A=%i L=%i",
+    (observed, available, limited, state, labelCode) => {
+      const value = topologyCoverage(
+        observed,
+        available,
+        limited,
+        state,
+        labelCode,
+      );
+      expect(parseDataCoverage(value)).toEqual(value);
+    },
+  );
+
+  it("rejects malformed topology coverage counts and arithmetic", () => {
+    const valid = topologyCoverage(
+      1,
+      1,
+      1,
+      "sparse",
+      "topology_history_sparse",
+    );
+    for (const key of [
+      "observed_snapshot_count",
+      "complete_snapshot_count",
+      "available_layout_snapshot_count",
+      "limited_layout_snapshot_count",
+      "snapshot_window_count",
+    ] as const) {
+      const params = { ...valid.params };
+      delete (params as Record<string, unknown>)[key];
+      expect(() => parseDataCoverage({ ...valid, params })).toThrow(ApiError);
+    }
+    for (const bad of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, true]) {
+      expect(() =>
+        parseDataCoverage({
+          ...valid,
+          params: { ...valid.params, observed_snapshot_count: bad },
+        }),
+      ).toThrow(ApiError);
+    }
+    for (const params of [
+      { ...valid.params, complete_snapshot_count: 3 },
+      { ...valid.params, snapshot_window_count: 1 },
+      { ...valid.params, observed_snapshot_count: 2 },
+      { ...valid.params, future_count: 1 },
+    ]) {
+      expect(() => parseDataCoverage({ ...valid, params })).toThrow(ApiError);
+    }
+  });
+
+  it("rejects contradictory topology coverage state/code combinations", () => {
+    const contradictions = [
+      topologyCoverage(0, 0, 2, "not_observed", "topology_history_not_observed"),
+      topologyCoverage(1, 1, 1, "available", "topology_history_available"),
+      topologyCoverage(0, 1, 1, "not_observed", "topology_history_not_observed"),
+      topologyCoverage(1, 1, 0, "sparse", "topology_history_sparse"),
+      topologyCoverage(0, 1, 0, "available", "topology_history_available"),
+      topologyCoverage(0, 0, 0, "unknown", "topology_history_unavailable"),
+    ];
+    for (const value of contradictions) {
+      expect(() => parseDataCoverage(value)).toThrow(ApiError);
+    }
+  });
+
+  it("validates device-coverage lists and rejects topology codes on other dimensions", () => {
+    const valid = topologyCoverage(
+      1,
+      2,
+      1,
+      "sparse",
+      "topology_history_sparse",
+    );
+    expect(parseDataCoverageList([valid])).toEqual([valid]);
+    expect(() => parseDataCoverageList({ items: [valid] })).toThrow(ApiError);
+    expect(() =>
+      parseDataCoverage({
+        ...valid,
+        dimension: "availability",
+      }),
+    ).toThrow(ApiError);
+  });
+
+  it("rejects malformed topology coverage inside Device Story", () => {
+    const malformed = topologyCoverage(
+      1,
+      1,
+      1,
+      "available",
+      "topology_history_available",
+    );
+    expect(() =>
+      parseDeviceStory(validDeviceStory({ coverage: [malformed] })),
+    ).toThrow(ApiError);
   });
 
   it.each([

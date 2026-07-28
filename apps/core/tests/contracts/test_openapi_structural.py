@@ -103,6 +103,40 @@ def test_openapi_decision_enums_and_required(openapi_schema: dict):
         assert key in summary["required"], key
 
 
+def test_openapi_owns_exact_topology_history_coverage_params(
+    openapi_schema: dict,
+) -> None:
+    components = openapi_schema["components"]["schemas"]
+    params = _resolve_schema(
+        components["TopologyHistoryCoverageParams"],
+        components,
+    )
+    expected_fields = {
+        "observed_snapshot_count",
+        "complete_snapshot_count",
+        "available_layout_snapshot_count",
+        "limited_layout_snapshot_count",
+        "snapshot_window_count",
+    }
+    assert set(params["required"]) == expected_fields
+    assert set(params["properties"]) == expected_fields
+    for field in expected_fields:
+        field_schema = _resolve_schema(params["properties"][field], components)
+        assert field_schema["type"] == "integer"
+        assert field_schema["minimum"] == 0
+
+    coverage = _resolve_schema(components["DataCoverage"], components)
+    params_schema = coverage["properties"]["params"]
+    assert any(
+        branch.get("$ref", "").endswith("/TopologyHistoryCoverageParams")
+        for branch in params_schema["anyOf"]
+    )
+
+    report_story = _resolve_schema(components["ReportDeviceStory"], components)
+    coverage_items = report_story["properties"]["coverage"]["items"]
+    assert coverage_items["$ref"].endswith("/DataCoverage")
+
+
 @pytest.mark.parametrize("prefix", ("/api", "/api/v1"))
 def test_snapshot_history_openapi_description_states_layout_requirements(
     openapi_schema: dict,

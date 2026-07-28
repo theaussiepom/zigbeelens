@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
+from report_v3_helpers import empty_story_collections, minimal_report_v3
+from zigbeelens.decisions.types import DataCoverage, TopologyHistoryCoverageParams
 from zigbeelens.schemas import ReportDetailV3, ReportRequest
 from zigbeelens.services.report_storage import load_stored_report_envelope
 from zigbeelens.services.reports import generate_report, store_report
@@ -13,6 +16,21 @@ from zigbeelens.db.connection import Database
 from zigbeelens.config.models import AppConfig
 from zigbeelens.services.data_service import DataService
 from support.contracts import load_oracle_fixture, oracle_scenarios  # type: ignore[import-not-found]
+
+
+def _device_story_with_coverage(coverage: list[dict]) -> dict:
+    return {
+        "network_id": "home",
+        "ieee_address": "0x03",
+        "friendly_name": "Sensor",
+        "subject_type": "device",
+        "subject_id": "0x03",
+        "status": "no_notable_change",
+        "priority": "none",
+        "headline_code": "no_notable_signals",
+        **empty_story_collections(),
+        "coverage": coverage,
+    }
 
 
 def test_oracle_current_reports_are_exact_v3():
@@ -25,6 +43,98 @@ def test_oracle_current_reports_are_exact_v3():
         assert validated.device_stories is not None
         assert validated.decision_summary is not None
         assert validated.redaction is not None
+
+
+def test_report_v3_rejects_legacy_topology_history_coverage_params():
+    body = minimal_report_v3().model_dump(mode="json")
+    body["device_stories"] = [
+        _device_story_with_coverage(
+            [
+                {
+                    "dimension": "historical_snapshots",
+                    "state": "available",
+                    "label_code": "topology_history_available",
+                    "params": {
+                        "observed_snapshot_count": 1,
+                        "snapshot_window_count": 1,
+                    },
+                }
+            ]
+        )
+    ]
+
+    with pytest.raises(ValidationError):
+        ReportDetailV3.model_validate(body)
+
+
+def test_report_v3_owns_typed_topology_history_coverage_without_wire_drift():
+    body = minimal_report_v3().model_dump(mode="json")
+    params = {
+        "observed_snapshot_count": 1,
+        "complete_snapshot_count": 2,
+        "available_layout_snapshot_count": 1,
+        "limited_layout_snapshot_count": 1,
+        "snapshot_window_count": 2,
+    }
+    body["device_stories"] = [
+        _device_story_with_coverage(
+            [
+                {
+                    "dimension": "historical_snapshots",
+                    "state": "sparse",
+                    "label_code": "topology_history_sparse",
+                    "params": params,
+                }
+            ]
+        )
+    ]
+
+    validated = ReportDetailV3.model_validate(body)
+    coverage = validated.device_stories[0].coverage[0]
+
+    assert isinstance(coverage, DataCoverage)
+    assert isinstance(coverage.params, TopologyHistoryCoverageParams)
+    assert validated.model_dump(mode="json")["device_stories"][0]["coverage"][0][
+        "params"
+    ] == params
+
+
+def test_stored_report_with_malformed_topology_history_fails_closed(tmp_path):
+    db = Database(tmp_path / "malformed-topology-coverage.sqlite")
+    db.migrate()
+    repo = Repository(db)
+    body = minimal_report_v3().model_dump(mode="json")
+    body["device_stories"] = [
+        _device_story_with_coverage(
+            [
+                {
+                    "dimension": "historical_snapshots",
+                    "state": "sparse",
+                    "label_code": "topology_history_sparse",
+                    "params": {
+                        "observed_snapshot_count": 1,
+                        "complete_snapshot_count": 1,
+                        "available_layout_snapshot_count": 1,
+                        "limited_layout_snapshot_count": 0,
+                        "snapshot_window_count": 1,
+                    },
+                }
+            ]
+        )
+    ]
+    row = repo.reports.save_report(
+        report_id="malformed",
+        format="json",
+        scope="full",
+        redaction_profile="standard",
+        summary="malformed",
+        body=body,
+        markdown="",
+        redaction=body["redaction"],
+        metadata={},
+    )
+
+    assert load_stored_report_envelope(row) is None
 
 
 @pytest.mark.parametrize(

@@ -24,7 +24,7 @@ from zigbeelens.decisions.device_story import (
 from zigbeelens.decisions.lqi_trend import LqiTrend
 from zigbeelens.decisions.reporting_rhythm import ReportingRhythm
 from zigbeelens.decisions.topology_facts import TopologyFactCode
-from zigbeelens.decisions.types import EvidenceFact
+from zigbeelens.decisions.types import EvidenceFact, TopologyHistoryCoverageParams
 from zigbeelens.schemas import Availability, DeviceSummary, Incident, IncidentStatus
 from zigbeelens.services.device_decision_badge import device_decision_badge_from_story
 from zigbeelens.topology.device_compare import COVERAGE_UNKNOWN
@@ -89,6 +89,17 @@ def device_story_evidence(
 ) -> DeviceStoryEvidence:
     """Build DeviceStoryEvidence from scenario device facts plus explicit overrides."""
     availability = _availability_value(device.availability)
+    topology_history = (
+        TopologyHistoryCoverageParams(
+            observed_snapshot_count=1,
+            complete_snapshot_count=1,
+            available_layout_snapshot_count=1,
+            limited_layout_snapshot_count=0,
+            snapshot_window_count=1,
+        )
+        if latest_snapshot_id
+        else TopologyHistoryCoverageParams.empty()
+    )
     coverage = build_device_coverage(
         build_device_coverage_evidence(
             device_row=device,
@@ -103,9 +114,7 @@ def device_story_evidence(
             availability_changes=[{"to_state": availability}]
             if latest_availability_coverage is not None
             else [],
-            topology_observed_snapshot_count=1 if latest_snapshot_id else 0,
-            topology_snapshot_window_count=1 if latest_snapshot_id else 0,
-            topology_limited_snapshot_count=0,
+            topology_history=topology_history,
             ha_enrichment={"area_name": device.home_assistant_area_name}
             if device.home_assistant_area_name
             else None,

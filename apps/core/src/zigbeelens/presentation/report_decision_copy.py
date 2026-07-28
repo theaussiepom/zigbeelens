@@ -10,6 +10,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from zigbeelens.decisions.types import (
+    TopologyHistoryCoverageParams,
+    classify_topology_history_params,
+    coverage_params_as_dict,
+)
+
 REASON_CODES: tuple[str, ...] = (
     "latest_snapshot_no_links",
     "selected_snapshot_had_links",
@@ -207,12 +213,49 @@ def _device_lqi_history_sparse_label(params: dict[str, Any]) -> str:
     return f"LQI history: sparse ({_sample_count_label(count)})"
 
 
-def _topology_history_label(params: dict[str, Any], fallback: str) -> str:
-    observed = _count_param(params, "observed_snapshot_count")
-    window = _count_param(params, "snapshot_window_count")
-    if observed is None or window is None:
-        return fallback
-    return f"Topology history: {observed} of {window} snapshots"
+def _validated_topology_history_params(
+    params: dict[str, Any],
+) -> TopologyHistoryCoverageParams | None:
+    try:
+        return TopologyHistoryCoverageParams.model_validate(params)
+    except ValueError:
+        return None
+
+
+def _device_topology_history_label(
+    code: str,
+    params: dict[str, Any],
+) -> str:
+    counts = _validated_topology_history_params(params)
+    if counts is None:
+        return "Topology history: coverage unknown"
+    _state, expected_code = classify_topology_history_params(counts)
+    if expected_code.value != code:
+        return "Topology history: coverage unknown"
+    observed = counts.observed_snapshot_count
+    complete = counts.complete_snapshot_count
+    available = counts.available_layout_snapshot_count
+    limited = counts.limited_layout_snapshot_count
+    if complete == 0:
+        return "Topology history: no complete captures"
+    if available == 0:
+        if limited == 1:
+            return "Topology history: 1 capture has no usable layout"
+        return f"Topology history: {limited} captures have no usable layouts"
+
+    layout_word = "layout" if available == 1 else "layouts"
+    label = (
+        f"Topology history: observed in {observed} of {available} "
+        f"available {layout_word}"
+    )
+    if limited == 0:
+        return label
+    capture_word = "capture" if limited == 1 else "captures"
+    layout_word = "layout" if limited == 1 else "layouts"
+    return (
+        f"{label}; {limited} additional {capture_word} had no usable "
+        f"{layout_word}"
+    )
 
 
 def _suggested_check_battery_level(params: dict[str, Any]) -> str:
@@ -470,17 +513,17 @@ DEVICE_COVERAGE_LABEL_RENDERERS: dict[str, CopyRenderer] = {
     "battery_history_sparse": lambda params: _device_battery_history_sparse_label(params),
     "lqi_history_available": lambda params: _device_lqi_history_available_label(params),
     "lqi_history_sparse": lambda params: _device_lqi_history_sparse_label(params),
-    "topology_history_available": lambda params: _topology_history_label(
-        params, "Topology history: available"
+    "topology_history_available": lambda params: _device_topology_history_label(
+        "topology_history_available", params
     ),
-    "topology_history_sparse": lambda params: _topology_history_label(
-        params, "Topology history: sparse"
+    "topology_history_sparse": lambda params: _device_topology_history_label(
+        "topology_history_sparse", params
     ),
-    "topology_history_not_observed": lambda params: _topology_history_label(
-        params, "Topology history: not observed"
+    "topology_history_not_observed": lambda params: _device_topology_history_label(
+        "topology_history_not_observed", params
     ),
-    "topology_history_unavailable": lambda _params: (
-        "Topology history: layout unavailable"
+    "topology_history_unavailable": lambda params: _device_topology_history_label(
+        "topology_history_unavailable", params
     ),
     "ha_area_linked": lambda params: (
         f"HA area: {_string_param(params, 'area_name')}"
@@ -545,8 +588,11 @@ def coverage_label(code: str, params: dict | None = None) -> str:
     return COVERAGE_LABEL_COPY[code]
 
 
-def device_coverage_label(code: str, params: dict | None = None) -> str:
-    resolved_params = params or {}
+def device_coverage_label(
+    code: str,
+    params: dict | TopologyHistoryCoverageParams | None = None,
+) -> str:
+    resolved_params = coverage_params_as_dict(params)
     if not _is_known_coverage_label_code(code):
         return "Coverage status unknown"
     renderer = DEVICE_COVERAGE_LABEL_RENDERERS.get(code)

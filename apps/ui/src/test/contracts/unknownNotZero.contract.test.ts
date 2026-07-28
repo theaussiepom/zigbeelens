@@ -5,7 +5,11 @@ import { describe, expect, it } from "vitest";
 import type { DeviceSummary } from "@zigbeelens/shared";
 import { parseDeviceSummary, validateReportDetailV3 } from "@/lib/decisionContract";
 import { parseDeviceSnapshotHistoryDetail } from "@/lib/deviceSnapshotHistoryContract";
-import { coverageLabel } from "@/viewModels/decisionCopy";
+import {
+  coverageLabel,
+  deviceCoverageHelperText,
+  deviceCoverageLabel,
+} from "@/viewModels/decisionCopy";
 import { buildDeviceRowViewModel } from "@/viewModels/devices/deviceRowViewModel";
 import { buildReportDecisionViewModel } from "@/viewModels/reports/reportDecisionViewModel";
 import { buildSnapshotHistoryViewModel } from "@/viewModels/topology/snapshotHistoryViewModel";
@@ -214,14 +218,48 @@ describe("unknown never becomes zero/healthy (UI behavioral)", () => {
           : code === "topology_history_unavailable"
             ? {
                 observed_snapshot_count: 0,
-                snapshot_window_count: 0,
-                limited_snapshot_count: 2,
+                complete_snapshot_count: 2,
+                available_layout_snapshot_count: 0,
+                limited_layout_snapshot_count: 2,
+                snapshot_window_count: 2,
               }
             : {},
       );
       expect(label.trim().length).toBeGreaterThan(0);
       expect(looksLikeFalseZero(label)).toBe(false);
     }
+  });
+
+  it("keeps limited topology captures unknown while exposing their count", () => {
+    const allLimited = {
+      observed_snapshot_count: 0,
+      complete_snapshot_count: 2,
+      available_layout_snapshot_count: 0,
+      limited_layout_snapshot_count: 2,
+      snapshot_window_count: 2,
+    };
+    const label = deviceCoverageLabel(
+      "topology_history_unavailable",
+      allLimited,
+    );
+    const helper = deviceCoverageHelperText(
+      "topology_history_unavailable",
+      allLimited,
+    );
+    expect(label).toBe("Topology history: 2 captures have no usable layouts");
+    expect(helper).toMatch(/device presence cannot be inferred/i);
+    expect(`${label} ${helper}`).not.toMatch(/\b0\b|not observed|absent|no links/i);
+
+    const mixed = {
+      observed_snapshot_count: 1,
+      complete_snapshot_count: 2,
+      available_layout_snapshot_count: 1,
+      limited_layout_snapshot_count: 1,
+      snapshot_window_count: 2,
+    };
+    expect(deviceCoverageLabel("topology_history_sparse", mixed)).toMatch(
+      /1 additional capture had no usable layout/i,
+    );
   });
 
   it("keeps layout-limited snapshot history unavailable through parser and ViewModel", () => {

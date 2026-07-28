@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 
 from zigbeelens.decisions.reasons import ReasonCode
@@ -241,6 +242,53 @@ def test_device_story_api_coverage_serialisation(live_client: TestClient):
     assert tracking_off["dimension"] == "availability"
     assert tracking_off["state"] == "off"
     assert tracking_off["label_code"] == "availability_tracking_off"
+
+
+@pytest.mark.parametrize("prefix", ("/api", "/api/v1"))
+def test_device_story_api_exposes_partial_topology_history_counts(
+    live_client: TestClient,
+    prefix: str,
+):
+    ctx = live_client.app.state.ctx
+    _upsert_device(ctx.repo, "0x03")
+    _store_snapshot(
+        ctx.repo,
+        "snap-limited",
+        captured_at=NOW,
+        nodes={},
+        links=[],
+    )
+    _store_snapshot(
+        ctx.repo,
+        "snap-available",
+        captured_at=NOW - timedelta(days=1),
+        nodes={
+            "0x01": {"type": "Coordinator"},
+            "0X03": {"type": "EndDevice"},
+        },
+        links=[],
+    )
+
+    res = live_client.get(f"{prefix}/devices/home/0X03/story")
+
+    assert res.status_code == 200
+    topology = next(
+        item
+        for item in res.json()["coverage"]
+        if item["dimension"] == "historical_snapshots"
+    )
+    assert topology == {
+        "dimension": "historical_snapshots",
+        "state": "sparse",
+        "label_code": "topology_history_sparse",
+        "params": {
+            "observed_snapshot_count": 1,
+            "complete_snapshot_count": 2,
+            "available_layout_snapshot_count": 1,
+            "limited_layout_snapshot_count": 1,
+            "snapshot_window_count": 2,
+        },
+    }
 
 
 def test_device_story_api_unknown_network(live_client: TestClient):

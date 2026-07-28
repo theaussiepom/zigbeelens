@@ -129,6 +129,32 @@ export type DeviceSnapshotLatestFact =
 /** Canonical decision priority. */
 export type DecisionPriority = "none" | "low" | "medium" | "high";
 
+/** Stable evidence-coverage dimensions emitted by the decision engine. */
+export type CoverageDimension =
+  | "availability"
+  | "last_seen"
+  | "last_payload"
+  | "battery"
+  | "linkquality"
+  | "topology_snapshot"
+  | "route_hints"
+  | "historical_snapshots"
+  | "passive_history"
+  | "ha_enrichment"
+  | "incidents"
+  | "reports";
+
+/** Stable evidence-coverage states emitted by the decision engine. */
+export type CoverageState =
+  | "available"
+  | "off"
+  | "building"
+  | "unknown"
+  | "stale"
+  | "not_configured"
+  | "not_observed"
+  | "sparse";
+
 /** Stable coverage label codes mapped by UI/report presenters. */
 export type CoverageLabelCode =
   | "availability_tracking_off"
@@ -151,6 +177,67 @@ export type CoverageLabelCode =
   | "topology_history_not_observed"
   | "topology_history_unavailable"
   | "ha_area_linked";
+
+/**
+ * Exact measured coverage for selected complete topology captures.
+ *
+ * `snapshot_window_count` is retained as a compatibility alias for
+ * `complete_snapshot_count`; both always count every selected complete
+ * capture, including captures whose node/link layout is unavailable.
+ */
+export interface TopologyHistoryCoverageParams {
+  observed_snapshot_count: number;
+  complete_snapshot_count: number;
+  available_layout_snapshot_count: number;
+  limited_layout_snapshot_count: number;
+  snapshot_window_count: number;
+}
+
+/** Label/state pairs permitted for measured topology-history coverage. */
+export type TopologyHistoryDataCoverage =
+  | {
+      dimension: "historical_snapshots";
+      state: "available";
+      label_code: "topology_history_available";
+      params: TopologyHistoryCoverageParams;
+    }
+  | {
+      dimension: "historical_snapshots";
+      state: "sparse";
+      label_code: "topology_history_sparse";
+      params: TopologyHistoryCoverageParams;
+    }
+  | {
+      dimension: "historical_snapshots";
+      state: "not_observed";
+      label_code: "topology_history_not_observed";
+      params: TopologyHistoryCoverageParams;
+    }
+  | {
+      dimension: "historical_snapshots";
+      state: "unknown";
+      label_code: "topology_history_unavailable";
+      params: TopologyHistoryCoverageParams;
+    };
+
+/** Coverage outside topology history cannot carry topology-history label codes. */
+export interface NonTopologyDataCoverage {
+  dimension: Exclude<CoverageDimension, "historical_snapshots">;
+  state: CoverageState;
+  label_code: Exclude<
+    CoverageLabelCode,
+    | "topology_history_available"
+    | "topology_history_sparse"
+    | "topology_history_not_observed"
+    | "topology_history_unavailable"
+  >;
+  params?: Record<string, unknown>;
+}
+
+/** Exact static ownership for all structured decision coverage statements. */
+export type DataCoverage =
+  | TopologyHistoryDataCoverage
+  | NonTopologyDataCoverage;
 
 /** Bridge online state */
 export type BridgeState = "online" | "offline" | "unknown";
@@ -490,7 +577,7 @@ export interface ReportDeviceStory {
   evidence: Array<Record<string, unknown>>;
   limitations: Array<{ code: string; params?: Record<string, unknown> }>;
   suggested_checks: Array<{ code: string; params?: Record<string, unknown> }>;
-  coverage: Array<Record<string, unknown>>;
+  coverage: DataCoverage[];
   related_unresolved_incident_ids: string[];
   timeline: Array<{
     code: string;

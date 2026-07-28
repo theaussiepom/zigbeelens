@@ -948,6 +948,8 @@ def test_supplied_context_story_and_coverage_zero_device_reads(tmp_path: Path):
     assert story is not None
     assert counter.stats.category_counts.get("read.devices", 0) == 0
     assert counter.stats.category_counts.get("read.device_current_state", 0) == 0
+    assert counter.stats.category_counts.get("read.topology_nodes", 0) == 0
+    assert counter.stats.category_counts.get("read.topology_links", 0) == 0
 
     coverage_ctx = compose_network_evidence_context(
         repo,

@@ -6,16 +6,23 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from zigbeelens.config.models import AppConfig, ModeConfig, NetworkConfig, StorageConfig
 from zigbeelens.db.connection import Database
 from zigbeelens.decisions.device_coverage import (
     DeviceCoverageEvidence,
     build_device_coverage,
+    count_device_topology_history,
     device_coverage_for_device,
     load_device_coverage_evidence,
 )
-from zigbeelens.decisions.types import CoverageDimension, CoverageLabelCode, CoverageState
+from zigbeelens.decisions.types import (
+    CoverageDimension,
+    CoverageLabelCode,
+    CoverageState,
+    TopologyHistoryCoverageParams,
+)
 from zigbeelens.enrichment.ha import MatchResult
 from zigbeelens.storage.repository import Repository
 from zigbeelens.topology.device_compare import MAX_SNAPSHOT_HISTORY
@@ -196,6 +203,22 @@ def _topology_item(coverage: list) -> object:
     ]
     assert len(items) == 1
     return items[0]
+
+
+def _topology_history_counts(
+    *,
+    observed: int,
+    available: int,
+    limited: int,
+) -> TopologyHistoryCoverageParams:
+    complete = available + limited
+    return TopologyHistoryCoverageParams(
+        observed_snapshot_count=observed,
+        complete_snapshot_count=complete,
+        available_layout_snapshot_count=available,
+        limited_layout_snapshot_count=limited,
+        snapshot_window_count=complete,
+    )
 
 
 def _ha_item(coverage: list) -> object:
@@ -527,7 +550,7 @@ def test_lqi_zero_counts_as_recorded_sample(tmp_path: Path):
 
 
 @pytest.mark.parametrize(
-    ("observed", "window", "limited", "label", "state"),
+    ("observed", "available", "limited", "label", "state"),
     [
         (
             0,
@@ -542,6 +565,27 @@ def test_lqi_zero_counts_as_recorded_sample(tmp_path: Path):
             2,
             CoverageLabelCode.topology_history_unavailable,
             CoverageState.unknown,
+        ),
+        (
+            1,
+            1,
+            1,
+            CoverageLabelCode.topology_history_sparse,
+            CoverageState.sparse,
+        ),
+        (
+            0,
+            1,
+            1,
+            CoverageLabelCode.topology_history_sparse,
+            CoverageState.sparse,
+        ),
+        (
+            1,
+            3,
+            1,
+            CoverageLabelCode.topology_history_sparse,
+            CoverageState.sparse,
         ),
         (
             0,
@@ -567,24 +611,127 @@ def test_lqi_zero_counts_as_recorded_sample(tmp_path: Path):
         ),
     ],
 )
-def test_topology_history_builder_states(observed, window, limited, label, state):
+def test_topology_history_builder_states(observed, available, limited, label, state):
+    params = _topology_history_counts(
+        observed=observed,
+        available=available,
+        limited=limited,
+    )
     evidence = DeviceCoverageEvidence(
         network_id="home",
         device_ieee="0x03",
-        topology_observed_snapshot_count=observed,
-        topology_snapshot_window_count=window,
-        topology_limited_snapshot_count=limited,
+        topology_history=params,
     )
     topology = _topology_item(build_device_coverage(evidence))
     assert topology.label_code is label
     assert topology.state is state
-    expected_params = {
-        "observed_snapshot_count": observed,
-        "snapshot_window_count": window,
-    }
-    if limited:
-        expected_params["limited_snapshot_count"] = limited
-    assert topology.params == expected_params
+    assert topology.params == params
+
+
+def test_device_coverage_evidence_rejects_legacy_limited_count_name():
+    with pytest.raises(ValidationError):
+        DeviceCoverageEvidence.model_validate(
+            {
+                "network_id": "home",
+                "device_ieee": "0x03",
+                "topology_limited_snapshot_count": 1,
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("nodes", "links"),
+    [
+        ([{"ieee_address": "0X03"}], []),
+        ([], [{"source_ieee": "0X03", "target_ieee": "0x02"}]),
+        ([], [{"source_ieee": "0x02", "target_ieee": "0X03"}]),
+    ],
+    ids=("node", "link-source", "link-target"),
+)
+def test_topology_history_counter_owns_mixed_case_node_and_link_presence(
+    nodes,
+    links,
+):
+    params = count_device_topology_history(
+        device_ieee="0x03",
+        usable_snapshots=[{"snapshot_id": "snap-1", "status": "complete"}],
+        nodes_by_snapshot_id={"snap-1": nodes},
+        links_by_snapshot_id={"snap-1": links},
+        layout_available_by_snapshot_id={"snap-1": True},
+    )
+
+    assert params == _topology_history_counts(
+        observed=1,
+        available=1,
+        limited=0,
+    )
+
+
+def test_topology_history_counter_counts_complete_limited_captures_in_window():
+    params = count_device_topology_history(
+        device_ieee="0x03",
+        usable_snapshots=[
+            {"snapshot_id": "snap-limited", "status": "complete"},
+            {"snapshot_id": "snap-pending", "status": "pending"},
+        ],
+        nodes_by_snapshot_id={},
+        links_by_snapshot_id={},
+        layout_available_by_snapshot_id={
+            "snap-limited": False,
+            "snap-pending": False,
+        },
+    )
+
+    assert params == _topology_history_counts(
+        observed=0,
+        available=0,
+        limited=1,
+    )
+
+
+def test_topology_history_counter_does_not_consume_past_its_bound():
+    def snapshots():
+        yield {"snapshot_id": "snap-1", "status": "complete"}
+        raise AssertionError("counter consumed beyond max_snapshots")
+
+    params = count_device_topology_history(
+        device_ieee="0x03",
+        usable_snapshots=snapshots(),
+        nodes_by_snapshot_id={"snap-1": [{"ieee_address": "0x03"}]},
+        links_by_snapshot_id={},
+        layout_available_by_snapshot_id={"snap-1": True},
+        max_snapshots=1,
+    )
+
+    assert params == _topology_history_counts(
+        observed=1,
+        available=1,
+        limited=0,
+    )
+
+
+def test_topology_history_counter_keeps_layout_flag_authoritative_for_filtered_rows():
+    params = count_device_topology_history(
+        device_ieee="0x03",
+        usable_snapshots=[
+            {"snapshot_id": "snap-available", "status": "complete"},
+            {"snapshot_id": "snap-limited", "status": "complete"},
+        ],
+        nodes_by_snapshot_id={
+            "snap-limited": [{"ieee_address": "0x03"}],
+        },
+        links_by_snapshot_id={},
+        layout_available_by_snapshot_id={
+            "snap-available": True,
+            "snap-limited": False,
+        },
+    )
+
+    assert params == _topology_history_counts(
+        observed=0,
+        available=1,
+        limited=1,
+    )
 
 
 def test_topology_history_device_present_in_all_snapshots(tmp_path: Path):
@@ -606,8 +753,11 @@ def test_topology_history_device_present_in_all_snapshots(tmp_path: Path):
 
     topology = _topology_item(device_coverage_for_device(repo, "home", "0x03"))
     assert topology.label_code is CoverageLabelCode.topology_history_available
-    assert topology.params == {
+    assert topology.params.model_dump() == {
         "observed_snapshot_count": 2,
+        "complete_snapshot_count": 2,
+        "available_layout_snapshot_count": 2,
+        "limited_layout_snapshot_count": 0,
         "snapshot_window_count": 2,
     }
 
@@ -631,13 +781,16 @@ def test_topology_history_device_absent_from_snapshots(tmp_path: Path):
 
     topology = _topology_item(device_coverage_for_device(repo, "home", "0x03"))
     assert topology.label_code is CoverageLabelCode.topology_history_not_observed
-    assert topology.params == {
+    assert topology.params.model_dump() == {
         "observed_snapshot_count": 0,
+        "complete_snapshot_count": 2,
+        "available_layout_snapshot_count": 2,
+        "limited_layout_snapshot_count": 0,
         "snapshot_window_count": 2,
     }
 
 
-def test_topology_history_excludes_complete_layout_limited_snapshots(
+def test_topology_history_marks_mixed_available_and_limited_snapshots_sparse(
     tmp_path: Path,
 ) -> None:
     repo = _repo(tmp_path)
@@ -657,12 +810,79 @@ def test_topology_history_excludes_complete_layout_limited_snapshots(
     )
 
     topology = _topology_item(device_coverage_for_device(repo, "home", "0x03"))
-    assert topology.label_code is CoverageLabelCode.topology_history_available
-    assert topology.params == {
+    assert topology.label_code is CoverageLabelCode.topology_history_sparse
+    assert topology.state is CoverageState.sparse
+    assert topology.params.model_dump() == {
         "observed_snapshot_count": 1,
-        "snapshot_window_count": 1,
-        "limited_snapshot_count": 1,
+        "complete_snapshot_count": 2,
+        "available_layout_snapshot_count": 1,
+        "limited_layout_snapshot_count": 1,
+        "snapshot_window_count": 2,
     }
+
+
+def test_topology_history_marks_available_absence_plus_limited_sparse(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03")
+    _enable_network_availability_tracking(repo)
+    _store_topology_snapshot(
+        repo,
+        "snap-limited",
+        captured_at=NOW,
+        node_ieees=[],
+    )
+    _store_topology_snapshot(
+        repo,
+        "snap-available-absent",
+        captured_at=NOW - timedelta(days=1),
+        node_ieees=["0x01", "0x02"],
+    )
+
+    topology = _topology_item(device_coverage_for_device(repo, "home", "0x03"))
+
+    assert topology.label_code is CoverageLabelCode.topology_history_sparse
+    assert topology.params == _topology_history_counts(
+        observed=0,
+        available=1,
+        limited=1,
+    )
+
+
+def test_topology_history_marks_sparse_available_presence_plus_limited_sparse(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03")
+    _enable_network_availability_tracking(repo)
+    _store_topology_snapshot(
+        repo,
+        "snap-limited",
+        captured_at=NOW,
+        node_ieees=[],
+    )
+    _store_topology_snapshot(
+        repo,
+        "snap-observed",
+        captured_at=NOW - timedelta(days=1),
+        node_ieees=["0x01", "0x03"],
+    )
+    _store_topology_snapshot(
+        repo,
+        "snap-absent",
+        captured_at=NOW - timedelta(days=2),
+        node_ieees=["0x01", "0x02"],
+    )
+
+    topology = _topology_item(device_coverage_for_device(repo, "home", "0x03"))
+
+    assert topology.label_code is CoverageLabelCode.topology_history_sparse
+    assert topology.params == _topology_history_counts(
+        observed=1,
+        available=2,
+        limited=1,
+    )
 
 
 def test_topology_history_only_layout_limited_snapshots_is_unavailable(
@@ -681,11 +901,37 @@ def test_topology_history_only_layout_limited_snapshots_is_unavailable(
     topology = _topology_item(device_coverage_for_device(repo, "home", "0x03"))
     assert topology.state is CoverageState.unknown
     assert topology.label_code is CoverageLabelCode.topology_history_unavailable
-    assert topology.params == {
+    assert topology.params.model_dump() == {
         "observed_snapshot_count": 0,
-        "snapshot_window_count": 0,
-        "limited_snapshot_count": 1,
+        "complete_snapshot_count": 1,
+        "available_layout_snapshot_count": 0,
+        "limited_layout_snapshot_count": 1,
+        "snapshot_window_count": 1,
     }
+
+
+def test_topology_history_several_layout_limited_snapshots_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03")
+    _enable_network_availability_tracking(repo)
+    for index in range(3):
+        _store_topology_snapshot(
+            repo,
+            f"snap-limited-{index}",
+            captured_at=NOW - timedelta(hours=index),
+            node_ieees=[],
+        )
+
+    topology = _topology_item(device_coverage_for_device(repo, "home", "0x03"))
+
+    assert topology.label_code is CoverageLabelCode.topology_history_unavailable
+    assert topology.params == _topology_history_counts(
+        observed=0,
+        available=0,
+        limited=3,
+    )
 
 
 @pytest.mark.parametrize(
@@ -713,8 +959,11 @@ def test_topology_history_counts_link_endpoint_as_device_observation(
 
     topology = _topology_item(device_coverage_for_device(repo, "home", "0x03"))
     assert topology.label_code is CoverageLabelCode.topology_history_available
-    assert topology.params == {
+    assert topology.params.model_dump() == {
         "observed_snapshot_count": 1,
+        "complete_snapshot_count": 1,
+        "available_layout_snapshot_count": 1,
+        "limited_layout_snapshot_count": 0,
         "snapshot_window_count": 1,
     }
 
@@ -733,8 +982,11 @@ def test_topology_history_partial_device_presence(tmp_path: Path):
 
     topology = _topology_item(device_coverage_for_device(repo, "home", "0x03"))
     assert topology.label_code is CoverageLabelCode.topology_history_sparse
-    assert topology.params == {
+    assert topology.params.model_dump() == {
         "observed_snapshot_count": 2,
+        "complete_snapshot_count": 10,
+        "available_layout_snapshot_count": 10,
+        "limited_layout_snapshot_count": 0,
         "snapshot_window_count": 10,
     }
 
@@ -753,8 +1005,18 @@ def test_topology_window_is_bounded_to_latest_complete_snapshots(tmp_path: Path)
 
     evidence = load_device_coverage_evidence(repo, "home", "0x03")
     assert evidence is not None
-    assert evidence.topology_observed_snapshot_count == MAX_SNAPSHOT_HISTORY
-    assert evidence.topology_snapshot_window_count == MAX_SNAPSHOT_HISTORY
+    assert (
+        evidence.topology_history.observed_snapshot_count
+        == MAX_SNAPSHOT_HISTORY
+    )
+    assert (
+        evidence.topology_history.complete_snapshot_count
+        == MAX_SNAPSHOT_HISTORY
+    )
+    assert (
+        evidence.topology_history.snapshot_window_count
+        == MAX_SNAPSHOT_HISTORY
+    )
 
 
 def test_pending_topology_snapshots_do_not_enter_window(tmp_path: Path):
@@ -777,8 +1039,9 @@ def test_pending_topology_snapshots_do_not_enter_window(tmp_path: Path):
 
     evidence = load_device_coverage_evidence(repo, "home", "0x03")
     assert evidence is not None
-    assert evidence.topology_snapshot_window_count == 1
-    assert evidence.topology_observed_snapshot_count == 1
+    assert evidence.topology_history.complete_snapshot_count == 1
+    assert evidence.topology_history.snapshot_window_count == 1
+    assert evidence.topology_history.observed_snapshot_count == 1
 
 
 def test_topology_node_ieee_comparison_is_case_insensitive(tmp_path: Path):
@@ -794,7 +1057,7 @@ def test_topology_node_ieee_comparison_is_case_insensitive(tmp_path: Path):
 
     evidence = load_device_coverage_evidence(repo, "home", "0x03")
     assert evidence is not None
-    assert evidence.topology_observed_snapshot_count == 1
+    assert evidence.topology_history.observed_snapshot_count == 1
 
 
 def test_ha_area_linked_area_name_only(tmp_path: Path):
@@ -877,8 +1140,11 @@ def test_device_coverage_order_is_deterministic():
         battery_history_applicable=True,
         battery_sample_count=1,
         lqi_sample_count=1,
-        topology_observed_snapshot_count=2,
-        topology_snapshot_window_count=2,
+        topology_history=_topology_history_counts(
+            observed=2,
+            available=2,
+            limited=0,
+        ),
         last_seen=NOW,
         last_payload_at=NOW,
     )
@@ -896,8 +1162,11 @@ def test_battery_device_dimension_order_and_no_duplicates():
         battery_history_applicable=True,
         battery_sample_count=1,
         lqi_sample_count=1,
-        topology_observed_snapshot_count=2,
-        topology_snapshot_window_count=2,
+        topology_history=_topology_history_counts(
+            observed=2,
+            available=2,
+            limited=0,
+        ),
         last_seen=NOW,
         last_payload_at=NOW,
     )

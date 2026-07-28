@@ -9,6 +9,8 @@ from zigbeelens.decisions.types import (
     CoverageLabelCode,
     CoverageState,
     DataCoverage,
+    TopologyHistoryCoverageParams,
+    classify_topology_history_params,
 )
 
 
@@ -17,13 +19,13 @@ def _coverage(
     dimension: CoverageDimension,
     state: CoverageState,
     label_code: CoverageLabelCode,
-    params: dict[str, Any] | None = None,
+    params: dict[str, Any] | TopologyHistoryCoverageParams | None = None,
 ) -> DataCoverage:
     return DataCoverage(
         dimension=dimension,
         state=state,
         label_code=label_code,
-        params=params or {},
+        params={} if params is None else params,
     )
 
 
@@ -162,77 +164,72 @@ def lqi_history_available(**params: Any) -> DataCoverage:
     )
 
 
-def topology_history_available(
+def _topology_history_coverage(
+    params: TopologyHistoryCoverageParams,
     *,
-    observed_snapshot_count: int,
-    snapshot_window_count: int,
-    **params: Any,
+    state: CoverageState,
+    label_code: CoverageLabelCode,
 ) -> DataCoverage:
     return _coverage(
         dimension=CoverageDimension.historical_snapshots,
-        state=CoverageState.available,
-        label_code=CoverageLabelCode.topology_history_available,
-        params={
-            "observed_snapshot_count": observed_snapshot_count,
-            "snapshot_window_count": snapshot_window_count,
-            **params,
-        },
+        state=state,
+        label_code=label_code,
+        params=params,
     )
 
 
-def topology_history_sparse(
-    *,
-    observed_snapshot_count: int,
-    snapshot_window_count: int,
-    **params: Any,
+def classify_topology_history_coverage(
+    params: TopologyHistoryCoverageParams,
 ) -> DataCoverage:
-    return _coverage(
-        dimension=CoverageDimension.historical_snapshots,
-        state=CoverageState.sparse,
-        label_code=CoverageLabelCode.topology_history_sparse,
-        params={
-            "observed_snapshot_count": observed_snapshot_count,
-            "snapshot_window_count": snapshot_window_count,
-            **params,
-        },
+    """Classify one exact, bounded topology-history count set."""
+    state, label_code = classify_topology_history_params(params)
+    return _topology_history_coverage(
+        params,
+        state=state,
+        label_code=label_code,
+    )
+
+
+def _require_topology_history_label(
+    params: TopologyHistoryCoverageParams,
+    expected: CoverageLabelCode,
+) -> DataCoverage:
+    result = classify_topology_history_coverage(params)
+    if result.label_code is not expected:
+        raise ValueError(
+            f"topology-history counts classify as {result.label_code.value}, "
+            f"not {expected.value}"
+        )
+    return result
+
+
+def topology_history_available(
+    params: TopologyHistoryCoverageParams,
+) -> DataCoverage:
+    return _require_topology_history_label(
+        params, CoverageLabelCode.topology_history_available
+    )
+
+
+def topology_history_sparse(params: TopologyHistoryCoverageParams) -> DataCoverage:
+    return _require_topology_history_label(
+        params, CoverageLabelCode.topology_history_sparse
     )
 
 
 def topology_history_not_observed(
-    *,
-    observed_snapshot_count: int,
-    snapshot_window_count: int,
-    **params: Any,
+    params: TopologyHistoryCoverageParams,
 ) -> DataCoverage:
-    return _coverage(
-        dimension=CoverageDimension.historical_snapshots,
-        state=CoverageState.not_observed,
-        label_code=CoverageLabelCode.topology_history_not_observed,
-        params={
-            "observed_snapshot_count": observed_snapshot_count,
-            "snapshot_window_count": snapshot_window_count,
-            **params,
-        },
+    return _require_topology_history_label(
+        params, CoverageLabelCode.topology_history_not_observed
     )
 
 
 def topology_history_unavailable(
-    *,
-    observed_snapshot_count: int,
-    snapshot_window_count: int,
-    limited_snapshot_count: int,
-    **params: Any,
+    params: TopologyHistoryCoverageParams,
 ) -> DataCoverage:
-    return _coverage(
-        dimension=CoverageDimension.historical_snapshots,
-        state=CoverageState.unknown,
-        label_code=CoverageLabelCode.topology_history_unavailable,
-        params={
-            "observed_snapshot_count": observed_snapshot_count,
-            "snapshot_window_count": snapshot_window_count,
-            "limited_snapshot_count": limited_snapshot_count,
-            **params,
-        },
+    return _require_topology_history_label(
+        params, CoverageLabelCode.topology_history_unavailable
     )
 
 

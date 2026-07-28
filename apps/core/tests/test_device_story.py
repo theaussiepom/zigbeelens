@@ -397,11 +397,14 @@ def test_layout_limited_latest_snapshot_does_not_create_topology_gap(
         for item in evidence.coverage
         if item.dimension is CoverageDimension.historical_snapshots
     )
-    assert topology_coverage.params == {
+    assert topology_coverage.params.model_dump() == {
         "observed_snapshot_count": 1,
-        "snapshot_window_count": 1,
-        "limited_snapshot_count": 1,
+        "complete_snapshot_count": 2,
+        "available_layout_snapshot_count": 1,
+        "limited_layout_snapshot_count": 1,
+        "snapshot_window_count": 2,
     }
+    assert topology_coverage.label_code is CoverageLabelCode.topology_history_sparse
     fact_codes = {fact.code for fact in evidence.topology_facts}
     assert TopologyFactCode.device_absent_from_latest_snapshot not in fact_codes
     assert TopologyFactCode.device_no_latest_links not in fact_codes
@@ -473,8 +476,11 @@ def test_device_story_coverage_counts_link_only_topology_observation(
         if item.dimension is CoverageDimension.historical_snapshots
     )
     assert topology_coverage.label_code is CoverageLabelCode.topology_history_available
-    assert topology_coverage.params == {
+    assert topology_coverage.params.model_dump() == {
         "observed_snapshot_count": 1,
+        "complete_snapshot_count": 1,
+        "available_layout_snapshot_count": 1,
+        "limited_layout_snapshot_count": 0,
         "snapshot_window_count": 1,
     }
 
@@ -504,10 +510,12 @@ def test_device_story_coverage_marks_only_limited_history_unavailable(
         topology_coverage.label_code
         is CoverageLabelCode.topology_history_unavailable
     )
-    assert topology_coverage.params == {
+    assert topology_coverage.params.model_dump() == {
         "observed_snapshot_count": 0,
-        "snapshot_window_count": 0,
-        "limited_snapshot_count": 1,
+        "complete_snapshot_count": 1,
+        "available_layout_snapshot_count": 0,
+        "limited_layout_snapshot_count": 1,
+        "snapshot_window_count": 1,
     }
 
 

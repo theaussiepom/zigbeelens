@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type {
+  CoverageDimension,
   CoverageLabelCode,
+  CoverageState,
+  DataCoverage,
   DecisionBadge,
   DecisionCountSummary,
   DecisionPriority,
@@ -9,6 +12,8 @@ import type {
   DeviceSnapshotComparison,
   Incident,
   ReportDetailV3,
+  ReportDeviceStory,
+  TopologyHistoryCoverageParams,
 } from "@zigbeelens/shared";
 import { parseIncident } from "@/lib/decisionContract";
 import { buildIncidentRecordViewModel } from "@/viewModels/incidents/incidentViewModel";
@@ -43,6 +48,43 @@ describe("shared decision contract", () => {
       coverage_warning_count: 1,
     };
     expect(summary.status_counts.worth_reviewing).toBe(2);
+  });
+
+  it("types exact topology-history coverage counts", () => {
+    const params: TopologyHistoryCoverageParams = {
+      observed_snapshot_count: 2,
+      complete_snapshot_count: 4,
+      available_layout_snapshot_count: 3,
+      limited_layout_snapshot_count: 1,
+      snapshot_window_count: 4,
+    };
+    expect(params.complete_snapshot_count).toBe(
+      params.available_layout_snapshot_count +
+        params.limited_layout_snapshot_count,
+    );
+    expect(params.snapshot_window_count).toBe(params.complete_snapshot_count);
+  });
+
+  it("ties topology-history coverage to exact label/state pairs and params", () => {
+    const topologyCoverage: DataCoverage = {
+      dimension: "historical_snapshots",
+      state: "sparse",
+      label_code: "topology_history_sparse",
+      params: {
+        observed_snapshot_count: 2,
+        complete_snapshot_count: 4,
+        available_layout_snapshot_count: 3,
+        limited_layout_snapshot_count: 1,
+        snapshot_window_count: 4,
+      },
+    };
+    const reportCoverage: ReportDeviceStory["coverage"] = [topologyCoverage];
+    const dimension: CoverageDimension = topologyCoverage.dimension;
+    const state: CoverageState = topologyCoverage.state;
+
+    expect(dimension).toBe("historical_snapshots");
+    expect(state).toBe("sparse");
+    expect(reportCoverage[0].params).toEqual(topologyCoverage.params);
   });
 
   it("types snapshot presence as owned comparison evidence", () => {

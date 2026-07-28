@@ -23,7 +23,6 @@ import {
 } from "@/lib/sessionTransport";
 import type { Paginated } from "@/types/api";
 import type { DeviceStoryDto } from "@/types/devices";
-import type { DataCoverageDto } from "@/types/decisions";
 import type { Incident } from "@/types/incidents";
 import type {
   ReportDetailV3,
@@ -38,7 +37,9 @@ import type {
   TopologyOverview,
 } from "@/types/topology";
 import {
+  parseDataCoverageList,
   parseDeviceDetail,
+  parseDeviceStory,
   parseIncident,
   parseNetworkSummary,
   parseStoredReport,
@@ -618,11 +619,11 @@ export const api = {
     fetchJson<DeviceStoryDto>(
       `api/devices/${encodeURIComponent(networkId)}/${encodeURIComponent(ieee)}/story`,
       { scenario },
-    ),
+    ).then(parseDeviceStory),
   deviceCoverage: (networkId: string, ieee: string) =>
-    fetchJson<DataCoverageDto[]>(
+    fetchJson<unknown>(
       `api/devices/${encodeURIComponent(networkId)}/${encodeURIComponent(ieee)}/coverage`,
-    ),
+    ).then(parseDataCoverageList),
   routers: (scenario?: string) => fetchJson<Paginated<RouterRisk>>("api/routers", { scenario }),
   incidents: (query: IncidentListQuery = {}) =>
     fetchJson<Paginated<Incident>>("api/incidents", {

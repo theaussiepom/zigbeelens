@@ -23,6 +23,13 @@ import type {
   ReportScope,
 } from "@zigbeelens/shared";
 import { ApiError } from "@/lib/api";
+import type { DeviceStoryDto } from "@/types/devices";
+import type {
+  CoverageDimension,
+  CoverageState,
+  DataCoverageDto,
+  TopologyHistoryCoverageParams,
+} from "@/types/decisions";
 import { COVERAGE_LABEL_CODES } from "@/viewModels/decisionCopy";
 
 const DECISION_STATUSES: readonly DecisionStatus[] = [
@@ -108,9 +115,6 @@ const DOMAIN_DETAILS_KEYS = [
 ] as const;
 
 const DEVICE_STORY_KEYS = [
-  "network_id",
-  "ieee_address",
-  "friendly_name",
   "subject_type",
   "subject_id",
   "status",
@@ -123,6 +127,54 @@ const DEVICE_STORY_KEYS = [
   "coverage",
   "related_unresolved_incident_ids",
   "timeline",
+] as const;
+
+const REPORT_DEVICE_STORY_KEYS = [
+  "network_id",
+  "ieee_address",
+  "friendly_name",
+  ...DEVICE_STORY_KEYS,
+] as const;
+
+const COVERAGE_DIMENSIONS: readonly CoverageDimension[] = [
+  "availability",
+  "last_seen",
+  "last_payload",
+  "battery",
+  "linkquality",
+  "topology_snapshot",
+  "route_hints",
+  "historical_snapshots",
+  "passive_history",
+  "ha_enrichment",
+  "incidents",
+  "reports",
+];
+
+const COVERAGE_STATES: readonly CoverageState[] = [
+  "available",
+  "off",
+  "building",
+  "unknown",
+  "stale",
+  "not_configured",
+  "not_observed",
+  "sparse",
+];
+
+const TOPOLOGY_HISTORY_CODES = [
+  "topology_history_available",
+  "topology_history_sparse",
+  "topology_history_not_observed",
+  "topology_history_unavailable",
+] as const;
+
+const TOPOLOGY_HISTORY_PARAM_KEYS = [
+  "observed_snapshot_count",
+  "complete_snapshot_count",
+  "available_layout_snapshot_count",
+  "limited_layout_snapshot_count",
+  "snapshot_window_count",
 ] as const;
 
 const INCIDENT_STATUSES = ["open", "watching", "resolved"] as const;
@@ -392,16 +444,114 @@ function parseIncidentEvidenceItem(value: unknown): void {
   optionalStringOrNull(value.ieee_address);
 }
 
-function parseCoverageItem(value: unknown): void {
+function parseTopologyHistoryCoverageParams(
+  value: Record<string, unknown>,
+): TopologyHistoryCoverageParams {
+  exactKeySet(value, TOPOLOGY_HISTORY_PARAM_KEYS);
+  for (const key of TOPOLOGY_HISTORY_PARAM_KEYS) {
+    if (!nonNegativeInt(value[key])) {
+      protocolFailure();
+    }
+  }
+
+  const params = value as unknown as TopologyHistoryCoverageParams;
+  if (
+    params.complete_snapshot_count !==
+      params.available_layout_snapshot_count +
+        params.limited_layout_snapshot_count ||
+    params.observed_snapshot_count > params.available_layout_snapshot_count ||
+    params.snapshot_window_count !== params.complete_snapshot_count
+  ) {
+    protocolFailure();
+  }
+  return params;
+}
+
+function validateTopologyHistoryCoverageMatrix(
+  state: CoverageState,
+  labelCode: CoverageLabelCode,
+  params: TopologyHistoryCoverageParams,
+): void {
+  const observed = params.observed_snapshot_count;
+  const complete = params.complete_snapshot_count;
+  const available = params.available_layout_snapshot_count;
+  const limited = params.limited_layout_snapshot_count;
+
+  let expectedState: CoverageState;
+  let expectedCode: CoverageLabelCode;
+  if (complete === 0) {
+    expectedState = "not_observed";
+    expectedCode = "topology_history_not_observed";
+  } else if (available === 0) {
+    expectedState = "unknown";
+    expectedCode = "topology_history_unavailable";
+  } else if (limited > 0) {
+    expectedState = "sparse";
+    expectedCode = "topology_history_sparse";
+  } else if (observed === available) {
+    expectedState = "available";
+    expectedCode = "topology_history_available";
+  } else if (observed === 0) {
+    expectedState = "not_observed";
+    expectedCode = "topology_history_not_observed";
+  } else {
+    expectedState = "sparse";
+    expectedCode = "topology_history_sparse";
+  }
+
+  if (state !== expectedState || labelCode !== expectedCode) {
+    protocolFailure();
+  }
+}
+
+export function parseDataCoverage(value: unknown): DataCoverageDto {
   if (!isPlainObject(value)) {
+    protocolFailure();
+  }
+  exactKeySet(value, ["dimension", "state", "label_code", "params"]);
+  if (
+    typeof value.dimension !== "string" ||
+    !(COVERAGE_DIMENSIONS as readonly string[]).includes(value.dimension)
+  ) {
+    protocolFailure();
+  }
+  if (
+    typeof value.state !== "string" ||
+    !(COVERAGE_STATES as readonly string[]).includes(value.state)
+  ) {
     protocolFailure();
   }
   if (!isCoverageLabelCode(value.label_code)) {
     protocolFailure();
   }
-  if (value.params !== undefined && !isPlainObject(value.params)) {
+  if (!isPlainObject(value.params)) {
     protocolFailure();
   }
+
+  const isTopologyCode = (TOPOLOGY_HISTORY_CODES as readonly string[]).includes(
+    value.label_code,
+  );
+  if (value.dimension === "historical_snapshots") {
+    if (!isTopologyCode) {
+      protocolFailure();
+    }
+    const params = parseTopologyHistoryCoverageParams(value.params);
+    validateTopologyHistoryCoverageMatrix(
+      value.state as CoverageState,
+      value.label_code,
+      params,
+    );
+  } else if (isTopologyCode) {
+    protocolFailure();
+  }
+  return value as unknown as DataCoverageDto;
+}
+
+export function parseDataCoverageList(value: unknown): DataCoverageDto[] {
+  if (!Array.isArray(value)) {
+    protocolFailure();
+  }
+  return value.map(parseDataCoverage);
 }
 
 function parseStoryTimelineItem(value: unknown): void {
@@ -421,19 +571,24 @@ function parseStoryTimelineItem(value: unknown): void {
   }
 }
 
-export function parseDeviceStory(value: unknown): void {
+export function parseDeviceStory(value: unknown): DeviceStoryDto {
   if (!isPlainObject(value)) {
     protocolFailure();
   }
-  exactKeySet(value, DEVICE_STORY_KEYS);
-  for (const key of [
-    "network_id",
-    "ieee_address",
-    "friendly_name",
-    "subject_id",
-    "headline_code",
-  ] as const) {
+  const hasReportIdentity = ["network_id", "ieee_address", "friendly_name"].some(
+    (key) => key in value,
+  );
+  exactKeySet(
+    value,
+    hasReportIdentity ? REPORT_DEVICE_STORY_KEYS : DEVICE_STORY_KEYS,
+  );
+  for (const key of ["subject_id", "headline_code"] as const) {
     requireNonEmptyString(value[key]);
+  }
+  if (hasReportIdentity) {
+    for (const key of ["network_id", "ieee_address", "friendly_name"] as const) {
+      requireNonEmptyString(value[key]);
+    }
   }
   if (value.subject_type !== "device") {
     protocolFailure();
@@ -467,7 +622,7 @@ export function parseDeviceStory(value: unknown): void {
     parseCodedItem(item);
   }
   for (const item of value.coverage as unknown[]) {
-    parseCoverageItem(item);
+    parseDataCoverage(item);
   }
   for (const id of value.related_unresolved_incident_ids as unknown[]) {
     if (typeof id !== "string") {
@@ -477,6 +632,7 @@ export function parseDeviceStory(value: unknown): void {
   for (const item of value.timeline as unknown[]) {
     parseStoryTimelineItem(item);
   }
+  return value as unknown as DeviceStoryDto;
 }
 
 function parseLimitationItem(value: unknown): void {

@@ -20,6 +20,7 @@ from zigbeelens.decisions.types import (
     DECISION_PRIORITY_ORDER,
     DECISION_STATUS_ORDER,
     CoverageLabelCode,
+    DataCoverage,
     DecisionPriority,
     DecisionStatus,
 )
@@ -699,7 +700,7 @@ class ReportDeviceStory(BaseModel):
     evidence: list[dict[str, Any]]
     limitations: list[dict[str, Any]]
     suggested_checks: list[dict[str, Any]]
-    coverage: list[dict[str, Any]]
+    coverage: list[DataCoverage]
     related_unresolved_incident_ids: list[str]
     timeline: list[ReportStoryTimelineItem]
 

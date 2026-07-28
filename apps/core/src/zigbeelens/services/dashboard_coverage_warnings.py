@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING, Any
 from zigbeelens.decisions.availability_tracking import availability_tracking_enabled_now
 from zigbeelens.decisions.topology_coverage import build_network_topology_coverage
 from zigbeelens.decisions.topology_facts import build_network_topology_facts
-from zigbeelens.decisions.types import CoverageLabelCode, CoverageState, DataCoverage
+from zigbeelens.decisions.types import (
+    CoverageLabelCode,
+    CoverageState,
+    DataCoverage,
+    coverage_params_as_dict,
+)
 from zigbeelens.schemas import DataCoverageWarningSummary
 from zigbeelens.services.network_evidence import (
     NetworkEvidenceCapability,
@@ -62,7 +67,7 @@ def _coverage_to_summary(
         state=str(item.state),
         label_code=label_code,
         scope_type="network",
-        params=dict(item.params or {}),
+        params=coverage_params_as_dict(item.params),
     )
 
 

@@ -91,15 +91,102 @@ function sampleCountLabel(count: number): string {
 }
 
 function topologyHistoryLabel(
+  labelCode: CoverageLabelCode,
   params: Record<string, unknown>,
-  fallback: string,
 ): string {
-  const observed = countParam(params, "observed_snapshot_count");
-  const window = countParam(params, "snapshot_window_count");
-  if (observed === null || window === null) {
-    return fallback;
+  const counts = topologyHistoryCounts(params);
+  if (
+    counts === null ||
+    labelCode !== expectedTopologyHistoryCode(counts)
+  ) {
+    return "Topology history: coverage unknown";
   }
-  return `Topology history: ${observed} of ${window} snapshots`;
+  if (counts.complete === 0) {
+    return "Topology history: no complete captures";
+  }
+  if (counts.available === 0) {
+    return counts.limited === 1
+      ? "Topology history: 1 capture has no usable layout"
+      : `Topology history: ${counts.limited} captures have no usable layouts`;
+  }
+
+  const layoutWord = counts.available === 1 ? "layout" : "layouts";
+  const measured =
+    `Topology history: observed in ${counts.observed} of ` +
+    `${counts.available} available ${layoutWord}`;
+  if (counts.limited === 0) {
+    return measured;
+  }
+  const captureWord = counts.limited === 1 ? "capture" : "captures";
+  const limitedLayoutWord = counts.limited === 1 ? "layout" : "layouts";
+  return (
+    `${measured}; ${counts.limited} additional ${captureWord} ` +
+    `had no usable ${limitedLayoutWord}`
+  );
+}
+
+interface TopologyHistoryCounts {
+  observed: number;
+  complete: number;
+  available: number;
+  limited: number;
+}
+
+function topologyHistoryCounts(
+  params: Record<string, unknown>,
+): TopologyHistoryCounts | null {
+  const observed = countParam(params, "observed_snapshot_count");
+  const complete = countParam(params, "complete_snapshot_count");
+  const available = countParam(params, "available_layout_snapshot_count");
+  const limited = countParam(params, "limited_layout_snapshot_count");
+  const window = countParam(params, "snapshot_window_count");
+  if (
+    observed === null ||
+    complete === null ||
+    available === null ||
+    limited === null ||
+    window === null
+  ) {
+    return null;
+  }
+  const values = [observed, complete, available, limited, window];
+  if (values.some((value) => !Number.isInteger(value) || value < 0)) {
+    return null;
+  }
+  if (
+    complete !== available + limited ||
+    observed > available ||
+    window !== complete
+  ) {
+    return null;
+  }
+  return {
+    observed,
+    complete,
+    available,
+    limited,
+  };
+}
+
+function expectedTopologyHistoryCode(
+  counts: TopologyHistoryCounts,
+): CoverageLabelCode {
+  if (counts.complete === 0) {
+    return "topology_history_not_observed";
+  }
+  if (counts.available === 0) {
+    return "topology_history_unavailable";
+  }
+  if (counts.limited > 0) {
+    return "topology_history_sparse";
+  }
+  if (counts.observed === counts.available) {
+    return "topology_history_available";
+  }
+  if (counts.observed === 0) {
+    return "topology_history_not_observed";
+  }
+  return "topology_history_sparse";
 }
 
 const REASON_COPY: Record<ReasonCode, CopyRenderer> = {
@@ -290,12 +377,13 @@ const DEVICE_COVERAGE_LABEL_RENDERERS: Partial<Record<CoverageLabelCode, CopyRen
     return `LQI history: sparse (${sampleCountLabel(count)})`;
   },
   topology_history_available: (params) =>
-    topologyHistoryLabel(params, "Topology history: available"),
+    topologyHistoryLabel("topology_history_available", params),
   topology_history_sparse: (params) =>
-    topologyHistoryLabel(params, "Topology history: sparse"),
+    topologyHistoryLabel("topology_history_sparse", params),
   topology_history_not_observed: (params) =>
-    topologyHistoryLabel(params, "Topology history: not observed"),
-  topology_history_unavailable: () => "Topology history: layout unavailable",
+    topologyHistoryLabel("topology_history_not_observed", params),
+  topology_history_unavailable: (params) =>
+    topologyHistoryLabel("topology_history_unavailable", params),
   ha_area_linked: (params) => {
     const areaName = stringParam(params, "area_name");
     const areaId = stringParam(params, "area_id");
@@ -318,27 +406,50 @@ function deviceTopologyHistoryHelper(
   labelCode: CoverageLabelCode,
   params: Record<string, unknown>,
 ): string {
-  const observed = countParam(params, "observed_snapshot_count");
-  const window = countParam(params, "snapshot_window_count");
-
-  if (labelCode === "topology_history_not_observed") {
-    if (window === 0) {
-      return "No complete stored topology snapshots are available to assess this device yet.";
-    }
-    if (window !== null && observed === 0) {
-      return "This device was not observed in the considered stored topology snapshots.";
-    }
+  const counts = topologyHistoryCounts(params);
+  if (
+    counts === null ||
+    labelCode !== expectedTopologyHistoryCode(counts)
+  ) {
+    return "Topology history coverage details are unavailable. No device-presence conclusion can be drawn.";
+  }
+  if (counts.complete === 0) {
+    return "No complete stored topology captures exist for this device.";
+  }
+  if (counts.available === 0) {
+    const captureWord = counts.limited === 1 ? "capture" : "captures";
+    const layoutWord = counts.limited === 1 ? "layout" : "layouts";
+    return (
+      `${counts.limited} stored topology ${captureWord} had no usable node/link ` +
+      `${layoutWord}, so device presence cannot be inferred.`
+    );
   }
 
-  if (labelCode === "topology_history_sparse") {
-    return "This device was absent from some considered stored topology snapshots.";
+  let observedCopy: string;
+  if (counts.observed === counts.available) {
+    observedCopy = "Device observed in every available topology layout.";
+  } else if (counts.observed === 0) {
+    observedCopy =
+      counts.available === 1
+        ? "Device was not observed in the available topology layout."
+        : "Device was not observed in the available topology layouts.";
+  } else {
+    observedCopy =
+      `Device observed in ${counts.observed} of ${counts.available} ` +
+      "available topology layouts.";
   }
 
-  if (labelCode === "topology_history_available") {
-    return "This device appeared in every considered stored topology snapshot.";
+  if (counts.limited === 0) {
+    return observedCopy;
   }
-
-  return COVERAGE_HELPER_COPY[labelCode];
+  const captureWord = counts.limited === 1 ? "capture" : "captures";
+  const layoutWord = counts.limited === 1 ? "layout" : "layouts";
+  const limitedCopy =
+    `${counts.limited} additional ${captureWord} had no usable node/link ${layoutWord}`;
+  if (counts.observed === 0) {
+    return `${observedCopy} ${limitedCopy}, so the full history cannot be confirmed.`;
+  }
+  return `${observedCopy} ${limitedCopy}.`;
 }
 
 const DEVICE_COVERAGE_HELPER_COPY: Record<CoverageLabelCode, string | CopyRenderer> = {
@@ -396,8 +507,8 @@ const DEVICE_COVERAGE_HELPER_COPY: Record<CoverageLabelCode, string | CopyRender
     deviceTopologyHistoryHelper("topology_history_sparse", params),
   topology_history_not_observed: (params) =>
     deviceTopologyHistoryHelper("topology_history_not_observed", params),
-  topology_history_unavailable:
-    COVERAGE_HELPER_COPY.topology_history_unavailable,
+  topology_history_unavailable: (params) =>
+    deviceTopologyHistoryHelper("topology_history_unavailable", params),
   ha_area_linked: (params) => {
     const areaName = stringParam(params, "area_name");
     const areaId = stringParam(params, "area_id");

@@ -17,9 +17,9 @@ from types import MappingProxyType
 from pydantic import BaseModel, Field
 
 from zigbeelens.decisions.device_coverage import (
-    _topology_layout_contains_device,
     build_device_coverage,
     build_device_coverage_evidence,
+    count_device_topology_history,
 )
 from zigbeelens.decisions.reasons import ReasonCode
 from zigbeelens.decisions.topology_facts import (
@@ -371,37 +371,22 @@ def load_device_story_evidence(
             latest_availability_coverage = coverage
 
     coverage_snapshots = device_snapshots[:MAX_SNAPSHOT_HISTORY]
-    topology_candidates = network_context.snapshot_history_context.usable_snapshots[
-        :MAX_SNAPSHOT_HISTORY
-    ]
-    topology_window = [
-        snapshot
-        for snapshot in topology_candidates
-        if network_context.snapshot_history_context.layout_available_by_snapshot_id.get(
-            str(snapshot["snapshot_id"]),
-            False,
-        )
-    ]
-    topology_limited = len(topology_candidates) - len(topology_window)
-    topology_observed = 0
-    for snapshot in topology_window:
-        snapshot_id = str(snapshot["snapshot_id"])
-        if _topology_layout_contains_device(
-            device,
-            network_context.nodes_by_snapshot_id.get(snapshot_id, []),
-            network_context.snapshot_history_context.links_by_snapshot_id.get(
-                snapshot_id, []
-            ),
-        ):
-            topology_observed += 1
+    snapshot_history_context = network_context.snapshot_history_context
+    topology_history = count_device_topology_history(
+        device_ieee=device,
+        usable_snapshots=snapshot_history_context.usable_snapshots,
+        nodes_by_snapshot_id=snapshot_history_context.nodes_by_snapshot_id,
+        links_by_snapshot_id=snapshot_history_context.links_by_snapshot_id,
+        layout_available_by_snapshot_id=(
+            snapshot_history_context.layout_available_by_snapshot_id
+        ),
+    )
     coverage_evidence = build_device_coverage_evidence(
         device_row=row,
         tracking_enabled=network_context.availability_tracking_enabled,
         device_snapshots=coverage_snapshots,
         availability_changes=availability_changes,
-        topology_observed_snapshot_count=topology_observed,
-        topology_snapshot_window_count=len(topology_window),
-        topology_limited_snapshot_count=topology_limited,
+        topology_history=topology_history,
         ha_enrichment=enrichment,
     )
     canonical_coverage = build_device_coverage(coverage_evidence)

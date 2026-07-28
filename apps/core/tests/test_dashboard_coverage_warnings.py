@@ -14,10 +14,13 @@ from zigbeelens.config.models import (
     TopologyConfig,
 )
 from zigbeelens.db.connection import Database
+from zigbeelens.decisions.coverage import classify_topology_history_coverage
+from zigbeelens.decisions.types import TopologyHistoryCoverageParams
 from zigbeelens.diagnostics.service import HealthDiagnosticService
 from zigbeelens.schemas import InvestigationPrioritySummary
 from zigbeelens.services.dashboard_coverage_warnings import (
     MAX_OVERVIEW_COVERAGE_WARNINGS,
+    _coverage_to_summary,
     compose_dashboard_coverage_warnings,
 )
 from zigbeelens.services.empty_state import build_empty_dashboard
@@ -28,6 +31,22 @@ from zigbeelens.topology.parser import parse_networkmap_payload
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def test_dashboard_summary_serializes_typed_coverage_params_to_wire_dict():
+    params = TopologyHistoryCoverageParams(
+        observed_snapshot_count=1,
+        complete_snapshot_count=2,
+        available_layout_snapshot_count=1,
+        limited_layout_snapshot_count=1,
+        snapshot_window_count=2,
+    )
+    item = classify_topology_history_coverage(params)
+
+    summary = _coverage_to_summary("home", item)
+
+    assert type(summary.params) is dict
+    assert summary.params == params.model_dump()
 
 
 def _config(

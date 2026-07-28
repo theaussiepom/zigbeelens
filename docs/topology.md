@@ -70,10 +70,24 @@ typed evidence alongside link and route-hint counts. If only presence differs,
 the comparison is **Changed**, or **Worth reviewing** when a separately
 established current issue exists; it never claims failure, movement, a current
 route, or causality. A limited layout therefore cannot create an absence,
-no-links, changed, no-change, or watch conclusion. Device coverage excludes
-limited layouts from its measured history denominator; when the retained window
-contains only limited layouts it reports **Topology history: layout
-unavailable** instead of “not observed”.
+no-links, changed, no-change, or watch conclusion.
+
+Device coverage accounts for the complete retained window explicitly:
+
+- `complete_snapshot_count = available_layout_snapshot_count +
+  limited_layout_snapshot_count`;
+- `snapshot_window_count` is retained as an exact alias of
+  `complete_snapshot_count`, never an available-layout-only denominator;
+- `observed_snapshot_count` counts only available layouts in which the exact
+  device appears as a node or link endpoint, and cannot exceed
+  `available_layout_snapshot_count`.
+
+No complete captures means no stored history conclusion. All-limited history is
+unavailable and supports no presence inference. Mixed available/limited history
+is partial/sparse and always discloses the limited capture count. Only when
+every selected complete capture has an available layout can coverage say the
+device was observed in all, some, or none of those layouts. A limited layout is
+unknown evidence, never zero or absence.
 
 ## Current investigation surfaces
 

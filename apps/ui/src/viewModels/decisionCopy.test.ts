@@ -252,9 +252,12 @@ describe("decisionCopy", () => {
     expect(
       deviceCoverageLabel("topology_history_sparse", {
         observed_snapshot_count: 2,
+        complete_snapshot_count: 10,
+        available_layout_snapshot_count: 10,
+        limited_layout_snapshot_count: 0,
         snapshot_window_count: 10,
       }),
-    ).toBe("Topology history: 2 of 10 snapshots");
+    ).toBe("Topology history: observed in 2 of 10 available layouts");
     expect(deviceCoverageLabel("ha_area_linked", { area_name: "Hall" })).toBe("HA area: Hall");
     expect(deviceCoverageLabel("ha_area_linked", { area_id: "hall" })).toBe("HA area: hall");
     expect(deviceCoverageLabel("ha_areas_not_linked")).toBe("HA area: missing");
@@ -283,54 +286,131 @@ describe("decisionCopy", () => {
     expect(helper).toMatch(/not a zigbee network fault/i);
   });
 
-  it("maps device topology helper copy by snapshot window", () => {
+  it("maps device topology helper copy across the exact coverage matrix", () => {
     expect(
       deviceCoverageHelperText("topology_history_not_observed", {
         observed_snapshot_count: 0,
+        complete_snapshot_count: 0,
+        available_layout_snapshot_count: 0,
+        limited_layout_snapshot_count: 0,
         snapshot_window_count: 0,
       }),
-    ).toBe("No complete stored topology snapshots are available to assess this device yet.");
+    ).toBe("No complete stored topology captures exist for this device.");
     expect(
       deviceCoverageHelperText("topology_history_not_observed", {
         observed_snapshot_count: 0,
-        snapshot_window_count: 10,
+        complete_snapshot_count: 3,
+        available_layout_snapshot_count: 3,
+        limited_layout_snapshot_count: 0,
+        snapshot_window_count: 3,
       }),
-    ).toMatch(/not observed in the considered stored topology snapshots/i);
+    ).toBe("Device was not observed in the available topology layouts.");
     expect(
       deviceCoverageHelperText("topology_history_sparse", {
         observed_snapshot_count: 2,
-        snapshot_window_count: 10,
+        complete_snapshot_count: 3,
+        available_layout_snapshot_count: 3,
+        limited_layout_snapshot_count: 0,
+        snapshot_window_count: 3,
       }),
-    ).toMatch(/absent from some considered stored topology snapshots/i);
+    ).toBe("Device observed in 2 of 3 available topology layouts.");
     expect(
       deviceCoverageHelperText("topology_history_available", {
-        observed_snapshot_count: 10,
-        snapshot_window_count: 10,
+        observed_snapshot_count: 3,
+        complete_snapshot_count: 3,
+        available_layout_snapshot_count: 3,
+        limited_layout_snapshot_count: 0,
+        snapshot_window_count: 3,
       }),
-    ).toMatch(/appeared in every considered stored topology snapshot/i);
+    ).toBe("Device observed in every available topology layout.");
+    expect(
+      deviceCoverageHelperText("topology_history_sparse", {
+        observed_snapshot_count: 1,
+        complete_snapshot_count: 2,
+        available_layout_snapshot_count: 1,
+        limited_layout_snapshot_count: 1,
+        snapshot_window_count: 2,
+      }),
+    ).toBe(
+      "Device observed in every available topology layout. 1 additional capture had no usable node/link layout.",
+    );
+    expect(
+      deviceCoverageHelperText("topology_history_sparse", {
+        observed_snapshot_count: 2,
+        complete_snapshot_count: 5,
+        available_layout_snapshot_count: 3,
+        limited_layout_snapshot_count: 2,
+        snapshot_window_count: 5,
+      }),
+    ).toBe(
+      "Device observed in 2 of 3 available topology layouts. 2 additional captures had no usable node/link layouts.",
+    );
+    expect(
+      deviceCoverageHelperText("topology_history_sparse", {
+        observed_snapshot_count: 0,
+        complete_snapshot_count: 2,
+        available_layout_snapshot_count: 1,
+        limited_layout_snapshot_count: 1,
+        snapshot_window_count: 2,
+      }),
+    ).toBe(
+      "Device was not observed in the available topology layout. 1 additional capture had no usable node/link layout, so the full history cannot be confirmed.",
+    );
   });
 
   it("keeps unavailable topology layouts non-measured across coverage presenters", () => {
     const params = {
       observed_snapshot_count: 0,
-      snapshot_window_count: 0,
-      limited_snapshot_count: 2,
+      complete_snapshot_count: 2,
+      available_layout_snapshot_count: 0,
+      limited_layout_snapshot_count: 2,
+      snapshot_window_count: 2,
     };
     expect(coverageLabel("topology_history_unavailable", params)).toBe(
       "Topology history: layout unavailable",
     );
     expect(deviceCoverageLabel("topology_history_unavailable", params)).toBe(
-      "Topology history: layout unavailable",
+      "Topology history: 2 captures have no usable layouts",
     );
     const helper = deviceCoverageHelperText(
       "topology_history_unavailable",
       params,
     );
-    expect(helper).toMatch(/node\/link layouts are unavailable/i);
-    expect(helper).toMatch(/presence and link counts cannot be determined/i);
+    expect(helper).toMatch(/2 stored topology captures/i);
+    expect(helper).toMatch(/device presence cannot be inferred/i);
     expect(helper).not.toMatch(/\b0\b|not observed|absent|no links/i);
     expect(coverageTone("topology_history_unavailable")).toBe("muted");
     expect(isKnownCoverageLabelCode("topology_history_unavailable")).toBe(true);
+  });
+
+  it("fails closed for malformed or contradictory topology coverage params", () => {
+    expect(deviceCoverageLabel("topology_history_available", {})).toBe(
+      "Topology history: coverage unknown",
+    );
+    expect(deviceCoverageHelperText("topology_history_available", {})).toMatch(
+      /no device-presence conclusion can be drawn/i,
+    );
+
+    const mixedCounts = {
+      observed_snapshot_count: 1,
+      complete_snapshot_count: 2,
+      available_layout_snapshot_count: 1,
+      limited_layout_snapshot_count: 1,
+      snapshot_window_count: 2,
+    };
+    expect(
+      deviceCoverageLabel("topology_history_available", mixedCounts),
+    ).toBe("Topology history: coverage unknown");
+    expect(
+      deviceCoverageHelperText("topology_history_available", mixedCounts),
+    ).toMatch(/no device-presence conclusion can be drawn/i);
+
+    expect(
+      deviceCoverageLabel("topology_history_sparse", {
+        ...mixedCounts,
+        snapshot_window_count: 1,
+      }),
+    ).toBe("Topology history: coverage unknown");
   });
 
   it("falls back safely for unknown coverage label codes", () => {

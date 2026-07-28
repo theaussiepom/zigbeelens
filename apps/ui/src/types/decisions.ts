@@ -6,7 +6,7 @@
  */
 
 import type {
-  CoverageLabelCode,
+  DataCoverage,
   DecisionPriority,
   DecisionStatus,
   DeviceSnapshotComparisonFact,
@@ -14,37 +14,17 @@ import type {
 } from "@zigbeelens/shared";
 
 export type {
+  CoverageDimension,
   CoverageLabelCode,
+  CoverageState,
+  DataCoverage,
   DecisionBadge,
   DecisionCountSummary,
   DecisionPriority,
   DecisionStatus,
   DeviceDecisionBadge,
+  TopologyHistoryCoverageParams,
 } from "@zigbeelens/shared";
-
-export type CoverageDimension =
-  | "availability"
-  | "last_seen"
-  | "last_payload"
-  | "battery"
-  | "linkquality"
-  | "topology_snapshot"
-  | "route_hints"
-  | "historical_snapshots"
-  | "passive_history"
-  | "ha_enrichment"
-  | "incidents"
-  | "reports";
-
-export type CoverageState =
-  | "available"
-  | "off"
-  | "building"
-  | "unknown"
-  | "stale"
-  | "not_configured"
-  | "not_observed"
-  | "sparse";
 
 export interface EvidenceFactDto {
   code: string;
@@ -88,12 +68,7 @@ export interface SuggestedCheckDto {
   params?: Record<string, unknown>;
 }
 
-export interface DataCoverageDto {
-  dimension: CoverageDimension;
-  state: CoverageState;
-  label_code: CoverageLabelCode;
-  params?: Record<string, unknown>;
-}
+export type DataCoverageDto = DataCoverage;
 
 export interface DecisionDto {
   subject_type: string;

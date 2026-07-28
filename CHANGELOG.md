@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   values. A node-only presence difference is a factual `changed` comparison,
   or `worth_reviewing` only when a separate current issue already exists; it
   never becomes a causal, live-route, or device-health claim.
+- **Topology-history coverage:** Device Story, UI, and report coverage now count
+  every selected complete capture as either an available or limited layout.
+  Mixed history is visibly partial, limited captures remain explicit, and only
+  available layouts support observed/not-observed device-presence conclusions.
 - **Safety and runtime boundaries:** Discovery validates its exact availability/last-will topic before Paho construction or connection side effects; disabled topology owns no service or scheduler; topology raw dictionaries are no longer retained; mixed-case IEEE lookups are canonicalized.
 - **Reports and investigation UX:** missing contextual report targets fail validation, unknown targets fail not-found without storage, configured report defaults are effective, and Router/Coordinator investigation actions now say **Open device details**.
 - **Validation hardening:** PNG decompression is bounded to the exact scanline budget, screenshot manifest/privacy parsing is fail-closed, and model-pattern Decision parity uses one explicit reference clock without an expected failure.

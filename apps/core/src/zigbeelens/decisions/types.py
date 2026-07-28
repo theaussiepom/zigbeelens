@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 
 class DecisionStatus(StrEnum):
@@ -136,13 +136,137 @@ class SuggestedCheck(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class TopologyHistoryCoverageParams(BaseModel):
+    """Exact counts for the bounded complete topology-history window."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    observed_snapshot_count: StrictInt = Field(ge=0)
+    complete_snapshot_count: StrictInt = Field(ge=0)
+    available_layout_snapshot_count: StrictInt = Field(ge=0)
+    limited_layout_snapshot_count: StrictInt = Field(ge=0)
+    snapshot_window_count: StrictInt = Field(ge=0)
+
+    @classmethod
+    def empty(cls) -> Self:
+        """Return the exact no-complete-captures count set."""
+        return cls(
+            observed_snapshot_count=0,
+            complete_snapshot_count=0,
+            available_layout_snapshot_count=0,
+            limited_layout_snapshot_count=0,
+            snapshot_window_count=0,
+        )
+
+    @model_validator(mode="after")
+    def _validate_count_arithmetic(self) -> Self:
+        if self.complete_snapshot_count != (
+            self.available_layout_snapshot_count
+            + self.limited_layout_snapshot_count
+        ):
+            raise ValueError(
+                "complete_snapshot_count must equal available layout plus "
+                "limited layout snapshot counts"
+            )
+        if self.observed_snapshot_count > self.available_layout_snapshot_count:
+            raise ValueError(
+                "observed_snapshot_count cannot exceed "
+                "available_layout_snapshot_count"
+            )
+        if self.snapshot_window_count != self.complete_snapshot_count:
+            raise ValueError(
+                "snapshot_window_count must equal complete_snapshot_count"
+            )
+        return self
+
+
+TOPOLOGY_HISTORY_COVERAGE_LABELS: frozenset[CoverageLabelCode] = frozenset(
+    {
+        CoverageLabelCode.topology_history_available,
+        CoverageLabelCode.topology_history_sparse,
+        CoverageLabelCode.topology_history_not_observed,
+        CoverageLabelCode.topology_history_unavailable,
+    }
+)
+
+
+def classify_topology_history_params(
+    params: TopologyHistoryCoverageParams,
+) -> tuple[CoverageState, CoverageLabelCode]:
+    """Return the one valid state/code pair for exact topology-history counts."""
+    if params.complete_snapshot_count == 0:
+        return (
+            CoverageState.not_observed,
+            CoverageLabelCode.topology_history_not_observed,
+        )
+    if params.available_layout_snapshot_count == 0:
+        return (
+            CoverageState.unknown,
+            CoverageLabelCode.topology_history_unavailable,
+        )
+    if params.limited_layout_snapshot_count > 0:
+        return CoverageState.sparse, CoverageLabelCode.topology_history_sparse
+    if params.observed_snapshot_count == 0:
+        return (
+            CoverageState.not_observed,
+            CoverageLabelCode.topology_history_not_observed,
+        )
+    if params.observed_snapshot_count < params.available_layout_snapshot_count:
+        return CoverageState.sparse, CoverageLabelCode.topology_history_sparse
+    return CoverageState.available, CoverageLabelCode.topology_history_available
+
+
+def coverage_params_as_dict(
+    params: dict[str, Any] | TopologyHistoryCoverageParams | None,
+) -> dict[str, Any]:
+    """Serialize generic or typed coverage params to their stable wire object."""
+    if params is None:
+        return {}
+    if isinstance(params, TopologyHistoryCoverageParams):
+        return params.model_dump()
+    return dict(params)
+
+
 class DataCoverage(BaseModel):
     """Structured statement about whether enough data exists for a decision."""
 
     dimension: CoverageDimension
     state: CoverageState
     label_code: CoverageLabelCode
-    params: dict[str, Any] = Field(default_factory=dict)
+    params: dict[str, Any] | TopologyHistoryCoverageParams = Field(
+        default_factory=dict
+    )
+
+    @model_validator(mode="after")
+    def _validate_typed_topology_history(self) -> Self:
+        is_topology_history = (
+            self.dimension is CoverageDimension.historical_snapshots
+        )
+        is_topology_label = self.label_code in TOPOLOGY_HISTORY_COVERAGE_LABELS
+        if is_topology_history != is_topology_label:
+            raise ValueError(
+                "topology-history coverage labels require the "
+                "historical_snapshots dimension"
+            )
+        if not is_topology_history:
+            if isinstance(self.params, TopologyHistoryCoverageParams):
+                self.params = self.params.model_dump()
+            return self
+
+        typed_params = (
+            self.params
+            if isinstance(self.params, TopologyHistoryCoverageParams)
+            else TopologyHistoryCoverageParams.model_validate(self.params)
+        )
+        expected_state, expected_label = classify_topology_history_params(
+            typed_params
+        )
+        if self.state is not expected_state or self.label_code is not expected_label:
+            raise ValueError(
+                "topology-history coverage state/label contradict exact counts"
+            )
+        self.params = typed_params
+        return self
 
 
 class Decision(BaseModel):

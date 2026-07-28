@@ -149,6 +149,26 @@ capture time. It does not prove current live routing.”
 
 Avoid: current route, actual route, routed through.
 
+### Topology-history coverage
+
+Coverage over the bounded set of selected complete topology captures.
+
+Human-facing:
+
+- **No complete captures** when no selected complete capture exists;
+- **Layout unavailable** when every selected complete capture lacks a usable
+  node/link layout;
+- **Partial topology history** when available and limited layouts are mixed;
+- **Available topology history** only when every selected complete capture has
+  a usable layout.
+
+The total complete count always equals available-layout captures plus
+limited-layout captures. “Snapshot window” is an exact alias for that total.
+Observed-device counts use available layouts as their measurement denominator,
+while limited captures remain visible separately. A limited capture means
+presence is unknown; it never means the device was absent or that the count was
+zero.
+
 ### Recent missing link
 
 A link observed in recent previous complete topology snapshots but not present
