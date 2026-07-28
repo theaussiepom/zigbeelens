@@ -8,17 +8,21 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import time
 from typing import Any
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[4]
 WORKFLOW = ROOT / ".github" / "workflows" / "docker.yml"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 BUILD_SCRIPT = ROOT / "scripts" / "build-docker.sh"
 SMOKE_SCRIPT = ROOT / "scripts" / "smoke-docker.sh"
+RELEASE_SCRIPT = ROOT / "scripts" / "run-release-checks.sh"
 DOCKERFILE = ROOT / "deploy" / "docker" / "Dockerfile"
 DOCKERIGNORE = ROOT / ".dockerignore"
 GITIGNORE = ROOT / ".gitignore"
@@ -41,6 +45,9 @@ validated_labels_from_json = VALIDATOR_MODULE.validated_labels_from_json
 PACKAGE_VERSION = "0.1.14"
 FULL_REVISION = "906527063ad8bd594fbec51f69f6fc72205302dd"
 IMAGE_SOURCE = "https://github.com/theaussiepom/zigbeelens"
+SMOKE_STATE_GLOB = "zigbeelens-docker-smoke.*"
+FAKE_IMAGE_ID = f"sha256:{'1' * 64}"
+FAKE_CONTAINER_ID = "c" * 64
 
 VERSION_EXPRESSION = "${{ steps.version.outputs.value }}"
 REVISION_EXPRESSION = "${{ github.sha }}"
@@ -226,6 +233,604 @@ def _initialise_git_checkout(checkout: Path) -> str:
         "fixture",
     )
     return _git(checkout, "rev-parse", "HEAD")
+
+
+def _write_fake_docker(path: Path) -> None:
+    path.write_text(
+        f"#!{sys.executable}\n"
+        + r"""
+import json
+import os
+from pathlib import Path
+import shutil
+import sys
+
+state = Path(os.environ["FAKE_DOCKER_STATE"])
+state.mkdir(parents=True, exist_ok=True)
+args = sys.argv[1:]
+with (state / "commands.jsonl").open("a", encoding="utf-8") as stream:
+    stream.write(json.dumps(args) + "\n")
+
+image_id = os.environ.get("FAKE_IMAGE_ID", "sha256:" + ("1" * 64))
+container_id = os.environ.get("FAKE_CONTAINER_ID", "c" * 64)
+
+if args == ["info"]:
+    if os.environ.get("FAKE_DOCKER_INFO_FAILURE") == "1":
+        print("controlled daemon failure", file=sys.stderr)
+        raise SystemExit(71)
+    print("controlled docker daemon")
+    raise SystemExit(0)
+
+if args[:2] == ["image", "inspect"]:
+    template = args[-1]
+    if ".Id" in template:
+        print(image_id)
+    elif "org.opencontainers.image.version" in template:
+        print(os.environ.get("FAKE_IMAGE_VERSION", "0.1.14"))
+    elif "org.opencontainers.image.revision" in template:
+        print(
+            os.environ.get(
+                "FAKE_IMAGE_REVISION",
+                os.environ["FAKE_EXPECTED_REVISION"],
+            )
+        )
+    elif "org.opencontainers.image.source" in template:
+        print(
+            os.environ.get(
+                "FAKE_IMAGE_SOURCE",
+                "https://github.com/theaussiepom/zigbeelens",
+            )
+        )
+    elif ".Config.User" in template:
+        print(os.environ.get("FAKE_IMAGE_USER", "zigbeelens"))
+    else:
+        print("unsupported image inspect template", file=sys.stderr)
+        raise SystemExit(64)
+    raise SystemExit(0)
+
+if args and args[0] == "run":
+    (state / "run-args.json").write_text(
+        json.dumps(args, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (state / "removed").unlink(missing_ok=True)
+    mode = os.environ.get("FAKE_DOCKER_RUN_MODE", "success")
+
+    cid_path = None
+    config_dir = None
+    data_dir = None
+    container_name = None
+    owner_label = None
+    for index, argument in enumerate(args):
+        if argument == "--cidfile":
+            cid_path = Path(args[index + 1])
+        elif argument == "--name":
+            container_name = args[index + 1]
+        elif argument == "--label":
+            key, value = args[index + 1].split("=", 1)
+            if key == "com.zigbeelens.smoke.owner":
+                owner_label = value
+        if argument != "--mount":
+            continue
+        fields = {}
+        for item in args[index + 1].split(","):
+            if "=" in item:
+                key, value = item.split("=", 1)
+                fields[key] = value
+        destination = fields.get("dst")
+        if destination == "/config":
+            config_dir = Path(fields["src"])
+        elif destination == "/data":
+            data_dir = Path(fields["src"])
+    if (
+        cid_path is None
+        or config_dir is None
+        or data_dir is None
+        or container_name is None
+        or owner_label is None
+    ):
+        print("controlled Docker did not receive owned smoke mounts", file=sys.stderr)
+        raise SystemExit(73)
+
+    (state / "container-name").write_text(container_name + "\n", encoding="utf-8")
+    (state / "owner-label").write_text(owner_label + "\n", encoding="utf-8")
+    if mode == "start-fail":
+        print("controlled container start failure", file=sys.stderr)
+        raise SystemExit(72)
+    if mode == "block-before-cid":
+        Path(os.environ["FAKE_DOCKER_RUN_BLOCK_MARKER"]).write_text(
+            "blocked\n",
+            encoding="utf-8",
+        )
+        import time
+
+        time.sleep(30)
+        raise SystemExit(77)
+
+    # Docker Desktop writes the cidfile without a trailing newline. The smoke
+    # must accept the populated final line even though Bash `read` returns EOF.
+    cid_path.write_text(container_id, encoding="utf-8")
+    (state / "config-copy.yaml").write_bytes(
+        (config_dir / "config.yaml").read_bytes()
+    )
+    (state / "mounts.json").write_text(
+        json.dumps(
+            {
+                "config": str(config_dir),
+                "data": str(data_dir),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (data_dir / "zigbeelens.sqlite").write_bytes(b"controlled sqlite smoke\n")
+    print(container_id)
+    if mode == "start-fail-after-cid":
+        print("controlled failure after container creation", file=sys.stderr)
+        raise SystemExit(74)
+    raise SystemExit(0)
+
+if args and args[0] == "inspect":
+    if len(args) == 2:
+        if (
+            os.environ.get("FAKE_DOCKER_NAME_COLLISION") == "1"
+            and args[1].startswith("zigbeelens-smoke-")
+        ):
+            print(container_id)
+            raise SystemExit(0)
+        if (
+            os.environ.get("FAKE_DOCKER_INSPECT_REMAINS") == "1"
+            and args[1] == container_id
+        ):
+            print(container_id)
+            raise SystemExit(0)
+        raise SystemExit(1)
+    target = args[1]
+    template = args[-1]
+    recorded_name_path = state / "container-name"
+    recorded_name = (
+        recorded_name_path.read_text(encoding="utf-8").strip()
+        if recorded_name_path.exists()
+        else ""
+    )
+    if target == recorded_name and ".Id" in template:
+        print(container_id)
+    elif target == recorded_name and "com.zigbeelens.smoke.owner" in template:
+        owner = (state / "owner-label").read_text(encoding="utf-8").strip()
+        print(os.environ.get("FAKE_DOCKER_OWNER_LABEL", owner))
+    elif ".Image" in template:
+        print(os.environ.get("FAKE_CONTAINER_IMAGE_ID", image_id))
+    elif ".State.Running" in template:
+        stopped = (
+            os.environ.get("FAKE_DOCKER_EARLY_EXIT") == "1"
+            or (state / "removed").exists()
+        )
+        print("false" if stopped else "true")
+    else:
+        print("unsupported container inspect template", file=sys.stderr)
+        raise SystemExit(64)
+    raise SystemExit(0)
+
+if args and args[0] == "port":
+    print(
+        "127.0.0.1:"
+        + os.environ.get(
+            "FAKE_DOCKER_PORT",
+            os.environ.get("SMOKE_DOCKER_PORT", "49152"),
+        )
+    )
+    raise SystemExit(0)
+
+if args and args[0] == "logs":
+    if os.environ.get("FAKE_DOCKER_LOGS_FAILURE") == "1":
+        print("controlled Docker log-read failure", file=sys.stderr)
+        raise SystemExit(76)
+    print(
+        os.environ.get(
+            "FAKE_DOCKER_LOG",
+            "MQTT collector disabled (mock=True)\n"
+            "api_token_configured=False credentialed_cors_enabled=False",
+        )
+    )
+    raise SystemExit(0)
+
+if args[:2] == ["rm", "-f"]:
+    if os.environ.get("FAKE_DOCKER_RM_FAILURE") == "1":
+        print("controlled container removal failure", file=sys.stderr)
+        raise SystemExit(75)
+    with (state / "removed-ids").open("a", encoding="utf-8") as stream:
+        stream.write(args[2] + "\n")
+    (state / "removed").write_text("removed\n", encoding="utf-8")
+    raise SystemExit(0)
+
+print("unsupported controlled Docker invocation: " + repr(args), file=sys.stderr)
+raise SystemExit(64)
+""".lstrip(),
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
+def _write_fake_curl(path: Path) -> None:
+    path.write_text(
+        f"#!{sys.executable}\n"
+        + r"""
+import json
+import os
+from pathlib import Path
+import sys
+from urllib.parse import urlsplit
+
+state = Path(os.environ["FAKE_DOCKER_STATE"])
+args = sys.argv[1:]
+with (state / "curl-commands.jsonl").open("a", encoding="utf-8") as stream:
+    stream.write(json.dumps(args) + "\n")
+
+url = next((argument for argument in reversed(args) if argument.startswith("http://")), "")
+if not url:
+    print("controlled curl received no URL", file=sys.stderr)
+    raise SystemExit(64)
+path = urlsplit(url).path
+if os.environ.get("FAKE_CURL_MODE") == "timeout":
+    print("controlled readiness failure", file=sys.stderr)
+    raise SystemExit(22)
+
+version = os.environ.get("FAKE_API_VERSION", "0.1.14")
+v1_version = os.environ.get("FAKE_API_V1_VERSION", version)
+migration = int(os.environ.get("FAKE_API_MIGRATION", "15"))
+schema = int(os.environ.get("FAKE_API_SCHEMA", "15"))
+
+if path == "/":
+    print("<!doctype html><title>ZigbeeLens</title>")
+    raise SystemExit(0)
+if path == "/healthz":
+    payload = {"status": "ok"}
+elif path == "/api/version":
+    payload = {"version": version, "name": "zigbeelens-core"}
+elif path == "/api/v1/version":
+    payload = {"version": v1_version, "name": "zigbeelens-core"}
+elif path == "/api/health":
+    payload = {
+        "status": "ok",
+        "version": version,
+        "config_loaded": True,
+        "mock_mode": True,
+        "database": "ok",
+        "migration_version": migration,
+        "collector": {"enabled": False, "connected": False},
+        "mqtt_discovery": {"enabled": False, "connected": False},
+        "topology": {
+            "enabled": False,
+            "manual_capture_enabled": False,
+            "automatic_capture_enabled": False,
+            "capture_in_progress": False,
+            "networks": [
+                {
+                    "network_id": "docker-smoke",
+                    "network_name": "Docker smoke",
+                    "latest_snapshot": None,
+                }
+            ],
+        },
+    }
+elif path == "/api/storage/status":
+    payload = {
+        "footprint": {"schema_version": schema},
+        "integrity": {
+            "quick_check": {"status": "ok", "violation_count": 0},
+            "foreign_key_check": {"status": "ok", "violation_count": 0},
+        },
+    }
+elif path == "/api/config/status":
+    payload = {
+        "version": version,
+        "data_mode": "mock",
+        "storage_path": "/data/zigbeelens.sqlite",
+        "features": {
+            "mqtt_collector": False,
+            "mqtt_discovery": False,
+            "device_payload_history": False,
+            "manual_network_map": False,
+            "automatic_network_map": False,
+        },
+        "mqtt_discovery": {"enabled": False},
+        "topology": {
+            "enabled": False,
+            "startup_scan": False,
+            "refresh_interval_seconds": 0,
+            "manual_capture_enabled": False,
+            "automatic_capture_enabled": False,
+            "capture_on_incident": False,
+        },
+        "configured_networks": [
+            {
+                "id": "docker-smoke",
+                "name": "Docker smoke",
+                "base_topic": "zigbeelens-docker-smoke-unused",
+            }
+        ],
+        "security": {
+            "mode": "local",
+            "api_token_configured": False,
+            "session_secret_configured": False,
+        },
+    }
+else:
+    print("controlled curl received unsupported path: " + path, file=sys.stderr)
+    raise SystemExit(22)
+
+if os.environ.get("FAKE_CURL_EMPTY_PATH") == path:
+    payload = {}
+json.dump(payload, sys.stdout, separators=(",", ":"))
+print()
+""".lstrip(),
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
+def _write_fake_sleep(path: Path) -> None:
+    path.write_text(
+        "#!/bin/sh\n"
+        "set -eu\n"
+        'if [ "${FAKE_SLEEP_BLOCK:-0}" = "1" ]; then\n'
+        '  : > "${FAKE_SLEEP_MARKER:?}"\n'
+        "  exec /bin/sleep 30\n"
+        "fi\n"
+        "exec /bin/sleep 0.05\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
+def _docker_smoke_fixture(tmp_path: Path) -> dict[str, Any]:
+    repository = tmp_path / "repository"
+    scripts = repository / "scripts"
+    scripts.mkdir(parents=True)
+    smoke = scripts / "smoke-docker.sh"
+    shutil.copy2(SMOKE_SCRIPT, smoke)
+
+    build = scripts / "build-docker.sh"
+    build.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"\n'
+        "git -C \"${ROOT}\" status --porcelain=v1 --untracked-files=all "
+        '--ignore-submodules=none >"${FAKE_BUILD_STATUS:?}"\n'
+        'printf "%s\\n" "${ZIGBEELENS_IMAGE:-}" >>"${FAKE_BUILD_CALLS:?}"\n'
+        'if [[ -s "${FAKE_BUILD_STATUS}" ]]; then\n'
+        '  cat "${FAKE_BUILD_STATUS}" >&2\n'
+        '  echo "ERROR: canonical Docker builds require a clean Git source tree" >&2\n'
+        "  exit 1\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    build.chmod(0o755)
+
+    (repository / "package.json").write_text(
+        json.dumps(
+            {
+                "name": "zigbeelens-docker-smoke-contract",
+                "version": PACKAGE_VERSION,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (repository / ".gitignore").write_text(
+        "ignored-artifacts/\n"
+        "tmp-under-checkout/\n",
+        encoding="utf-8",
+    )
+    config_sentinel = repository / "config" / "config.yaml"
+    config_sentinel.parent.mkdir()
+    config_sentinel.write_bytes(b"repository config sentinel\n")
+    data_sentinel = repository / "data" / "zigbeelens.sqlite"
+    data_sentinel.parent.mkdir()
+    data_sentinel.write_bytes(b"repository data sentinel\n")
+    revision = _initialise_git_checkout(repository)
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    _write_fake_docker(fake_bin / "docker")
+    _write_fake_curl(fake_bin / "curl")
+    _write_fake_sleep(fake_bin / "sleep")
+    (fake_bin / "dirname").symlink_to(shutil.which("dirname") or "/usr/bin/dirname")
+    fake_python = fake_bin / "python3"
+    fake_python.write_text(
+        "#!/bin/sh\n"
+        "set -eu\n"
+        'if [ "${1:-}" = "-" ] && [ "$#" -eq 2 ]; then\n'
+        '  if [ "${FAKE_PYTHON_PORT_UNAVAILABLE:-0}" = "1" ]; then\n'
+        "    exit 1\n"
+        "  fi\n"
+        "  exit 0\n"
+        "fi\n"
+        f'exec "{sys.executable}" "$@"\n',
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    fake_state = tmp_path / "fake-docker-state"
+    fake_state.mkdir()
+    tmp_parent = tmp_path / "temporary-state"
+    tmp_parent.mkdir()
+    return {
+        "repository": repository,
+        "smoke": smoke,
+        "fake_bin": fake_bin,
+        "fake_state": fake_state,
+        "tmp_parent": tmp_parent,
+        "revision": revision,
+        "config_sentinel": config_sentinel,
+        "data_sentinel": data_sentinel,
+    }
+
+
+def _docker_smoke_environment(fixture: dict[str, Any]) -> dict[str, str]:
+    environment = os.environ.copy()
+    for name in tuple(environment):
+        if (
+            name.startswith("FAKE_")
+            or name.startswith("SMOKE_DOCKER_")
+            or name in {"SMOKE_IMAGE", "ZIGBEELENS_REQUIRE_DOCKER"}
+        ):
+            environment.pop(name, None)
+    fake_state = fixture["fake_state"]
+    environment.update(
+        {
+            "PATH": f"{fixture['fake_bin']}{os.pathsep}{environment['PATH']}",
+            "TMPDIR": str(fixture["tmp_parent"]),
+            "ZIGBEELENS_REQUIRE_DOCKER": "1",
+            "SMOKE_DOCKER_READINESS_TIMEOUT_SECONDS": "1",
+            "FAKE_DOCKER_STATE": str(fake_state),
+            "FAKE_EXPECTED_REVISION": str(fixture["revision"]),
+            "FAKE_BUILD_CALLS": str(fake_state / "build-calls"),
+            "FAKE_BUILD_STATUS": str(fake_state / "build-status"),
+            "FAKE_SLEEP_MARKER": str(fake_state / "sleep-marker"),
+            "FAKE_DOCKER_RUN_BLOCK_MARKER": str(
+                fake_state / "docker-run-block-marker"
+            ),
+        }
+    )
+    return environment
+
+
+def _run_docker_smoke(
+    fixture: dict[str, Any],
+    *,
+    environment: dict[str, str] | None = None,
+    timeout: float = 15,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["/bin/bash", str(fixture["smoke"])],
+        cwd=fixture["repository"],
+        env=environment or _docker_smoke_environment(fixture),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _assert_no_docker_smoke_state(fixture: dict[str, Any]) -> None:
+    assert list(fixture["tmp_parent"].glob(SMOKE_STATE_GLOB)) == []
+
+
+def _json_lines(path: Path) -> list[Any]:
+    if not path.exists():
+        return []
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+
+
+def _assert_docker_smoke_contract(smoke: str) -> None:
+    assert ".smoke-config" not in smoke
+    assert ".smoke-data" not in smoke
+    assert smoke.count(
+        'ZIGBEELENS_IMAGE="${IMAGE}" "${ROOT}/scripts/build-docker.sh"'
+    ) == 1
+    assert "docker build" not in smoke
+    assert 'mktemp -d "${TMP_BASE}/zigbeelens-docker-smoke.XXXXXX"' in smoke
+    assert '"${ROOT}/"*) fail "Docker smoke state must be outside' in smoke
+    assert "ZIGBEELENS_REQUIRE_DOCKER:-1" in smoke
+    assert '127.0.0.1:${PORT}:8377' in smoke
+    assert "127.0.0.1::8377" in smoke
+    assert "--read-only" in smoke
+    assert "--cap-drop ALL" in smoke
+    assert "--security-opt no-new-privileges:true" in smoke
+    assert "--cidfile" in smoke
+    assert 'CONTAINER_NAME="zigbeelens-smoke-${STATE_TOKEN}"' in smoke
+    assert '--label "com.zigbeelens.smoke.owner=${STATE_TOKEN}"' in smoke
+    assert smoke.index("CONTAINER_RUN_ATTEMPTED=1") < smoke.index(
+        'if ! "${DOCKER_COMMAND}" run'
+    )
+    assert smoke.count(
+        '--format \'{{ index .Config.Labels "com.zigbeelens.smoke.owner" }}\''
+    ) == 1
+    assert 'if [[ ! "${IMAGE_ID}" =~ ^sha256:[0-9a-f]{64}$ ]]; then' in smoke
+    assert "docker.sock" not in smoke
+    assert "--privileged" not in smoke
+    assert "--network host" not in smoke
+    assert "default_scenario: four_devices_same_room_unavailable" in smoke
+    assert smoke.count("if ! capture_container_log; then") == 1
+    assert smoke.count(
+        'fail "unable to capture Docker smoke logs for external-activity checks"'
+    ) == 1
+    assert smoke.count(
+        'if ! "${DOCKER_COMMAND}" rm -f "${CONTAINER_ID}" >/dev/null 2>&1; then'
+    ) == 1
+    assert smoke.count(
+        'elif "${DOCKER_COMMAND}" inspect "${CONTAINER_ID}" '
+        ">/dev/null 2>&1; then"
+    ) == 1
+    assert smoke.count('rm -rf -- "${STATE_DIR}"') == 1
+    assert smoke.count("SMOKE_SUCCEEDED=1") == 1
+    required_fetches = (
+        'fetch_endpoint "health" "/healthz" "${HEALTHZ_PATH}"',
+        'fetch_endpoint "version" "/api/version" "${VERSION_PATH}"',
+        'fetch_endpoint "v1 version" "/api/v1/version" "${VERSION_V1_PATH}"',
+        'fetch_endpoint "API health" "/api/health" "${API_HEALTH_PATH}"',
+        (
+            'fetch_endpoint "storage status" "/api/storage/status" '
+            '"${STORAGE_STATUS_PATH}"'
+        ),
+        (
+            'fetch_endpoint "config status" "/api/config/status" '
+            '"${CONFIG_STATUS_PATH}"'
+        ),
+        'fetch_endpoint "bundled UI" "/" "${UI_ROOT_PATH}"',
+    )
+    for fetch in required_fetches:
+        assert smoke.count(fetch) == 1
+    assert '"${PYTHON_COMMAND}" -I -' in smoke
+    assert "def require(condition: bool, message: str) -> None:" in smoke
+    required_runtime_checks = (
+        'require(healthz == {"status": "ok"}, "/healthz status")',
+        'version == {"version": expected_version, "name": "zigbeelens-core"}',
+        'require(version_v1 == version, "/api/v1/version parity")',
+        'require(api_health["migration_version"] == 15, "/api/health migration")',
+        'require(storage["footprint"]["schema_version"] == 15, "storage schema")',
+        'config["storage_path"] == "/data/zigbeelens.sqlite"',
+        'require(config["features"]["mqtt_collector"] is False, "config collector")',
+        'require(config["features"]["mqtt_discovery"] is False, "config Discovery")',
+        'config["features"]["manual_network_map"] is False',
+        'config["features"]["automatic_network_map"] is False',
+        'config["mqtt_discovery"]["enabled"] is False',
+        'require(config["topology"]["enabled"] is False, "config topology")',
+        'require(config["topology"]["startup_scan"] is False, "config startup capture")',
+        'config["topology"]["refresh_interval_seconds"] == 0',
+        'config["security"]["api_token_configured"] is False',
+        'require("<title>ZigbeeLens</title>" in ui_root, "bundled UI identity")',
+    )
+    for check in required_runtime_checks:
+        assert smoke.count(check) == 1
+
+
+def _assert_release_docker_smoke_contract(helper: str) -> None:
+    heading = 'echo "==> Standalone Docker image smoke"'
+    command = "ZIGBEELENS_REQUIRE_DOCKER=1 bash scripts/smoke-docker.sh"
+    success = 'echo "All automated release checks passed."'
+    core_smoke = "bash scripts/smoke-core.sh"
+    assert helper.count(heading) == 1
+    assert helper.count(command) == 1
+    assert helper.index(core_smoke) < helper.index(heading)
+    assert helper.index(heading) < helper.index(command) < helper.index(success)
+    block = helper[helper.index(heading) : helper.index(success)]
+    for weakening in (
+        "|| true",
+        "continue-on-error",
+        "ZIGBEELENS_REQUIRE_DOCKER=0",
+        "SKIP:",
+        "if false",
+        "set +e",
+    ):
+        assert weakening not in block
 
 
 def _expected_local_build_arguments(
@@ -1182,13 +1787,666 @@ def test_ci_no_push_build_passes_exact_checkout_identity() -> None:
     assert build.count(f"IMAGE_SOURCE={SOURCE_EXPRESSION}") == 1
 
 
-def test_docker_smoke_uses_canonical_local_build_owner() -> None:
+def test_docker_smoke_contract_is_hermetic_and_fail_closed() -> None:
     smoke = SMOKE_SCRIPT.read_text(encoding="utf-8")
+    _assert_docker_smoke_contract(smoke)
 
-    assert smoke.count(
-        'ZIGBEELENS_IMAGE="${IMAGE}" "${ROOT}/scripts/build-docker.sh"'
-    ) == 1
-    assert "docker build" not in smoke
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        (
+            'ZIGBEELENS_IMAGE="${IMAGE}" "${ROOT}/scripts/build-docker.sh"',
+            "true # canonical build removed",
+        ),
+        (
+            'CONFIG_DIR="${STATE_DIR}/config"',
+            'CONFIG_DIR="${ROOT}/.smoke-config"',
+        ),
+        (
+            'fetch_endpoint "version" "/api/version" "${VERSION_PATH}"',
+            'true # /api/version skipped',
+        ),
+        (
+            'fetch_endpoint "v1 version" "/api/v1/version" "${VERSION_V1_PATH}"',
+            'fetch_endpoint "v1 version" "/noop" "${VERSION_V1_PATH}"',
+        ),
+            (
+                'require(version_v1 == version, "/api/v1/version parity")',
+                'require(True, "/api/v1/version parity")',
+            ),
+            (
+                (
+                    'require(api_health["migration_version"] == 15, '
+                    '"/api/health migration")'
+                ),
+                'require(True, "/api/health migration")',
+            ),
+            (
+                (
+                    'require(storage["footprint"]["schema_version"] == 15, '
+                    '"storage schema")'
+                ),
+                'require(True, "storage schema")',
+        ),
+        (
+            "--read-only",
+            "--read-write",
+        ),
+        (
+            "--cap-drop ALL",
+            "--cap-add ALL",
+        ),
+        (
+            '--label "com.zigbeelens.smoke.owner=${STATE_TOKEN}"',
+            '--label "com.zigbeelens.smoke.owner=shared"',
+        ),
+        (
+            'if [[ ! "${IMAGE_ID}" =~ ^sha256:[0-9a-f]{64}$ ]]; then',
+            'if [[ "${IMAGE_ID}" != sha256:* ]]; then',
+        ),
+        (
+            "if ! capture_container_log; then",
+            "if false; then",
+        ),
+        (
+            (
+                'elif "${DOCKER_COMMAND}" inspect "${CONTAINER_ID}" '
+                ">/dev/null 2>&1; then"
+            ),
+            "elif false; then",
+        ),
+    ),
+)
+def test_docker_smoke_contract_rejects_required_gate_weakening(
+    old: str,
+    new: str,
+) -> None:
+    smoke = SMOKE_SCRIPT.read_text(encoding="utf-8")
+    assert old in smoke
+    with pytest.raises(AssertionError):
+        _assert_docker_smoke_contract(smoke.replace(old, new, 1))
+
+
+def test_docker_smoke_success_is_external_isolated_and_repeatable(
+    tmp_path: Path,
+) -> None:
+    fixture = _docker_smoke_fixture(tmp_path)
+    repository = fixture["repository"]
+    ignored = repository / "ignored-artifacts" / "generated-ui"
+    ignored.parent.mkdir()
+    ignored.write_bytes(b"ignored generated sentinel\n")
+    config_before = fixture["config_sentinel"].read_bytes()
+    data_before = fixture["data_sentinel"].read_bytes()
+
+    first = _run_docker_smoke(fixture)
+    second = _run_docker_smoke(fixture)
+
+    for result in (first, second):
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "OK: smoke-docker passed" in result.stdout
+        assert "schema=15 mqtt_attempts=0 topology_attempts=0" in result.stdout
+    assert fixture["config_sentinel"].read_bytes() == config_before
+    assert fixture["data_sentinel"].read_bytes() == data_before
+    assert not (repository / ".smoke-config").exists()
+    assert not (repository / ".smoke-data").exists()
+    assert _git(repository, "status", "--short") == ""
+    _assert_no_docker_smoke_state(fixture)
+
+    fake_state = fixture["fake_state"]
+    build_calls = (fake_state / "build-calls").read_text(encoding="utf-8").splitlines()
+    assert build_calls == ["zigbeelens-smoke:local", "zigbeelens-smoke:local"]
+    assert (fake_state / "build-status").read_text(encoding="utf-8") == ""
+    removed = (fake_state / "removed-ids").read_text(encoding="utf-8").splitlines()
+    assert removed == [FAKE_CONTAINER_ID, FAKE_CONTAINER_ID]
+    docker_commands = _json_lines(fake_state / "commands.jsonl")
+    assert docker_commands.count(["inspect", FAKE_CONTAINER_ID]) == 2
+
+    mounts = json.loads((fake_state / "mounts.json").read_text(encoding="utf-8"))
+    tmp_parent = fixture["tmp_parent"].resolve()
+    for mount in mounts.values():
+        assert Path(mount).is_relative_to(tmp_parent)
+        assert not Path(mount).is_relative_to(repository.resolve())
+    config = yaml.safe_load(
+        (fake_state / "config-copy.yaml").read_text(encoding="utf-8")
+    )
+    assert config["server"] == {"host": "0.0.0.0", "port": 8377}
+    assert config["mode"] == {
+        "mock": True,
+        "default_scenario": "four_devices_same_room_unavailable",
+    }
+    assert config["security"] == {"mode": "local"}
+    assert config["mqtt"]["server"] == ""
+    assert config["mqtt"]["username"] == ""
+    assert config["mqtt"]["password"] == ""
+    assert config["storage"]["path"] == "/data/zigbeelens.sqlite"
+    assert config["networks"] == [
+        {
+            "id": "docker-smoke",
+            "name": "Docker smoke",
+            "base_topic": "zigbeelens-docker-smoke-unused",
+        }
+    ]
+    assert config["features"] == {
+        "mqtt_collector": False,
+        "mqtt_discovery": False,
+        "bridge_logs": False,
+        "device_payload_history": False,
+        "manual_network_map": False,
+        "automatic_network_map": False,
+    }
+    assert config["mqtt_discovery"] == {"enabled": False}
+    assert config["topology"] == {
+        "enabled": False,
+        "startup_scan": False,
+        "refresh_interval_seconds": 0,
+        "manual_capture_enabled": False,
+        "automatic_capture_enabled": False,
+        "capture_on_incident": False,
+    }
+
+    run_args = json.loads((fake_state / "run-args.json").read_text(encoding="utf-8"))
+    for required in (
+        "--read-only",
+        "--tmpfs",
+        "--cap-drop",
+        "--security-opt",
+        "--cidfile",
+    ):
+        assert run_args.count(required) == 1
+    assert run_args[run_args.index("--cap-drop") + 1] == "ALL"
+    assert (
+        run_args[run_args.index("--security-opt") + 1]
+        == "no-new-privileges:true"
+    )
+    assert run_args[run_args.index("-p") + 1] == "127.0.0.1::8377"
+    state_token = Path(mounts["config"]).parent.name.rsplit(".", 1)[1]
+    assert run_args[run_args.index("--name") + 1] == (
+        f"zigbeelens-smoke-{state_token}"
+    )
+    assert run_args[run_args.index("--label") + 1] == (
+        f"com.zigbeelens.smoke.owner={state_token}"
+    )
+    joined_run = "\n".join(run_args)
+    assert "docker.sock" not in joined_run
+    assert "--privileged" not in run_args
+    assert "network=host" not in joined_run
+
+    curl_urls = {
+        argument
+        for command in _json_lines(fake_state / "curl-commands.jsonl")
+        for argument in command
+        if argument.startswith("http://")
+    }
+    assert {
+        "http://127.0.0.1:49152/healthz",
+        "http://127.0.0.1:49152/api/version",
+        "http://127.0.0.1:49152/api/v1/version",
+        "http://127.0.0.1:49152/api/health",
+        "http://127.0.0.1:49152/api/storage/status",
+        "http://127.0.0.1:49152/api/config/status",
+        "http://127.0.0.1:49152/",
+    } <= curl_urls
+
+
+@pytest.mark.parametrize(
+    "port",
+    ("abc", "-1", "0", "65536", "1.5", " 8377"),
+)
+def test_docker_smoke_rejects_invalid_explicit_port_before_build_or_run(
+    tmp_path: Path,
+    port: str,
+) -> None:
+    fixture = _docker_smoke_fixture(tmp_path)
+    environment = _docker_smoke_environment(fixture)
+    environment["SMOKE_DOCKER_PORT"] = port
+
+    result = _run_docker_smoke(fixture, environment=environment)
+
+    assert result.returncode != 0
+    assert "SMOKE_DOCKER_PORT must be an integer from 1 to 65535" in result.stderr
+    assert not (fixture["fake_state"] / "build-calls").exists()
+    assert not (fixture["fake_state"] / "run-args.json").exists()
+    _assert_no_docker_smoke_state(fixture)
+
+
+def test_docker_smoke_rejects_occupied_explicit_port_before_build_or_run(
+    tmp_path: Path,
+) -> None:
+    fixture = _docker_smoke_fixture(tmp_path)
+    environment = _docker_smoke_environment(fixture)
+    port = 43123
+    environment["SMOKE_DOCKER_PORT"] = str(port)
+    environment["FAKE_PYTHON_PORT_UNAVAILABLE"] = "1"
+
+    result = _run_docker_smoke(fixture, environment=environment)
+
+    assert result.returncode != 0
+    assert f"SMOKE_DOCKER_PORT is unavailable on 127.0.0.1:{port}" in result.stderr
+    assert not (fixture["fake_state"] / "build-calls").exists()
+    assert not (fixture["fake_state"] / "run-args.json").exists()
+    _assert_no_docker_smoke_state(fixture)
+
+
+def test_docker_smoke_explicit_port_is_loopback_only(tmp_path: Path) -> None:
+    fixture = _docker_smoke_fixture(tmp_path)
+    environment = _docker_smoke_environment(fixture)
+    port = 43124
+    environment["SMOKE_DOCKER_PORT"] = str(port)
+
+    result = _run_docker_smoke(fixture, environment=environment)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    run_args = json.loads(
+        (fixture["fake_state"] / "run-args.json").read_text(encoding="utf-8")
+    )
+    assert run_args[run_args.index("-p") + 1] == f"127.0.0.1:{port}:8377"
+    _assert_no_docker_smoke_state(fixture)
+
+
+def test_docker_smoke_strict_mode_fails_without_docker_command(
+    tmp_path: Path,
+) -> None:
+    fixture = _docker_smoke_fixture(tmp_path)
+    (fixture["fake_bin"] / "docker").rename(fixture["fake_bin"] / "docker.disabled")
+    environment = _docker_smoke_environment(fixture)
+    environment["PATH"] = str(fixture["fake_bin"])
+
+    result = _run_docker_smoke(fixture, environment=environment)
+
+    assert result.returncode != 0
+    assert "docker is required for the standalone image smoke" in result.stderr
+    assert "SKIP:" not in result.stdout
+    assert not (fixture["fake_state"] / "build-calls").exists()
+    _assert_no_docker_smoke_state(fixture)
+
+
+def test_docker_smoke_strict_mode_fails_when_daemon_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    fixture = _docker_smoke_fixture(tmp_path)
+    environment = _docker_smoke_environment(fixture)
+    environment["FAKE_DOCKER_INFO_FAILURE"] = "1"
+
+    result = _run_docker_smoke(fixture, environment=environment)
+
+    assert result.returncode != 0
+    assert "docker daemon is required for the standalone image smoke" in result.stderr
+    assert "SKIP:" not in result.stdout
+    assert not (fixture["fake_state"] / "build-calls").exists()
+    _assert_no_docker_smoke_state(fixture)
+
+
+@pytest.mark.parametrize(
+    ("environment_update", "expected_error"),
+    (
+        (
+            {"FAKE_DOCKER_EARLY_EXIT": "1", "FAKE_DOCKER_LOG": "safe early exit"},
+            "container exited before readiness",
+        ),
+        (
+            {"FAKE_CURL_MODE": "timeout", "FAKE_DOCKER_LOG": "safe timeout log"},
+            "readiness timed out",
+        ),
+        (
+            {
+                "FAKE_DOCKER_RUN_MODE": "start-fail-after-cid",
+                "FAKE_DOCKER_LOG": "safe start failure",
+            },
+            "container failed to start",
+        ),
+    ),
+    ids=("early-exit", "readiness-timeout", "start-failure-after-cid"),
+)
+def test_docker_smoke_failure_surfaces_safe_logs_and_cleans_owned_state(
+    tmp_path: Path,
+    environment_update: dict[str, str],
+    expected_error: str,
+) -> None:
+    fixture = _docker_smoke_fixture(tmp_path)
+    environment = _docker_smoke_environment(fixture)
+    environment.update(environment_update)
+
+    result = _run_docker_smoke(fixture, environment=environment)
+
+    assert result.returncode != 0
+    assert expected_error in result.stderr
+    assert environment_update["FAKE_DOCKER_LOG"] in result.stderr
+    removed = (
+        fixture["fake_state"] / "removed-ids"
+    ).read_text(encoding="utf-8").splitlines()
+    assert removed == [FAKE_CONTAINER_ID]
+    _assert_no_docker_smoke_state(fixture)
+
+
+def test_docker_smoke_fails_when_required_log_capture_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    fixture = _docker_smoke_fixture(tmp_path)
+    environment = _docker_smoke_environment(fixture)
+    environment["FAKE_DOCKER_LOGS_FAILURE"] = "1"
+
+    result = _run_docker_smoke(fixture, environment=environment)
+
+    assert result.returncode != 0
+    assert "unable to capture Docker smoke logs" in result.stderr
+    removed = (
+        fixture["fake_state"] / "removed-ids"
+    ).read_text(encoding="utf-8").splitlines()
+    assert removed == [FAKE_CONTAINER_ID]
+    _assert_no_docker_smoke_state(fixture)
+
+
+@pytest.mark.parametrize(
+    ("environment_update", "expected_error"),
+    (
+        (
+            {"FAKE_DOCKER_RM_FAILURE": "1"},
+            "failed to remove Docker smoke container",
+        ),
+        (
+            {"FAKE_DOCKER_INSPECT_REMAINS": "1"},
+            "Docker smoke container still exists after cleanup",
+        ),
+    ),
+    ids=("remove-failure", "post-remove-inspect-still-present"),
+)
+def test_docker_smoke_cleanup_fails_closed(
+    tmp_path: Path,
+    environment_update: dict[str, str],
+    expected_error: str,
+) -> None:
+    fixture = _docker_smoke_fixture(tmp_path)
+    environment = _docker_smoke_environment(fixture)
+    environment.update(environment_update)
+
+    result = _run_docker_smoke(fixture, environment=environment)
+
+    assert result.returncode != 0
+    assert expected_error in result.stderr
+    assert "OK: smoke-docker passed" not in result.stdout
+    _assert_no_docker_smoke_state(fixture)
+
+
+@pytest.mark.parametrize(
+    ("environment_update", "expected_error"),
+    (
+        ({"FAKE_IMAGE_ID": "sha256:not-lowercase-hex"}, "canonical image ID"),
+        ({"FAKE_IMAGE_VERSION": "9.9.9"}, "OCI version mismatch"),
+        ({"FAKE_IMAGE_REVISION": "a" * 40}, "OCI revision mismatch"),
+        (
+            {"FAKE_IMAGE_SOURCE": "https://github.com/example/fork"},
+            "OCI source mismatch",
+        ),
+        ({"FAKE_IMAGE_USER": "root"}, "must run as the zigbeelens user"),
+        (
+            {"FAKE_CONTAINER_IMAGE_ID": f"sha256:{'2' * 64}"},
+            "running container image ID",
+        ),
+    ),
+    ids=(
+        "malformed-image-id",
+        "version-label",
+        "revision-label",
+        "source-label",
+        "user",
+        "image-id",
+    ),
+)
+def test_docker_smoke_rejects_wrong_image_identity(
+    tmp_path: Path,
+    environment_update: dict[str, str],
+    expected_error: str,
+) -> None:
+    fixture = _docker_smoke_fixture(tmp_path)
+    environment = _docker_smoke_environment(fixture)
+    environment.update(environment_update)
+
+    result = _run_docker_smoke(fixture, environment=environment)
+
+    assert result.returncode != 0
+    assert expected_error in result.stderr
+    _assert_no_docker_smoke_state(fixture)
+
+
+@pytest.mark.parametrize(
+    ("environment_update", "expected_error"),
+    (
+        ({"FAKE_API_VERSION": "9.9.9"}, "/api/version identity"),
+        ({"FAKE_API_V1_VERSION": "9.9.9"}, "/api/v1/version parity"),
+        ({"FAKE_API_MIGRATION": "14"}, "/api/health migration"),
+        ({"FAKE_API_SCHEMA": "14"}, "storage schema"),
+        ({"FAKE_CURL_EMPTY_PATH": "/api/version"}, "/api/version identity"),
+    ),
+    ids=("api-version", "api-prefix", "migration", "schema", "endpoint-noop"),
+)
+def test_docker_smoke_rejects_wrong_runtime_contract(
+    tmp_path: Path,
+    environment_update: dict[str, str],
+    expected_error: str,
+) -> None:
+    fixture = _docker_smoke_fixture(tmp_path)
+    environment = _docker_smoke_environment(fixture)
+    environment.update(environment_update)
+
+    result = _run_docker_smoke(fixture, environment=environment)
+
+    assert result.returncode != 0
+    assert f"Docker smoke runtime contract failed: {expected_error}" in result.stderr
+    removed = (
+        fixture["fake_state"] / "removed-ids"
+    ).read_text(encoding="utf-8").splitlines()
+    assert removed == [FAKE_CONTAINER_ID]
+    _assert_no_docker_smoke_state(fixture)
+
+
+@pytest.mark.parametrize(
+    "unsafe_log",
+    (
+        "MQTT connected to broker.invalid:1883",
+        "MQTT connect failed rc=1",
+        "MQTT discovery publisher connect failed rc=1",
+        "Discovery publication attempted",
+        "topology capture requested",
+        "Traceback (most recent call last)",
+        "Unhandled exception",
+        "password=not-a-real-secret",
+        "api_token=not-a-real-token",
+        "api_key=not-a-real-key",
+        "session_secret=not-a-real-session-secret",
+        "credential=not-a-real-credential",
+    ),
+)
+def test_docker_smoke_rejects_external_activity_or_sensitive_logs(
+    tmp_path: Path,
+    unsafe_log: str,
+) -> None:
+    fixture = _docker_smoke_fixture(tmp_path)
+    environment = _docker_smoke_environment(fixture)
+    environment["FAKE_DOCKER_LOG"] = unsafe_log
+
+    result = _run_docker_smoke(fixture, environment=environment)
+
+    assert result.returncode != 0
+    assert "forbidden external activity or sensitive output" in result.stderr
+    if unsafe_log.startswith(
+        (
+            "password=",
+            "api_token=",
+            "api_key=",
+            "session_secret=",
+            "credential=",
+        )
+    ):
+        assert unsafe_log not in result.stderr
+        assert "[sensitive-looking container log lines withheld]" in result.stderr
+    else:
+        assert unsafe_log in result.stderr
+    _assert_no_docker_smoke_state(fixture)
+
+
+def test_docker_smoke_state_never_hides_an_unrelated_dirty_tree(
+    tmp_path: Path,
+) -> None:
+    fixture = _docker_smoke_fixture(tmp_path)
+    dirty = fixture["repository"] / "unexpected-untracked.txt"
+    dirty.write_text("must remain visible\n", encoding="utf-8")
+
+    result = _run_docker_smoke(fixture)
+
+    assert result.returncode != 0
+    assert "canonical Docker builds require a clean Git source tree" in result.stderr
+    assert "?? unexpected-untracked.txt" in result.stderr
+    assert dirty.read_text(encoding="utf-8") == "must remain visible\n"
+    assert not (fixture["fake_state"] / "run-args.json").exists()
+    _assert_no_docker_smoke_state(fixture)
+
+
+def test_docker_smoke_rejects_tmpdir_inside_checkout_and_removes_state(
+    tmp_path: Path,
+) -> None:
+    fixture = _docker_smoke_fixture(tmp_path)
+    tmp_under_checkout = fixture["repository"] / "tmp-under-checkout"
+    tmp_under_checkout.mkdir()
+    environment = _docker_smoke_environment(fixture)
+    environment["TMPDIR"] = str(tmp_under_checkout)
+
+    result = _run_docker_smoke(fixture, environment=environment)
+
+    assert result.returncode != 0
+    assert "Docker smoke state must be outside the Git checkout" in result.stderr
+    assert list(tmp_under_checkout.glob(SMOKE_STATE_GLOB)) == []
+    assert not (fixture["fake_state"] / "build-calls").exists()
+
+
+def test_docker_smoke_sigterm_removes_exact_container_and_state(
+    tmp_path: Path,
+) -> None:
+    fixture = _docker_smoke_fixture(tmp_path)
+    environment = _docker_smoke_environment(fixture)
+    environment.update(
+        {
+            "FAKE_CURL_MODE": "timeout",
+            "FAKE_SLEEP_BLOCK": "1",
+            "SMOKE_DOCKER_READINESS_TIMEOUT_SECONDS": "300",
+        }
+    )
+    process = subprocess.Popen(
+        ["/bin/bash", str(fixture["smoke"])],
+        cwd=fixture["repository"],
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    marker = fixture["fake_state"] / "sleep-marker"
+    deadline = time.monotonic() + 10
+    while not marker.exists() and time.monotonic() < deadline:
+        if process.poll() is not None:
+            break
+        time.sleep(0.02)
+    assert marker.exists(), process.communicate(timeout=1)
+
+    os.killpg(process.pid, signal.SIGTERM)
+    stdout, stderr = process.communicate(timeout=10)
+
+    assert process.returncode == 143, stdout + stderr
+    removed = (
+        fixture["fake_state"] / "removed-ids"
+    ).read_text(encoding="utf-8").splitlines()
+    assert removed == [FAKE_CONTAINER_ID]
+    _assert_no_docker_smoke_state(fixture)
+
+
+def test_docker_smoke_sigterm_during_docker_run_uses_verified_name_fallback(
+    tmp_path: Path,
+) -> None:
+    fixture = _docker_smoke_fixture(tmp_path)
+    environment = _docker_smoke_environment(fixture)
+    environment["FAKE_DOCKER_RUN_MODE"] = "block-before-cid"
+    process = subprocess.Popen(
+        ["/bin/bash", str(fixture["smoke"])],
+        cwd=fixture["repository"],
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    marker = fixture["fake_state"] / "docker-run-block-marker"
+    deadline = time.monotonic() + 10
+    while not marker.exists() and time.monotonic() < deadline:
+        if process.poll() is not None:
+            break
+        time.sleep(0.02)
+    assert marker.exists(), process.communicate(timeout=1)
+
+    os.killpg(process.pid, signal.SIGTERM)
+    stdout, stderr = process.communicate(timeout=10)
+
+    assert process.returncode == 143, stdout + stderr
+    removed = (
+        fixture["fake_state"] / "removed-ids"
+    ).read_text(encoding="utf-8").splitlines()
+    assert removed == [FAKE_CONTAINER_ID]
+    docker_commands = _json_lines(
+        fixture["fake_state"] / "commands.jsonl"
+    )
+    assert any(
+        command[0] == "inspect"
+        and ".Id" in command[-1]
+        and command[1].startswith("zigbeelens-smoke-")
+        for command in docker_commands
+    )
+    assert any(
+        command[0] == "inspect"
+        and "com.zigbeelens.smoke.owner" in command[-1]
+        for command in docker_commands
+    )
+    _assert_no_docker_smoke_state(fixture)
+
+
+def test_release_helper_owns_exact_strict_docker_smoke_once() -> None:
+    _assert_release_docker_smoke_contract(
+        RELEASE_SCRIPT.read_text(encoding="utf-8")
+    )
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        (
+            "ZIGBEELENS_REQUIRE_DOCKER=1 bash scripts/smoke-docker.sh",
+            "true # Docker smoke removed",
+        ),
+        (
+            "ZIGBEELENS_REQUIRE_DOCKER=1 bash scripts/smoke-docker.sh",
+            "ZIGBEELENS_REQUIRE_DOCKER=0 bash scripts/smoke-docker.sh",
+        ),
+        (
+            "ZIGBEELENS_REQUIRE_DOCKER=1 bash scripts/smoke-docker.sh",
+            (
+                "ZIGBEELENS_REQUIRE_DOCKER=1 bash scripts/smoke-docker.sh "
+                "|| true"
+            ),
+        ),
+        (
+            'echo "==> Standalone Docker image smoke"',
+            'echo "==> Standalone Docker image smoke"\n'
+            'echo "==> Standalone Docker image smoke"',
+        ),
+    ),
+    ids=("no-op", "non-strict", "soft-fail", "duplicate"),
+)
+def test_release_helper_contract_rejects_skipped_or_softened_docker_smoke(
+    old: str,
+    new: str,
+) -> None:
+    helper = RELEASE_SCRIPT.read_text(encoding="utf-8")
+    assert old in helper
+    with pytest.raises(AssertionError):
+        _assert_release_docker_smoke_contract(helper.replace(old, new, 1))
 
 
 def test_validated_labels_preserve_metadata_after_identity_check() -> None:

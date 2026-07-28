@@ -119,6 +119,7 @@ ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 ./scripts/validate-compose.sh
 ./scripts/package-hacs-repo.sh
 ./scripts/package-addon-repo.sh
 ./scripts/smoke-core.sh
+ZIGBEELENS_REQUIRE_DOCKER=1 ./scripts/smoke-docker.sh
 ./scripts/check-version-alignment.sh
 git diff --check
 ```
@@ -138,6 +139,17 @@ its nested contract, safety, add-on, and smoke gates. It also retains the exact
 minimum Home Assistant matrix environment inside the same temporary state and
 reuses that already-proven Python for live E2E. Those gates do not create or
 update `apps/core/uv.lock` or `apps/core/.venv`.
+
+The release helper also runs `scripts/smoke-docker.sh` in strict mode from a
+clean committed Git tree. The smoke uses the canonical local build owner, then
+runs that exact image with repository-external temporary config/database/log
+state and a loopback-only port; the runtime does not mount, read, or write
+repository config/data. It asserts zero MQTT connection, Discovery
+publication, or topology request attempts; schema 15; the public version,
+health, and bundled-UI endpoints; and exact package-version, full-revision, and
+canonical-source OCI labels. It removes its exact container and temporary state
+on exit. This local single-platform proof does not replace remote
+multi-architecture Buildx, GHCR digest proof, or Phase 7D Beast validation.
 
 Record exact test counts, skips, xfails, and warnings. The model-pattern
 Decision parity regression is strict and uses one explicit reference clock;

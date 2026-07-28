@@ -36,8 +36,19 @@ helper does not replace the Phase 7-specific checks or manual gates.
 - [ ] Canonical local Docker build starts from a clean exact Git checkout
       (or an explicitly attested immutable source export), rejects mismatched
       revision overrides, and uses the maintained root `.dockerignore`
+- [ ] Strict standalone Docker image smoke passes
+      (`ZIGBEELENS_REQUIRE_DOCKER=1 ./scripts/smoke-docker.sh`): it builds the
+      clean committed source through the canonical owner, runs that exact image
+      with repository-external temporary config/database/log state, makes zero
+      MQTT connection, Discovery publication, or topology request attempts,
+      reports schema 15, and proves the exact package-version, full-revision,
+      and canonical-source OCI labels
 - [ ] Storage retention policy v2: telemetry / resolved incidents / reports; startup + periodic maintenance
 - [ ] `zigbeelens storage check` / `backup` / `maintenance --dry-run` validated on a release candidate DB
+
+The standalone Docker smoke is local single-platform evidence. It does not
+replace remote multi-architecture Buildx, GHCR digest proof, or Phase 7D Beast
+validation.
 
 ### Structural companion-package validation
 
