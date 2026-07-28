@@ -7,6 +7,8 @@ import type {
   DeviceSnapshotHistoryRow,
 } from "@/types/devices";
 import type { DeviceSnapshotCompareStatus } from "@/types/devices";
+import type { TopologyDeviceFactsDto } from "@/types/decisions";
+import { parseDeviceSnapshotHistoryDetail } from "@/lib/deviceSnapshotHistoryContract";
 
 const eventListeners = new Set<(eventName: string) => void>();
 const stateListeners = new Set<(state: string) => void>();
@@ -67,6 +69,11 @@ function makeRow(overrides: Partial<DeviceSnapshotHistoryRow>): DeviceSnapshotHi
       status: "changed",
       reasons: ["Selected snapshot differs."],
       suggested_checks: [],
+      device_presence: {
+        latest: true,
+        selected: true,
+        changed: false,
+      },
       link_counts: {
         latest_count: 0,
         selected_count: 6,
@@ -105,10 +112,100 @@ function makeLimitedRow(
   };
 }
 
+function withExactTopologyFacts(
+  detail: DeviceSnapshotHistoryDetail,
+): DeviceSnapshotHistoryDetail {
+  const deviceFacts: TopologyDeviceFactsDto["device_facts"] = [];
+  const latest = detail.latest_snapshot;
+  if (latest?.layout_state === "available") {
+    deviceFacts.push({
+      code: latest.device_present_in_snapshot
+        ? "device_seen_in_latest_snapshot"
+        : "device_absent_from_latest_snapshot",
+      params: {
+        device_ieee: detail.device_ieee,
+        snapshot_id: latest.snapshot_id,
+      },
+    });
+    if (latest.links_for_device_count > 0) {
+      deviceFacts.push({
+        code: "device_has_latest_links",
+        params: {
+          device_ieee: detail.device_ieee,
+          link_count: latest.links_for_device_count,
+        },
+      });
+    } else {
+      deviceFacts.push({
+        code: "device_no_latest_links",
+        params: { device_ieee: detail.device_ieee },
+      });
+    }
+  }
+
+  const comparisonFacts: TopologyDeviceFactsDto["comparison_facts_by_snapshot_id"] =
+    {};
+  for (const row of detail.snapshots) {
+    const comparison = row.comparison_to_latest;
+    if (row.layout_state !== "available" || comparison === null) continue;
+    const facts: TopologyDeviceFactsDto["comparison_facts_by_snapshot_id"][string] =
+      [];
+    if (row.links_for_device_count > 0) {
+      facts.push({
+        code: "device_has_selected_snapshot_links",
+        params: {
+          device_ieee: detail.device_ieee,
+          snapshot_id: row.snapshot_id,
+          link_count: row.links_for_device_count,
+        },
+      });
+    }
+    if (comparison.status !== "no_notable_change") {
+      facts.push({
+        code: "device_latest_vs_selected_changed",
+        params: {
+          device_ieee: detail.device_ieee,
+          comparison_status: comparison.status,
+          snapshot_id: row.snapshot_id,
+          latest_device_present_in_snapshot:
+            comparison.device_presence.latest,
+          selected_device_present_in_snapshot:
+            comparison.device_presence.selected,
+          device_presence_changed: comparison.device_presence.changed,
+        },
+      });
+    }
+    if (
+      row.availability_coverage_status === "off" ||
+      row.availability_coverage_status === "building" ||
+      row.availability_coverage_status === "unknown"
+    ) {
+      facts.push({
+        code: "availability_coverage_affects_snapshot_comparison",
+        params: {
+          device_ieee: detail.device_ieee,
+          availability_coverage_status: row.availability_coverage_status,
+          snapshot_id: row.snapshot_id,
+        },
+      });
+    }
+    if (facts.length > 0) comparisonFacts[row.snapshot_id] = facts;
+  }
+
+  return parseDeviceSnapshotHistoryDetail({
+    ...detail,
+    topology_facts: {
+      stale_threshold_hours: detail.topology_facts.stale_threshold_hours,
+      device_facts: deviceFacts,
+      comparison_facts_by_snapshot_id: comparisonFacts,
+    },
+  });
+}
+
 function historyPayload(snapshotIds: string[]): DeviceSnapshotHistoryDetail {
   const latestId = snapshotIds[0] ?? "snap-live";
   const earlier = snapshotIds.slice(1);
-  return {
+  return withExactTopologyFacts({
     network_id: "home",
     device_ieee: "0xabc",
     friendly_name: "Sensor",
@@ -121,6 +218,8 @@ function historyPayload(snapshotIds: string[]): DeviceSnapshotHistoryDetail {
       snapshot_id: latestId,
       captured_at: "2026-07-06T00:30:00+00:00",
       is_latest: true,
+      links_for_device_count: 0,
+      route_hints_for_device_count: 0,
       comparison_to_latest: null,
     }),
     snapshots: earlier.map((id, index) =>
@@ -134,7 +233,7 @@ function historyPayload(snapshotIds: string[]): DeviceSnapshotHistoryDetail {
       device_facts: [],
       comparison_facts_by_snapshot_id: {},
     },
-  };
+  });
 }
 
 describe("SnapshotHistorySection", () => {
@@ -251,7 +350,7 @@ describe("SnapshotHistorySection", () => {
   });
 
   it("shows comparison status, reasons, and collapsed evidence details", async () => {
-    topologyDeviceSnapshotHistory.mockResolvedValue({
+    topologyDeviceSnapshotHistory.mockResolvedValue(withExactTopologyFacts({
       network_id: "home",
       device_ieee: "0xabc",
       friendly_name: "Lamp",
@@ -281,6 +380,11 @@ describe("SnapshotHistorySection", () => {
               "Confirm the device is powered.",
               "Check whether it is reporting in Zigbee2MQTT.",
             ],
+            device_presence: {
+              latest: true,
+              selected: true,
+              changed: false,
+            },
             link_counts: {
               latest_count: 0,
               selected_count: 6,
@@ -303,7 +407,7 @@ describe("SnapshotHistorySection", () => {
         device_facts: [],
         comparison_facts_by_snapshot_id: {},
       },
-    });
+    }));
 
     render(<SnapshotHistorySection networkId="home" deviceIeee="0xabc" />);
     await act(async () => {
@@ -325,14 +429,104 @@ describe("SnapshotHistorySection", () => {
       within(section).getByRole("button", { name: "Evidence details" }).click();
     });
     const details = within(section).getByTestId("snapshot-evidence-details");
+    expect(details).toHaveTextContent("Device observed in the latest snapshot");
+    expect(details).toHaveTextContent("Device observed in the selected snapshot");
     expect(details).toHaveTextContent("0 links shown in latest snapshot");
     expect(details).toHaveTextContent(
       "Route hints are route-table hints captured during topology collection",
     );
   });
 
+  it.each([
+    [
+      false,
+      true,
+      "The device was observed in the selected snapshot but not the latest snapshot.",
+      "Device not observed in the latest snapshot",
+      "Device observed in the selected snapshot",
+    ],
+    [
+      true,
+      false,
+      "The device was observed in the latest snapshot but not the selected snapshot.",
+      "Device observed in the latest snapshot",
+      "Device not observed in the selected snapshot",
+    ],
+  ])(
+    "renders non-causal presence-only evidence from latest=%j to selected=%j",
+    async (
+      latestPresent,
+      selectedPresent,
+      reason,
+      latestLine,
+      selectedLine,
+    ) => {
+      topologyDeviceSnapshotHistory.mockResolvedValue(withExactTopologyFacts({
+        ...historyPayload(["snap-live"]),
+        latest_snapshot: makeRow({
+          snapshot_id: "snap-live",
+          is_latest: true,
+          device_present_in_snapshot: latestPresent,
+          links_for_device_count: 0,
+          route_hints_for_device_count: 0,
+          comparison_to_latest: null,
+        }),
+        snapshots: [
+          makeRow({
+            snapshot_id: "snap-prev",
+            device_present_in_snapshot: selectedPresent,
+            links_for_device_count: 0,
+            route_hints_for_device_count: 0,
+            comparison_to_latest: {
+              status: "changed",
+              reasons: [reason],
+              suggested_checks: [],
+              device_presence: {
+                latest: latestPresent,
+                selected: selectedPresent,
+                changed: true,
+              },
+              link_counts: {
+                latest_count: 0,
+                selected_count: 0,
+                latest_only_count: 0,
+                selected_only_count: 0,
+                changed_count: 0,
+              },
+              route_hint_counts: {
+                latest_count: 0,
+                selected_count: 0,
+                latest_only_count: 0,
+                selected_only_count: 0,
+                changed_count: 0,
+              },
+            },
+          }),
+        ],
+      }));
+
+      render(<SnapshotHistorySection networkId="home" deviceIeee="0xabc" />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      const card = screen.getByTestId("snapshot-comparison-card");
+      expect(within(card).getByText("Changed")).toBeInTheDocument();
+      expect(within(card).getByText(reason)).toBeInTheDocument();
+      await act(async () => {
+        within(card).getByRole("button", { name: "Evidence details" }).click();
+      });
+      const details = within(card).getByTestId("snapshot-evidence-details");
+      expect(details).toHaveTextContent(latestLine);
+      expect(details).toHaveTextContent(selectedLine);
+      expect(card.textContent?.toLowerCase()).not.toMatch(
+        /\b(disappeared|lost|offline|failed|moved|caused)\b|current route/,
+      );
+    },
+  );
+
   it("keeps factual zero visible but exposes limited layout as unavailable to assistive text", async () => {
-    topologyDeviceSnapshotHistory.mockResolvedValue({
+    topologyDeviceSnapshotHistory.mockResolvedValue(withExactTopologyFacts({
       ...historyPayload(["snap-live"]),
       latest_snapshot: makeRow({
         snapshot_id: "snap-live",
@@ -343,7 +537,7 @@ describe("SnapshotHistorySection", () => {
         comparison_to_latest: null,
       }),
       snapshots: [makeLimitedRow()],
-    });
+    }));
 
     render(<SnapshotHistorySection networkId="home" deviceIeee="0xabc" />);
     await act(async () => {
@@ -372,7 +566,7 @@ describe("SnapshotHistorySection", () => {
   });
 
   it("does not derive zero, absence, status, or comparison from a limited latest layout", async () => {
-    topologyDeviceSnapshotHistory.mockResolvedValue({
+    topologyDeviceSnapshotHistory.mockResolvedValue(withExactTopologyFacts({
       ...historyPayload(["snap-live"]),
       latest_snapshot: makeLimitedRow({
         snapshot_id: "snap-live",
@@ -385,7 +579,7 @@ describe("SnapshotHistorySection", () => {
           comparison_to_latest: null,
         }),
       ],
-    });
+    }));
 
     render(<SnapshotHistorySection networkId="home" deviceIeee="0xabc" />);
     await act(async () => {

@@ -321,6 +321,90 @@ def _history_bodies(
     return bodies
 
 
+@pytest.mark.parametrize(
+    ("latest_present", "selected_present", "expected_reason"),
+    (
+        (
+            False,
+            True,
+            "The device was observed in the selected snapshot but not the latest "
+            "snapshot.",
+        ),
+        (
+            True,
+            False,
+            "The device was observed in the latest snapshot but not the selected "
+            "snapshot.",
+        ),
+    ),
+)
+def test_snapshot_history_api_compares_node_only_presence_with_exact_facts(
+    topology_client: TestClient,
+    latest_present: bool,
+    selected_present: bool,
+    expected_reason: str,
+) -> None:
+    ctx = get_context()
+    target = "0x0a"
+
+    def nodes(present: bool) -> dict[str, dict[str, str]]:
+        result = {"0x01": {"type": "Coordinator"}}
+        if present:
+            result[target] = {"type": "EndDevice"}
+        return result
+
+    _store_snapshot(
+        ctx.repo,
+        "snap-selected-presence",
+        captured_at=_utc_now() - timedelta(days=1),
+        nodes=nodes(selected_present),
+        links=[],
+    )
+    _store_snapshot(
+        ctx.repo,
+        "snap-latest-presence",
+        captured_at=_utc_now(),
+        nodes=nodes(latest_present),
+        links=[],
+    )
+
+    body = _history_bodies(topology_client, target)[0]
+    latest = body["latest_snapshot"]
+    selected = body["snapshots"][0]
+    comparison = selected["comparison_to_latest"]
+
+    assert latest["device_present_in_snapshot"] is latest_present
+    assert selected["device_present_in_snapshot"] is selected_present
+    assert comparison["device_presence"] == {
+        "latest": latest_present,
+        "selected": selected_present,
+        "changed": True,
+    }
+    assert comparison["status"] == "changed"
+    assert comparison["reasons"][0] == expected_reason
+    assert comparison["link_counts"]["latest_count"] == 0
+    assert comparison["link_counts"]["selected_count"] == 0
+    assert comparison["route_hint_counts"]["latest_count"] == 0
+    assert comparison["route_hint_counts"]["selected_count"] == 0
+
+    facts = body["topology_facts"]["comparison_facts_by_snapshot_id"][
+        "snap-selected-presence"
+    ]
+    changed_fact = next(
+        fact
+        for fact in facts
+        if fact["code"] == TopologyFactCode.device_latest_vs_selected_changed
+    )
+    assert changed_fact["params"] == {
+        "device_ieee": target,
+        "comparison_status": "changed",
+        "snapshot_id": "snap-selected-presence",
+        "latest_device_present_in_snapshot": latest_present,
+        "selected_device_present_in_snapshot": selected_present,
+        "device_presence_changed": True,
+    }
+
+
 def test_snapshot_history_current_device_without_topology_history_is_available(
     topology_client: TestClient,
 ) -> None:

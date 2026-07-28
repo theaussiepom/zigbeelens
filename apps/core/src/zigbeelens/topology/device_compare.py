@@ -263,6 +263,13 @@ def _comparison_to_latest(
         selected_evidence.route_counts,
         changed=changed_route_count,
     )
+    device_presence = {
+        "latest": latest_evidence.device_present,
+        "selected": selected_evidence.device_present,
+        "changed": (
+            latest_evidence.device_present != selected_evidence.device_present
+        ),
+    }
 
     link_diff_total = (
         link_counts["latest_only_count"]
@@ -277,10 +284,26 @@ def _comparison_to_latest(
     no_latest_links_after_selected = (
         link_counts["latest_count"] == 0 and link_counts["selected_count"] > 0
     )
-    any_difference = link_diff_total > 0 or route_diff_total > 0
+    any_difference = (
+        device_presence["changed"]
+        or link_diff_total > 0
+        or route_diff_total > 0
+    )
 
     reasons: list[str] = []
     checks: list[str] = []
+
+    if device_presence["changed"]:
+        if device_presence["selected"]:
+            reasons.append(
+                "The device was observed in the selected snapshot but not "
+                "the latest snapshot."
+            )
+        else:
+            reasons.append(
+                "The device was observed in the latest snapshot but not "
+                "the selected snapshot."
+            )
 
     if no_latest_links_after_selected:
         reasons.append("Latest snapshot shows no links for this device.")
@@ -354,6 +377,7 @@ def _comparison_to_latest(
         "status": status,
         "reasons": reasons,
         "suggested_checks": checks,
+        "device_presence": device_presence,
         "link_counts": link_counts,
         "route_hint_counts": route_counts,
     }

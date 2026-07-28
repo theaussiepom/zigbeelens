@@ -8,15 +8,16 @@ import type {
   SuggestedCheckDto,
   TopologyDeviceFactsDto,
 } from "@/types/decisions";
+import type { DeviceSnapshotComparison } from "@zigbeelens/shared";
+
+export type {
+  DeviceSnapshotCompareCounts,
+  DeviceSnapshotComparison,
+  DeviceSnapshotCompareStatus,
+  DeviceSnapshotPresenceComparison,
+} from "@zigbeelens/shared";
 
 /** Device-centric API types from Core topology and device endpoints. */
-
-/** Snapshot-comparison status for one device. About the comparison only, never device health. */
-export type DeviceSnapshotCompareStatus =
-  | "no_notable_change"
-  | "changed"
-  | "watch"
-  | "worth_reviewing";
 
 /**
  * Availability tracking coverage for one snapshot period.
@@ -25,22 +26,6 @@ export type DeviceSnapshotCompareStatus =
  * be confirmed. Unknown is never rendered as zero or a fake state.
  */
 export type AvailabilityCoverageStatus = "off" | "building" | "tracked" | "unknown";
-
-export interface DeviceSnapshotCompareCounts {
-  latest_count: number;
-  selected_count: number;
-  latest_only_count: number;
-  selected_only_count: number;
-  changed_count: number;
-}
-
-export interface DeviceSnapshotComparison {
-  status: DeviceSnapshotCompareStatus;
-  reasons: string[];
-  suggested_checks: string[];
-  link_counts: DeviceSnapshotCompareCounts;
-  route_hint_counts: DeviceSnapshotCompareCounts;
-}
 
 export type DeviceSnapshotLayoutState = "available" | "limited";
 

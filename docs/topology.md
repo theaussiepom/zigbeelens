@@ -64,11 +64,16 @@ Device snapshot history preserves that distinction for every retained capture:
 
 A retained node or source/target link is positive evidence for that device in
 the exact snapshot where it was stored. Snapshot comparisons are produced only
-when both the latest and selected snapshots have available layouts. A limited
-layout therefore cannot create an absence, no-links, changed, no-change, or
-watch conclusion. Device coverage excludes limited layouts from its measured
-history denominator; when the retained window contains only limited layouts it
-reports **Topology history: layout unavailable** instead of “not observed”.
+when both the latest and selected snapshots have available layouts. Those
+comparisons include the measured device-presence value from each layout as
+typed evidence alongside link and route-hint counts. If only presence differs,
+the comparison is **Changed**, or **Worth reviewing** when a separately
+established current issue exists; it never claims failure, movement, a current
+route, or causality. A limited layout therefore cannot create an absence,
+no-links, changed, no-change, or watch conclusion. Device coverage excludes
+limited layouts from its measured history denominator; when the retained window
+contains only limited layouts it reports **Topology history: layout
+unavailable** instead of “not observed”.
 
 ## Current investigation surfaces
 

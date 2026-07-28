@@ -43,6 +43,7 @@ from zigbeelens.schemas import (
     BrowserSessionStatus,
     DashboardPayload,
     DeviceDetail,
+    DeviceSnapshotHistoryDetail,
     HealthResponse,
     HomeAssistantEnrichmentRequestV1,
     HomeAssistantEnrichmentResultV1,
@@ -762,18 +763,23 @@ def topology_snapshots_compare(
     )
 
 
-@read_router.get("/topology/{network_id}/devices/{ieee_address}/snapshot-history")
+@read_router.get(
+    "/topology/{network_id}/devices/{ieee_address}/snapshot-history",
+    response_model=DeviceSnapshotHistoryDetail,
+)
 def topology_device_snapshot_history(
     network_id: str, ieee_address: str, ctx: AppContext = Depends(ctx_dep)
-) -> dict:
+) -> DeviceSnapshotHistoryDetail:
     """Read-only device-led snapshot history: how one device looks across
     recent complete topology captures.
 
-    Per-device link and route-hint counts, availability tracking coverage
-    per period, and an actionable comparison of each earlier snapshot
-    against the latest (no_notable_change / changed / watch /
-    worth_reviewing). Statuses describe snapshot comparison only, never
-    device health, and use existing issue signals only. A comparison is
+    Per-device observed presence, link and route-hint counts, availability
+    tracking coverage per period, and an actionable comparison of each
+    earlier snapshot against the latest (no_notable_change / changed / watch /
+    worth_reviewing). Presence differences describe only what two stored
+    layouts observed; they do not prove offline state, failure, movement,
+    current routing or causality. Statuses describe snapshot comparison only,
+    never device health, and use existing issue signals only. A comparison is
     produced only when both the latest and selected captures have available
     stored node/link layouts. Complete captures without stored node or link
     layouts are reported as unavailable, not as evidence that a device was
@@ -789,12 +795,14 @@ def topology_device_snapshot_history(
     if ctx.repo.get_network(network_id) is None:
         raise HTTPException(status_code=404, detail="Network not found")
     try:
-        return build_device_snapshot_history_response(
-            ctx.repo,
-            EvidenceGraphService(ctx.repo),
-            network_id=network_id,
-            device_ieee=ieee_address,
-            stale_after_hours=topology_stale_threshold_hours(ctx.config),
+        return DeviceSnapshotHistoryDetail.model_validate(
+            build_device_snapshot_history_response(
+                ctx.repo,
+                EvidenceGraphService(ctx.repo),
+                network_id=network_id,
+                device_ieee=ieee_address,
+                stale_after_hours=topology_stale_threshold_hours(ctx.config),
+            )
         )
     except DeviceTopologyIdentityNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

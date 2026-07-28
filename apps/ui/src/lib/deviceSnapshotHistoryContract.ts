@@ -7,11 +7,15 @@ import type {
   DeviceSnapshotHistoryDetail,
   DeviceSnapshotHistoryLimitedRow,
   DeviceSnapshotHistoryRow,
+  DeviceSnapshotPresenceComparison,
 } from "@/types/devices";
 import type {
-  EvidenceFactDto,
   TopologyDeviceFactsDto,
 } from "@/types/decisions";
+import type {
+  DeviceSnapshotComparisonFact,
+  DeviceSnapshotLatestFact,
+} from "@zigbeelens/shared";
 
 const COMPARISON_STATUSES = [
   "no_notable_change",
@@ -56,7 +60,18 @@ function stringArray(value: unknown): string[] {
 }
 
 function parseCompareCounts(value: unknown): DeviceSnapshotCompareCounts {
-  if (!isPlainObject(value)) protocolFailure();
+  if (
+    !isPlainObject(value) ||
+    !hasExactKeys(value, [
+      "latest_count",
+      "selected_count",
+      "latest_only_count",
+      "selected_only_count",
+      "changed_count",
+    ])
+  ) {
+    protocolFailure();
+  }
   const latest_count = value.latest_count;
   const selected_count = value.selected_count;
   const latest_only_count = value.latest_only_count;
@@ -71,6 +86,15 @@ function parseCompareCounts(value: unknown): DeviceSnapshotCompareCounts {
   ) {
     protocolFailure();
   }
+  if (
+    latest_only_count > latest_count ||
+    selected_only_count > selected_count ||
+    latest_count - latest_only_count !==
+      selected_count - selected_only_count ||
+    changed_count > latest_count - latest_only_count
+  ) {
+    protocolFailure();
+  }
   return {
     latest_count,
     selected_count,
@@ -80,8 +104,43 @@ function parseCompareCounts(value: unknown): DeviceSnapshotCompareCounts {
   };
 }
 
+function parsePresenceComparison(
+  value: unknown,
+): DeviceSnapshotPresenceComparison {
+  if (
+    !isPlainObject(value) ||
+    !hasExactKeys(value, ["latest", "selected", "changed"])
+  ) {
+    protocolFailure();
+  }
+  const latest = value.latest;
+  const selected = value.selected;
+  const changed = value.changed;
+  if (
+    typeof latest !== "boolean" ||
+    typeof selected !== "boolean" ||
+    typeof changed !== "boolean" ||
+    changed !== (latest !== selected)
+  ) {
+    protocolFailure();
+  }
+  return { latest, selected, changed };
+}
+
 function parseComparison(value: unknown): DeviceSnapshotComparison {
-  if (!isPlainObject(value)) protocolFailure();
+  if (
+    !isPlainObject(value) ||
+    !hasExactKeys(value, [
+      "status",
+      "reasons",
+      "suggested_checks",
+      "device_presence",
+      "link_counts",
+      "route_hint_counts",
+    ])
+  ) {
+    protocolFailure();
+  }
   const status = value.status;
   if (
     typeof status !== "string" ||
@@ -89,12 +148,27 @@ function parseComparison(value: unknown): DeviceSnapshotComparison {
   ) {
     protocolFailure();
   }
+  const device_presence = parsePresenceComparison(value.device_presence);
+  const link_counts = parseCompareCounts(value.link_counts);
+  const route_hint_counts = parseCompareCounts(value.route_hint_counts);
+  const differenceCount =
+    Number(device_presence.changed) +
+    link_counts.latest_only_count +
+    link_counts.selected_only_count +
+    link_counts.changed_count +
+    route_hint_counts.latest_only_count +
+    route_hint_counts.selected_only_count +
+    route_hint_counts.changed_count;
+  if ((differenceCount === 0) !== (status === "no_notable_change")) {
+    protocolFailure();
+  }
   return {
     status: status as DeviceSnapshotComparison["status"],
     reasons: stringArray(value.reasons),
     suggested_checks: stringArray(value.suggested_checks),
-    link_counts: parseCompareCounts(value.link_counts),
-    route_hint_counts: parseCompareCounts(value.route_hint_counts),
+    device_presence,
+    link_counts,
+    route_hint_counts,
   };
 }
 
@@ -116,7 +190,24 @@ function parseAvailabilityState(
 }
 
 function parseRow(value: unknown): DeviceSnapshotHistoryRow {
-  if (!isPlainObject(value)) protocolFailure();
+  if (
+    !isPlainObject(value) ||
+    !hasExactKeys(value, [
+      "snapshot_id",
+      "captured_at",
+      "is_latest",
+      "layout_state",
+      "is_usable",
+      "device_present_in_snapshot",
+      "links_for_device_count",
+      "route_hints_for_device_count",
+      "availability_coverage_status",
+      "availability_state_near_snapshot",
+      "comparison_to_latest",
+    ])
+  ) {
+    protocolFailure();
+  }
   const snapshot_id = requireString(value.snapshot_id);
   const captured_at = nullableString(value.captured_at);
   if (typeof value.is_latest !== "boolean") protocolFailure();
@@ -192,28 +283,179 @@ function parseRow(value: unknown): DeviceSnapshotHistoryRow {
   return row;
 }
 
-function parseFact(value: unknown): EvidenceFactDto {
-  if (!isPlainObject(value)) protocolFailure();
-  const code = requireString(value.code);
+function parseLatestFact(value: unknown): DeviceSnapshotLatestFact {
   if (
-    value.params !== undefined &&
-    !isPlainObject(value.params)
+    !isPlainObject(value) ||
+    !hasExactKeys(value, ["code", "params"])
   ) {
     protocolFailure();
   }
-  return {
-    code,
-    ...(value.params === undefined ? {} : { params: { ...value.params } }),
-  };
+  const code = requireString(value.code);
+  if (!isPlainObject(value.params)) protocolFailure();
+  const params = value.params;
+  const device_ieee = requireString(params.device_ieee);
+
+  if (
+    code === "device_seen_in_latest_snapshot" ||
+    code === "device_absent_from_latest_snapshot"
+  ) {
+    if (!hasExactKeys(params, ["device_ieee", "snapshot_id"])) {
+      protocolFailure();
+    }
+    return {
+      code,
+      params: {
+        device_ieee,
+        snapshot_id: requireString(params.snapshot_id),
+      },
+    };
+  }
+  if (code === "device_has_latest_links") {
+    if (
+      !hasExactKeys(params, ["device_ieee", "link_count"]) ||
+      !nonNegativeInt(params.link_count)
+    ) {
+      protocolFailure();
+    }
+    return {
+      code,
+      params: {
+        device_ieee,
+        link_count: params.link_count,
+      },
+    };
+  }
+  if (code === "device_no_latest_links") {
+    if (!hasExactKeys(params, ["device_ieee"])) protocolFailure();
+    return { code, params: { device_ieee } };
+  }
+  return protocolFailure();
 }
 
-function parseFacts(value: unknown): EvidenceFactDto[] {
+function parseLatestFacts(value: unknown): DeviceSnapshotLatestFact[] {
   if (!Array.isArray(value)) protocolFailure();
-  return value.map(parseFact);
+  return value.map(parseLatestFact);
+}
+
+function hasExactKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+): boolean {
+  return (
+    Object.keys(value).sort().join("\u0000") ===
+    [...keys].sort().join("\u0000")
+  );
+}
+
+function parseComparisonFact(value: unknown): DeviceSnapshotComparisonFact {
+  if (
+    !isPlainObject(value) ||
+    !hasExactKeys(value, ["code", "params"])
+  ) {
+    protocolFailure();
+  }
+  const code = requireString(value.code);
+  if (!isPlainObject(value.params)) protocolFailure();
+  const params = value.params;
+  const device_ieee = requireString(params.device_ieee);
+  const snapshot_id = requireString(params.snapshot_id);
+
+  if (code === "device_has_selected_snapshot_links") {
+    if (
+      !hasExactKeys(params, ["device_ieee", "snapshot_id", "link_count"]) ||
+      !nonNegativeInt(params.link_count)
+    ) {
+      protocolFailure();
+    }
+    return {
+      code,
+      params: {
+        device_ieee,
+        snapshot_id,
+        link_count: params.link_count,
+      },
+    };
+  }
+
+  if (code === "device_latest_vs_selected_changed") {
+    if (
+      !hasExactKeys(params, [
+        "device_ieee",
+        "comparison_status",
+        "snapshot_id",
+        "latest_device_present_in_snapshot",
+        "selected_device_present_in_snapshot",
+        "device_presence_changed",
+      ]) ||
+      (params.comparison_status !== "changed" &&
+        params.comparison_status !== "watch" &&
+        params.comparison_status !== "worth_reviewing") ||
+      typeof params.latest_device_present_in_snapshot !== "boolean" ||
+      typeof params.selected_device_present_in_snapshot !== "boolean" ||
+      typeof params.device_presence_changed !== "boolean"
+    ) {
+      protocolFailure();
+    }
+    return {
+      code,
+      params: {
+        device_ieee,
+        comparison_status: params.comparison_status,
+        snapshot_id,
+        latest_device_present_in_snapshot:
+          params.latest_device_present_in_snapshot,
+        selected_device_present_in_snapshot:
+          params.selected_device_present_in_snapshot,
+        device_presence_changed: params.device_presence_changed,
+      },
+    };
+  }
+
+  if (code === "availability_coverage_affects_snapshot_comparison") {
+    if (
+      !hasExactKeys(params, [
+        "device_ieee",
+        "availability_coverage_status",
+        "snapshot_id",
+      ]) ||
+      (params.availability_coverage_status !== "off" &&
+        params.availability_coverage_status !== "building" &&
+        params.availability_coverage_status !== "unknown")
+    ) {
+      protocolFailure();
+    }
+    return {
+      code,
+      params: {
+        device_ieee,
+        availability_coverage_status:
+          params.availability_coverage_status,
+        snapshot_id,
+      },
+    };
+  }
+
+  return protocolFailure();
+}
+
+function parseComparisonFacts(
+  value: unknown,
+): DeviceSnapshotComparisonFact[] {
+  if (!Array.isArray(value)) protocolFailure();
+  return value.map(parseComparisonFact);
 }
 
 function parseTopologyFacts(value: unknown): TopologyDeviceFactsDto {
-  if (!isPlainObject(value)) protocolFailure();
+  if (
+    !isPlainObject(value) ||
+    !hasExactKeys(value, [
+      "stale_threshold_hours",
+      "device_facts",
+      "comparison_facts_by_snapshot_id",
+    ])
+  ) {
+    protocolFailure();
+  }
   const stale_threshold_hours = value.stale_threshold_hours;
   if (
     stale_threshold_hours !== null &&
@@ -224,18 +466,171 @@ function parseTopologyFacts(value: unknown): TopologyDeviceFactsDto {
   if (!isPlainObject(value.comparison_facts_by_snapshot_id)) {
     protocolFailure();
   }
-  const comparison_facts_by_snapshot_id: Record<string, EvidenceFactDto[]> = {};
+  const comparison_facts_by_snapshot_id: Record<
+    string,
+    DeviceSnapshotComparisonFact[]
+  > = {};
   for (const [snapshotId, facts] of Object.entries(
     value.comparison_facts_by_snapshot_id,
   )) {
     if (!snapshotId) protocolFailure();
-    comparison_facts_by_snapshot_id[snapshotId] = parseFacts(facts);
+    comparison_facts_by_snapshot_id[snapshotId] =
+      parseComparisonFacts(facts);
   }
   return {
     stale_threshold_hours,
-    device_facts: parseFacts(value.device_facts),
+    device_facts: parseLatestFacts(value.device_facts),
     comparison_facts_by_snapshot_id,
   };
+}
+
+function validateTopologyFacts(
+  topologyFacts: TopologyDeviceFactsDto,
+  latestSnapshot: DeviceSnapshotHistoryRow | null,
+  snapshots: DeviceSnapshotHistoryRow[],
+  deviceIeee: string,
+): void {
+  if (latestSnapshot === null || latestSnapshot.layout_state === "limited") {
+    if (topologyFacts.device_facts.length > 0) protocolFailure();
+  } else {
+    const presenceFacts = topologyFacts.device_facts.filter(
+      (fact) =>
+        fact.code === "device_seen_in_latest_snapshot" ||
+        fact.code === "device_absent_from_latest_snapshot",
+    );
+    const linkFacts = topologyFacts.device_facts.filter(
+      (fact) =>
+        fact.code === "device_has_latest_links" ||
+        fact.code === "device_no_latest_links",
+    );
+    if (presenceFacts.length !== 1 || linkFacts.length !== 1) {
+      protocolFailure();
+    }
+    const expectedPresenceCode = latestSnapshot.device_present_in_snapshot
+      ? "device_seen_in_latest_snapshot"
+      : "device_absent_from_latest_snapshot";
+    const presenceFact = presenceFacts[0];
+    if (
+      presenceFact?.code !== expectedPresenceCode ||
+      presenceFact.params.device_ieee !== deviceIeee ||
+      presenceFact.params.snapshot_id !== latestSnapshot.snapshot_id
+    ) {
+      protocolFailure();
+    }
+    const expectedLinkCode =
+      latestSnapshot.links_for_device_count > 0
+        ? "device_has_latest_links"
+        : "device_no_latest_links";
+    const linkFact = linkFacts[0];
+    if (
+      linkFact?.code !== expectedLinkCode ||
+      linkFact.params.device_ieee !== deviceIeee
+    ) {
+      protocolFailure();
+    }
+    if (
+      linkFact.code === "device_has_latest_links" &&
+      linkFact.params.link_count !== latestSnapshot.links_for_device_count
+    ) {
+      protocolFailure();
+    }
+  }
+
+  const changedFactCode = "device_latest_vs_selected_changed";
+  const expectedParamKeys = [
+    "comparison_status",
+    "device_ieee",
+    "device_presence_changed",
+    "latest_device_present_in_snapshot",
+    "selected_device_present_in_snapshot",
+    "snapshot_id",
+  ];
+  const rowsById = new Map(snapshots.map((row) => [row.snapshot_id, row]));
+
+  for (const snapshotId of Object.keys(
+    topologyFacts.comparison_facts_by_snapshot_id,
+  )) {
+    if (!rowsById.has(snapshotId)) protocolFailure();
+  }
+
+  for (const row of snapshots) {
+    const facts =
+      topologyFacts.comparison_facts_by_snapshot_id[row.snapshot_id] ?? [];
+    if (
+      facts.some(
+        (fact) =>
+          fact.params.device_ieee !== deviceIeee ||
+          fact.params.snapshot_id !== row.snapshot_id,
+      )
+    ) {
+      protocolFailure();
+    }
+    const changedFacts = facts.filter((fact) => fact.code === changedFactCode);
+    const comparison = row.comparison_to_latest;
+    const expectsChangedFact =
+      comparison !== null && comparison.status !== "no_notable_change";
+    if (changedFacts.length !== Number(expectsChangedFact)) protocolFailure();
+    const selectedLinkFacts = facts.filter(
+      (fact) => fact.code === "device_has_selected_snapshot_links",
+    );
+    const expectsSelectedLinkFact =
+      comparison !== null &&
+      row.layout_state === "available" &&
+      row.links_for_device_count > 0;
+    if (selectedLinkFacts.length !== Number(expectsSelectedLinkFact)) {
+      protocolFailure();
+    }
+    if (
+      selectedLinkFacts[0]?.code === "device_has_selected_snapshot_links" &&
+      (row.layout_state !== "available" ||
+        selectedLinkFacts[0].params.link_count !== row.links_for_device_count)
+    ) {
+      protocolFailure();
+    }
+    const coverageFacts = facts.filter(
+      (fact) =>
+        fact.code ===
+        "availability_coverage_affects_snapshot_comparison",
+    );
+    const expectsCoverageFact =
+      comparison !== null &&
+      (row.availability_coverage_status === "off" ||
+        row.availability_coverage_status === "building" ||
+        row.availability_coverage_status === "unknown");
+    if (coverageFacts.length !== Number(expectsCoverageFact)) {
+      protocolFailure();
+    }
+    if (
+      coverageFacts[0]?.code ===
+        "availability_coverage_affects_snapshot_comparison" &&
+      coverageFacts[0].params.availability_coverage_status !==
+        row.availability_coverage_status
+    ) {
+      protocolFailure();
+    }
+    if (!expectsChangedFact || comparison === null) continue;
+
+    const params = changedFacts[0]?.params;
+    if (!isPlainObject(params)) protocolFailure();
+    if (
+      Object.keys(params).sort().join("\u0000") !==
+      expectedParamKeys.join("\u0000")
+    ) {
+      protocolFailure();
+    }
+    if (
+      params.device_ieee !== deviceIeee ||
+      params.comparison_status !== comparison.status ||
+      params.snapshot_id !== row.snapshot_id ||
+      params.latest_device_present_in_snapshot !==
+        comparison.device_presence.latest ||
+      params.selected_device_present_in_snapshot !==
+        comparison.device_presence.selected ||
+      params.device_presence_changed !== comparison.device_presence.changed
+    ) {
+      protocolFailure();
+    }
+  }
 }
 
 /**
@@ -247,12 +642,35 @@ function parseTopologyFacts(value: unknown): TopologyDeviceFactsDto {
 export function parseDeviceSnapshotHistoryDetail(
   value: unknown,
 ): DeviceSnapshotHistoryDetail {
-  if (!isPlainObject(value)) protocolFailure();
+  if (
+    !isPlainObject(value) ||
+    !hasExactKeys(value, [
+      "network_id",
+      "device_ieee",
+      "friendly_name",
+      "has_current_issue",
+      "availability_tracking",
+      "latest_snapshot",
+      "snapshots",
+      "topology_facts",
+    ])
+  ) {
+    protocolFailure();
+  }
   const network_id = requireString(value.network_id);
   const device_ieee = requireString(value.device_ieee);
   const friendly_name = nullableString(value.friendly_name);
   if (typeof value.has_current_issue !== "boolean") protocolFailure();
-  if (!isPlainObject(value.availability_tracking)) protocolFailure();
+  const has_current_issue = value.has_current_issue;
+  if (
+    !isPlainObject(value.availability_tracking) ||
+    !hasExactKeys(value.availability_tracking, [
+      "enabled",
+      "earliest_observation_at",
+    ])
+  ) {
+    protocolFailure();
+  }
   if (typeof value.availability_tracking.enabled !== "boolean") {
     protocolFailure();
   }
@@ -282,16 +700,68 @@ export function parseDeviceSnapshotHistoryDetail(
     if (comparisonRequired !== (row.comparison_to_latest !== null)) {
       protocolFailure();
     }
+    const comparison = row.comparison_to_latest;
+    if (comparison !== null) {
+      const presence = comparison.device_presence;
+      if (
+        latest_snapshot?.layout_state !== "available" ||
+        row.layout_state !== "available" ||
+        presence.latest !== latest_snapshot.device_present_in_snapshot ||
+        presence.selected !== row.device_present_in_snapshot ||
+        comparison.link_counts.latest_count !==
+          latest_snapshot.links_for_device_count ||
+        comparison.link_counts.selected_count !== row.links_for_device_count ||
+        comparison.route_hint_counts.latest_count !==
+          latest_snapshot.route_hints_for_device_count ||
+        comparison.route_hint_counts.selected_count !==
+          row.route_hints_for_device_count
+      ) {
+        protocolFailure();
+      }
+      const linkDifferences =
+        comparison.link_counts.latest_only_count +
+        comparison.link_counts.selected_only_count +
+        comparison.link_counts.changed_count;
+      const routeDifferences =
+        comparison.route_hint_counts.latest_only_count +
+        comparison.route_hint_counts.selected_only_count +
+        comparison.route_hint_counts.changed_count;
+      const anyDifference =
+        presence.changed || linkDifferences > 0 || routeDifferences > 0;
+      if (
+        (comparison.status === "worth_reviewing") !==
+        (has_current_issue && anyDifference)
+      ) {
+        protocolFailure();
+      }
+      if (
+        presence.changed &&
+        !has_current_issue &&
+        linkDifferences === 0 &&
+        routeDifferences === 0 &&
+        comparison.status !== "changed"
+      ) {
+        protocolFailure();
+      }
+    }
   }
+
+  const topology_facts = parseTopologyFacts(value.topology_facts);
+  validateTopologyFacts(
+    topology_facts,
+    latest_snapshot,
+    snapshots,
+    device_ieee,
+  );
 
   return {
     network_id,
     device_ieee,
     friendly_name,
-    has_current_issue: value.has_current_issue,
+    has_current_issue,
     availability_tracking,
     latest_snapshot,
     snapshots,
-    topology_facts: parseTopologyFacts(value.topology_facts),
+    topology_facts,
   };
 }

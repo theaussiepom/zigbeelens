@@ -3,12 +3,17 @@ mapping, availability coverage honesty, and wording guardrails."""
 
 from __future__ import annotations
 
+from copy import deepcopy
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from zigbeelens.config.models import AppConfig, ModeConfig, NetworkConfig, StorageConfig
 from zigbeelens.db.connection import Database
+from zigbeelens.schemas import DeviceSnapshotHistoryDetail
 from zigbeelens.storage.repository import Repository
 from zigbeelens.topology.compare import MEANINGFUL_LQI_CHANGE
 from zigbeelens.topology.device_compare import (
@@ -403,6 +408,484 @@ def test_no_notable_change_when_snapshots_match(tmp_path: Path):
     assert "Similar number of links shown." in comparison["reasons"]
     # Calm statuses carry no suggested checks.
     assert comparison["suggested_checks"] == []
+
+
+def test_node_only_presence_change_from_selected_to_latest_is_changed(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _store_snapshot(
+        repo,
+        "snap-prev",
+        captured_at=NOW - timedelta(days=1),
+        nodes={"0x01": {"type": "Coordinator"}, "0x02": {"type": "Router"}},
+        links=[],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        nodes={"0x01": {"type": "Coordinator"}},
+        links=[],
+    )
+
+    result = device_snapshot_history(repo, "home", "0x02")
+    comparison = result["snapshots"][0]["comparison_to_latest"]
+
+    assert result["latest_snapshot"]["device_present_in_snapshot"] is False
+    assert result["snapshots"][0]["device_present_in_snapshot"] is True
+    assert comparison["device_presence"] == {
+        "latest": False,
+        "selected": True,
+        "changed": True,
+    }
+    assert comparison["status"] == STATUS_CHANGED
+    assert comparison["reasons"][0] == (
+        "The device was observed in the selected snapshot but not the latest "
+        "snapshot."
+    )
+    assert comparison["suggested_checks"] == []
+
+
+def test_node_only_presence_change_from_latest_to_selected_is_changed(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _store_snapshot(
+        repo,
+        "snap-prev",
+        captured_at=NOW - timedelta(days=1),
+        nodes={"0x01": {"type": "Coordinator"}},
+        links=[],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        nodes={"0x01": {"type": "Coordinator"}, "0x02": {"type": "Router"}},
+        links=[],
+    )
+
+    comparison = device_snapshot_history(repo, "home", "0x02")["snapshots"][0][
+        "comparison_to_latest"
+    ]
+
+    assert comparison["device_presence"] == {
+        "latest": True,
+        "selected": False,
+        "changed": True,
+    }
+    assert comparison["status"] == STATUS_CHANGED
+    assert comparison["reasons"][0] == (
+        "The device was observed in the latest snapshot but not the selected "
+        "snapshot."
+    )
+
+
+def test_equal_node_only_presence_with_zero_counts_is_no_notable_change(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    nodes = {"0x01": {"type": "Coordinator"}, "0x02": {"type": "Router"}}
+    _store_snapshot(
+        repo,
+        "snap-prev",
+        captured_at=NOW - timedelta(days=1),
+        nodes=nodes,
+        links=[],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        nodes=nodes,
+        links=[],
+    )
+
+    comparison = device_snapshot_history(repo, "home", "0x02")["snapshots"][0][
+        "comparison_to_latest"
+    ]
+
+    assert comparison["device_presence"] == {
+        "latest": True,
+        "selected": True,
+        "changed": False,
+    }
+    assert comparison["status"] == STATUS_NO_NOTABLE_CHANGE
+
+
+def test_equal_absence_in_available_layouts_is_no_notable_change(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    nodes = {"0x01": {"type": "Coordinator"}}
+    _store_snapshot(
+        repo,
+        "snap-prev",
+        captured_at=NOW - timedelta(days=1),
+        nodes=nodes,
+        links=[],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        nodes=nodes,
+        links=[],
+    )
+
+    comparison = device_snapshot_history(repo, "home", "0x02")["snapshots"][0][
+        "comparison_to_latest"
+    ]
+
+    assert comparison["device_presence"] == {
+        "latest": False,
+        "selected": False,
+        "changed": False,
+    }
+    assert comparison["status"] == STATUS_NO_NOTABLE_CHANGE
+
+
+def test_presence_change_with_current_issue_is_worth_reviewing(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _device(repo, "0x02", "Hall Router")
+    repo.update_device_current_state(
+        network_id="home", ieee_address="0x02", availability="offline"
+    )
+    _store_snapshot(
+        repo,
+        "snap-prev",
+        captured_at=NOW - timedelta(days=1),
+        nodes={"0x01": {"type": "Coordinator"}, "0x02": {"type": "Router"}},
+        links=[],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        nodes={"0x01": {"type": "Coordinator"}},
+        links=[],
+    )
+
+    comparison = device_snapshot_history(repo, "home", "0x02")["snapshots"][0][
+        "comparison_to_latest"
+    ]
+
+    assert comparison["device_presence"]["changed"] is True
+    assert comparison["status"] == STATUS_WORTH_REVIEWING
+
+
+def test_presence_change_with_ordinary_link_change_keeps_existing_status_rules(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _store_snapshot(
+        repo,
+        "snap-prev",
+        captured_at=NOW - timedelta(days=1),
+        nodes={"0x01": {"type": "Coordinator"}},
+        links=[],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        nodes={"0x01": {"type": "Coordinator"}},
+        links=[{"source": "0x01", "target": "0x02", "linkquality": 90}],
+    )
+
+    comparison = device_snapshot_history(repo, "home", "0x02")["snapshots"][0][
+        "comparison_to_latest"
+    ]
+
+    assert comparison["device_presence"] == {
+        "latest": True,
+        "selected": False,
+        "changed": True,
+    }
+    assert comparison["link_counts"]["latest_only_count"] == 1
+    assert comparison["status"] == STATUS_CHANGED
+
+
+def test_typed_snapshot_history_contract_rejects_contradictory_presence(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _store_snapshot(
+        repo,
+        "snap-prev",
+        captured_at=NOW - timedelta(days=1),
+        nodes={"0x01": {"type": "Coordinator"}, "0x02": {"type": "Router"}},
+        links=[],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        nodes={"0x01": {"type": "Coordinator"}},
+        links=[],
+    )
+    payload = {
+        **device_snapshot_history(repo, "home", "0x02"),
+        "topology_facts": {
+            "stale_threshold_hours": 24,
+            "device_facts": [
+                {
+                    "code": "device_absent_from_latest_snapshot",
+                    "params": {
+                        "device_ieee": "0x02",
+                        "snapshot_id": "snap-latest",
+                    },
+                },
+                {
+                    "code": "device_no_latest_links",
+                    "params": {
+                        "device_ieee": "0x02",
+                    },
+                },
+            ],
+            "comparison_facts_by_snapshot_id": {
+                "snap-prev": [
+                    {
+                        "code": "device_latest_vs_selected_changed",
+                        "params": {
+                            "device_ieee": "0x02",
+                            "comparison_status": "changed",
+                            "snapshot_id": "snap-prev",
+                            "latest_device_present_in_snapshot": False,
+                            "selected_device_present_in_snapshot": True,
+                            "device_presence_changed": True,
+                        },
+                    },
+                ],
+            },
+        },
+    }
+    selected_coverage = payload["snapshots"][0][
+        "availability_coverage_status"
+    ]
+    if selected_coverage in {"off", "building", "unknown"}:
+        payload["topology_facts"]["comparison_facts_by_snapshot_id"][
+            "snap-prev"
+        ].append(
+            {
+                "code": "availability_coverage_affects_snapshot_comparison",
+                "params": {
+                    "device_ieee": "0x02",
+                    "availability_coverage_status": selected_coverage,
+                    "snapshot_id": "snap-prev",
+                },
+            }
+        )
+    DeviceSnapshotHistoryDetail.model_validate(payload)
+
+    malformed_changed = deepcopy(payload)
+    malformed_changed["snapshots"][0]["comparison_to_latest"]["device_presence"][
+        "changed"
+    ] = False
+    with pytest.raises(ValidationError):
+        DeviceSnapshotHistoryDetail.model_validate(malformed_changed)
+
+    contradictory_rows = deepcopy(payload)
+    contradictory_rows["snapshots"][0]["comparison_to_latest"]["device_presence"] = {
+        "latest": True,
+        "selected": False,
+        "changed": True,
+    }
+    with pytest.raises(ValidationError):
+        DeviceSnapshotHistoryDetail.model_validate(contradictory_rows)
+
+    for invalid_status in ("no_notable_change", "watch"):
+        invalid_status_payload = deepcopy(payload)
+        invalid_status_payload["snapshots"][0]["comparison_to_latest"][
+            "status"
+        ] = invalid_status
+        changed_facts = invalid_status_payload["topology_facts"][
+            "comparison_facts_by_snapshot_id"
+        ]["snap-prev"]
+        if invalid_status == "no_notable_change":
+            changed_facts.clear()
+        else:
+            changed_facts[0]["params"]["comparison_status"] = invalid_status
+        with pytest.raises(ValidationError):
+            DeviceSnapshotHistoryDetail.model_validate(invalid_status_payload)
+
+    wrong_current_issue_status = deepcopy(payload)
+    wrong_current_issue_status["has_current_issue"] = True
+    with pytest.raises(ValidationError):
+        DeviceSnapshotHistoryDetail.model_validate(wrong_current_issue_status)
+
+    link_only_difference = deepcopy(payload)
+    link_only_difference["latest_snapshot"]["device_present_in_snapshot"] = True
+    link_only_difference["latest_snapshot"]["links_for_device_count"] = 1
+    comparison = link_only_difference["snapshots"][0]["comparison_to_latest"]
+    comparison["device_presence"] = {
+        "latest": True,
+        "selected": True,
+        "changed": False,
+    }
+    comparison["link_counts"] = {
+        "latest_count": 1,
+        "selected_count": 0,
+        "latest_only_count": 1,
+        "selected_only_count": 0,
+        "changed_count": 0,
+    }
+    link_only_difference["topology_facts"]["device_facts"] = [
+        {
+            "code": "device_seen_in_latest_snapshot",
+            "params": {
+                "device_ieee": "0x02",
+                "snapshot_id": "snap-latest",
+            },
+        },
+        {
+            "code": "device_has_latest_links",
+            "params": {
+                "device_ieee": "0x02",
+                "link_count": 1,
+            },
+        },
+    ]
+    fact_params = link_only_difference["topology_facts"][
+        "comparison_facts_by_snapshot_id"
+    ]["snap-prev"][0]["params"]
+    fact_params.update(
+        {
+            "latest_device_present_in_snapshot": True,
+            "selected_device_present_in_snapshot": True,
+            "device_presence_changed": False,
+        }
+    )
+    DeviceSnapshotHistoryDetail.model_validate(link_only_difference)
+
+    issue_with_changed_status = deepcopy(link_only_difference)
+    issue_with_changed_status["has_current_issue"] = True
+    with pytest.raises(ValidationError):
+        DeviceSnapshotHistoryDetail.model_validate(issue_with_changed_status)
+
+    valid_issue_status = deepcopy(issue_with_changed_status)
+    valid_issue_status["snapshots"][0]["comparison_to_latest"][
+        "status"
+    ] = STATUS_WORTH_REVIEWING
+    valid_issue_status["topology_facts"]["comparison_facts_by_snapshot_id"][
+        "snap-prev"
+    ][0]["params"]["comparison_status"] = STATUS_WORTH_REVIEWING
+    DeviceSnapshotHistoryDetail.model_validate(valid_issue_status)
+
+    worth_reviewing_without_issue = deepcopy(valid_issue_status)
+    worth_reviewing_without_issue["has_current_issue"] = False
+    with pytest.raises(ValidationError):
+        DeviceSnapshotHistoryDetail.model_validate(worth_reviewing_without_issue)
+
+    for field in ("friendly_name", "latest_snapshot", "topology_facts"):
+        missing_field = deepcopy(payload)
+        del missing_field[field]
+        with pytest.raises(ValidationError):
+            DeviceSnapshotHistoryDetail.model_validate(missing_field)
+    for field in ("earliest_observation_at",):
+        missing_field = deepcopy(payload)
+        del missing_field["availability_tracking"][field]
+        with pytest.raises(ValidationError):
+            DeviceSnapshotHistoryDetail.model_validate(missing_field)
+    for field in (
+        "captured_at",
+        "availability_state_near_snapshot",
+        "comparison_to_latest",
+    ):
+        missing_field = deepcopy(payload)
+        del missing_field["latest_snapshot"][field]
+        with pytest.raises(ValidationError):
+            DeviceSnapshotHistoryDetail.model_validate(missing_field)
+
+    for mutate_counts in (
+        {"latest_only_count": 1},
+        {"changed_count": 1},
+        {"selected_count": 1},
+        {
+            "latest_count": 1,
+            "latest_only_count": 1,
+        },
+    ):
+        malformed_counts = deepcopy(payload)
+        malformed_counts["snapshots"][0]["comparison_to_latest"]["link_counts"].update(
+            mutate_counts
+        )
+        with pytest.raises(ValidationError):
+            DeviceSnapshotHistoryDetail.model_validate(malformed_counts)
+
+    for mutate_fact in ("missing", "contradictory", "absent"):
+        malformed_fact = deepcopy(payload)
+        facts = malformed_fact["topology_facts"][
+            "comparison_facts_by_snapshot_id"
+        ]["snap-prev"]
+        if mutate_fact == "missing":
+            del facts[0]["params"]["device_presence_changed"]
+        elif mutate_fact == "contradictory":
+            facts[0]["params"]["latest_device_present_in_snapshot"] = True
+        else:
+            facts.clear()
+        with pytest.raises(ValidationError):
+            DeviceSnapshotHistoryDetail.model_validate(malformed_fact)
+
+    _store_snapshot(
+        repo,
+        "snap-limited",
+        captured_at=NOW + timedelta(hours=1),
+        nodes={},
+        links=[],
+    )
+    limited_payload = {
+        **device_snapshot_history(repo, "home", "0x02"),
+        "topology_facts": {
+            "stale_threshold_hours": None,
+            "device_facts": [],
+            "comparison_facts_by_snapshot_id": {},
+        },
+    }
+    DeviceSnapshotHistoryDetail.model_validate(limited_payload)
+    for field in (
+        "device_present_in_snapshot",
+        "links_for_device_count",
+        "route_hints_for_device_count",
+        "comparison_to_latest",
+    ):
+        missing_limited_field = deepcopy(limited_payload)
+        del missing_limited_field["latest_snapshot"][field]
+        with pytest.raises(ValidationError):
+            DeviceSnapshotHistoryDetail.model_validate(missing_limited_field)
+    for impossible_fact in (
+        {
+            "code": "device_absent_from_latest_snapshot",
+            "params": {
+                "device_ieee": "0x02",
+                "snapshot_id": "snap-limited",
+            },
+        },
+        {
+            "code": "device_no_latest_links",
+            "params": {"device_ieee": "0x02"},
+        },
+        {
+            "code": "device_latest_vs_selected_changed",
+            "params": {
+                "device_ieee": "0x02",
+                "comparison_status": "changed",
+                "snapshot_id": "snap-prev",
+                "latest_device_present_in_snapshot": False,
+                "selected_device_present_in_snapshot": True,
+                "device_presence_changed": True,
+            },
+        },
+    ):
+        impossible_limited_fact = deepcopy(limited_payload)
+        impossible_limited_fact["topology_facts"]["device_facts"] = [
+            impossible_fact
+        ]
+        with pytest.raises(ValidationError):
+            DeviceSnapshotHistoryDetail.model_validate(impossible_limited_fact)
 
 
 def test_small_difference_without_issue_is_changed(tmp_path: Path):
@@ -809,7 +1292,5 @@ def test_wrong_snapshot_history_network_context_raises(tmp_path: Path):
     )
     repo.sync_networks(cfg.networks)
     context = load_device_snapshot_history_network_context(repo, "office")
-    import pytest
-
     with pytest.raises(ValueError, match="network_id"):
         device_snapshot_history(repo, "home", "0x02", network_context=context)

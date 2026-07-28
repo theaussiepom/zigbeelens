@@ -704,6 +704,7 @@ export type {
   DeviceSnapshotHistoryLimitedRow,
   DeviceSnapshotHistoryRow,
   DeviceSnapshotLayoutState,
+  DeviceSnapshotPresenceComparison,
   DeviceStatsWindow,
   DeviceStoryDto,
   DeviceStoryTimelineItemDto,

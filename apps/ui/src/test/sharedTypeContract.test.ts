@@ -5,6 +5,8 @@ import type {
   DecisionCountSummary,
   DecisionPriority,
   DecisionStatus,
+  DeviceSnapshotChangedFact,
+  DeviceSnapshotComparison,
   Incident,
   ReportDetailV3,
 } from "@zigbeelens/shared";
@@ -41,6 +43,54 @@ describe("shared decision contract", () => {
       coverage_warning_count: 1,
     };
     expect(summary.status_counts.worth_reviewing).toBe(2);
+  });
+
+  it("types snapshot presence as owned comparison evidence", () => {
+    const comparison: DeviceSnapshotComparison = {
+      status: "changed",
+      reasons: [
+        "The device was observed in the selected snapshot but not the latest snapshot.",
+      ],
+      suggested_checks: [],
+      device_presence: {
+        latest: false,
+        selected: true,
+        changed: true,
+      },
+      link_counts: {
+        latest_count: 0,
+        selected_count: 0,
+        latest_only_count: 0,
+        selected_only_count: 0,
+        changed_count: 0,
+      },
+      route_hint_counts: {
+        latest_count: 0,
+        selected_count: 0,
+        latest_only_count: 0,
+        selected_only_count: 0,
+        changed_count: 0,
+      },
+    };
+
+    expect(comparison.device_presence).toEqual({
+      latest: false,
+      selected: true,
+      changed: true,
+    });
+
+    const fact: DeviceSnapshotChangedFact = {
+      code: "device_latest_vs_selected_changed",
+      params: {
+        device_ieee: "0xabc",
+        comparison_status: "changed",
+        snapshot_id: "snap-earlier",
+        latest_device_present_in_snapshot: false,
+        selected_device_present_in_snapshot: true,
+        device_presence_changed: true,
+      },
+    };
+    expect(fact.params.device_presence_changed).toBe(true);
   });
 
   it("types stored reports as exact ReportDetailV3 only", () => {

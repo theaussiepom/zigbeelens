@@ -27,6 +27,105 @@ export type DecisionStatus =
   | "improve_data_coverage"
   | "data_unavailable";
 
+/** Status for one device comparison between two available stored topology layouts. */
+export type DeviceSnapshotCompareStatus =
+  | "no_notable_change"
+  | "changed"
+  | "watch"
+  | "worth_reviewing";
+
+/** Exact pair-count evidence for one available-layout snapshot comparison. */
+export interface DeviceSnapshotCompareCounts {
+  latest_count: number;
+  selected_count: number;
+  latest_only_count: number;
+  selected_only_count: number;
+  changed_count: number;
+}
+
+/** Measured device presence in the latest and selected available layouts. */
+export interface DeviceSnapshotPresenceComparison {
+  latest: boolean;
+  selected: boolean;
+  /** Must equal `latest !== selected`. */
+  changed: boolean;
+}
+
+/** Typed device comparison owned by Core and shared with UI consumers. */
+export interface DeviceSnapshotComparison {
+  status: DeviceSnapshotCompareStatus;
+  reasons: string[];
+  suggested_checks: string[];
+  device_presence: DeviceSnapshotPresenceComparison;
+  link_counts: DeviceSnapshotCompareCounts;
+  route_hint_counts: DeviceSnapshotCompareCounts;
+}
+
+/** Exact fact emitted when an earlier available snapshot has links for the device. */
+export interface DeviceSnapshotSelectedLinksFact {
+  code: "device_has_selected_snapshot_links";
+  params: {
+    device_ieee: string;
+    snapshot_id: string;
+    link_count: number;
+  };
+}
+
+/** Exact factual projection of a changed device snapshot comparison. */
+export interface DeviceSnapshotChangedFact {
+  code: "device_latest_vs_selected_changed";
+  params: {
+    device_ieee: string;
+    comparison_status: Exclude<
+      DeviceSnapshotCompareStatus,
+      "no_notable_change"
+    >;
+    snapshot_id: string;
+    latest_device_present_in_snapshot: boolean;
+    selected_device_present_in_snapshot: boolean;
+    device_presence_changed: boolean;
+  };
+}
+
+/** Exact availability limitation attached to one available-layout comparison. */
+export interface DeviceSnapshotComparisonCoverageFact {
+  code: "availability_coverage_affects_snapshot_comparison";
+  params: {
+    device_ieee: string;
+    availability_coverage_status: "off" | "building" | "unknown";
+    snapshot_id: string;
+  };
+}
+
+export type DeviceSnapshotComparisonFact =
+  | DeviceSnapshotSelectedLinksFact
+  | DeviceSnapshotChangedFact
+  | DeviceSnapshotComparisonCoverageFact;
+
+export type DeviceSnapshotLatestFact =
+  | {
+      code:
+        | "device_seen_in_latest_snapshot"
+        | "device_absent_from_latest_snapshot";
+      params: {
+        device_ieee: string;
+        snapshot_id: string;
+      };
+    }
+  | {
+      code: "device_has_latest_links";
+      params: {
+        device_ieee: string;
+        link_count: number;
+      };
+    }
+  | {
+      code: "device_no_latest_links";
+      params: {
+        device_ieee: string;
+      };
+    };
+
 /** Canonical decision priority. */
 export type DecisionPriority = "none" | "low" | "medium" | "high";
 

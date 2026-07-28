@@ -20,6 +20,7 @@ from zigbeelens.services.evidence_graph import EvidenceGraphService
 from zigbeelens.storage.repository import Repository
 from zigbeelens.topology.device_compare import (
     COVERAGE_OFF,
+    STATUS_CHANGED,
     STATUS_NO_NOTABLE_CHANGE,
     STATUS_WATCH,
     device_snapshot_history,
@@ -299,12 +300,67 @@ def test_available_snapshot_without_permitted_comparison_emits_no_comparison_fac
     assert facts == []
 
 
+def test_malformed_available_snapshot_comparison_fails_closed():
+    base = {
+        "snapshot_id": "snap-malformed",
+        "layout_state": "available",
+        "device_present_in_snapshot": True,
+        "links_for_device_count": 0,
+        "availability_coverage_status": "tracked",
+        "comparison_to_latest": {
+            "status": STATUS_CHANGED,
+            "device_presence": {
+                "latest": False,
+                "selected": True,
+                "changed": True,
+            },
+        },
+    }
+    for malformed in (
+        {**base, "links_for_device_count": "0"},
+        {
+            **base,
+            "comparison_to_latest": {
+                **base["comparison_to_latest"],
+                "status": STATUS_NO_NOTABLE_CHANGE,
+            },
+        },
+        {
+            **base,
+            "comparison_to_latest": {
+                **base["comparison_to_latest"],
+                "device_presence": {
+                    "latest": False,
+                    "selected": True,
+                    "changed": False,
+                },
+            },
+        },
+    ):
+        assert (
+            build_device_snapshot_comparison_facts(
+                device_ieee="0x04",
+                comparison_snapshot_row=malformed,
+            )
+            == []
+        )
+
+
 def test_device_comparison_facts_selected_had_links():
     row = {
         "snapshot_id": "snap-old-1",
+        "layout_state": "available",
+        "device_present_in_snapshot": True,
         "links_for_device_count": 2,
         "availability_coverage_status": COVERAGE_OFF,
-        "comparison_to_latest": {"status": STATUS_WATCH},
+        "comparison_to_latest": {
+            "status": STATUS_WATCH,
+            "device_presence": {
+                "latest": False,
+                "selected": True,
+                "changed": True,
+            },
+        },
     }
     facts = build_device_snapshot_comparison_facts(
         device_ieee="0x04",
@@ -323,14 +379,39 @@ def test_device_comparison_facts_changed_and_coverage_affects_comparison():
         device_ieee="0x04",
         comparison_snapshot_row={
             "snapshot_id": "snap-old",
+            "layout_state": "available",
+            "device_present_in_snapshot": True,
             "links_for_device_count": 2,
             "availability_coverage_status": COVERAGE_OFF,
-            "comparison_to_latest": {"status": STATUS_WATCH},
+            "comparison_to_latest": {
+                "status": STATUS_WATCH,
+                "device_presence": {
+                    "latest": False,
+                    "selected": True,
+                    "changed": True,
+                },
+            },
         },
     )
     assert TopologyFactCode.device_has_selected_snapshot_links in _codes(facts)
     assert TopologyFactCode.device_latest_vs_selected_changed in _codes(facts)
-    assert TopologyFactCode.availability_coverage_affects_snapshot_comparison in _codes(facts)
+    assert (
+        TopologyFactCode.availability_coverage_affects_snapshot_comparison
+        in _codes(facts)
+    )
+    changed = next(
+        fact
+        for fact in facts
+        if fact.code == TopologyFactCode.device_latest_vs_selected_changed
+    )
+    assert changed.params == {
+        "device_ieee": "0x04",
+        "comparison_status": STATUS_WATCH,
+        "snapshot_id": "snap-old",
+        "latest_device_present_in_snapshot": False,
+        "selected_device_present_in_snapshot": True,
+        "device_presence_changed": True,
+    }
 
 
 def test_device_comparison_facts_no_change_when_comparison_is_similar():
@@ -338,13 +419,25 @@ def test_device_comparison_facts_no_change_when_comparison_is_similar():
         device_ieee="0x02",
         comparison_snapshot_row={
             "snapshot_id": "snap-old",
+            "layout_state": "available",
+            "device_present_in_snapshot": True,
             "links_for_device_count": 1,
             "availability_coverage_status": "tracked",
-            "comparison_to_latest": {"status": STATUS_NO_NOTABLE_CHANGE},
+            "comparison_to_latest": {
+                "status": STATUS_NO_NOTABLE_CHANGE,
+                "device_presence": {
+                    "latest": True,
+                    "selected": True,
+                    "changed": False,
+                },
+            },
         },
     )
     assert TopologyFactCode.device_latest_vs_selected_changed not in _codes(facts)
-    assert TopologyFactCode.availability_coverage_affects_snapshot_comparison not in _codes(facts)
+    assert (
+        TopologyFactCode.availability_coverage_affects_snapshot_comparison
+        not in _codes(facts)
+    )
 
 
 def test_comparison_facts_scoped_per_snapshot_id():
@@ -352,15 +445,33 @@ def test_comparison_facts_scoped_per_snapshot_id():
         "snapshots": [
             {
                 "snapshot_id": "snap-old-1",
+                "layout_state": "available",
+                "device_present_in_snapshot": True,
                 "links_for_device_count": 2,
                 "availability_coverage_status": COVERAGE_OFF,
-                "comparison_to_latest": {"status": STATUS_WATCH},
+                "comparison_to_latest": {
+                    "status": STATUS_WATCH,
+                    "device_presence": {
+                        "latest": False,
+                        "selected": True,
+                        "changed": True,
+                    },
+                },
             },
             {
                 "snapshot_id": "snap-old-2",
+                "layout_state": "available",
+                "device_present_in_snapshot": False,
                 "links_for_device_count": 0,
                 "availability_coverage_status": "tracked",
-                "comparison_to_latest": {"status": STATUS_NO_NOTABLE_CHANGE},
+                "comparison_to_latest": {
+                    "status": STATUS_NO_NOTABLE_CHANGE,
+                    "device_presence": {
+                        "latest": False,
+                        "selected": False,
+                        "changed": False,
+                    },
+                },
             },
         ]
     }
@@ -403,9 +514,18 @@ def test_device_snapshot_histories_are_isolated_per_device():
         "snapshots": [
             {
                 "snapshot_id": "snap-old",
+                "layout_state": "available",
+                "device_present_in_snapshot": True,
                 "links_for_device_count": 2,
                 "availability_coverage_status": COVERAGE_OFF,
-                "comparison_to_latest": {"status": STATUS_WATCH},
+                "comparison_to_latest": {
+                    "status": STATUS_WATCH,
+                    "device_presence": {
+                        "latest": False,
+                        "selected": True,
+                        "changed": True,
+                    },
+                },
             }
         ]
     }

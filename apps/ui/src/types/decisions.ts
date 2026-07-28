@@ -9,6 +9,8 @@ import type {
   CoverageLabelCode,
   DecisionPriority,
   DecisionStatus,
+  DeviceSnapshotComparisonFact,
+  DeviceSnapshotLatestFact,
 } from "@zigbeelens/shared";
 
 export type {
@@ -57,8 +59,11 @@ export interface TopologyNetworkFactsDto {
 
 export interface TopologyDeviceFactsDto {
   stale_threshold_hours: number | null;
-  device_facts: EvidenceFactDto[];
-  comparison_facts_by_snapshot_id: Record<string, EvidenceFactDto[]>;
+  device_facts: DeviceSnapshotLatestFact[];
+  comparison_facts_by_snapshot_id: Record<
+    string,
+    DeviceSnapshotComparisonFact[]
+  >;
 }
 
 export interface DecisionReasonDto {

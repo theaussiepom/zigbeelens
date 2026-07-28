@@ -295,15 +295,38 @@ def build_device_snapshot_comparison_facts(
     snapshot_id = comparison_snapshot_row.get("snapshot_id")
     if not device or not snapshot_id:
         return []
-    if comparison_snapshot_row.get("layout_state") == "limited":
+    if comparison_snapshot_row.get("layout_state") != "available":
+        return []
+    selected_present = comparison_snapshot_row.get("device_present_in_snapshot")
+    if not isinstance(selected_present, bool):
         return []
 
     facts: list[EvidenceFact] = []
     comparison = comparison_snapshot_row.get("comparison_to_latest")
     if not isinstance(comparison, dict):
         return facts
+    presence = comparison.get("device_presence")
+    if not isinstance(presence, dict):
+        return facts
+    latest_present = presence.get("latest")
+    compared_selected_present = presence.get("selected")
+    presence_changed = presence.get("changed")
+    if (
+        not isinstance(latest_present, bool)
+        or not isinstance(compared_selected_present, bool)
+        or not isinstance(presence_changed, bool)
+        or compared_selected_present != selected_present
+        or presence_changed != (latest_present != compared_selected_present)
+    ):
+        return facts
 
-    selected_link_count = int(comparison_snapshot_row.get("links_for_device_count") or 0)
+    selected_link_count = comparison_snapshot_row.get("links_for_device_count")
+    if (
+        isinstance(selected_link_count, bool)
+        or not isinstance(selected_link_count, int)
+        or selected_link_count < 0
+    ):
+        return []
     if selected_link_count > 0:
         facts.append(
             _fact(
@@ -315,6 +338,13 @@ def build_device_snapshot_comparison_facts(
         )
 
     comparison_status = comparison.get("status")
+    if comparison_status not in {
+        STATUS_NO_NOTABLE_CHANGE,
+        *_COMPARISON_CHANGED_STATUSES,
+    }:
+        return []
+    if presence_changed and comparison_status == STATUS_NO_NOTABLE_CHANGE:
+        return []
     if comparison_status in _COMPARISON_CHANGED_STATUSES:
         facts.append(
             _fact(
@@ -322,6 +352,9 @@ def build_device_snapshot_comparison_facts(
                 device_ieee=device,
                 comparison_status=comparison_status,
                 snapshot_id=snapshot_id,
+                latest_device_present_in_snapshot=latest_present,
+                selected_device_present_in_snapshot=compared_selected_present,
+                device_presence_changed=presence_changed,
             )
         )
     elif comparison_status == STATUS_NO_NOTABLE_CHANGE:

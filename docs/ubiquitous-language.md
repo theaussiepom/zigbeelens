@@ -227,6 +227,12 @@ An available layout may truthfully show a measured zero. A limited layout uses
 **Topology layout unavailable** and must not render zero, device absence,
 “no links”, a comparison status, or a routing claim. A retained node or
 source/target link positively represents the device in that exact snapshot.
+For two available layouts, the comparison evidence states whether the device
+was observed in the latest and selected snapshots. Different presence values
+are a factual **Changed** comparison even when both link and route-hint counts
+are zero; a separate current issue may make it **Worth reviewing**. The wording
+must remain about the two stored snapshots and must not imply failure,
+movement, disconnection, a current route, or causality.
 
 Comparison statuses (about the comparison only, never device health):
 **No notable change** (row label “Similar”), **Changed**, **Watch**,
@@ -234,7 +240,8 @@ Comparison statuses (about the comparison only, never device health):
 
 Human-facing: **Snapshot history**, **links shown**, **links changed**,
 **links only in latest snapshot**, **links only in selected snapshot**,
-**route hints**, **selected snapshot**, **latest snapshot**
+**route hints**, **device observed in the latest snapshot**, **device observed
+in the selected snapshot**, **selected snapshot**, **latest snapshot**
 
 Availability coverage is stated directly, never as vague “limited data”:
 **Availability tracking off** (red — with “Enable Zigbee2MQTT availability and

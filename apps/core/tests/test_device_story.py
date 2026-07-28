@@ -414,6 +414,44 @@ def test_layout_limited_latest_snapshot_does_not_create_topology_gap(
     assert ReasonCode.selected_snapshot_had_links not in reason_codes
 
 
+def test_device_story_retains_presence_only_snapshot_change_fact(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", availability="online")
+    _store_snapshot(
+        repo,
+        "snap-selected",
+        captured_at=NOW - timedelta(days=1),
+        nodes={"0x01": {"type": "Coordinator"}, "0x03": {"type": "EndDevice"}},
+        links=[],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        nodes={"0x01": {"type": "Coordinator"}},
+        links=[],
+    )
+
+    evidence = load_device_story_evidence(repo, "home", "0x03", now=NOW)
+
+    assert evidence is not None
+    changed_fact = next(
+        fact
+        for fact in evidence.topology_facts
+        if fact.code == TopologyFactCode.device_latest_vs_selected_changed
+    )
+    assert changed_fact.params == {
+        "device_ieee": "0x03",
+        "comparison_status": "changed",
+        "snapshot_id": "snap-selected",
+        "latest_device_present_in_snapshot": False,
+        "selected_device_present_in_snapshot": True,
+        "device_presence_changed": True,
+    }
+
+
 def test_device_story_coverage_counts_link_only_topology_observation(
     tmp_path: Path,
 ) -> None:

@@ -213,6 +213,14 @@ export const SNAPSHOT_HISTORY_DEVICE_OBSERVED_COPY =
   "Device observed in this snapshot";
 export const SNAPSHOT_HISTORY_DEVICE_NOT_OBSERVED_COPY =
   "Device not observed in this snapshot";
+export const SNAPSHOT_HISTORY_LATEST_DEVICE_OBSERVED_COPY =
+  "Device observed in the latest snapshot";
+export const SNAPSHOT_HISTORY_LATEST_DEVICE_NOT_OBSERVED_COPY =
+  "Device not observed in the latest snapshot";
+export const SNAPSHOT_HISTORY_SELECTED_DEVICE_OBSERVED_COPY =
+  "Device observed in the selected snapshot";
+export const SNAPSHOT_HISTORY_SELECTED_DEVICE_NOT_OBSERVED_COPY =
+  "Device not observed in the selected snapshot";
 export const SNAPSHOT_HISTORY_LATEST_LAYOUT_COMPARISON_UNAVAILABLE_COPY =
   "Snapshot comparison is unavailable because the latest topology layout is unavailable.";
 export const SNAPSHOT_HISTORY_SELECTED_LAYOUT_COMPARISON_UNAVAILABLE_COPY =
