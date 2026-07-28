@@ -23,7 +23,7 @@ mkdir -p "${CONFIG_DIR}" "${DATA_DIR}"
 cp "${ROOT}/deploy/docker/config.example.yaml" "${CONFIG_DIR}/config.yaml"
 
 echo "=== smoke-docker: building ${IMAGE} ==="
-docker build -f "${ROOT}/deploy/docker/Dockerfile" -t "${IMAGE}" "${ROOT}"
+ZIGBEELENS_IMAGE="${IMAGE}" "${ROOT}/scripts/build-docker.sh"
 
 echo "=== smoke-docker: running container ==="
 docker run -d --name "${CONTAINER}" \

@@ -66,6 +66,12 @@ chmod +x scripts/build-docker.sh scripts/validate-compose.sh deploy/docker/entry
 ZIGBEELENS_IMAGE=zigbeelens:local ./scripts/build-docker.sh
 ```
 
+The script records the package version, canonical source URL, and full
+lowercase source revision in OCI labels. It resolves `git rev-parse HEAD` by
+default, or accepts an explicit full `ZIGBEELENS_REVISION` for a source export
+without Git metadata. Dirty checkouts retain the committed `HEAD` revision, so
+use a clean checkout when producing reproducible release evidence.
+
 Set `ZIGBEELENS_IMAGE=zigbeelens:local` when using the maintained Compose
 example, or use that exact local tag with `docker run`.
 

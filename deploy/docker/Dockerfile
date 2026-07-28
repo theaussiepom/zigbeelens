@@ -1,10 +1,11 @@
 # Standalone ZigbeeLens production image (Core + bundled UI).
-# Build from repository root:
-#   docker build -f deploy/docker/Dockerfile -t ghcr.io/zigbeelens/zigbeelens:latest .
+# Build from the repository root through the canonical identity owner:
+#   ZIGBEELENS_IMAGE=zigbeelens:local ./scripts/build-docker.sh
 #
 # Home Assistant add-on uses apps/addon/zigbeelens/Dockerfile (options.json → config).
 
 ARG VERSION=0.1.14
+ARG REVISION
 ARG IMAGE_SOURCE=https://github.com/theaussiepom/zigbeelens
 
 FROM node:22-bookworm AS ui-build
@@ -20,6 +21,7 @@ RUN pnpm --filter @zigbeelens/shared build && pnpm --filter @zigbeelens/ui build
 
 FROM python:3.12-slim AS runtime
 ARG VERSION
+ARG REVISION
 ARG IMAGE_SOURCE
 WORKDIR /app
 
@@ -49,6 +51,7 @@ LABEL org.opencontainers.image.title="ZigbeeLens" \
       org.opencontainers.image.description="Read-only observability console for Zigbee2MQTT networks" \
       org.opencontainers.image.source="${IMAGE_SOURCE}" \
       org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.licenses="MIT"
 
 EXPOSE 8377

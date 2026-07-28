@@ -155,4 +155,5 @@ jobs:
           labels: ${{ steps.validated-metadata.outputs.labels }}
           build-args: |
             VERSION=${{ steps.version.outputs.value }}
+            REVISION=${{ github.sha }}
             IMAGE_SOURCE=https://github.com/${{ github.repository }}

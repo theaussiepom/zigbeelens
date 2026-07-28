@@ -75,6 +75,23 @@ docker run --rm -p 8377:8377 \
   zigbeelens:local
 ```
 
+The canonical build script labels the image with the exact package version,
+canonical source repository, and full lowercase source revision. It uses
+`ZIGBEELENS_REVISION` when explicitly supplied; otherwise it resolves the
+current `git rev-parse HEAD`. A source export without Git metadata must provide
+the full 40-character revision explicitly:
+
+```bash
+ZIGBEELENS_REVISION="${FULL_SOURCE_SHA}" \
+  ZIGBEELENS_IMAGE=zigbeelens:local \
+  ./scripts/build-docker.sh
+```
+
+Empty, abbreviated, malformed, or uppercase revisions fail before Docker is
+invoked. A dirty checkout deliberately retains the committed `HEAD` revision
+label; local modifications are not represented by that label, so use a clean
+checkout for reproducible release evidence.
+
 ## Configuration
 
 Copy `deploy/docker/config.example.yaml` to `config/config.yaml`.

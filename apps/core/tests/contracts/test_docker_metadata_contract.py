@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 from typing import Any
@@ -15,6 +16,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[4]
 WORKFLOW = ROOT / ".github" / "workflows" / "docker.yml"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+BUILD_SCRIPT = ROOT / "scripts" / "build-docker.sh"
+SMOKE_SCRIPT = ROOT / "scripts" / "smoke-docker.sh"
+DOCKERFILE = ROOT / "deploy" / "docker" / "Dockerfile"
 VALIDATOR = ROOT / "deploy" / "docker" / "validate_oci_metadata.py"
 SPEC = importlib.util.spec_from_file_location(
     "zigbeelens_validate_oci_metadata_contract",
@@ -90,6 +95,127 @@ def _metadata_payload(
     }
 
 
+def _local_build_fixture(
+    tmp_path: Path,
+    *,
+    package_version: str = PACKAGE_VERSION,
+) -> tuple[Path, Path, Path]:
+    checkout = tmp_path / "checkout"
+    scripts = checkout / "scripts"
+    docker_dir = checkout / "deploy" / "docker"
+    scripts.mkdir(parents=True)
+    docker_dir.mkdir(parents=True)
+    shutil.copy2(BUILD_SCRIPT, scripts / "build-docker.sh")
+    shutil.copy2(DOCKERFILE, docker_dir / "Dockerfile")
+    (checkout / "package.json").write_text(
+        json.dumps(
+            {
+                "name": "zigbeelens-local-build-contract",
+                "version": package_version,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        'printf "%s\\n" "$@" > "${DOCKER_ARGS_FILE:?}"\n',
+        encoding="utf-8",
+    )
+    fake_docker.chmod(0o755)
+    return checkout, fake_bin, tmp_path / "docker-args"
+
+
+def _run_local_build(
+    checkout: Path,
+    fake_bin: Path,
+    docker_args: Path,
+    *,
+    environment: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    build_environment = os.environ.copy()
+    for name in (
+        "ZIGBEELENS_IMAGE",
+        "ZIGBEELENS_REVISION",
+        "ZIGBEELENS_VERSION",
+    ):
+        build_environment.pop(name, None)
+    build_environment.update(
+        {
+            "DOCKER_ARGS_FILE": str(docker_args),
+            "PATH": f"{fake_bin}{os.pathsep}{build_environment['PATH']}",
+            "ZIGBEELENS_IMAGE": "zigbeelens:contract",
+        }
+    )
+    if environment is not None:
+        build_environment.update(environment)
+    return subprocess.run(
+        ["bash", checkout / "scripts" / "build-docker.sh"],
+        cwd=checkout,
+        env=build_environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _git(checkout: Path, *arguments: str) -> str:
+    result = subprocess.run(
+        ["git", *arguments],
+        cwd=checkout,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+def _initialise_git_checkout(checkout: Path) -> str:
+    _git(checkout, "init", "--quiet")
+    _git(checkout, "add", ".")
+    _git(
+        checkout,
+        "-c",
+        "user.name=ZigbeeLens contract",
+        "-c",
+        "user.email=contracts@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        "fixture",
+    )
+    return _git(checkout, "rev-parse", "HEAD")
+
+
+def _expected_local_build_arguments(revision: str) -> list[str]:
+    return [
+        "build",
+        "-f",
+        "deploy/docker/Dockerfile",
+        "--build-arg",
+        f"VERSION={PACKAGE_VERSION}",
+        "--build-arg",
+        f"REVISION={revision}",
+        "--build-arg",
+        f"IMAGE_SOURCE={IMAGE_SOURCE}",
+        "-t",
+        "zigbeelens:contract",
+        "-t",
+        f"ghcr.io/theaussiepom/zigbeelens:{PACKAGE_VERSION}",
+        ".",
+    ]
+
+
+def _recorded_docker_arguments(path: Path) -> list[str]:
+    return path.read_text(encoding="utf-8").splitlines()
+
+
 def _assert_workflow_contract(workflow: str) -> None:
     assert re.search(
         r"(?ms)^on:\s*\n"
@@ -156,6 +282,7 @@ def _assert_workflow_contract(workflow: str) -> None:
     assert build.count(f"labels: {VALIDATED_LABELS_EXPRESSION}") == 1
     assert "labels: ${{ steps.meta.outputs.labels }}" not in build
     assert build.count(f"VERSION={VERSION_EXPRESSION}") == 1
+    assert build.count(f"REVISION={REVISION_EXPRESSION}") == 1
     assert build.count(f"IMAGE_SOURCE={SOURCE_EXPRESSION}") == 1
     assert build.count(f"push: {PUSH_EXPRESSION}") == 1
 
@@ -189,6 +316,10 @@ def test_docker_workflow_seals_release_metadata() -> None:
         (
             f"{OCI_REVISION_LABEL}={REVISION_EXPRESSION}",
             f"{OCI_REVISION_LABEL}=9065270",
+        ),
+        (
+            f"REVISION={REVISION_EXPRESSION}",
+            "REVISION=9065270",
         ),
         (
             f"{OCI_SOURCE_LABEL}={SOURCE_EXPRESSION}",
@@ -250,6 +381,332 @@ def test_docker_workflow_contract_rejects_soft_failed_validation() -> None:
     )
     with pytest.raises(AssertionError):
         _assert_workflow_contract(workflow.replace(validate, weakened, 1))
+
+
+def test_canonical_local_build_resolves_full_git_head(tmp_path: Path) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
+    revision = _initialise_git_checkout(checkout)
+
+    result = _run_local_build(checkout, fake_bin, docker_args)
+
+    assert result.returncode == 0, result.stderr
+    assert re.fullmatch(r"[0-9a-f]{40}", revision)
+    assert _recorded_docker_arguments(docker_args) == (
+        _expected_local_build_arguments(revision)
+    )
+
+
+def test_canonical_local_build_honours_revision_override_without_git(
+    tmp_path: Path,
+) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
+    revision = "a" * 40
+
+    result = _run_local_build(
+        checkout,
+        fake_bin,
+        docker_args,
+        environment={"ZIGBEELENS_REVISION": revision},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert _recorded_docker_arguments(docker_args) == (
+        _expected_local_build_arguments(revision)
+    )
+
+
+def test_canonical_local_build_fails_without_git_or_override(
+    tmp_path: Path,
+) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
+
+    result = _run_local_build(checkout, fake_bin, docker_args)
+
+    assert result.returncode != 0
+    assert "unable to resolve a Git revision" in result.stderr
+    assert not docker_args.exists()
+
+
+def test_canonical_local_build_rejects_unrelated_parent_git_checkout(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    _git(parent, "init", "--quiet")
+    (parent / "parent-marker").write_text("unrelated\n", encoding="utf-8")
+    _git(parent, "add", "parent-marker")
+    _git(
+        parent,
+        "-c",
+        "user.name=ZigbeeLens contract",
+        "-c",
+        "user.email=contracts@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        "unrelated parent",
+    )
+    checkout, fake_bin, docker_args = _local_build_fixture(parent)
+
+    result = _run_local_build(checkout, fake_bin, docker_args)
+
+    assert result.returncode != 0
+    assert "build root must be the exact Git checkout root" in result.stderr
+    assert not docker_args.exists()
+
+
+@pytest.mark.parametrize(
+    "revision",
+    (
+        "",
+        "9065270",
+        "a" * 39,
+        "a" * 41,
+        "A" * 40,
+        "g" * 40,
+        f" {'a' * 40}",
+        f"{'a' * 40} ",
+        f"{'a' * 20}\n{'a' * 20}",
+    ),
+    ids=(
+        "empty",
+        "abbreviated",
+        "39-characters",
+        "41-characters",
+        "uppercase",
+        "non-hex",
+        "leading-whitespace",
+        "trailing-whitespace",
+        "embedded-newline",
+    ),
+)
+def test_canonical_local_build_rejects_invalid_explicit_revision_before_docker(
+    tmp_path: Path,
+    revision: str,
+) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
+
+    result = _run_local_build(
+        checkout,
+        fake_bin,
+        docker_args,
+        environment={"ZIGBEELENS_REVISION": revision},
+    )
+
+    assert result.returncode != 0
+    assert "full 40-character lowercase hexadecimal Git SHA" in result.stderr
+    assert not docker_args.exists()
+
+
+@pytest.mark.parametrize(
+    "resolved_revision",
+    (
+        "9065270",
+        "A" * 40,
+        "g" * 40,
+        "a" * 39,
+        "a" * 41,
+    ),
+)
+def test_canonical_local_build_rejects_invalid_git_resolution_before_docker(
+    tmp_path: Path,
+    resolved_revision: str,
+) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
+    fake_git = fake_bin / "git"
+    fake_git.write_text(
+        "#!/usr/bin/env bash\n"
+        "if [[ \"$*\" == \"rev-parse --show-toplevel\" ]]; then\n"
+        '  printf "%s\\n" "${FAKE_GIT_TOPLEVEL:?}"\n'
+        "else\n"
+        f"  printf '%s\\n' '{resolved_revision}'\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    fake_git.chmod(0o755)
+
+    result = _run_local_build(
+        checkout,
+        fake_bin,
+        docker_args,
+        environment={"FAKE_GIT_TOPLEVEL": str(checkout)},
+    )
+
+    assert result.returncode != 0
+    assert "full 40-character lowercase hexadecimal Git SHA" in result.stderr
+    assert not docker_args.exists()
+
+
+def test_canonical_local_build_rejects_failed_git_with_plausible_stdout(
+    tmp_path: Path,
+) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
+    fake_git = fake_bin / "git"
+    fake_git.write_text(
+        "#!/usr/bin/env bash\n"
+        "if [[ \"$*\" == \"rev-parse --show-toplevel\" ]]; then\n"
+        '  printf "%s\\n" "${FAKE_GIT_TOPLEVEL:?}"\n'
+        "  exit 0\n"
+        "fi\n"
+        f"printf '%s\\n' '{'a' * 40}'\n"
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    fake_git.chmod(0o755)
+
+    result = _run_local_build(
+        checkout,
+        fake_bin,
+        docker_args,
+        environment={"FAKE_GIT_TOPLEVEL": str(checkout)},
+    )
+
+    assert result.returncode != 0
+    assert "unable to resolve a Git revision" in result.stderr
+    assert not docker_args.exists()
+
+
+def test_canonical_local_build_resolves_detached_head(tmp_path: Path) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
+    revision = _initialise_git_checkout(checkout)
+    _git(checkout, "checkout", "--quiet", "--detach", revision)
+
+    result = _run_local_build(checkout, fake_bin, docker_args)
+
+    assert result.returncode == 0, result.stderr
+    assert _git(checkout, "branch", "--show-current") == ""
+    assert _recorded_docker_arguments(docker_args) == (
+        _expected_local_build_arguments(revision)
+    )
+
+
+def test_canonical_local_build_deliberately_identifies_head_when_dirty(
+    tmp_path: Path,
+) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
+    revision = _initialise_git_checkout(checkout)
+    fixture_dockerfile = checkout / "deploy" / "docker" / "Dockerfile"
+    fixture_dockerfile.write_text(
+        fixture_dockerfile.read_text(encoding="utf-8") + "\n# dirty fixture\n",
+        encoding="utf-8",
+    )
+    assert _git(checkout, "status", "--short")
+
+    result = _run_local_build(checkout, fake_bin, docker_args)
+
+    assert result.returncode == 0, result.stderr
+    assert _recorded_docker_arguments(docker_args) == (
+        _expected_local_build_arguments(revision)
+    )
+
+
+@pytest.mark.parametrize(
+    ("package_version", "version_override"),
+    (
+        (PACKAGE_VERSION, ""),
+        (PACKAGE_VERSION, "edge"),
+        (PACKAGE_VERSION, "0.1.15"),
+        ("edge", None),
+        ("01.2.3", None),
+    ),
+    ids=(
+        "empty-override",
+        "channel-override",
+        "misaligned-semver-override",
+        "package-channel",
+        "non-strict-package-semver",
+    ),
+)
+def test_canonical_local_build_rejects_invalid_or_misaligned_version_before_docker(
+    tmp_path: Path,
+    package_version: str,
+    version_override: str | None,
+) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(
+        tmp_path,
+        package_version=package_version,
+    )
+    environment = {"ZIGBEELENS_REVISION": "a" * 40}
+    if version_override is not None:
+        environment["ZIGBEELENS_VERSION"] = version_override
+
+    result = _run_local_build(
+        checkout,
+        fake_bin,
+        docker_args,
+        environment=environment,
+    )
+
+    assert result.returncode != 0
+    assert "version" in result.stderr.lower()
+    assert not docker_args.exists()
+
+
+def test_canonical_local_build_accepts_exact_package_version_override(
+    tmp_path: Path,
+) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
+    revision = "b" * 40
+
+    result = _run_local_build(
+        checkout,
+        fake_bin,
+        docker_args,
+        environment={
+            "ZIGBEELENS_REVISION": revision,
+            "ZIGBEELENS_VERSION": PACKAGE_VERSION,
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert _recorded_docker_arguments(docker_args) == (
+        _expected_local_build_arguments(revision)
+    )
+
+
+def test_dockerfile_owns_version_revision_and_source_labels() -> None:
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    first_from = dockerfile.index("FROM ")
+    runtime_start = dockerfile.index("FROM python:3.12-slim AS runtime")
+    before_runtime = dockerfile[:runtime_start]
+    runtime = dockerfile[runtime_start:]
+
+    assert dockerfile[:first_from].count("ARG VERSION=0.1.14") == 1
+    assert dockerfile[:first_from].count("ARG REVISION") == 1
+    assert dockerfile[:first_from].count(f"ARG IMAGE_SOURCE={IMAGE_SOURCE}") == 1
+    assert runtime.count("\nARG VERSION\n") == 1
+    assert runtime.count("\nARG REVISION\n") == 1
+    assert runtime.count("\nARG IMAGE_SOURCE\n") == 1
+    assert runtime.count(
+        'org.opencontainers.image.version="${VERSION}"'
+    ) == 1
+    assert runtime.count(
+        'org.opencontainers.image.revision="${REVISION}"'
+    ) == 1
+    assert runtime.count(
+        'org.opencontainers.image.source="${IMAGE_SOURCE}"'
+    ) == 1
+    assert "org.opencontainers.image.version=" not in before_runtime
+    assert "org.opencontainers.image.revision=" not in before_runtime
+    assert "org.opencontainers.image.source=" not in before_runtime
+
+
+def test_ci_no_push_build_passes_exact_checkout_identity() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    build = _step_body(workflow, "Build Docker image (no push)")
+
+    assert build.count(f"VERSION={VERSION_EXPRESSION}") == 1
+    assert build.count(f"REVISION={REVISION_EXPRESSION}") == 1
+    assert build.count(f"IMAGE_SOURCE={SOURCE_EXPRESSION}") == 1
+
+
+def test_docker_smoke_uses_canonical_local_build_owner() -> None:
+    smoke = SMOKE_SCRIPT.read_text(encoding="utf-8")
+
+    assert smoke.count(
+        'ZIGBEELENS_IMAGE="${IMAGE}" "${ROOT}/scripts/build-docker.sh"'
+    ) == 1
+    assert "docker build" not in smoke
 
 
 def test_validated_labels_preserve_metadata_after_identity_check() -> None:
