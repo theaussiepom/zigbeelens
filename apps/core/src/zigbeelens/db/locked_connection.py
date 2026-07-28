@@ -72,7 +72,14 @@ class LockedCursor:
 class LockedSQLiteConnection:
     """Serialize SQLite access — safe for concurrent API requests."""
 
-    __slots__ = ("_conn", "_lock", "_state", "_on_physical_commit", "_on_physical_rollback")
+    __slots__ = (
+        "_conn",
+        "_lock",
+        "_state",
+        "_on_physical_commit",
+        "_on_physical_rollback",
+        "_poisoned",
+    )
 
     def __init__(self, conn: sqlite3.Connection, lock: threading.RLock) -> None:
         self._conn = conn
@@ -80,6 +87,21 @@ class LockedSQLiteConnection:
         self._state = threading.local()
         self._on_physical_commit: Callable[[], None] | None = None
         self._on_physical_rollback: Callable[[], None] | None = None
+        self._poisoned = False
+
+    def _ensure_usable(self) -> None:
+        if self._poisoned:
+            raise sqlite3.ProgrammingError(
+                "SQLite connection is unusable after an unrecoverable rollback failure"
+            )
+
+    def _poison_after_failed_rollback(self) -> None:
+        """Fail closed when neither SQLite rollback path can be confirmed."""
+        self._poisoned = True
+        try:
+            self._conn.close()
+        except BaseException:
+            pass
 
     def set_transaction_observer(
         self,
@@ -108,6 +130,7 @@ class LockedSQLiteConnection:
         # SystemExit / GeneratorExit cannot leave the shared RLock held.
         self._lock.acquire()
         try:
+            self._ensure_usable()
             return LockedCursor(self._conn.execute(sql, params), self._lock)
         except BaseException:
             self._lock.release()
@@ -115,12 +138,14 @@ class LockedSQLiteConnection:
 
     def executescript(self, sql_script: str) -> None:
         with self._lock:
+            self._ensure_usable()
             if self._depth() > 0:
                 raise RuntimeError("executescript is not allowed inside a repository transaction")
             self._conn.executescript(sql_script)
 
     def commit(self) -> None:
         with self._lock:
+            self._ensure_usable()
             if self._depth() > 0:
                 return
             self._conn.commit()
@@ -129,6 +154,7 @@ class LockedSQLiteConnection:
 
     def rollback(self) -> None:
         with self._lock:
+            self._ensure_usable()
             if self._depth() > 0:
                 self._state.rollback_only = True
                 return
@@ -145,7 +171,29 @@ class LockedSQLiteConnection:
             self._on_physical_commit()
 
     def _physical_rollback(self) -> None:
-        self._conn.rollback()
+        try:
+            self._conn.rollback()
+        except BaseException as rollback_exc:
+            try:
+                still_active = bool(self._conn.in_transaction)
+            except BaseException:
+                still_active = True
+            if still_active:
+                try:
+                    self._conn.execute("ROLLBACK")
+                except BaseException:
+                    self._poison_after_failed_rollback()
+                    raise rollback_exc
+            try:
+                still_active = bool(self._conn.in_transaction)
+            except BaseException:
+                self._poison_after_failed_rollback()
+                raise rollback_exc
+            if still_active:
+                self._poison_after_failed_rollback()
+                raise rollback_exc
+            self._notify_physical_rollback()
+            raise rollback_exc
         self._notify_physical_rollback()
 
     def _physical_commit_or_recover(self) -> None:
@@ -154,11 +202,7 @@ class LockedSQLiteConnection:
             self._conn.commit()
         except BaseException as commit_exc:
             try:
-                self._conn.rollback()
-            except BaseException:
-                pass
-            try:
-                self._notify_physical_rollback()
+                self._physical_rollback()
             except BaseException:
                 pass
             raise commit_exc
@@ -168,11 +212,7 @@ class LockedSQLiteConnection:
         """Reset TLS and release the lock after a failed outermost BEGIN/setup."""
         if began:
             try:
-                self._conn.rollback()
-            except BaseException:
-                pass
-            try:
-                self._notify_physical_rollback()
+                self._physical_rollback()
             except BaseException:
                 pass
         self._state.rollback_only = False
@@ -195,6 +235,7 @@ class LockedSQLiteConnection:
             began = False
             was_in_transaction = False
             try:
+                self._ensure_usable()
                 self._state.rollback_only = False
                 # Detect BEGIN-then-raise: execute() may start a transaction even
                 # when it re-raises before returning (PR #79 corrective).
@@ -203,14 +244,22 @@ class LockedSQLiteConnection:
                 began = True
                 self._set_depth(1)
             except BaseException:
-                began_here = began or (
-                    not was_in_transaction and bool(self._conn.in_transaction)
-                )
+                began_here = began
+                if not began_here and not was_in_transaction:
+                    try:
+                        began_here = bool(self._conn.in_transaction)
+                    except BaseException:
+                        began_here = False
                 self._cleanup_failed_begin(began=began_here)
                 raise
         else:
             self._lock.acquire()
-            self._set_depth(self._depth() + 1)
+            try:
+                self._ensure_usable()
+                self._set_depth(self._depth() + 1)
+            except BaseException:
+                self._lock.release()
+                raise
 
         failed = False
         try:
@@ -243,6 +292,7 @@ class LockedSQLiteConnection:
 
         def wrapped(*args: Any, **kwargs: Any) -> Any:
             with self._lock:
+                self._ensure_usable()
                 return attr(*args, **kwargs)
 
         return wrapped

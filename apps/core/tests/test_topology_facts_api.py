@@ -5,12 +5,14 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from zigbeelens.app.context import get_context
 from zigbeelens.config.models import TopologyConfig
 from zigbeelens.decisions.topology_facts import TopologyFactCode
 from zigbeelens.services.topology_facts_composition import topology_stale_threshold_hours
+from zigbeelens.topology.device_compare import MAX_SNAPSHOT_HISTORY
 from zigbeelens.topology.parser import parse_networkmap_payload
 
 
@@ -24,6 +26,7 @@ def _store_snapshot(
     *,
     captured_at: datetime,
     links: list[dict],
+    nodes: list[dict] | dict[str, dict] | None = None,
 ) -> None:
     repo.create_topology_snapshot(
         snapshot_id=snapshot_id,
@@ -34,7 +37,9 @@ def _store_snapshot(
     )
     parsed = parse_networkmap_payload(
         {
-            "nodes": {
+            "nodes": nodes
+            if nodes is not None
+            else {
                 "0x01": {"type": "Coordinator"},
                 "0x02": {"type": "Router"},
                 "0x03": {"type": "Router"},
@@ -300,3 +305,175 @@ def test_device_snapshot_history_api_topology_facts_shape_and_scoped_comparisons
 
     for fact in comparison_by_id["snap-old-1"]:
         assert fact["params"].get("snapshot_id") == "snap-old-1"
+
+
+def _history_bodies(
+    client: TestClient,
+    ieee: str,
+) -> list[dict]:
+    bodies: list[dict] = []
+    for prefix in ("/api", "/api/v1"):
+        for spelling in (ieee.lower(), ieee.upper()):
+            response = client.get(f"{prefix}/topology/home/devices/{spelling}/snapshot-history")
+            assert response.status_code == 200
+            bodies.append(response.json())
+    assert all(body == bodies[0] for body in bodies[1:])
+    return bodies
+
+
+def test_snapshot_history_current_device_without_topology_history_is_available(
+    topology_client: TestClient,
+) -> None:
+    ctx = get_context()
+    target = "0xcurrentonly"
+    ctx.repo.upsert_device(
+        network_id="home",
+        ieee_address=target,
+        friendly_name="Current only",
+        device_type="EndDevice",
+        power_source="Battery",
+        interview_state="successful",
+    )
+
+    body = _history_bodies(topology_client, target)[0]
+
+    assert body["device_ieee"] == target
+    assert body["friendly_name"] == "Current only"
+    assert body["latest_snapshot"] is None
+    assert body["snapshots"] == []
+
+
+def test_snapshot_history_topology_only_latest_node_is_available(
+    topology_client: TestClient,
+) -> None:
+    ctx = get_context()
+    target = "0xlatestonly"
+    _store_snapshot(
+        ctx.repo,
+        "snap-latest-only",
+        captured_at=_utc_now(),
+        nodes=[
+            {"ieeeAddr": "0xpeer", "type": "Router"},
+            {
+                "ieeeAddr": target,
+                "friendlyName": "Topology only",
+                "type": "EndDevice",
+            },
+        ],
+        links=[],
+    )
+    assert ctx.repo.get_device("home", target) is None
+
+    body = _history_bodies(topology_client, target)[0]
+
+    assert body["device_ieee"] == target
+    assert body["latest_snapshot"]["snapshot_id"] == "snap-latest-only"
+    codes = {fact["code"] for fact in body["topology_facts"]["device_facts"]}
+    assert TopologyFactCode.device_seen_in_latest_snapshot in codes
+
+
+@pytest.mark.parametrize(
+    ("evidence_kind", "expected_link_count"),
+    [
+        ("node", 0),
+        ("source_link", 1),
+        ("target_link", 1),
+    ],
+)
+def test_snapshot_history_accepts_identity_only_in_older_retained_snapshot(
+    topology_client: TestClient,
+    evidence_kind: str,
+    expected_link_count: int,
+) -> None:
+    ctx = get_context()
+    target = f"0xhistorical{evidence_kind}"
+    older_nodes = [{"ieeeAddr": "0xpeer", "type": "Router"}]
+    older_links: list[dict] = []
+    if evidence_kind == "node":
+        older_nodes.append(
+            {
+                "ieeeAddr": target,
+                "friendlyName": "Historical only",
+                "type": "EndDevice",
+            }
+        )
+    elif evidence_kind == "source_link":
+        older_links.append({"source": target, "target": "0xpeer", "linkquality": 80})
+    else:
+        older_links.append({"source": "0xpeer", "target": target, "linkquality": 81})
+    now = _utc_now()
+    _store_snapshot(
+        ctx.repo,
+        "snap-historical",
+        captured_at=now - timedelta(days=1),
+        nodes=older_nodes,
+        links=older_links,
+    )
+    # The selected latest snapshot is layout-limited and omits the identity.
+    _store_snapshot(
+        ctx.repo,
+        "snap-layout-limited",
+        captured_at=now,
+        nodes=[],
+        links=[],
+    )
+    assert ctx.repo.get_device("home", target) is None
+
+    body = _history_bodies(topology_client, target)[0]
+
+    assert body["device_ieee"] == target
+    assert body["latest_snapshot"]["snapshot_id"] == "snap-layout-limited"
+    assert body["latest_snapshot"]["links_for_device_count"] == 0
+    historical = body["snapshots"][0]
+    assert historical["snapshot_id"] == "snap-historical"
+    assert historical["links_for_device_count"] == expected_link_count
+    codes = {fact["code"] for fact in body["topology_facts"]["device_facts"]}
+    assert TopologyFactCode.device_absent_from_latest_snapshot in codes
+    assert TopologyFactCode.device_seen_in_latest_snapshot not in codes
+
+
+def test_snapshot_history_identity_outside_retained_window_is_unknown_unless_current(
+    topology_client: TestClient,
+) -> None:
+    ctx = get_context()
+    target = "0xoutsidewindow"
+    never_seen = "0xneverseen"
+    now = _utc_now()
+    _store_snapshot(
+        ctx.repo,
+        "snap-outside-window",
+        captured_at=now - timedelta(days=30),
+        nodes=[
+            {"ieeeAddr": "0xpeer", "type": "Router"},
+            {"ieeeAddr": target, "type": "EndDevice"},
+        ],
+        links=[],
+    )
+    for index in range(MAX_SNAPSHOT_HISTORY):
+        _store_snapshot(
+            ctx.repo,
+            f"snap-retained-{index:02d}",
+            captured_at=now - timedelta(minutes=MAX_SNAPSHOT_HISTORY - index),
+            nodes=[{"ieeeAddr": "0xpeer", "type": "Router"}],
+            links=[],
+        )
+
+    for ieee in (target, never_seen):
+        responses = [
+            topology_client.get(f"{prefix}/topology/home/devices/{ieee}/snapshot-history")
+            for prefix in ("/api", "/api/v1")
+        ]
+        assert [response.status_code for response in responses] == [404, 404]
+        assert responses[0].json() == responses[1].json()
+
+    ctx.repo.upsert_device(
+        network_id="home",
+        ieee_address=target,
+        friendly_name="Current retained override",
+        device_type="EndDevice",
+        power_source="Battery",
+        interview_state="successful",
+    )
+    body = _history_bodies(topology_client, target)[0]
+    assert body["friendly_name"] == "Current retained override"
+    assert 1 + len(body["snapshots"]) == MAX_SNAPSHOT_HISTORY

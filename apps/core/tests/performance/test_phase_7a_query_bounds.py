@@ -774,7 +774,7 @@ def test_device_snapshot_history_no_complete_inventory_1_vs_1000(tmp_path: Path)
         original_get_device = Repository.get_device
         original_complete = Repository.list_complete_topology_snapshots
         original_links = Repository.list_topology_links_for_device_in_snapshots
-        original_node = Repository.get_topology_node
+        original_nodes = Repository.get_topology_nodes_for_device_in_snapshots
         original_exists = Repository.network_has_explicit_availability_state
 
         def fail_list_devices(self, network_id=None):
@@ -799,10 +799,12 @@ def test_device_snapshot_history_no_complete_inventory_1_vs_1000(tmp_path: Path)
             cards["target_link_rows"] = sum(len(v) for v in result.values())
             return result
 
-        def spy_node(self, snapshot_id, ieee_address):
-            row = original_node(self, snapshot_id, ieee_address)
-            cards["target_node_rows"] += 1 if row is not None else 0
-            return row
+        def spy_nodes(self, snapshot_ids, ieee_address):
+            result = original_nodes(self, snapshot_ids, ieee_address)
+            cards["target_node_rows"] = sum(
+                row is not None for row in result.values()
+            )
+            return result
 
         def spy_exists(self, network_id):
             hit = original_exists(self, network_id)
@@ -814,7 +816,7 @@ def test_device_snapshot_history_no_complete_inventory_1_vs_1000(tmp_path: Path)
         Repository.get_device = spy_get_device  # type: ignore[method-assign]
         Repository.list_complete_topology_snapshots = spy_complete  # type: ignore[method-assign]
         Repository.list_topology_links_for_device_in_snapshots = spy_links  # type: ignore[method-assign]
-        Repository.get_topology_node = spy_node  # type: ignore[method-assign]
+        Repository.get_topology_nodes_for_device_in_snapshots = spy_nodes  # type: ignore[method-assign]
         Repository.network_has_explicit_availability_state = spy_exists  # type: ignore[method-assign]
         try:
             payload = build_device_snapshot_history_response(
@@ -831,7 +833,7 @@ def test_device_snapshot_history_no_complete_inventory_1_vs_1000(tmp_path: Path)
             Repository.get_device = original_get_device  # type: ignore[method-assign]
             Repository.list_complete_topology_snapshots = original_complete  # type: ignore[method-assign]
             Repository.list_topology_links_for_device_in_snapshots = original_links  # type: ignore[method-assign]
-            Repository.get_topology_node = original_node  # type: ignore[method-assign]
+            Repository.get_topology_nodes_for_device_in_snapshots = original_nodes  # type: ignore[method-assign]
             Repository.network_has_explicit_availability_state = original_exists  # type: ignore[method-assign]
         return payload, cards
 
@@ -841,7 +843,7 @@ def test_device_snapshot_history_no_complete_inventory_1_vs_1000(tmp_path: Path)
     assert c0["snapshot_rows"] == c1000["snapshot_rows"] == MAX_SNAPSHOT_HISTORY
     assert c0["selected_ids"] == c1000["selected_ids"] == MAX_SNAPSHOT_HISTORY
     assert c0["target_link_rows"] == c1000["target_link_rows"]
-    assert c0["target_node_rows"] == c1000["target_node_rows"] <= 1
+    assert c0["target_node_rows"] == c1000["target_node_rows"] <= MAX_SNAPSHOT_HISTORY
     assert c0["target_device_rows"] == c1000["target_device_rows"] == 1
     # Transition present → existence probe skipped (0 rows).
     assert c0["availability_existence_rows"] == c1000["availability_existence_rows"] == 0
@@ -937,8 +939,77 @@ def test_device_snapshot_history_missing_target_semantics(tmp_path: Path):
     assert counter.stats.category_counts["read.topology_snapshots"] == 1
     assert counter.stats.category_counts["read.devices"] == 1
     assert counter.stats.category_counts["read.topology_nodes"] == 1
-    assert counter.stats.category_counts["read.topology_links"] == 0
+    # Unknown identities still require one bounded exact link probe because a
+    # retained source/target row is sufficient historical identity evidence.
+    assert counter.stats.category_counts["read.topology_links"] == 1
     assert counter.stats.category_counts["read.availability_changes"] == 0
+
+
+def test_target_device_node_query_is_bounded_exact_and_indexed(
+    tmp_path: Path,
+) -> None:
+    repo, _ = _repo(tmp_path, networks=["home"])
+    target = "0xtarget"
+    selected: list[str] = []
+    for index in range(MAX_SNAPSHOT_HISTORY):
+        snapshot_id = f"snap-{index:02d}"
+        selected.append(snapshot_id)
+        _seed_complete_snapshot(
+            repo,
+            network_id="home",
+            snapshot_id=snapshot_id,
+            captured_at=REFERENCE_TIME - timedelta(minutes=index),
+            target_ieee=target if index % 2 == 0 else None,
+            link_count=4,
+        )
+
+    sparse = repo.get_topology_nodes_for_device_in_snapshots(selected, target)
+    mixed_case = repo.get_topology_nodes_for_device_in_snapshots(
+        selected,
+        "  0xTARGET  ",
+    )
+    assert mixed_case == sparse
+    assert set(sparse) == set(selected)
+    assert sum(row is not None for row in sparse.values()) == (
+        MAX_SNAPSHOT_HISTORY + 1
+    ) // 2
+
+    for snapshot_id in selected:
+        repo.db.conn.executemany(
+            """
+            INSERT INTO topology_nodes (
+                snapshot_id, network_id, ieee_address, friendly_name,
+                node_type, depth, lqi, raw_json
+            ) VALUES (?, 'home', ?, ?, 'EndDevice', 2, 50, '{}')
+            """,
+            [
+                (
+                    snapshot_id,
+                    f"0xunrelated-{snapshot_id}-{index:04d}",
+                    f"Unrelated {index}",
+                )
+                for index in range(250)
+            ],
+        )
+    repo.db.conn.commit()
+    dense = repo.get_topology_nodes_for_device_in_snapshots(selected, target)
+    assert dense == sparse
+
+    sql, params = repo._topology_nodes_for_device_in_snapshots_sql(
+        selected,
+        target,
+    )
+    plan = " | ".join(
+        str(row[-1])
+        for row in repo.db.conn.execute(
+            f"EXPLAIN QUERY PLAN {sql}",
+            params,
+        )
+    )
+    assert "LOWER(" not in sql.upper()
+    assert "SCAN topology_nodes" not in plan
+    assert "USE TEMP B-TREE FOR ORDER BY" not in plan
+    assert "sqlite_autoindex_topology_nodes_1" in plan
 
 
 def test_target_device_link_query_sparse_vs_dense_and_explain(tmp_path: Path):

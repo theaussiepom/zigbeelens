@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 
 class DeviceTopologyIdentityNotFoundError(LookupError):
-    """No current-device or latest-snapshot evidence owns the requested identity."""
+    """No current-device or selected retained-snapshot evidence owns the identity."""
 
     def __init__(self, network_id: str, device_ieee: str) -> None:
         super().__init__(
@@ -154,10 +154,10 @@ def build_device_snapshot_history_response(
 ) -> dict[str, Any]:
     """Exact device snapshot-history endpoint with row/link bounds.
 
-    Loads at most ``MAX_SNAPSHOT_HISTORY`` complete snapshots and only
-    target-device links for those IDs. Does not materialise the complete
-    network device inventory; network-level availability tracking uses a
-    bounded existence probe when no transition history exists.
+    Loads at most ``MAX_SNAPSHOT_HISTORY`` complete snapshots and only exact
+    target-device node/link evidence for those IDs. Does not materialise the
+    complete network device inventory; network-level availability tracking
+    uses a bounded existence probe when no transition history exists.
     """
     from datetime import datetime, timezone
 
@@ -180,19 +180,32 @@ def build_device_snapshot_history_response(
     latest = usable[0] if usable else None
     latest_id = str(latest["snapshot_id"]) if latest is not None else None
     device_row = repo.get_device(network_id, device_ieee)
-    latest_node = (
-        repo.get_topology_node(latest_id, device_ieee)
-        if latest_id is not None
-        else None
+    nodes_by_snapshot_id = (
+        repo.get_topology_nodes_for_device_in_snapshots(snapshot_ids, device_ieee)
+        if snapshot_ids
+        else {}
     )
-    if device_row is None and latest_node is None:
-        raise DeviceTopologyIdentityNotFoundError(network_id, device_ieee)
-
     links_by_snapshot_id = (
         repo.list_topology_links_for_device_in_snapshots(snapshot_ids, device_ieee)
         if snapshot_ids
         else {}
     )
+    latest_node = (
+        nodes_by_snapshot_id.get(latest_id)
+        if latest_id is not None
+        else None
+    )
+    retained_node_exists = any(
+        node is not None for node in nodes_by_snapshot_id.values()
+    )
+    retained_link_exists = any(links_by_snapshot_id.values())
+    if (
+        device_row is None
+        and not retained_node_exists
+        and not retained_link_exists
+    ):
+        raise DeviceTopologyIdentityNotFoundError(network_id, device_ieee)
+
     earliest_availability_at = repo.availability.get_earliest_availability_change_at(
         network_id
     )
