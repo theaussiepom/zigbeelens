@@ -56,6 +56,7 @@ COVERAGE_LABEL_CODES: tuple[str, ...] = (
     "topology_history_available",
     "topology_history_sparse",
     "topology_history_not_observed",
+    "topology_history_unavailable",
     "ha_area_linked",
 )
 
@@ -133,6 +134,7 @@ COVERAGE_LABEL_COPY: dict[str, str] = {
     "topology_history_available": "Topology history: available",
     "topology_history_sparse": "Topology history: sparse",
     "topology_history_not_observed": "Topology history: not observed",
+    "topology_history_unavailable": "Topology history: layout unavailable",
     "ha_area_linked": "HA area: linked",
 }
 
@@ -476,6 +478,9 @@ DEVICE_COVERAGE_LABEL_RENDERERS: dict[str, CopyRenderer] = {
     ),
     "topology_history_not_observed": lambda params: _topology_history_label(
         params, "Topology history: not observed"
+    ),
+    "topology_history_unavailable": lambda _params: (
+        "Topology history: layout unavailable"
     ),
     "ha_area_linked": lambda params: (
         f"HA area: {_string_param(params, 'area_name')}"

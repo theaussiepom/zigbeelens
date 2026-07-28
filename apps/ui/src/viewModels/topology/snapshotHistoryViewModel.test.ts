@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
+  DeviceSnapshotHistoryLimitedRow,
   DeviceSnapshotHistoryDetail,
   DeviceSnapshotHistoryRow,
 } from "@/types/devices";
@@ -27,7 +28,9 @@ function makeRow(overrides: Partial<DeviceSnapshotHistoryRow>): DeviceSnapshotHi
     snapshot_id: "snap-prev",
     captured_at: "2026-07-05T19:10:00+00:00",
     is_latest: false,
+    layout_state: "available",
     is_usable: true,
+    device_present_in_snapshot: true,
     links_for_device_count: 6,
     route_hints_for_device_count: 2,
     availability_coverage_status: "tracked",
@@ -54,6 +57,25 @@ function makeRow(overrides: Partial<DeviceSnapshotHistoryRow>): DeviceSnapshotHi
         changed_count: 0,
       },
     },
+    ...overrides,
+  };
+}
+
+function makeLimitedRow(
+  overrides: Partial<DeviceSnapshotHistoryLimitedRow> = {},
+): DeviceSnapshotHistoryLimitedRow {
+  return {
+    snapshot_id: "snap-limited",
+    captured_at: "2026-07-04T19:10:00+00:00",
+    is_latest: false,
+    layout_state: "limited",
+    is_usable: false,
+    device_present_in_snapshot: null,
+    links_for_device_count: null,
+    route_hints_for_device_count: null,
+    availability_coverage_status: "tracked",
+    availability_state_near_snapshot: "online",
+    comparison_to_latest: null,
     ...overrides,
   };
 }
@@ -279,8 +301,99 @@ describe("snapshotHistoryViewModel", () => {
     const vm = buildSnapshotHistoryViewModel(worthReviewingDetail, "snap-prev");
     expect(vm.latest).not.toBeNull();
     expect(vm.latest?.relativeLabel).toBe(relativeTime(latest.captured_at ?? undefined));
-    expect(vm.latest?.summaryText).toBe("0 links shown · no route hints · Offline");
+    expect(vm.latest?.summaryText).toBe(
+      "Device observed in this snapshot · 0 links shown · no route hints · Offline",
+    );
     expect(vm.latest?.capturedAtTitle).toBe(formatTime(latest.captured_at ?? undefined));
+  });
+
+  it("preserves factual available zero and factual device absence as measured values", () => {
+    const present = buildSnapshotHistoryViewModel(worthReviewingDetail, null);
+    expect(present.latest?.summaryText).toContain("Device observed in this snapshot");
+    expect(present.latest?.summaryText).toContain("0 links shown");
+    expect(present.latest?.summaryText).toContain("no route hints");
+
+    const absentDetail: DeviceSnapshotHistoryDetail = {
+      ...worthReviewingDetail,
+      latest_snapshot: makeRow({
+        snapshot_id: "snap-live",
+        is_latest: true,
+        device_present_in_snapshot: false,
+        links_for_device_count: 0,
+        route_hints_for_device_count: 0,
+        comparison_to_latest: null,
+      }),
+      snapshots: [],
+    };
+    const absent = buildSnapshotHistoryViewModel(absentDetail, null);
+    expect(absent.latest?.summaryText).toContain(
+      "Device not observed in this snapshot",
+    );
+    expect(absent.latest?.summaryText).toContain("0 links shown");
+  });
+
+  it("presents limited latest layout as unavailable without zero or comparison status", () => {
+    const detail: DeviceSnapshotHistoryDetail = {
+      ...worthReviewingDetail,
+      latest_snapshot: makeLimitedRow({
+        snapshot_id: "snap-live-limited",
+        captured_at: "2026-07-06T00:30:00+00:00",
+        is_latest: true,
+        availability_state_near_snapshot: "offline",
+      }),
+      snapshots: [
+        makeRow({
+          snapshot_id: "snap-prev",
+          comparison_to_latest: null,
+        }),
+      ],
+    };
+    const vm = buildSnapshotHistoryViewModel(detail, "snap-prev");
+    expect(vm.latest?.summaryText).toBe("Topology layout unavailable · Offline");
+    expect(vm.latest?.summaryText).not.toMatch(/\b0\b|no route hints/i);
+    expect(vm.rows[0]?.statusLabel).toBeNull();
+    expect(vm.comparison).toBeNull();
+    expect(vm.comparisonUnavailableCopy).toMatch(
+      /latest topology layout is unavailable/i,
+    );
+  });
+
+  it("keeps a limited earlier row selectable but defaults to the first comparable row", () => {
+    const comparable = makeRow({
+      snapshot_id: "snap-comparable",
+      comparison_to_latest: {
+        status: "no_notable_change",
+        reasons: ["Similar number of links shown."],
+        suggested_checks: [],
+        link_counts: {
+          latest_count: 0,
+          selected_count: 6,
+          latest_only_count: 0,
+          selected_only_count: 6,
+          changed_count: 0,
+        },
+        route_hint_counts: {
+          latest_count: 0,
+          selected_count: 2,
+          latest_only_count: 0,
+          selected_only_count: 2,
+          changed_count: 0,
+        },
+      },
+    });
+    const detail: DeviceSnapshotHistoryDetail = {
+      ...worthReviewingDetail,
+      snapshots: [makeLimitedRow(), comparable],
+    };
+    expect(defaultSelectedSnapshotId(detail)).toBe("snap-comparable");
+
+    const limited = buildSnapshotHistoryViewModel(detail, "snap-limited");
+    expect(limited.rows[0]?.countsText).toBe("Topology layout unavailable");
+    expect(limited.rows[0]?.statusLabel).toBeNull();
+    expect(limited.comparison).toBeNull();
+    expect(limited.comparisonUnavailableCopy).toMatch(
+      /selected topology layout is unavailable/i,
+    );
   });
 
   it("exposes empty state copy when no earlier snapshots exist", () => {
@@ -291,6 +404,6 @@ describe("snapshotHistoryViewModel", () => {
     const vm = buildSnapshotHistoryViewModel(detail, null);
     expect(vm.rows).toHaveLength(0);
     expect(vm.comparison).toBeNull();
-    expect(vm.emptyCopy).toContain("No earlier usable topology snapshots");
+    expect(vm.emptyCopy).toContain("No earlier complete topology captures");
   });
 });

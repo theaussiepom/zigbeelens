@@ -216,6 +216,26 @@ def topology_history_not_observed(
     )
 
 
+def topology_history_unavailable(
+    *,
+    observed_snapshot_count: int,
+    snapshot_window_count: int,
+    limited_snapshot_count: int,
+    **params: Any,
+) -> DataCoverage:
+    return _coverage(
+        dimension=CoverageDimension.historical_snapshots,
+        state=CoverageState.unknown,
+        label_code=CoverageLabelCode.topology_history_unavailable,
+        params={
+            "observed_snapshot_count": observed_snapshot_count,
+            "snapshot_window_count": snapshot_window_count,
+            "limited_snapshot_count": limited_snapshot_count,
+            **params,
+        },
+    )
+
+
 def ha_area_linked(**params: Any) -> DataCoverage:
     return _coverage(
         dimension=CoverageDimension.ha_enrichment,

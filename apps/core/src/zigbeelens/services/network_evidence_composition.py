@@ -419,11 +419,29 @@ def compose_network_evidence_contexts(
                 loaded.add(NetworkEvidenceCapability.last_known_links)
             if NetworkEvidenceCapability.snapshot_history in requirements:
                 # Dependency closure guarantees devices + earliest_availability.
+                history_snapshot_ids = [
+                    str(snapshot["snapshot_id"])
+                    for snapshot in snap_list
+                    if snapshot.get("status") == "complete"
+                ][:MAX_SNAPSHOT_HISTORY]
+                nodes_map = {
+                    snapshot_id: list((network_nodes or {}).get(snapshot_id, []))
+                    for snapshot_id in history_snapshot_ids
+                }
+                layout_available_map = {
+                    snapshot_id: bool(
+                        nodes_map.get(snapshot_id)
+                        or links_map.get(snapshot_id)
+                    )
+                    for snapshot_id in history_snapshot_ids
+                }
                 snap_history_ctx = load_device_snapshot_history_network_context(
                     repo,
                     network_id,
                     snapshots=snap_list,
+                    nodes_by_snapshot_id=nodes_map,
                     links_by_snapshot_id=links_map,
+                    layout_available_by_snapshot_id=layout_available_map,
                     earliest_availability_at=earliest_at,
                     earliest_availability_supplied=True,
                     devices=list(device_rows_tuple or ()),

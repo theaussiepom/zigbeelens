@@ -16,6 +16,7 @@ from zigbeelens.decisions.coverage import (
     topology_history_available,
     topology_history_not_observed,
     topology_history_sparse,
+    topology_history_unavailable,
 )
 from zigbeelens.decisions.types import CoverageDimension, CoverageLabelCode, CoverageState
 
@@ -128,6 +129,22 @@ def test_topology_history_not_observed():
     assert coverage.params == {
         "observed_snapshot_count": 0,
         "snapshot_window_count": 10,
+    }
+
+
+def test_topology_history_unavailable():
+    coverage = topology_history_unavailable(
+        observed_snapshot_count=0,
+        snapshot_window_count=0,
+        limited_snapshot_count=2,
+    )
+    assert coverage.dimension is CoverageDimension.historical_snapshots
+    assert coverage.state is CoverageState.unknown
+    assert coverage.label_code is CoverageLabelCode.topology_history_unavailable
+    assert coverage.params == {
+        "observed_snapshot_count": 0,
+        "snapshot_window_count": 0,
+        "limited_snapshot_count": 2,
     }
 
 

@@ -219,9 +219,14 @@ Avoid: not found in mesh, missing means offline.
 Snapshot compare is device-led: it lives in the Device details panel as
 “Snapshot history”, never as a whole-network diff. It answers “how does this
 device look in the latest snapshot compared with earlier snapshots?” — a list
-of recent usable snapshots (previous usable selected by default, older ones
-selectable) and a comparison card that leads with an actionable status, then
-why, what this means, suggested checks, and collapsed evidence details.
+of recent complete captures and, when both selected layouts are available, a
+comparison card that leads with an actionable status, then why, what this
+means, suggested checks, and collapsed evidence details.
+
+An available layout may truthfully show a measured zero. A limited layout uses
+**Topology layout unavailable** and must not render zero, device absence,
+“no links”, a comparison status, or a routing claim. A retained node or
+source/target link positively represents the device in that exact snapshot.
 
 Comparison statuses (about the comparison only, never device health):
 **No notable change** (row label “Similar”), **Changed**, **Watch**,

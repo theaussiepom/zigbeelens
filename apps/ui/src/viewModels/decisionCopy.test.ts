@@ -4,6 +4,7 @@ import {
   REASON_CODES,
   coverageHelperText,
   coverageLabel,
+  coverageTone,
   deviceCoverageHelperText,
   deviceCoverageLabel,
   decisionStatusCompactLabel,
@@ -307,6 +308,29 @@ describe("decisionCopy", () => {
         snapshot_window_count: 10,
       }),
     ).toMatch(/appeared in every considered stored topology snapshot/i);
+  });
+
+  it("keeps unavailable topology layouts non-measured across coverage presenters", () => {
+    const params = {
+      observed_snapshot_count: 0,
+      snapshot_window_count: 0,
+      limited_snapshot_count: 2,
+    };
+    expect(coverageLabel("topology_history_unavailable", params)).toBe(
+      "Topology history: layout unavailable",
+    );
+    expect(deviceCoverageLabel("topology_history_unavailable", params)).toBe(
+      "Topology history: layout unavailable",
+    );
+    const helper = deviceCoverageHelperText(
+      "topology_history_unavailable",
+      params,
+    );
+    expect(helper).toMatch(/node\/link layouts are unavailable/i);
+    expect(helper).toMatch(/presence and link counts cannot be determined/i);
+    expect(helper).not.toMatch(/\b0\b|not observed|absent|no links/i);
+    expect(coverageTone("topology_history_unavailable")).toBe("muted");
+    expect(isKnownCoverageLabelCode("topology_history_unavailable")).toBe(true);
   });
 
   it("falls back safely for unknown coverage label codes", () => {

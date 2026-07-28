@@ -23,9 +23,12 @@ describe("shared decision contract", () => {
     const status: DecisionStatus = badge.status;
     const priority: DecisionPriority = badge.priority;
     const label: CoverageLabelCode = badge.coverage_label_codes[0];
+    const unavailableTopology: CoverageLabelCode =
+      "topology_history_unavailable";
     expect(status).toBe("watch");
     expect(priority).toBe("medium");
     expect(label).toBe("availability_tracking_off");
+    expect(unavailableTopology).toBe("topology_history_unavailable");
   });
 
   it("types DecisionCountSummary with canonical status and priority maps", () => {

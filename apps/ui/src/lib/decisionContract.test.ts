@@ -604,6 +604,7 @@ describe("decisionContract", () => {
     expect(isDecisionPriority("high")).toBe(true);
     expect(isDecisionPriority("urgent")).toBe(false);
     expect(isCoverageLabelCode("availability_tracking_off")).toBe(true);
+    expect(isCoverageLabelCode("topology_history_unavailable")).toBe(true);
     expect(isCoverageLabelCode("future_backend_label")).toBe(false);
   });
 });

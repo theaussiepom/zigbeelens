@@ -113,6 +113,7 @@ __all__ = [
     "topology_history_available",
     "topology_history_sparse",
     "topology_history_not_observed",
+    "topology_history_unavailable",
     "route_hints_unavailable",
     "snapshot_stale",
 ]
@@ -252,6 +253,10 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "topology_history_not_observed": (
         "zigbeelens.decisions.coverage",
         "topology_history_not_observed",
+    ),
+    "topology_history_unavailable": (
+        "zigbeelens.decisions.coverage",
+        "topology_history_unavailable",
     ),
     "route_hints_unavailable": ("zigbeelens.decisions.coverage", "route_hints_unavailable"),
     "snapshot_stale": ("zigbeelens.decisions.coverage", "snapshot_stale"),

@@ -50,6 +50,7 @@ export type CoverageLabelCode =
   | "topology_history_available"
   | "topology_history_sparse"
   | "topology_history_not_observed"
+  | "topology_history_unavailable"
   | "ha_area_linked";
 
 /** Bridge online state */

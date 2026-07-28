@@ -11,11 +11,13 @@ from zigbeelens.decisions.device_coverage import device_coverage_for_device
 from zigbeelens.decisions.device_story import (
     CheckCode,
     DEVICE_STORY_HEADLINE_CODES,
+    DeviceStoryEvidence,
     HeadlineCode,
     build_device_story,
     device_story_for_device,
     load_device_story_evidence,
 )
+from zigbeelens.decisions.lqi_trend import build_lqi_trend
 from zigbeelens.decisions.model_pattern import (
     MODEL_PATTERN_MIN_AFFECTED_COUNT,
     MODEL_PATTERN_MIN_GROUP_SIZE,
@@ -23,7 +25,14 @@ from zigbeelens.decisions.model_pattern import (
     stored_model_identity_key,
 )
 from zigbeelens.decisions.reasons import ReasonCode
-from zigbeelens.decisions.types import CoverageLabelCode, DecisionPriority, DecisionStatus
+from zigbeelens.decisions.topology_facts import TopologyFactCode
+from zigbeelens.decisions.types import (
+    CoverageDimension,
+    CoverageLabelCode,
+    CoverageState,
+    DecisionPriority,
+    DecisionStatus,
+)
 from zigbeelens.storage.repository import Repository
 from zigbeelens.topology.parser import parse_networkmap_payload
 
@@ -359,6 +368,109 @@ def test_topology_gap_without_current_issue_is_watch(tmp_path: Path):
         limitation.code == "absence_from_latest_not_failure"
         for limitation in story.limitations
     )
+
+
+def test_layout_limited_latest_snapshot_does_not_create_topology_gap(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", availability="online")
+    _store_snapshot(
+        repo,
+        "snap-old",
+        captured_at=NOW - timedelta(days=1),
+        links=[{"source": "0x02", "target": "0x03", "linkquality": 90}],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest-limited",
+        captured_at=NOW,
+        nodes={},
+        links=[],
+    )
+
+    evidence = load_device_story_evidence(repo, "home", "0x03", now=NOW)
+    assert evidence is not None
+    assert evidence.latest_layout_available is False
+    topology_coverage = next(
+        item
+        for item in evidence.coverage
+        if item.dimension is CoverageDimension.historical_snapshots
+    )
+    assert topology_coverage.params == {
+        "observed_snapshot_count": 1,
+        "snapshot_window_count": 1,
+        "limited_snapshot_count": 1,
+    }
+    fact_codes = {fact.code for fact in evidence.topology_facts}
+    assert TopologyFactCode.device_absent_from_latest_snapshot not in fact_codes
+    assert TopologyFactCode.device_no_latest_links not in fact_codes
+    assert TopologyFactCode.device_has_selected_snapshot_links not in fact_codes
+
+    story = device_story_for_device(repo, "home", "0x03", now=NOW)
+    assert story is not None
+    reason_codes = {reason.code for reason in story.reasons}
+    assert ReasonCode.latest_snapshot_no_links not in reason_codes
+    assert ReasonCode.selected_snapshot_had_links not in reason_codes
+
+
+def test_device_story_coverage_counts_link_only_topology_observation(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", availability="online")
+    _store_snapshot(
+        repo,
+        "snap-link-only",
+        captured_at=NOW,
+        nodes={"0x02": {"type": "Router"}},
+        links=[{"source": "0x02", "target": "0x03", "linkquality": 90}],
+    )
+
+    evidence = load_device_story_evidence(repo, "home", "0x03", now=NOW)
+    assert evidence is not None
+    topology_coverage = next(
+        item
+        for item in evidence.coverage
+        if item.dimension is CoverageDimension.historical_snapshots
+    )
+    assert topology_coverage.label_code is CoverageLabelCode.topology_history_available
+    assert topology_coverage.params == {
+        "observed_snapshot_count": 1,
+        "snapshot_window_count": 1,
+    }
+
+
+def test_device_story_coverage_marks_only_limited_history_unavailable(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _upsert_device(repo, "0x03", availability="online")
+    _store_snapshot(
+        repo,
+        "snap-limited",
+        captured_at=NOW,
+        nodes={},
+        links=[],
+    )
+
+    evidence = load_device_story_evidence(repo, "home", "0x03", now=NOW)
+    assert evidence is not None
+    topology_coverage = next(
+        item
+        for item in evidence.coverage
+        if item.dimension is CoverageDimension.historical_snapshots
+    )
+    assert topology_coverage.state is CoverageState.unknown
+    assert (
+        topology_coverage.label_code
+        is CoverageLabelCode.topology_history_unavailable
+    )
+    assert topology_coverage.params == {
+        "observed_snapshot_count": 0,
+        "snapshot_window_count": 0,
+        "limited_snapshot_count": 1,
+    }
 
 
 
@@ -1231,6 +1343,65 @@ def test_declining_lqi_trend_escalates_with_recent_missing_links_without_topolog
     assert story.status is DecisionStatus.watch
     assert story.priority is DecisionPriority.low
     assert story.headline_code == HeadlineCode.reported_link_quality_changed
+
+
+def test_limited_latest_does_not_turn_historical_links_into_lqi_watch(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    ieee = "0x03"
+    _upsert_router_device(repo, ieee, linkquality=80)
+    _seed_declining_lqi_observations(repo, ieee)
+    _enable_availability_tracking(repo, ieee, changed_at=NOW - timedelta(days=3))
+    _link_ha_area(repo, ieee)
+    _store_snapshot(
+        repo,
+        "snap-old",
+        captured_at=NOW - timedelta(days=1),
+        nodes={"0x01": {"type": "Coordinator"}, ieee: {"type": "Router"}},
+        links=[{"source": ieee, "target": "0x01", "linkquality": 100}],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest-limited",
+        captured_at=NOW,
+        nodes={},
+        links=[],
+    )
+
+    evidence = load_device_story_evidence(repo, "home", ieee, now=NOW)
+    assert evidence is not None
+    assert evidence.latest_layout_available is False
+    assert evidence.recent_missing_link_count == 0
+
+    story = device_story_for_device(repo, "home", ieee, now=NOW)
+    assert story is not None
+    reason_codes = {reason.code for reason in story.reasons}
+    assert ReasonCode.recent_missing_links_present not in reason_codes
+    assert ReasonCode.observed_lqi_trend not in reason_codes
+    assert ReasonCode.reported_lqi_declining not in reason_codes
+    assert story.status is DecisionStatus.informational
+    assert story.headline_code == HeadlineCode.data_coverage_gaps
+
+
+def test_limited_latest_ignores_injected_recent_missing_lqi_corroboration() -> None:
+    evidence = DeviceStoryEvidence(
+        network_id="home",
+        device_ieee="0x03",
+        latest_layout_available=False,
+        recent_missing_link_count=2,
+        lqi_trend=build_lqi_trend(
+            device_ieee="0x03",
+            lqi_samples=[200, 200, 200, 80, 80, 80],
+        ),
+    )
+
+    story = build_device_story(evidence, now=NOW)
+
+    reason_codes = {reason.code for reason in story.reasons}
+    assert ReasonCode.observed_lqi_trend not in reason_codes
+    assert ReasonCode.reported_lqi_declining not in reason_codes
+    assert story.status is DecisionStatus.no_notable_change
 
 
 def _offline_transition(repo: Repository, ieee: str, at: datetime) -> None:

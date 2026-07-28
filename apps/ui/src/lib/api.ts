@@ -22,10 +22,7 @@ import {
   type RequestIntent,
 } from "@/lib/sessionTransport";
 import type { Paginated } from "@/types/api";
-import type {
-  DeviceSnapshotHistoryDetail,
-  DeviceStoryDto,
-} from "@/types/devices";
+import type { DeviceStoryDto } from "@/types/devices";
 import type { DataCoverageDto } from "@/types/decisions";
 import type { Incident } from "@/types/incidents";
 import type {
@@ -51,6 +48,7 @@ import {
   validateNetworkSummaries,
   validateReportDetailV3,
 } from "@/lib/decisionContract";
+import { parseDeviceSnapshotHistoryDetail } from "@/lib/deviceSnapshotHistoryContract";
 
 export type { RequestIntent };
 
@@ -676,11 +674,11 @@ export const api = {
       `api/topology/${encodeURIComponent(networkId)}/snapshots/compare`,
     ),
   topologyDeviceSnapshotHistory: (networkId: string, ieeeAddress: string) =>
-    fetchJson<DeviceSnapshotHistoryDetail>(
+    fetchJson<unknown>(
       `api/topology/${encodeURIComponent(networkId)}/devices/${encodeURIComponent(
         ieeeAddress,
       )}/snapshot-history`,
-    ),
+    ).then(parseDeviceSnapshotHistoryDetail),
   captureTopology: (networkId: string) =>
     fetchJson<{ snapshot_id: string; status: string }>(
       `api/topology/${encodeURIComponent(networkId)}/capture`,
@@ -698,11 +696,14 @@ export type { Paginated } from "@/types/api";
 export type {
   AvailabilityCoverageStatus,
   DeviceDiagnosticStats,
+  DeviceSnapshotHistoryAvailableRow,
   DeviceSnapshotCompareStatus,
   DeviceSnapshotCompareCounts,
   DeviceSnapshotComparison,
   DeviceSnapshotHistoryDetail,
+  DeviceSnapshotHistoryLimitedRow,
   DeviceSnapshotHistoryRow,
+  DeviceSnapshotLayoutState,
   DeviceStatsWindow,
   DeviceStoryDto,
   DeviceStoryTimelineItemDto,

@@ -4,9 +4,11 @@
 import { describe, expect, it } from "vitest";
 import type { DeviceSummary } from "@zigbeelens/shared";
 import { parseDeviceSummary, validateReportDetailV3 } from "@/lib/decisionContract";
+import { parseDeviceSnapshotHistoryDetail } from "@/lib/deviceSnapshotHistoryContract";
 import { coverageLabel } from "@/viewModels/decisionCopy";
 import { buildDeviceRowViewModel } from "@/viewModels/devices/deviceRowViewModel";
 import { buildReportDecisionViewModel } from "@/viewModels/reports/reportDecisionViewModel";
+import { buildSnapshotHistoryViewModel } from "@/viewModels/topology/snapshotHistoryViewModel";
 import { buildDeviceStoryViewModel } from "@/viewModels/topology/deviceStoryViewModel";
 import type { DeviceStoryDto } from "@/types/devices";
 import { oracleScenario } from "@/test/contracts/oracleFixture";
@@ -201,15 +203,61 @@ describe("unknown never becomes zero/healthy (UI behavioral)", () => {
       "route_hints_unavailable",
       "topology_history_not_observed",
       "topology_history_sparse",
+      "topology_history_unavailable",
     ] as const;
     expect(codes.length).toBeGreaterThan(0);
     for (const code of codes) {
       const label = coverageLabel(
         code,
-        code === "topology_history_sparse" ? { observed: 0, window: 3 } : {},
+        code === "topology_history_sparse"
+          ? { observed: 0, window: 3 }
+          : code === "topology_history_unavailable"
+            ? {
+                observed_snapshot_count: 0,
+                snapshot_window_count: 0,
+                limited_snapshot_count: 2,
+              }
+            : {},
       );
       expect(label.trim().length).toBeGreaterThan(0);
       expect(looksLikeFalseZero(label)).toBe(false);
     }
+  });
+
+  it("keeps layout-limited snapshot history unavailable through parser and ViewModel", () => {
+    const parsed = parseDeviceSnapshotHistoryDetail({
+      network_id: "home",
+      device_ieee: "0xa1",
+      friendly_name: "Kitchen Plug",
+      has_current_issue: false,
+      availability_tracking: {
+        enabled: true,
+        earliest_observation_at: null,
+      },
+      latest_snapshot: {
+        snapshot_id: "snap-limited",
+        captured_at: "2026-07-13T02:00:00Z",
+        is_latest: true,
+        layout_state: "limited",
+        is_usable: false,
+        device_present_in_snapshot: null,
+        links_for_device_count: null,
+        route_hints_for_device_count: null,
+        availability_coverage_status: "tracked",
+        availability_state_near_snapshot: null,
+        comparison_to_latest: null,
+      },
+      snapshots: [],
+      topology_facts: {
+        stale_threshold_hours: null,
+        device_facts: [],
+        comparison_facts_by_snapshot_id: {},
+      },
+    });
+    const viewModel = buildSnapshotHistoryViewModel(parsed, null);
+    expect(viewModel.latest?.summaryText).toBe("Topology layout unavailable");
+    expect(viewModel.latest?.summaryText ?? "").not.toMatch(
+      /\b0\b|no links|no route hints|device not observed/i,
+    );
   });
 });

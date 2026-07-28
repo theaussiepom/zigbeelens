@@ -105,6 +105,7 @@ def device_story_evidence(
             else [],
             topology_observed_snapshot_count=1 if latest_snapshot_id else 0,
             topology_snapshot_window_count=1 if latest_snapshot_id else 0,
+            topology_limited_snapshot_count=0,
             ha_enrichment={"area_name": device.home_assistant_area_name}
             if device.home_assistant_area_name
             else None,

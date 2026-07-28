@@ -57,6 +57,7 @@ export const COVERAGE_LABEL_CODES = [
   "topology_history_available",
   "topology_history_sparse",
   "topology_history_not_observed",
+  "topology_history_unavailable",
   "ha_area_linked",
 ] as const;
 
@@ -211,6 +212,7 @@ const COVERAGE_LABEL_COPY: Record<CoverageLabelCode, string> = {
   topology_history_available: "Topology history: available",
   topology_history_sparse: "Topology history: sparse",
   topology_history_not_observed: "Topology history: not observed",
+  topology_history_unavailable: "Topology history: layout unavailable",
   ha_area_linked: "HA area: linked",
 };
 
@@ -252,6 +254,8 @@ const COVERAGE_HELPER_COPY: Record<CoverageLabelCode, string> = {
     "This device was absent from some considered stored topology snapshots.",
   topology_history_not_observed:
     "This device was not observed in any considered stored topology snapshot.",
+  topology_history_unavailable:
+    "Stored topology captures exist, but their node/link layouts are unavailable. Device presence and link counts cannot be determined from those captures.",
   ha_area_linked:
     "Home Assistant area enrichment is linked for this device.",
 };
@@ -291,6 +295,7 @@ const DEVICE_COVERAGE_LABEL_RENDERERS: Partial<Record<CoverageLabelCode, CopyRen
     topologyHistoryLabel(params, "Topology history: sparse"),
   topology_history_not_observed: (params) =>
     topologyHistoryLabel(params, "Topology history: not observed"),
+  topology_history_unavailable: () => "Topology history: layout unavailable",
   ha_area_linked: (params) => {
     const areaName = stringParam(params, "area_name");
     const areaId = stringParam(params, "area_id");
@@ -391,6 +396,8 @@ const DEVICE_COVERAGE_HELPER_COPY: Record<CoverageLabelCode, string | CopyRender
     deviceTopologyHistoryHelper("topology_history_sparse", params),
   topology_history_not_observed: (params) =>
     deviceTopologyHistoryHelper("topology_history_not_observed", params),
+  topology_history_unavailable:
+    COVERAGE_HELPER_COPY.topology_history_unavailable,
   ha_area_linked: (params) => {
     const areaName = stringParam(params, "area_name");
     const areaId = stringParam(params, "area_id");
@@ -426,6 +433,7 @@ const COVERAGE_TONES: Record<CoverageLabelCode, DecisionPillTone> = {
   topology_history_available: "neutral",
   topology_history_sparse: "muted",
   topology_history_not_observed: "muted",
+  topology_history_unavailable: "muted",
   ha_area_linked: "neutral",
 };
 

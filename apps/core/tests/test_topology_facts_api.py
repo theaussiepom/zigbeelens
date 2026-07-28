@@ -368,8 +368,76 @@ def test_snapshot_history_topology_only_latest_node_is_available(
 
     assert body["device_ieee"] == target
     assert body["latest_snapshot"]["snapshot_id"] == "snap-latest-only"
+    assert body["latest_snapshot"]["is_usable"] is True
+    assert body["latest_snapshot"]["layout_state"] == "available"
+    assert body["latest_snapshot"]["device_present_in_snapshot"] is True
+    assert body["latest_snapshot"]["links_for_device_count"] == 0
+    assert body["latest_snapshot"]["route_hints_for_device_count"] == 0
     codes = {fact["code"] for fact in body["topology_facts"]["device_facts"]}
     assert TopologyFactCode.device_seen_in_latest_snapshot in codes
+    assert TopologyFactCode.device_no_latest_links in codes
+
+
+def test_snapshot_history_available_latest_can_truthfully_report_device_absence(
+    topology_client: TestClient,
+) -> None:
+    ctx = get_context()
+    target = "0xcurrentabsent"
+    ctx.repo.upsert_device(
+        network_id="home",
+        ieee_address=target,
+        friendly_name="Current absent",
+        device_type="EndDevice",
+        power_source="Battery",
+        interview_state="successful",
+    )
+    _store_snapshot(
+        ctx.repo,
+        "snap-available-absent",
+        captured_at=_utc_now(),
+        nodes=[{"ieeeAddr": "0xpeer", "type": "Router"}],
+        links=[],
+    )
+
+    body = _history_bodies(topology_client, target)[0]
+
+    latest = body["latest_snapshot"]
+    assert latest["layout_state"] == "available"
+    assert latest["is_usable"] is True
+    assert latest["device_present_in_snapshot"] is False
+    assert latest["links_for_device_count"] == 0
+    assert latest["route_hints_for_device_count"] == 0
+    codes = {fact["code"] for fact in body["topology_facts"]["device_facts"]}
+    assert TopologyFactCode.device_absent_from_latest_snapshot in codes
+    assert TopologyFactCode.device_no_latest_links in codes
+    assert TopologyFactCode.device_seen_in_latest_snapshot not in codes
+
+
+def test_snapshot_history_latest_link_only_identity_is_positively_represented(
+    topology_client: TestClient,
+) -> None:
+    ctx = get_context()
+    target = "0xlatestlinkonly"
+    _store_snapshot(
+        ctx.repo,
+        "snap-latest-link-only",
+        captured_at=_utc_now(),
+        nodes=[{"ieeeAddr": "0xpeer", "type": "Router"}],
+        links=[{"source": "0xpeer", "target": target, "linkquality": 82}],
+    )
+    assert ctx.repo.get_device("home", target) is None
+
+    body = _history_bodies(topology_client, target)[0]
+
+    latest = body["latest_snapshot"]
+    assert latest["layout_state"] == "available"
+    assert latest["device_present_in_snapshot"] is True
+    assert latest["links_for_device_count"] == 1
+    assert latest["route_hints_for_device_count"] == 0
+    codes = {fact["code"] for fact in body["topology_facts"]["device_facts"]}
+    assert TopologyFactCode.device_seen_in_latest_snapshot in codes
+    assert TopologyFactCode.device_has_latest_links in codes
+    assert TopologyFactCode.device_absent_from_latest_snapshot not in codes
 
 
 @pytest.mark.parametrize(
@@ -422,14 +490,33 @@ def test_snapshot_history_accepts_identity_only_in_older_retained_snapshot(
     body = _history_bodies(topology_client, target)[0]
 
     assert body["device_ieee"] == target
-    assert body["latest_snapshot"]["snapshot_id"] == "snap-layout-limited"
-    assert body["latest_snapshot"]["links_for_device_count"] == 0
+    latest = body["latest_snapshot"]
+    assert latest["snapshot_id"] == "snap-layout-limited"
+    assert latest["is_usable"] is False
+    assert latest["layout_state"] == "limited"
+    assert latest["device_present_in_snapshot"] is None
+    assert latest["links_for_device_count"] is None
+    assert latest["route_hints_for_device_count"] is None
+    assert latest["comparison_to_latest"] is None
     historical = body["snapshots"][0]
     assert historical["snapshot_id"] == "snap-historical"
+    assert historical["is_usable"] is True
+    assert historical["layout_state"] == "available"
+    assert historical["device_present_in_snapshot"] is True
     assert historical["links_for_device_count"] == expected_link_count
+    assert historical["route_hints_for_device_count"] == 0
+    assert historical["comparison_to_latest"] is None
     codes = {fact["code"] for fact in body["topology_facts"]["device_facts"]}
-    assert TopologyFactCode.device_absent_from_latest_snapshot in codes
+    assert TopologyFactCode.device_absent_from_latest_snapshot not in codes
+    assert TopologyFactCode.device_no_latest_links not in codes
     assert TopologyFactCode.device_seen_in_latest_snapshot not in codes
+    comparison_codes = {
+        fact["code"]
+        for fact in body["topology_facts"][
+            "comparison_facts_by_snapshot_id"
+        ]["snap-historical"]
+    }
+    assert TopologyFactCode.device_latest_vs_selected_changed not in comparison_codes
 
 
 def test_snapshot_history_identity_outside_retained_window_is_unknown_unless_current(

@@ -247,7 +247,18 @@ export function SnapshotHistoryContent({
                 </ul>
               </div>
 
-              {viewModel.comparison && <ComparisonCard comparison={viewModel.comparison} />}
+              {viewModel.comparison ? (
+                <ComparisonCard comparison={viewModel.comparison} />
+              ) : (
+                viewModel.comparisonUnavailableCopy && (
+                  <p
+                    className="text-xs text-zl-muted"
+                    data-testid="snapshot-comparison-unavailable"
+                  >
+                    {viewModel.comparisonUnavailableCopy}
+                  </p>
+                )
+              )}
             </>
           )}
         </>

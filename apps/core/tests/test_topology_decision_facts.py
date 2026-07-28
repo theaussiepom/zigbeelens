@@ -237,6 +237,68 @@ def test_device_latest_facts_no_links():
     assert TopologyFactCode.device_has_selected_snapshot_links not in _codes(facts)
 
 
+def test_device_latest_facts_are_suppressed_when_layout_is_limited():
+    facts = build_device_latest_topology_facts(
+        device_ieee="0x04",
+        latest_snapshot={"snapshot_id": "snap-limited", "status": "complete"},
+        nodes=[],
+        links=[],
+        layout_available=False,
+        device_present_in_snapshot=None,
+    )
+    assert facts == []
+
+
+def test_device_latest_link_only_evidence_is_seen_not_absent():
+    facts = build_device_latest_topology_facts(
+        device_ieee="0x04",
+        latest_snapshot={"snapshot_id": "snap-link-only", "status": "complete"},
+        nodes=[{"ieee_address": "0x02"}],
+        links=[
+            {
+                "source_ieee": "0x02",
+                "target_ieee": "0x04",
+                "linkquality": 80,
+            }
+        ],
+        layout_available=True,
+        # Stored link evidence remains authoritative even if a caller supplies
+        # a stale negative presence hint.
+        device_present_in_snapshot=False,
+    )
+    assert TopologyFactCode.device_seen_in_latest_snapshot in _codes(facts)
+    assert TopologyFactCode.device_has_latest_links in _codes(facts)
+    assert TopologyFactCode.device_absent_from_latest_snapshot not in _codes(facts)
+
+
+def test_limited_comparison_row_emits_no_selected_or_change_facts():
+    facts = build_device_snapshot_comparison_facts(
+        device_ieee="0x04",
+        comparison_snapshot_row={
+            "snapshot_id": "snap-limited",
+            "layout_state": "limited",
+            "links_for_device_count": 4,
+            "availability_coverage_status": COVERAGE_OFF,
+            "comparison_to_latest": {"status": STATUS_WATCH},
+        },
+    )
+    assert facts == []
+
+
+def test_available_snapshot_without_permitted_comparison_emits_no_comparison_facts():
+    facts = build_device_snapshot_comparison_facts(
+        device_ieee="0x04",
+        comparison_snapshot_row={
+            "snapshot_id": "snap-available",
+            "layout_state": "available",
+            "links_for_device_count": 4,
+            "availability_coverage_status": COVERAGE_OFF,
+            "comparison_to_latest": None,
+        },
+    )
+    assert facts == []
+
+
 def test_device_comparison_facts_selected_had_links():
     row = {
         "snapshot_id": "snap-old-1",

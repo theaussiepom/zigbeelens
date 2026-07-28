@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Release artifact identity:** the Docker workflow owns package-version OCI metadata separately from channel tags and validates version, full revision, and source before Buildx consumes the labels.
+- **Snapshot-history availability:** layout-limited captures expose unknown
+  device presence and nullable link/route counts instead of measured zero;
+  device absence, no-links facts, and comparisons require available layouts.
 - **Safety and runtime boundaries:** Discovery validates its exact availability/last-will topic before Paho construction or connection side effects; disabled topology owns no service or scheduler; topology raw dictionaries are no longer retained; mixed-case IEEE lookups are canonicalized.
 - **Reports and investigation UX:** missing contextual report targets fail validation, unknown targets fail not-found without storage, configured report defaults are effective, and Router/Coordinator investigation actions now say **Open device details**.
 - **Validation hardening:** PNG decompression is bounded to the exact scanline budget, screenshot manifest/privacy parsing is fail-closed, and model-pattern Decision parity uses one explicit reference clock without an expected failure.

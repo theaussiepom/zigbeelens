@@ -1,7 +1,11 @@
 import { act, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
-import type { DeviceSnapshotHistoryDetail, DeviceSnapshotHistoryRow } from "@/types/devices";
+import type {
+  DeviceSnapshotHistoryDetail,
+  DeviceSnapshotHistoryLimitedRow,
+  DeviceSnapshotHistoryRow,
+} from "@/types/devices";
 import type { DeviceSnapshotCompareStatus } from "@/types/devices";
 
 const eventListeners = new Set<(eventName: string) => void>();
@@ -52,7 +56,9 @@ function makeRow(overrides: Partial<DeviceSnapshotHistoryRow>): DeviceSnapshotHi
     snapshot_id: "snap-prev",
     captured_at: "2026-07-05T19:10:00+00:00",
     is_latest: false,
+    layout_state: "available",
     is_usable: true,
+    device_present_in_snapshot: true,
     links_for_device_count: 6,
     route_hints_for_device_count: 2,
     availability_coverage_status: "tracked",
@@ -76,6 +82,25 @@ function makeRow(overrides: Partial<DeviceSnapshotHistoryRow>): DeviceSnapshotHi
         changed_count: 0,
       },
     },
+    ...overrides,
+  };
+}
+
+function makeLimitedRow(
+  overrides: Partial<DeviceSnapshotHistoryLimitedRow> = {},
+): DeviceSnapshotHistoryLimitedRow {
+  return {
+    snapshot_id: "snap-limited",
+    captured_at: "2026-07-04T00:00:00+00:00",
+    is_latest: false,
+    layout_state: "limited",
+    is_usable: false,
+    device_present_in_snapshot: null,
+    links_for_device_count: null,
+    route_hints_for_device_count: null,
+    availability_coverage_status: "tracked",
+    availability_state_near_snapshot: null,
+    comparison_to_latest: null,
     ...overrides,
   };
 }
@@ -304,6 +329,82 @@ describe("SnapshotHistorySection", () => {
     expect(details).toHaveTextContent(
       "Route hints are route-table hints captured during topology collection",
     );
+  });
+
+  it("keeps factual zero visible but exposes limited layout as unavailable to assistive text", async () => {
+    topologyDeviceSnapshotHistory.mockResolvedValue({
+      ...historyPayload(["snap-live"]),
+      latest_snapshot: makeRow({
+        snapshot_id: "snap-live",
+        is_latest: true,
+        device_present_in_snapshot: true,
+        links_for_device_count: 0,
+        route_hints_for_device_count: 0,
+        comparison_to_latest: null,
+      }),
+      snapshots: [makeLimitedRow()],
+    });
+
+    render(<SnapshotHistorySection networkId="home" deviceIeee="0xabc" />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.getByText(
+        /device observed in this snapshot · 0 links shown · no route hints/i,
+      ),
+    ).toBeInTheDocument();
+    const limitedRow = screen.getByRole("button", {
+      name: /topology layout unavailable/i,
+    });
+    expect(limitedRow).not.toHaveTextContent(/0 links|no route hints/i);
+
+    await act(async () => {
+      limitedRow.click();
+    });
+    expect(
+      screen.getByTestId("snapshot-comparison-unavailable"),
+    ).toHaveTextContent(/selected topology layout is unavailable/i);
+    expect(
+      screen.queryByTestId("snapshot-comparison-card"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not derive zero, absence, status, or comparison from a limited latest layout", async () => {
+    topologyDeviceSnapshotHistory.mockResolvedValue({
+      ...historyPayload(["snap-live"]),
+      latest_snapshot: makeLimitedRow({
+        snapshot_id: "snap-live",
+        captured_at: "2026-07-06T00:30:00+00:00",
+        is_latest: true,
+      }),
+      snapshots: [
+        makeRow({
+          snapshot_id: "snap-prev",
+          comparison_to_latest: null,
+        }),
+      ],
+    });
+
+    render(<SnapshotHistorySection networkId="home" deviceIeee="0xabc" />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.getByText((_, element) =>
+        Boolean(
+          element?.tagName === "P" &&
+            element.textContent?.endsWith("Topology layout unavailable"),
+        ),
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("snapshot-comparison-unavailable"),
+    ).toHaveTextContent(/latest topology layout is unavailable/i);
+    expect(screen.queryByText(/worth reviewing|watch|changed/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("snapshot-comparison-card")).not.toBeInTheDocument();
   });
 
   it("renders page chrome with Raw snapshot support link", async () => {

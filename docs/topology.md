@@ -55,6 +55,21 @@ When a response is missing, incomplete, unparseable, or contains no usable
 node/link layout, ZigbeeLens reports limited/unavailable evidence. It does not
 turn unavailable evidence into a measured empty mesh.
 
+Device snapshot history preserves that distinction for every retained capture:
+
+- an **available** layout reports whether the device was represented and gives
+  measured link and route-hint counts, including a factual zero;
+- a **limited** layout reports device presence and both counts as unavailable,
+  never as absence or zero.
+
+A retained node or source/target link is positive evidence for that device in
+the exact snapshot where it was stored. Snapshot comparisons are produced only
+when both the latest and selected snapshots have available layouts. A limited
+layout therefore cannot create an absence, no-links, changed, no-change, or
+watch conclusion. Device coverage excludes limited layouts from its measured
+history denominator; when the retained window contains only limited layouts it
+reports **Topology history: layout unavailable** instead of “not observed”.
+
 ## Current investigation surfaces
 
 > **Screenshot status:** The prior Phase 7C2 S1–S9 set predates the current
@@ -83,8 +98,8 @@ Primary device comparison:
 
 1. Devices → Device Detail
 2. Device Story
-3. Snapshot history (latest usable snapshot compared with a selected earlier
-   usable snapshot)
+3. Snapshot history (recent complete captures, with comparison only when the
+   latest and selected captures both contain available node/link layouts)
 
 The Mesh device details panel links to full Device Detail rather than
 duplicating snapshot-history comparison. Router- and Coordinator-led

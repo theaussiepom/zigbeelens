@@ -101,6 +101,7 @@
     {"kind": "coverage", "code": "topology_history_available", "params": {}, "expected": "Topology history: available"},
     {"kind": "coverage", "code": "topology_history_sparse", "params": {}, "expected": "Topology history: sparse"},
     {"kind": "coverage", "code": "topology_history_not_observed", "params": {}, "expected": "Topology history: not observed"},
+    {"kind": "coverage", "code": "topology_history_unavailable", "params": {}, "expected": "Topology history: layout unavailable"},
     {"kind": "coverage", "code": "ha_area_linked", "params": {}, "expected": "HA area: linked"},
     {"kind": "coverage", "code": "future_unknown_coverage", "params": {}, "expected": "Coverage status unknown"},
 
@@ -120,6 +121,7 @@
     {"kind": "device_coverage", "code": "topology_history_available", "params": {"observed_snapshot_count": 5, "snapshot_window_count": 5}, "expected": "Topology history: 5 of 5 snapshots"},
     {"kind": "device_coverage", "code": "topology_history_sparse", "params": {"observed_snapshot_count": 3, "snapshot_window_count": 10}, "expected": "Topology history: 3 of 10 snapshots"},
     {"kind": "device_coverage", "code": "topology_history_not_observed", "params": {"observed_snapshot_count": 0, "snapshot_window_count": 4}, "expected": "Topology history: 0 of 4 snapshots"},
+    {"kind": "device_coverage", "code": "topology_history_unavailable", "params": {"observed_snapshot_count": 0, "snapshot_window_count": 0, "limited_snapshot_count": 2}, "expected": "Topology history: layout unavailable"},
     {"kind": "device_coverage", "code": "ha_area_linked", "params": {}, "expected": "HA area: linked"},
     {"kind": "device_coverage", "code": "ha_area_linked", "params": {"area_name": "Kitchen"}, "expected": "HA area: Kitchen"},
     {"kind": "device_coverage", "code": "ha_area_linked", "params": {"area_id": "kitchen_area"}, "expected": "HA area: kitchen_area"},

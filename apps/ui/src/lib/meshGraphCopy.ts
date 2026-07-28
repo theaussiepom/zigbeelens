@@ -200,13 +200,23 @@ export const COMPARE_NO_CHANGES_COPY =
 
 export const SNAPSHOT_HISTORY_SECTION_TITLE = "Snapshot history";
 export const SNAPSHOT_HISTORY_LATEST_LABEL = "Latest snapshot";
-export const SNAPSHOT_HISTORY_COMPARE_WITH_LABEL = "Compare latest snapshot with";
+export const SNAPSHOT_HISTORY_COMPARE_WITH_LABEL = "Earlier snapshots";
 export const SNAPSHOT_HISTORY_EMPTY_COPY =
-  "No earlier usable topology snapshots are available for this device yet.";
+  "No earlier complete topology captures are available for this device yet.";
 export const SNAPSHOT_HISTORY_UNAVAILABLE_COPY =
   "Snapshot history is unavailable right now.";
 export const SNAPSHOT_HISTORY_REFRESH_FAILED_COPY =
   "Snapshot history could not be refreshed. Showing the last loaded data.";
+export const SNAPSHOT_HISTORY_LAYOUT_UNAVAILABLE_COPY =
+  "Topology layout unavailable";
+export const SNAPSHOT_HISTORY_DEVICE_OBSERVED_COPY =
+  "Device observed in this snapshot";
+export const SNAPSHOT_HISTORY_DEVICE_NOT_OBSERVED_COPY =
+  "Device not observed in this snapshot";
+export const SNAPSHOT_HISTORY_LATEST_LAYOUT_COMPARISON_UNAVAILABLE_COPY =
+  "Snapshot comparison is unavailable because the latest topology layout is unavailable.";
+export const SNAPSHOT_HISTORY_SELECTED_LAYOUT_COMPARISON_UNAVAILABLE_COPY =
+  "Snapshot comparison is unavailable because the selected topology layout is unavailable.";
 export const RAW_SNAPSHOT_REFRESH_FAILED_COPY =
   "Raw snapshot could not be refreshed. Showing the last loaded data.";
 

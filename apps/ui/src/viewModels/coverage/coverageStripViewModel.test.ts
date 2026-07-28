@@ -175,6 +175,32 @@ describe("coverageStripViewModel", () => {
     );
   });
 
+  it("renders unavailable topology history without presence or count inference", () => {
+    const vm = buildDeviceCoverageStripViewModel([
+      {
+        dimension: "historical_snapshots",
+        state: "unknown",
+        label_code: "topology_history_unavailable",
+        params: {
+          observed_snapshot_count: 0,
+          snapshot_window_count: 0,
+          limited_snapshot_count: 2,
+        },
+      },
+    ]);
+    expect(vm.items[0]).toMatchObject({
+      label: "Topology history: layout unavailable",
+      tone: "muted",
+    });
+    expect(vm.items[0]?.helper).toMatch(/node\/link layouts are unavailable/i);
+    expect(vm.items[0]?.helper).toMatch(
+      /presence and link counts cannot be determined/i,
+    );
+    expect(`${vm.items[0]?.label} ${vm.items[0]?.helper}`).not.toMatch(
+      /\b0\b|not observed|absent|no links/i,
+    );
+  });
+
   it("returns an empty strip when coverage is empty", () => {
     expect(buildEvidenceCoverageStripViewModel([]).items).toEqual([]);
   });

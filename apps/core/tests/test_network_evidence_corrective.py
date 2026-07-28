@@ -969,6 +969,8 @@ def test_supplied_context_story_and_coverage_zero_device_reads(tmp_path: Path):
     )
     assert coverage is not None
     assert counter.stats.category_counts.get("read.devices", 0) == 0
+    assert counter.stats.category_counts.get("read.topology_nodes", 0) == 0
+    assert counter.stats.category_counts.get("read.topology_links", 0) == 0
 
 
 def test_strict_context_map_missing_network_no_fallback_sql(tmp_path: Path):

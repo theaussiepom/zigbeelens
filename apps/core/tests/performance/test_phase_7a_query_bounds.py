@@ -162,6 +162,32 @@ def _seed_complete_snapshot(
     repo.db.conn.commit()
 
 
+def _seed_limited_snapshot(
+    repo: Repository,
+    *,
+    network_id: str,
+    snapshot_id: str,
+    captured_at: datetime,
+) -> None:
+    repo.create_topology_snapshot(
+        snapshot_id=snapshot_id,
+        network_id=network_id,
+        requested_by="phase7a",
+        status="pending",
+    )
+    repo.store_topology_parsed(
+        snapshot_id,
+        network_id,
+        ParsedTopology(raw_redacted={"layout": "limited"}),
+        status="complete",
+    )
+    repo.db.conn.execute(
+        "UPDATE topology_snapshots SET captured_at = ? WHERE snapshot_id = ?",
+        (captured_at.isoformat(), snapshot_id),
+    )
+    repo.db.conn.commit()
+
+
 def test_topology_overview_statement_count_constant_within_chunk(tmp_path: Path, monkeypatch):
     import zigbeelens.topology.service as topology_service_mod
 
@@ -765,6 +791,7 @@ def test_device_snapshot_history_no_complete_inventory_1_vs_1000(tmp_path: Path)
             "selected_ids": 0,
             "target_link_rows": 0,
             "target_node_rows": 0,
+            "layout_snapshot_rows": 0,
             "target_device_rows": 0,
             "availability_existence_rows": 0,
         }
@@ -773,8 +800,11 @@ def test_device_snapshot_history_no_complete_inventory_1_vs_1000(tmp_path: Path)
         original_list_for_networks = Repository.list_devices_for_networks
         original_get_device = Repository.get_device
         original_complete = Repository.list_complete_topology_snapshots
+        original_all_links = Repository.list_topology_links_for_snapshots
+        original_all_nodes = Repository.list_topology_nodes_for_snapshots
         original_links = Repository.list_topology_links_for_device_in_snapshots
         original_nodes = Repository.get_topology_nodes_for_device_in_snapshots
+        original_layout = Repository.get_topology_layout_availability_for_snapshots
         original_exists = Repository.network_has_explicit_availability_state
 
         def fail_list_devices(self, network_id=None):
@@ -782,6 +812,16 @@ def test_device_snapshot_history_no_complete_inventory_1_vs_1000(tmp_path: Path)
 
         def fail_list_for_networks(self, network_ids):
             raise AssertionError("list_devices_for_networks must not be called")
+
+        def fail_all_links(self, snapshot_ids):
+            raise AssertionError(
+                "list_topology_links_for_snapshots must not be called"
+            )
+
+        def fail_all_nodes(self, snapshot_ids):
+            raise AssertionError(
+                "list_topology_nodes_for_snapshots must not be called"
+            )
 
         def spy_get_device(self, network_id, ieee_address):
             row = original_get_device(self, network_id, ieee_address)
@@ -806,6 +846,11 @@ def test_device_snapshot_history_no_complete_inventory_1_vs_1000(tmp_path: Path)
             )
             return result
 
+        def spy_layout(self, snapshot_ids):
+            result = original_layout(self, snapshot_ids)
+            cards["layout_snapshot_rows"] = len(result)
+            return result
+
         def spy_exists(self, network_id):
             hit = original_exists(self, network_id)
             cards["availability_existence_rows"] = 1 if hit else 0
@@ -815,8 +860,11 @@ def test_device_snapshot_history_no_complete_inventory_1_vs_1000(tmp_path: Path)
         Repository.list_devices_for_networks = fail_list_for_networks  # type: ignore[method-assign]
         Repository.get_device = spy_get_device  # type: ignore[method-assign]
         Repository.list_complete_topology_snapshots = spy_complete  # type: ignore[method-assign]
+        Repository.list_topology_links_for_snapshots = fail_all_links  # type: ignore[method-assign]
+        Repository.list_topology_nodes_for_snapshots = fail_all_nodes  # type: ignore[method-assign]
         Repository.list_topology_links_for_device_in_snapshots = spy_links  # type: ignore[method-assign]
         Repository.get_topology_nodes_for_device_in_snapshots = spy_nodes  # type: ignore[method-assign]
+        Repository.get_topology_layout_availability_for_snapshots = spy_layout  # type: ignore[method-assign]
         Repository.network_has_explicit_availability_state = spy_exists  # type: ignore[method-assign]
         try:
             payload = build_device_snapshot_history_response(
@@ -832,8 +880,11 @@ def test_device_snapshot_history_no_complete_inventory_1_vs_1000(tmp_path: Path)
             Repository.list_devices_for_networks = original_list_for_networks  # type: ignore[method-assign]
             Repository.get_device = original_get_device  # type: ignore[method-assign]
             Repository.list_complete_topology_snapshots = original_complete  # type: ignore[method-assign]
+            Repository.list_topology_links_for_snapshots = original_all_links  # type: ignore[method-assign]
+            Repository.list_topology_nodes_for_snapshots = original_all_nodes  # type: ignore[method-assign]
             Repository.list_topology_links_for_device_in_snapshots = original_links  # type: ignore[method-assign]
             Repository.get_topology_nodes_for_device_in_snapshots = original_nodes  # type: ignore[method-assign]
+            Repository.get_topology_layout_availability_for_snapshots = original_layout  # type: ignore[method-assign]
             Repository.network_has_explicit_availability_state = original_exists  # type: ignore[method-assign]
         return payload, cards
 
@@ -844,6 +895,9 @@ def test_device_snapshot_history_no_complete_inventory_1_vs_1000(tmp_path: Path)
     assert c0["selected_ids"] == c1000["selected_ids"] == MAX_SNAPSHOT_HISTORY
     assert c0["target_link_rows"] == c1000["target_link_rows"]
     assert c0["target_node_rows"] == c1000["target_node_rows"] <= MAX_SNAPSHOT_HISTORY
+    assert c0["layout_snapshot_rows"] == c1000["layout_snapshot_rows"] == (
+        MAX_SNAPSHOT_HISTORY
+    )
     assert c0["target_device_rows"] == c1000["target_device_rows"] == 1
     # Transition present → existence probe skipped (0 rows).
     assert c0["availability_existence_rows"] == c1000["availability_existence_rows"] == 0
@@ -1012,6 +1066,88 @@ def test_target_device_node_query_is_bounded_exact_and_indexed(
     assert "sqlite_autoindex_topology_nodes_1" in plan
 
 
+def test_selected_snapshot_layout_probe_is_bounded_exact_and_indexed(
+    tmp_path: Path,
+) -> None:
+    repo, _ = _repo(tmp_path, networks=["home"])
+
+    def store(snapshot_id: str, parsed: ParsedTopology) -> None:
+        repo.create_topology_snapshot(
+            snapshot_id=snapshot_id,
+            network_id="home",
+            requested_by="phase7a-layout",
+            status="pending",
+        )
+        repo.store_topology_parsed(
+            snapshot_id,
+            "home",
+            parsed,
+            status="complete",
+        )
+
+    store("snap-limited", ParsedTopology(raw_redacted={"limited": True}))
+    store(
+        "snap-unknown-node",
+        ParsedTopology(
+            nodes=[
+                ParsedTopologyNode(
+                    ieee_address="0xunknown",
+                    friendly_name="Unknown",
+                    node_type="Unknown",
+                )
+            ],
+            raw_redacted={"unknown_node": True},
+        ),
+    )
+    store(
+        "snap-link-only",
+        ParsedTopology(
+            links=[
+                ParsedTopologyLink(
+                    source_ieee="0xsource",
+                    target_ieee="0xtarget",
+                    linkquality=80,
+                )
+            ],
+            raw_redacted={"link_only": True},
+        ),
+    )
+    selected = ["snap-limited", "snap-unknown-node", "snap-link-only"]
+
+    availability = repo.get_topology_layout_availability_for_snapshots(selected)
+
+    assert availability == {
+        "snap-limited": False,
+        "snap-unknown-node": True,
+        "snap-link-only": True,
+    }
+    # The unknown-node snapshot proves layout state comes from stored rows,
+    # not router/end-device/link counters, which are all zero here.
+    unknown_metadata = repo.get_topology_snapshot("home", "snap-unknown-node")
+    assert unknown_metadata is not None
+    assert (
+        unknown_metadata["router_count"],
+        unknown_metadata["end_device_count"],
+        unknown_metadata["link_count"],
+    ) == (0, 0, 0)
+
+    sql, params = repo._topology_layout_availability_for_snapshots_sql(selected)
+    plan = " | ".join(
+        str(row[-1])
+        for row in repo.db.conn.execute(
+            f"EXPLAIN QUERY PLAN {sql}",
+            params,
+        )
+    )
+    assert "LOWER(" not in sql.upper()
+    assert "SCAN topology_nodes" not in plan
+    assert "SCAN topology_links" not in plan
+    assert "USE TEMP B-TREE" not in plan
+    assert "sqlite_autoindex_topology_snapshots_1" in plan
+    assert "sqlite_autoindex_topology_nodes_1" in plan
+    assert "idx_topology_links_snapshot" in plan
+
+
 def test_target_device_link_query_sparse_vs_dense_and_explain(tmp_path: Path):
     repo, _ = _repo(tmp_path, networks=["home"])
     target = "0xtarget"
@@ -1092,6 +1228,9 @@ def test_target_device_link_query_sparse_vs_dense_and_explain(tmp_path: Path):
         "dense_devices",
         "dense_links",
         "stale_null",
+        "limited_latest",
+        "limited_earlier",
+        "both_limited",
     ],
 )
 def test_device_snapshot_history_deep_parity_matrix(tmp_path: Path, case: str):
@@ -1162,19 +1301,35 @@ def test_device_snapshot_history_deep_parity_matrix(tmp_path: Path, case: str):
         "dense_devices": 3,
         "dense_links": 3,
         "stale_null": 2,
+        "limited_latest": 2,
+        "limited_earlier": 2,
+        "both_limited": 2,
     }[case]
     for index in range(snapshot_count):
         present = True
         if case == "absent_latest" and index == 0:
             present = False
-        _seed_complete_snapshot(
-            repo,
-            network_id="home",
-            snapshot_id=f"snap-{index:02d}",
-            captured_at=REFERENCE_TIME - timedelta(hours=index),
-            target_ieee=target if present and case != "empty" else None,
-            link_count=4,
+        limited = (
+            (case == "limited_latest" and index == 0)
+            or (case == "limited_earlier" and index == 1)
+            or case == "both_limited"
         )
+        if limited:
+            _seed_limited_snapshot(
+                repo,
+                network_id="home",
+                snapshot_id=f"snap-{index:02d}",
+                captured_at=REFERENCE_TIME - timedelta(hours=index),
+            )
+        else:
+            _seed_complete_snapshot(
+                repo,
+                network_id="home",
+                snapshot_id=f"snap-{index:02d}",
+                captured_at=REFERENCE_TIME - timedelta(hours=index),
+                target_ieee=target if present and case != "empty" else None,
+                link_count=4,
+            )
         if case == "source_and_target" and present:
             repo.db.conn.execute(
                 """
@@ -1211,3 +1366,13 @@ def test_device_snapshot_history_deep_parity_matrix(tmp_path: Path, case: str):
     assert _json_canon(bounded) == _json_canon(reference)
     assert set(bounded) == set(reference)
     assert bounded["topology_facts"] == reference["topology_facts"]
+    if case in {"limited_latest", "both_limited"}:
+        assert bounded["latest_snapshot"]["layout_state"] == "limited"
+        assert bounded["latest_snapshot"]["links_for_device_count"] is None
+        assert bounded["latest_snapshot"]["route_hints_for_device_count"] is None
+        assert bounded["topology_facts"]["device_facts"] == []
+    if case in {"limited_earlier", "both_limited"}:
+        selected = bounded["snapshots"][0]
+        assert selected["layout_state"] == "limited"
+        assert selected["device_present_in_snapshot"] is None
+        assert selected["comparison_to_latest"] is None

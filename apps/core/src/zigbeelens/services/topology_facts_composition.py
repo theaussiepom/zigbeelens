@@ -206,6 +206,11 @@ def build_device_snapshot_history_response(
     ):
         raise DeviceTopologyIdentityNotFoundError(network_id, device_ieee)
 
+    layout_available_by_snapshot_id = (
+        repo.get_topology_layout_availability_for_snapshots(snapshot_ids)
+        if snapshot_ids
+        else {}
+    )
     earliest_availability_at = repo.availability.get_earliest_availability_change_at(
         network_id
     )
@@ -222,7 +227,12 @@ def build_device_snapshot_history_response(
         network_id,
         max_snapshots=MAX_SNAPSHOT_HISTORY,
         snapshots=usable,
+        nodes_by_snapshot_id={
+            snapshot_id: ([node] if node is not None else [])
+            for snapshot_id, node in nodes_by_snapshot_id.items()
+        },
         links_by_snapshot_id=links_by_snapshot_id,
+        layout_available_by_snapshot_id=layout_available_by_snapshot_id,
         earliest_availability_at=earliest_availability_at,
         earliest_availability_supplied=True,
         tracking_enabled_now=tracking_enabled_now,

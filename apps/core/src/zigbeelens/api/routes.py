@@ -766,14 +766,18 @@ def topology_snapshots_compare(
 def topology_device_snapshot_history(
     network_id: str, ieee_address: str, ctx: AppContext = Depends(ctx_dep)
 ) -> dict:
-    """Read-only device-led snapshot history: how one device looks in the
-    latest usable snapshot compared with earlier usable snapshots.
+    """Read-only device-led snapshot history: how one device looks across
+    recent complete topology captures.
 
     Per-device link and route-hint counts, availability tracking coverage
     per period, and an actionable comparison of each earlier snapshot
     against the latest (no_notable_change / changed / watch /
     worth_reviewing). Statuses describe snapshot comparison only, never
-    device health, and use existing issue signals only.
+    device health, and use existing issue signals only. A comparison is
+    produced only when both the latest and selected captures have available
+    stored node/link layouts. Complete captures without stored node or link
+    layouts are reported as unavailable, not as evidence that a device was
+    absent.
     """
     from zigbeelens.services.evidence_graph import EvidenceGraphService
     from zigbeelens.services.topology_facts_composition import (

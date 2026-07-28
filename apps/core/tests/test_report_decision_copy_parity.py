@@ -56,3 +56,19 @@ def test_report_decision_copy_parity(case: dict[str, Any]) -> None:
         actual = fn(code, params)
 
     assert actual == expected
+
+
+def test_topology_history_unavailable_copy() -> None:
+    params = {
+        "observed_snapshot_count": 0,
+        "snapshot_window_count": 0,
+        "limited_snapshot_count": 2,
+    }
+    assert (
+        coverage_label("topology_history_unavailable", params)
+        == "Topology history: layout unavailable"
+    )
+    assert (
+        device_coverage_label("topology_history_unavailable", params)
+        == "Topology history: layout unavailable"
+    )

@@ -435,6 +435,15 @@ def test_validate_decision_badge_known_coverage_labels():
     }
     assert validate_decision_badge(valid) is True
     assert (
+        validate_decision_badge(
+            {
+                **valid,
+                "coverage_label_codes": ["topology_history_unavailable"],
+            }
+        )
+        is True
+    )
+    assert (
         validate_decision_badge({**valid, "coverage_label_codes": ["future_label"]})
         is False
     )

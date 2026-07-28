@@ -53,6 +53,7 @@ const DEVICE_COVERAGE_LABEL_ORDER: CoverageLabelCode[] = [
   "topology_history_available",
   "topology_history_sparse",
   "topology_history_not_observed",
+  "topology_history_unavailable",
   "ha_area_linked",
   "ha_areas_not_linked",
 ];

@@ -7,7 +7,7 @@ evidence. Outputs coded DataCoverage facts only — presenters map labels.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
 from pydantic import BaseModel
 
@@ -51,6 +51,7 @@ class DeviceCoverageEvidence(BaseModel):
     lqi_sample_count: int = 0
     topology_observed_snapshot_count: int = 0
     topology_snapshot_window_count: int = 0
+    topology_limited_snapshot_count: int = 0
     ha_area_id: str | None = None
     ha_area_name: str | None = None
 
@@ -101,48 +102,83 @@ def _usable_ha_area_value(value: str | None) -> str | None:
     return trimmed if trimmed else None
 
 
+def _topology_layout_contains_device(
+    device_ieee: str,
+    nodes: Iterable[Mapping[str, Any]],
+    links: Iterable[Mapping[str, Any]],
+) -> bool:
+    """Return whether a stored layout has node or link-endpoint evidence."""
+    device = normalize_device_ieee(device_ieee)
+    if not device:
+        return False
+    if any(
+        normalize_device_ieee(node.get("ieee_address")) == device for node in nodes
+    ):
+        return True
+    return any(
+        device
+        in (
+            normalize_device_ieee(link.get("source_ieee")),
+            normalize_device_ieee(link.get("target_ieee")),
+        )
+        for link in links
+    )
+
+
 def _topology_observation_counts(
     repo: Repository,
     network_id: str,
     device_ieee: str,
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     window = [
         snapshot
         for snapshot in repo.topology.list_topology_snapshots(network_id)
         if snapshot.get("status") == "complete"
     ][:MAX_SNAPSHOT_HISTORY]
     observed = 0
+    available = 0
+    limited = 0
     for snapshot in window:
         nodes = repo.topology.list_topology_nodes(snapshot["snapshot_id"])
-        if any(
-            normalize_device_ieee(node.get("ieee_address")) == device_ieee for node in nodes
-        ):
+        links = repo.topology.list_topology_links(snapshot["snapshot_id"])
+        if not nodes and not links:
+            limited += 1
+            continue
+        available += 1
+        if _topology_layout_contains_device(device_ieee, nodes, links):
             observed += 1
-    return observed, len(window)
+    return observed, available, limited
 
 
 def _topology_observation_counts_from_context(
     network_evidence_context: Any,
     device_ieee: str,
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     from zigbeelens.services.network_evidence import NetworkEvidenceCapability
 
     network_evidence_context.require(NetworkEvidenceCapability.snapshot_history)
     network_evidence_context.require(NetworkEvidenceCapability.latest_topology)
     if network_evidence_context.nodes_by_snapshot_id is None:
         raise ValueError("NetworkEvidenceContext is missing nodes_by_snapshot_id")
+    if network_evidence_context.links_by_snapshot_id is None:
+        raise ValueError("NetworkEvidenceContext is missing links_by_snapshot_id")
     window = list(network_evidence_context.complete_topology_snapshots or ())[
         :MAX_SNAPSHOT_HISTORY
     ]
     observed = 0
+    available = 0
+    limited = 0
     for snapshot in window:
         snapshot_id = str(snapshot["snapshot_id"])
         nodes = network_evidence_context.nodes_by_snapshot_id.get(snapshot_id, ())
-        if any(
-            normalize_device_ieee(node.get("ieee_address")) == device_ieee for node in nodes
-        ):
+        links = network_evidence_context.links_by_snapshot_id.get(snapshot_id, ())
+        if not nodes and not links:
+            limited += 1
+            continue
+        available += 1
+        if _topology_layout_contains_device(device_ieee, nodes, links):
             observed += 1
-    return observed, len(window)
+    return observed, available, limited
 
 
 def build_device_coverage_evidence(
@@ -153,6 +189,7 @@ def build_device_coverage_evidence(
     availability_changes: list[dict[str, Any]],
     topology_observed_snapshot_count: int,
     topology_snapshot_window_count: int,
+    topology_limited_snapshot_count: int,
     ha_enrichment: dict[str, Any] | None,
 ) -> DeviceCoverageEvidence:
     """Compose canonical per-device coverage evidence from loaded facts."""
@@ -176,6 +213,7 @@ def build_device_coverage_evidence(
         lqi_sample_count=lqi_sample_count,
         topology_observed_snapshot_count=topology_observed_snapshot_count,
         topology_snapshot_window_count=topology_snapshot_window_count,
+        topology_limited_snapshot_count=topology_limited_snapshot_count,
         ha_area_id=ha_enrichment.get("area_id") if ha_enrichment else None,
         ha_area_name=ha_enrichment.get("area_name") if ha_enrichment else None,
     )
@@ -232,9 +270,11 @@ def load_device_coverage_evidence(
     snapshots = repo.devices.list_device_snapshots(network_id, device, limit=MAX_SNAPSHOT_HISTORY)
     device_changes = repo.availability.list_availability_changes(network_id, device, limit=1)
     ha_enrichment = repo.get_ha_device_enrichment(network_id, device)
-    topology_observed, topology_window = _topology_observation_counts_from_context(
-        context, device
-    )
+    (
+        topology_observed,
+        topology_window,
+        topology_limited,
+    ) = _topology_observation_counts_from_context(context, device)
     tracking_enabled = bool(context.availability_tracking_enabled)
     if context.availability_tracking_enabled is None:
         tracking_enabled = availability_tracking_enabled_now(repo, network_id)
@@ -246,15 +286,19 @@ def load_device_coverage_evidence(
         availability_changes=device_changes,
         topology_observed_snapshot_count=topology_observed,
         topology_snapshot_window_count=topology_window,
+        topology_limited_snapshot_count=topology_limited,
         ha_enrichment=ha_enrichment,
     )
 
 
 def _topology_history_params(evidence: DeviceCoverageEvidence) -> dict[str, int]:
-    return {
+    params = {
         "observed_snapshot_count": evidence.topology_observed_snapshot_count,
         "snapshot_window_count": evidence.topology_snapshot_window_count,
     }
+    if evidence.topology_limited_snapshot_count:
+        params["limited_snapshot_count"] = evidence.topology_limited_snapshot_count
+    return params
 
 
 def build_device_coverage(evidence: DeviceCoverageEvidence) -> list[DataCoverage]:
@@ -305,6 +349,11 @@ def build_device_coverage(evidence: DeviceCoverageEvidence) -> list[DataCoverage
 
     topology_params = _topology_history_params(evidence)
     if (
+        evidence.topology_snapshot_window_count == 0
+        and evidence.topology_limited_snapshot_count > 0
+    ):
+        items.append(coverage_helpers.topology_history_unavailable(**topology_params))
+    elif (
         evidence.topology_snapshot_window_count == 0
         or evidence.topology_observed_snapshot_count == 0
     ):

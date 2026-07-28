@@ -261,6 +261,98 @@ def test_counts_are_per_device_not_network_wide(tmp_path: Path):
     assert row["route_hints_for_device_count"] == 1
 
 
+def test_limited_latest_does_not_create_zero_counts_or_comparison(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _store_snapshot(
+        repo,
+        "snap-prev",
+        captured_at=NOW - timedelta(days=1),
+        links=[{"source": "0x02", "target": "0x01", "linkquality": 100}],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest-limited",
+        captured_at=NOW,
+        nodes={},
+        links=[],
+    )
+
+    result = device_snapshot_history(repo, "home", "0x02")
+
+    latest = result["latest_snapshot"]
+    assert latest["is_usable"] is False
+    assert latest["layout_state"] == "limited"
+    assert latest["device_present_in_snapshot"] is None
+    assert latest["links_for_device_count"] is None
+    assert latest["route_hints_for_device_count"] is None
+    selected = result["snapshots"][0]
+    assert selected["layout_state"] == "available"
+    assert selected["device_present_in_snapshot"] is True
+    assert selected["comparison_to_latest"] is None
+
+
+def test_limited_selected_snapshot_is_not_compared_with_available_latest(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _store_snapshot(
+        repo,
+        "snap-prev-limited",
+        captured_at=NOW - timedelta(days=1),
+        nodes={},
+        links=[],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest",
+        captured_at=NOW,
+        links=[{"source": "0x02", "target": "0x01", "linkquality": 100}],
+    )
+
+    result = device_snapshot_history(repo, "home", "0x02")
+
+    latest = result["latest_snapshot"]
+    assert latest["layout_state"] == "available"
+    assert latest["device_present_in_snapshot"] is True
+    selected = result["snapshots"][0]
+    assert selected["is_usable"] is False
+    assert selected["layout_state"] == "limited"
+    assert selected["device_present_in_snapshot"] is None
+    assert selected["links_for_device_count"] is None
+    assert selected["route_hints_for_device_count"] is None
+    assert selected["comparison_to_latest"] is None
+
+
+def test_two_limited_snapshots_never_produce_comparison_status(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _store_snapshot(
+        repo,
+        "snap-prev-limited",
+        captured_at=NOW - timedelta(days=1),
+        nodes={},
+        links=[],
+    )
+    _store_snapshot(
+        repo,
+        "snap-latest-limited",
+        captured_at=NOW,
+        nodes={},
+        links=[],
+    )
+
+    result = device_snapshot_history(repo, "home", "0x02")
+
+    assert result["latest_snapshot"]["layout_state"] == "limited"
+    assert result["latest_snapshot"]["is_usable"] is False
+    assert result["snapshots"][0]["layout_state"] == "limited"
+    assert result["snapshots"][0]["is_usable"] is False
+    assert result["snapshots"][0]["comparison_to_latest"] is None
+
+
 def test_latest_only_selected_only_and_changed_link_counts(tmp_path: Path):
     repo = _repo(tmp_path)
     _store_snapshot(
@@ -632,6 +724,7 @@ def test_device_snapshot_evidence_has_no_repository_access():
         ],
         "0x02",
     )
+    assert evidence.device_present is True
     assert evidence.link_lqi[("0x01", "0x02")] == 120
     assert evidence.route_counts[("0x02", "0x01")] == 2
 

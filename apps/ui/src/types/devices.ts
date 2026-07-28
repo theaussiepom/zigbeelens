@@ -42,18 +42,52 @@ export interface DeviceSnapshotComparison {
   route_hint_counts: DeviceSnapshotCompareCounts;
 }
 
-export interface DeviceSnapshotHistoryRow {
+export type DeviceSnapshotLayoutState = "available" | "limited";
+
+interface DeviceSnapshotHistoryRowBase {
   snapshot_id: string;
   captured_at: string | null;
   is_latest: boolean;
-  is_usable: boolean;
-  links_for_device_count: number;
-  route_hints_for_device_count: number;
+  layout_state: DeviceSnapshotLayoutState;
+  /**
+   * True/false only when the stored snapshot supplied usable node/link layout.
+   * Limited layout keeps presence unknown as null.
+   */
+  device_present_in_snapshot: boolean | null;
+  /**
+   * Measured integers when layout is available. Limited layout is null and
+   * must never be presented as measured zero.
+   */
+  links_for_device_count: number | null;
+  route_hints_for_device_count: number | null;
   availability_coverage_status: AvailabilityCoverageStatus;
   availability_state_near_snapshot: "online" | "offline" | null;
-  /** Null for the latest snapshot (nothing to compare it with). */
+  /** Null for the latest snapshot and whenever either compared layout is limited. */
   comparison_to_latest: DeviceSnapshotComparison | null;
 }
+
+export interface DeviceSnapshotHistoryAvailableRow
+  extends DeviceSnapshotHistoryRowBase {
+  layout_state: "available";
+  is_usable: true;
+  device_present_in_snapshot: boolean;
+  links_for_device_count: number;
+  route_hints_for_device_count: number;
+}
+
+export interface DeviceSnapshotHistoryLimitedRow
+  extends DeviceSnapshotHistoryRowBase {
+  layout_state: "limited";
+  is_usable: false;
+  device_present_in_snapshot: null;
+  links_for_device_count: null;
+  route_hints_for_device_count: null;
+  comparison_to_latest: null;
+}
+
+export type DeviceSnapshotHistoryRow =
+  | DeviceSnapshotHistoryAvailableRow
+  | DeviceSnapshotHistoryLimitedRow;
 
 /** Response of GET /api/topology/{network_id}/devices/{ieee}/snapshot-history. */
 export interface DeviceSnapshotHistoryDetail {
@@ -66,7 +100,10 @@ export interface DeviceSnapshotHistoryDetail {
     earliest_observation_at: string | null;
   };
   latest_snapshot: DeviceSnapshotHistoryRow | null;
-  /** Earlier usable snapshots, newest first. */
+  /**
+   * Earlier retained complete snapshots, newest first. Each row states
+   * whether its node/link layout is available for device comparison.
+   */
   snapshots: DeviceSnapshotHistoryRow[];
   topology_facts: TopologyDeviceFactsDto;
 }

@@ -17,6 +17,7 @@ from types import MappingProxyType
 from pydantic import BaseModel, Field
 
 from zigbeelens.decisions.device_coverage import (
+    _topology_layout_contains_device,
     build_device_coverage,
     build_device_coverage_evidence,
 )
@@ -155,6 +156,7 @@ class DeviceStoryEvidence(BaseModel):
     route_hints_available: bool = False
     latest_snapshot_id: str | None = None
     latest_snapshot_captured_at: datetime | None = None
+    latest_layout_available: bool | None = None
     ha_area: str | None = None
     network_has_usable_ha_areas: bool = False
     reporting_rhythm: ReportingRhythm | None = None
@@ -312,12 +314,16 @@ def load_device_story_evidence(
     latest_nodes = network_context.latest_nodes
     latest_links = network_context.latest_links
     latest_snapshot_id = latest_snapshot["snapshot_id"] if latest_snapshot else None
+    latest_layout_available = (
+        bool(latest_nodes or latest_links) if latest_snapshot is not None else None
+    )
 
     topology_facts = build_device_latest_topology_facts(
         device_ieee=device,
         latest_snapshot=latest_snapshot,
         nodes=latest_nodes,
         links=latest_links,
+        layout_available=latest_layout_available,
     )
 
     if device_snapshots is None:
@@ -365,13 +371,27 @@ def load_device_story_evidence(
             latest_availability_coverage = coverage
 
     coverage_snapshots = device_snapshots[:MAX_SNAPSHOT_HISTORY]
-    topology_window = network_context.snapshot_history_context.usable_snapshots[:MAX_SNAPSHOT_HISTORY]
+    topology_candidates = network_context.snapshot_history_context.usable_snapshots[
+        :MAX_SNAPSHOT_HISTORY
+    ]
+    topology_window = [
+        snapshot
+        for snapshot in topology_candidates
+        if network_context.snapshot_history_context.layout_available_by_snapshot_id.get(
+            str(snapshot["snapshot_id"]),
+            False,
+        )
+    ]
+    topology_limited = len(topology_candidates) - len(topology_window)
     topology_observed = 0
     for snapshot in topology_window:
         snapshot_id = str(snapshot["snapshot_id"])
-        if any(
-            normalize_device_ieee(node.get("ieee_address")) == device
-            for node in network_context.nodes_by_snapshot_id.get(snapshot_id, [])
+        if _topology_layout_contains_device(
+            device,
+            network_context.nodes_by_snapshot_id.get(snapshot_id, []),
+            network_context.snapshot_history_context.links_by_snapshot_id.get(
+                snapshot_id, []
+            ),
         ):
             topology_observed += 1
     coverage_evidence = build_device_coverage_evidence(
@@ -381,6 +401,7 @@ def load_device_story_evidence(
         availability_changes=availability_changes,
         topology_observed_snapshot_count=topology_observed,
         topology_snapshot_window_count=len(topology_window),
+        topology_limited_snapshot_count=topology_limited,
         ha_enrichment=enrichment,
     )
     canonical_coverage = build_device_coverage(coverage_evidence)
@@ -399,10 +420,16 @@ def load_device_story_evidence(
         availability_tracking_enabled=network_context.availability_tracking_enabled,
         latest_availability_coverage=latest_availability_coverage,
         topology_facts=topology_facts,
-        recent_missing_link_count=_count_touching_device(
-            historical.get("historical_neighbors", []), device
-        )
-        + _count_touching_device(historical.get("historical_routes", []), device),
+        recent_missing_link_count=(
+            _count_touching_device(
+                historical.get("historical_neighbors", []), device
+            )
+            + _count_touching_device(
+                historical.get("historical_routes", []), device
+            )
+            if latest_layout_available is not False
+            else 0
+        ),
         last_known_link_count=_count_touching_device(
             last_known.get("last_known_links", []), device
         ),
@@ -411,6 +438,7 @@ def load_device_story_evidence(
         latest_snapshot_captured_at=_parse_ts(
             latest_snapshot.get("captured_at") if latest_snapshot else None
         ),
+        latest_layout_available=latest_layout_available,
         ha_area=enrichment.get("area_name") if enrichment else None,
         network_has_usable_ha_areas=network_context.network_has_usable_ha_areas,
         reporting_rhythm=reporting_rhythm_for_device(
@@ -460,6 +488,8 @@ def build_device_story_coverage(evidence: DeviceStoryEvidence) -> list[DataCover
 
 
 def _topology_gap(evidence: DeviceStoryEvidence) -> bool:
+    if evidence.latest_layout_available is False:
+        return False
     fact_codes = _fact_codes(evidence.topology_facts)
     if TopologyFactCode.device_has_latest_links in fact_codes:
         return False
@@ -686,7 +716,10 @@ def _lqi_trend_escalation_evidence(
         return True
     if last_seen_stale:
         return True
-    if evidence.recent_missing_link_count > 0:
+    if (
+        evidence.latest_layout_available is not False
+        and evidence.recent_missing_link_count > 0
+    ):
         return True
     return False
 

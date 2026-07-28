@@ -103,6 +103,23 @@ def test_openapi_decision_enums_and_required(openapi_schema: dict):
         assert key in summary["required"], key
 
 
+@pytest.mark.parametrize("prefix", ("/api", "/api/v1"))
+def test_snapshot_history_openapi_description_states_layout_requirements(
+    openapi_schema: dict,
+    prefix: str,
+) -> None:
+    operation = openapi_schema["paths"][
+        f"{prefix}/topology/{{network_id}}/devices/{{ieee_address}}/snapshot-history"
+    ]["get"]
+    description = " ".join(operation["description"].split())
+    assert "recent complete topology captures" in description
+    assert (
+        "only when both the latest and selected captures have available stored "
+        "node/link layouts"
+        in description
+    )
+
+
 def test_openapi_report_v3_required_exact(openapi_schema: dict):
     components = openapi_schema["components"]["schemas"]
     assert "ReportDetailV3" in components or "ReportDetail" in components

@@ -1638,6 +1638,63 @@ class Repository:
                     result[snapshot_id] = item
         return result
 
+    def _topology_layout_availability_for_snapshots_sql(
+        self,
+        chunk: list[str],
+    ) -> tuple[str, list[Any]]:
+        """Bounded layout-existence probe for caller-selected snapshots.
+
+        The correlated ``EXISTS`` branches stop at the first stored node or
+        link and seek through the snapshot-leading primary-key indexes. They
+        distinguish a genuinely empty/limited capture from an available
+        layout without materialising either graph.
+        """
+        placeholders = ",".join("?" for _ in chunk)
+        sql = f"""
+            SELECT s.snapshot_id,
+                   CASE
+                       WHEN EXISTS (
+                           SELECT 1
+                           FROM topology_nodes AS n
+                           WHERE n.snapshot_id = s.snapshot_id
+                       )
+                       OR EXISTS (
+                           SELECT 1
+                           FROM topology_links AS l
+                           WHERE l.snapshot_id = s.snapshot_id
+                       )
+                       THEN 1
+                       ELSE 0
+                   END AS layout_available
+            FROM topology_snapshots AS s
+            WHERE s.snapshot_id IN ({placeholders})
+            ORDER BY s.snapshot_id ASC
+        """
+        return sql, list(chunk)
+
+    def get_topology_layout_availability_for_snapshots(
+        self,
+        snapshot_ids: Collection[str],
+    ) -> dict[str, bool]:
+        """Whether each selected snapshot has any stored node/link layout.
+
+        Missing snapshot IDs fail closed to ``False``. Callers own the selected
+        window; the device-history owner passes at most
+        ``MAX_SNAPSHOT_HISTORY`` IDs.
+        """
+        ordered_ids = list(dict.fromkeys(sid for sid in snapshot_ids if sid))
+        result = {snapshot_id: False for snapshot_id in ordered_ids}
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            sql, params = self._topology_layout_availability_for_snapshots_sql(
+                chunk
+            )
+            cur = self.db.conn.execute(sql, params)
+            for row in cur.fetchall():
+                snapshot_id = str(row["snapshot_id"])
+                if snapshot_id in result:
+                    result[snapshot_id] = bool(row["layout_available"])
+        return result
+
     def _topology_links_for_device_in_snapshots_sql(
         self, chunk: list[str], ieee_address: str
     ) -> tuple[str, list[Any]]:
