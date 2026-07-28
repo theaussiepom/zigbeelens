@@ -141,7 +141,8 @@ networks:
 | `reporting.default_profile` | `standard` |
 | `reporting.max_recent_events` | `100` |
 
-`reporting.max_recent_events` accepts `1..1000`; zero is rejected by both the
+`reporting.max_recent_events` accepts `1..1000` and applies independently to
+each serialized report timeline collection; zero is rejected by both the
 Supervisor schema and Core. When a report request omits `redaction.profile`,
 Core uses `reporting.default_profile`; an explicit request profile overrides
 it. Removed sample-limit and raw-payload switches are rejected rather than

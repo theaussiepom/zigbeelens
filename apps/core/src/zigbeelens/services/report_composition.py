@@ -45,6 +45,7 @@ class ReportCompositionContext:
     """Immutable request-local composition for one report."""
 
     plan: ReportScopePlan
+    max_recent_events: int
     network_rows: tuple[NetworkRow, ...]
     networks: tuple[NetworkSummary, ...]
     device_rows: tuple[DeviceRow, ...]
@@ -296,6 +297,7 @@ def compose_live_report_scope(
     """Compose one scoped report context from live repository state."""
     repo = builder.repo
     config = builder.config
+    max_events = reporting.max_recent_events
     plan = resolve_report_scope_plan(
         request,
         repo=repo,
@@ -440,6 +442,7 @@ def compose_live_report_scope(
                     row,
                     decision_badge=badges.get(key),
                     include_events=include_timeline,
+                    event_limit=max_events,
                     summary=summary,
                     summary_context=composition.summary,
                 )
@@ -447,7 +450,10 @@ def compose_live_report_scope(
 
     # --- incidents from same badge batch ---------------------------------
     if include_timeline and incident_ids:
-        events_map = repo.list_events_for_incidents(incident_ids)
+        events_map = repo.list_events_for_incidents(
+            incident_ids,
+            limit_per_incident=max_events,
+        )
         events_by_incident_id = MappingProxyType(
             {
                 incident_id: tuple(events_map.get(incident_id, []))
@@ -485,7 +491,6 @@ def compose_live_report_scope(
 
     # --- timeline --------------------------------------------------------
     timeline: list[TimelineEvent] = []
-    max_events = reporting.max_recent_events
     if include_timeline:
         from zigbeelens.services.payload_builder import _timeline_from_event_rows
 
@@ -610,6 +615,7 @@ def compose_live_report_scope(
     topology = _topology_count(repo, config, plan.network_ids)
     return ReportCompositionContext(
         plan=plan,
+        max_recent_events=max_events,
         network_rows=tuple(network_rows),
         networks=tuple(networks),
         device_rows=tuple(device_rows),
@@ -646,6 +652,7 @@ def compose_mock_report_scope(
 ) -> ReportCompositionContext:
     """Compose one scoped report context from scenario fixtures."""
     data = mock.data
+    max_events = reporting.max_recent_events
     known_networks = tuple(n.id for n in data.networks)
     scenario_device_keys = tuple((d.network_id, d.ieee_address) for d in data.devices)
     scenario_incident_networks = {
@@ -845,15 +852,20 @@ def compose_mock_report_scope(
                         or data_unavailable_device_badge()
                     ),
                     "incident_affected": device.incident_affected,
-                    "recent_events": list(detail.recent_events) if include_timeline else [],
+                    "recent_events": (
+                        list(detail.recent_events)[:max_events] if include_timeline else []
+                    ),
                 }
             )
             device_details.append(detail)
 
-    if not include_timeline:
-        incidents = [inc.model_copy(update={"timeline": []}) for inc in incidents]
+    incidents = [
+        inc.model_copy(
+            update={"timeline": (list(inc.timeline)[:max_events] if include_timeline else [])}
+        )
+        for inc in incidents
+    ]
 
-    max_events = reporting.max_recent_events
     timeline: list[TimelineEvent] = []
     if include_timeline:
         if plan.scope == ReportScope.full:
@@ -908,6 +920,7 @@ def compose_mock_report_scope(
 
     return ReportCompositionContext(
         plan=plan,
+        max_recent_events=max_events,
         network_rows=(),
         networks=tuple(networks),
         device_rows=(),
@@ -941,19 +954,19 @@ def project_report_detail(
     collector: dict[str, Any],
     request: ReportRequest,
 ) -> ReportDetail:
-    """Project ReportCompositionContext into ReportDetail (no further data loads)."""
+    """Project and seal one bounded ReportDetail (no further data loads)."""
     from zigbeelens.services.reports import default_redaction_status
 
+    timeline_limit = ctx.max_recent_events if ctx.plan.include_timeline else 0
     report_stories = []
     for device in ctx.devices:
         story = ctx.stories_by_key.get((device.network_id, device.ieee_address))
         if story is None:
             continue
-        report_stories.append(report_device_story_from_story(device=device, story=story))
-    if not ctx.plan.include_timeline:
-        report_stories = [
-            story.model_copy(update={"timeline": []}) for story in report_stories
-        ]
+        projected = report_device_story_from_story(device=device, story=story)
+        report_stories.append(
+            projected.model_copy(update={"timeline": list(projected.timeline)[:timeline_limit]})
+        )
 
     from zigbeelens.services.decision_summary import decision_count_summary_from_badges
 
@@ -968,10 +981,25 @@ def project_report_detail(
     from zigbeelens.schemas import ReportDetailV3, ReportDomainDetailsV3
 
     config_summary = _scoped_config_summary(config, ctx.plan.network_ids)
+    device_details = [
+        detail.model_copy(update={"recent_events": list(detail.recent_events)[:timeline_limit]})
+        for detail in ctx.device_details
+    ]
+    incidents = [
+        incident.model_copy(update={"timeline": list(incident.timeline)[:timeline_limit]})
+        for incident in ctx.incidents
+    ]
+    timeline = list(ctx.timeline)[:timeline_limit]
+    raw_counts = {
+        **ctx.raw_counts,
+        # This remains the top-level events_or_timeline count, not a sum of
+        # every independently bounded nested collection.
+        "events_included": len(timeline),
+    }
     domain_details = ReportDomainDetailsV3(
         networks=list(ctx.networks),
         devices=list(ctx.devices),
-        device_details=list(ctx.device_details),
+        device_details=device_details,
         router_risks=list(ctx.router_risks),
         topology_snapshot_count=int(ctx.raw_counts.get("topology_snapshots", 0)),
     )
@@ -990,10 +1018,10 @@ def project_report_detail(
         data_coverage_warnings=list(ctx.data_coverage_warnings),
         config_summary=config_summary,
         collector_status=_scoped_collector(collector, ctx.plan.network_ids),
-        incidents=list(ctx.incidents),
-        events_or_timeline=list(ctx.timeline),
+        incidents=incidents,
+        events_or_timeline=timeline,
         limitations=list(ctx.limitations),
         domain_details=domain_details,
-        raw_counts=dict(ctx.raw_counts),
+        raw_counts=raw_counts,
         markdown_summary="",
     )

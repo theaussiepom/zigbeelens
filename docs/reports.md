@@ -177,9 +177,13 @@ default is `null`, meaning reports remain until manual deletion. The list API
 examines at most the newest 50 stored rows and returns summaries only for
 exact-v3 rows among them.
 
-`reporting.max_recent_events` bounds recent event/timeline composition to a
-configured value from `1..1000` (default `100`). Narrow scopes also bound the
-identity and history work performed.
+`reporting.max_recent_events` is a per-serialized-collection limit from
+`1..1000` (default `100`). It independently bounds the top-level
+`events_or_timeline`, every incident `timeline`, every Device Detail
+`recent_events` collection, and every Device Story `timeline`. The
+`raw_counts.events_included` value remains the count of the top-level
+`events_or_timeline` collection; it is not a sum of nested collections. Narrow
+scopes also bound the identity and history work performed.
 Unavailable evidence remains unavailable; an empty list is not documented as a
 measurement when its source was not observable.
 

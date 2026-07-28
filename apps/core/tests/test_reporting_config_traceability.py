@@ -23,8 +23,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # documentation owner in the same change.
 REPORTING_CONTROL_TRACEABILITY = {
     "max_recent_events": {
-        "production_owner": "services/report_composition.py",
-        "observable_behavior": "caps report-v3 events_or_timeline",
+        "production_owner": "services/report_composition.py -> services/reports.py",
+        "observable_behavior": "caps every report-v3 serialized timeline collection",
         "boundary_test": "test_max_recent_events_changes_final_report_v3",
         "documentation_owner": "docs/configuration.md",
     },
@@ -85,8 +85,15 @@ def test_max_recent_events_changes_final_report_v3(tmp_path: Path):
     many = _mock_report(tmp_path, ReportingConfig(max_recent_events=1000))
 
     assert len(one.events_or_timeline) == 1
+    assert all(len(incident.timeline) <= 1 for incident in one.incidents)
+    assert all(len(device.recent_events) <= 1 for device in one.domain_details.device_details)
+    assert all(len(story.timeline) <= 1 for story in one.device_stories)
     assert one.raw_counts["events_included"] == 1
     assert len(many.events_or_timeline) > len(one.events_or_timeline)
+    assert any(
+        len(incident.timeline) > len(one.incidents[index].timeline)
+        for index, incident in enumerate(many.incidents)
+    )
     assert many.raw_counts["events_included"] == len(many.events_or_timeline)
 
 

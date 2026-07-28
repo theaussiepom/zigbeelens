@@ -752,6 +752,7 @@ class PayloadBuilder:
         *,
         decision_badge: DeviceDecisionBadge | None = None,
         include_events: bool = True,
+        event_limit: int = 20,
         summary: DeviceSummary | None = None,
         summary_context: DeviceSummaryReadContext | None = None,
     ) -> DeviceDetail:
@@ -786,7 +787,7 @@ class PayloadBuilder:
 
         if include_events:
             event_rows = self.repo.list_events_for_device(
-                network_id, ieee_address, limit=20
+                network_id, ieee_address, limit=event_limit
             )
             recent_events = _timeline_from_event_rows(event_rows)
         else:

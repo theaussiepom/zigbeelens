@@ -182,7 +182,7 @@ document or rely on custom object IDs until the publisher consumes it.
 
 | Key | Type and default | Meaning |
 |-----|------------------|---------|
-| `reporting.max_recent_events` | integer `1..1000`, `100` | Maximum recent timeline rows considered for a report. |
+| `reporting.max_recent_events` | integer `1..1000`, `100` | Maximum rows in each serialized report timeline collection: the top-level timeline, each incident timeline, each Device Detail recent-event list, and each Device Story timeline. |
 | `reporting.default_profile` | `standard`, `public_safe`, or `strict`; `standard` | Profile used when the report request omits `redaction.profile`. An explicit request profile overrides it. |
 
 The section name is `reporting`, not `reports`.
