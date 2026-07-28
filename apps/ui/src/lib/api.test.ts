@@ -30,8 +30,22 @@ const sampleDeviceStory: DeviceStoryDto = {
       params: {},
     },
   ],
+  related_unresolved_incident_ids: [],
   timeline: [],
 };
+
+const mixedTopologyCoverage = {
+  dimension: "historical_snapshots",
+  state: "sparse",
+  label_code: "topology_history_sparse",
+  params: {
+    observed_snapshot_count: 1,
+    complete_snapshot_count: 2,
+    available_layout_snapshot_count: 1,
+    limited_layout_snapshot_count: 1,
+    snapshot_window_count: 2,
+  },
+} as const;
 
 describe("deviceStory API client", () => {
   afterEach(() => {
@@ -91,6 +105,60 @@ describe("deviceStory API client", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(api.deviceStory("home", "0x03")).resolves.toEqual(sampleDeviceStory);
+  });
+
+  it("protocol-fails malformed topology coverage in Device Story", async () => {
+    const malformed = {
+      ...sampleDeviceStory,
+      coverage: [
+        {
+          ...mixedTopologyCoverage,
+          state: "available",
+          label_code: "topology_history_available",
+        },
+      ],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(malformed), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.deviceStory("home", "0x03")).rejects.toMatchObject({
+      kind: "protocol",
+    });
+  });
+
+  it("validates device coverage endpoint lists", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([mixedTopologyCoverage]), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.deviceCoverage("home/net", "0xab/cd")).resolves.toEqual([
+      mixedTopologyCoverage,
+    ]);
+    const call = fetchCallParts(fetchMock.mock.calls[0] ?? []);
+    expect(call.url).toContain(
+      `api/devices/${encodeURIComponent("home/net")}/${encodeURIComponent("0xab/cd")}/coverage`,
+    );
+  });
+
+  it("protocol-fails malformed device coverage endpoint counts", async () => {
+    const malformed = {
+      ...mixedTopologyCoverage,
+      params: {
+        ...mixedTopologyCoverage.params,
+        snapshot_window_count: 1,
+      },
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([malformed]), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.deviceCoverage("home", "0x03")).rejects.toMatchObject({
+      kind: "protocol",
+    });
   });
 
   it("propagates 404 through the existing API error handling path", async () => {
@@ -154,6 +222,48 @@ describe("device API client path encoding", () => {
     expect(url2).toContain(
       `api/devices/${encodeURIComponent("50%mesh")}/${encodeURIComponent("0xab/cd")}`,
     );
+  });
+});
+
+describe("report preview query defaults", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("omits a null profile so Core can apply reporting.default_profile", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("missing", { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api
+      .previewReport({
+        scope: "full",
+        format: "json",
+        redaction: { profile: null },
+      })
+      .catch(() => undefined);
+
+    const call = fetchCallParts(fetchMock.mock.calls[0] ?? []);
+    const url = new URL(call.url, "http://localhost/");
+    expect(url.pathname).toContain("/api/reports/preview");
+    expect(url.searchParams.has("profile")).toBe(false);
+  });
+
+  it("preserves an explicit profile override", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("missing", { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api
+      .previewReport({
+        scope: "full",
+        format: "json",
+        redaction: { profile: "public_safe" },
+      })
+      .catch(() => undefined);
+
+    const call = fetchCallParts(fetchMock.mock.calls[0] ?? []);
+    const url = new URL(call.url, "http://localhost/");
+    expect(url.searchParams.get("profile")).toBe("public_safe");
   });
 });
 

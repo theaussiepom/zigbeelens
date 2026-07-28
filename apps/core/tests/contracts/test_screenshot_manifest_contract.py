@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import random
+import subprocess
 import struct
 import sys
 from typing import Iterator
@@ -51,21 +52,31 @@ def _png(
     raw_scanlines: bytes | None = None,
     extra_chunks: tuple[tuple[bytes, bytes], ...] = (),
     compressed_override: bytes | None = None,
+    interlace: int = 0,
+    split_idat: bool = False,
 ) -> bytes:
-    if raw_scanlines is None:
-        assert len(rgb) == 3
-        raw_scanlines = b"".join(b"\x00" + rgb * width for _ in range(height))
-    compressed = (
-        zlib.compress(raw_scanlines)
-        if compressed_override is None
-        else compressed_override
-    )
-    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    if compressed_override is None:
+        if raw_scanlines is None:
+            assert len(rgb) == 3
+            raw_scanlines = b"".join(
+                b"\x00" + rgb * width for _ in range(height)
+            )
+        compressed = zlib.compress(raw_scanlines)
+    else:
+        compressed = compressed_override
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, interlace)
+    if split_idat:
+        midpoint = max(1, len(compressed) // 2)
+        idat = _chunk(b"IDAT", compressed[:midpoint]) + _chunk(
+            b"IDAT", compressed[midpoint:]
+        )
+    else:
+        idat = _chunk(b"IDAT", compressed)
     return (
         VALIDATOR.PNG_SIGNATURE
         + _chunk(b"IHDR", ihdr)
         + b"".join(_chunk(chunk_type, data) for chunk_type, data in extra_chunks)
-        + _chunk(b"IDAT", compressed)
+        + idat
         + _chunk(b"IEND", b"")
     )
 
@@ -227,6 +238,31 @@ def test_complete_isolated_screenshot_contract_is_accepted(tmp_path: Path):
 
 
 @pytest.mark.parametrize(
+    "key",
+    (
+        "capture_password",
+        "capture-passwd",
+        "capture secret",
+        "api_key",
+        "apikey",
+        "sessionId",
+        "session-secret",
+        "service credential",
+        "HTTPAuthorization",
+        "authBearer",
+        "captureToken",
+        "sessionCookie",
+        "browserProfile",
+        "filesystemPath",
+        "absolute_path",
+        "servicePort",
+    ),
+)
+def test_sensitive_manifest_key_vocabulary_and_casing(key: str):
+    assert VALIDATOR._sensitive_manifest_key(key)
+
+
+@pytest.mark.parametrize(
     ("case", "expected"),
     (
         ("wrong_source", "accepted Phase 7C2 runtime source"),
@@ -240,6 +276,9 @@ def test_complete_isolated_screenshot_contract_is_accepted(tmp_path: Path):
         ("camel_cookie", "forbidden sensitive field"),
         ("camel_profile", "forbidden sensitive field"),
         ("camel_port", "forbidden sensitive field"),
+        ("upper_camel_token", "forbidden sensitive field"),
+        ("kebab_secret", "forbidden sensitive field"),
+        ("nested_api_key", "forbidden sensitive field"),
         ("ieee_object_key", "complete IEEE address"),
         ("privacy_pending", "privacy_review must be passed"),
         ("wrong_hacs_source", "hacs_package_source_sha"),
@@ -288,6 +327,12 @@ def test_manifest_provenance_privacy_and_review_fail_closed(
         manifest["extra"] = {"browserProfile": "temporary"}
     elif case == "camel_port":
         manifest["extra"] = {"servicePort": 18123}
+    elif case == "upper_camel_token":
+        manifest["extra"] = {"APIToken": "secret"}
+    elif case == "kebab_secret":
+        manifest["extra"] = {"session-secret": "secret"}
+    elif case == "nested_api_key":
+        manifest["extra"] = {"nested": [{"api.key": "secret"}]}
     elif case == "ieee_object_key":
         manifest["extra"] = {"0x0017880102b3c4d5": "must not be stored"}
     elif case == "privacy_pending":
@@ -316,6 +361,36 @@ def test_manifest_provenance_privacy_and_review_fail_closed(
         _asset(manifest, "overview-dashboard.png").pop(
             "capture_exception_rationale"
         )
+    _write_json(tmp_path / VALIDATOR.SCREENSHOT_MANIFEST, manifest)
+
+    with pytest.raises(VALIDATOR.DocumentationError, match=expected):
+        _validate(tmp_path, markdown_files)
+
+
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    (
+        ("extra_top_level", "unapproved top-level field"),
+        ("extra_core_asset", "unapproved manifest field"),
+        ("extra_ha_asset", "unapproved manifest field"),
+        ("missing_ha_field", "missing manifest field"),
+    ),
+)
+def test_manifest_schema_is_exact(
+    tmp_path: Path,
+    case: str,
+    expected: str,
+):
+    markdown_files = _build_contract(tmp_path)
+    manifest = _manifest(tmp_path)
+    if case == "extra_top_level":
+        manifest["review_batch"] = "phase-7c2"
+    elif case == "extra_core_asset":
+        _asset(manifest, "overview-dashboard.png")["review_batch"] = "phase-7c2"
+    elif case == "extra_ha_asset":
+        _asset(manifest, "hacs-config-flow.png")["package_channel"] = "local"
+    elif case == "missing_ha_field":
+        _asset(manifest, "hacs-config-flow.png").pop("hacs_package_source_sha")
     _write_json(tmp_path / VALIDATOR.SCREENSHOT_MANIFEST, manifest)
 
     with pytest.raises(VALIDATOR.DocumentationError, match=expected):
@@ -397,6 +472,12 @@ def test_inventory_and_duplicate_images_fail_closed(
         ("invalid_signature", "invalid PNG signature"),
         ("invalid_crc", "invalid CRC"),
         ("invalid_zlib", "IDAT zlib stream does not decode"),
+        ("truncated_zlib", "zlib stream is truncated"),
+        ("trailing_zlib", "zlib stream has trailing data"),
+        ("one_byte_over", "exceeds its exact scanline budget"),
+        ("one_byte_under", "decoded PNG scanline size"),
+        ("invalid_filter", "invalid PNG filter"),
+        ("global_budget", "100 MB safety limit"),
         ("invalid_srgb", "invalid PNG sRGB rendering intent"),
         ("duplicate_srgb", "at most one sRGB"),
         ("srgb_after_plte", "sRGB must precede PLTE"),
@@ -419,6 +500,26 @@ def test_png_parser_rejects_structural_and_decode_failures(
         payload = bytes(corrupted)
     elif case == "invalid_zlib":
         payload = _png(compressed_override=b"not a zlib stream")
+    elif case == "truncated_zlib":
+        payload = _png(compressed_override=zlib.compress(b"\x00\x11\x22\x33")[:-2])
+    elif case == "trailing_zlib":
+        payload = _png(
+            compressed_override=zlib.compress(b"\x00\x11\x22\x33") + b"trailing"
+        )
+    elif case == "one_byte_over":
+        payload = _png(
+            compressed_override=zlib.compress(b"\x00\x11\x22\x33\x44")
+        )
+    elif case == "one_byte_under":
+        payload = _png(compressed_override=zlib.compress(b"\x00\x11\x22"))
+    elif case == "invalid_filter":
+        payload = _png(compressed_override=zlib.compress(b"\x05\x11\x22\x33"))
+    elif case == "global_budget":
+        payload = _png(
+            width=100_000,
+            height=100_000,
+            compressed_override=zlib.compress(b""),
+        )
     elif case == "invalid_srgb":
         payload = _png(extra_chunks=((b"sRGB", b"/Users/private"),))
     elif case == "duplicate_srgb":
@@ -439,6 +540,99 @@ def test_png_parser_rejects_structural_and_decode_failures(
     with _validator_root(tmp_path):
         with pytest.raises(VALIDATOR.DocumentationError, match=expected):
             VALIDATOR.parse_png(path)
+
+
+def test_png_parser_accepts_split_idat_and_adam7(tmp_path: Path):
+    split_path = tmp_path / "split-idat.png"
+    split_path.write_bytes(_png(width=3, height=2, split_idat=True))
+
+    width = 9
+    height = 9
+    adam7_rows = bytearray()
+    for pass_width, pass_height in VALIDATOR._png_passes(width, height, 1):
+        row = bytes((pass_width * 3))
+        for _ in range(pass_height):
+            adam7_rows.extend(b"\x00")
+            adam7_rows.extend(row)
+    adam7_path = tmp_path / "adam7.png"
+    adam7_path.write_bytes(
+        _png(
+            width=width,
+            height=height,
+            raw_scanlines=bytes(adam7_rows),
+            interlace=1,
+            split_idat=True,
+        )
+    )
+
+    with _validator_root(tmp_path):
+        assert VALIDATOR.parse_png(split_path)[:2] == (3, 2)
+        assert VALIDATOR.parse_png(adam7_path)[:2] == (width, height)
+
+
+def test_png_parser_accepts_valid_near_hard_maximum_file(tmp_path: Path):
+    width = 1440
+    height = 177
+    random_bytes = random.Random(9).randbytes(width * 3 * height)
+    scanlines = b"".join(
+        b"\x00" + random_bytes[offset : offset + width * 3]
+        for offset in range(0, len(random_bytes), width * 3)
+    )
+    payload = _png(width=width, height=height, raw_scanlines=scanlines)
+    assert VALIDATOR.SCREENSHOT_HARD_MAX_BYTES - 8_192 < len(payload)
+    assert len(payload) < VALIDATOR.SCREENSHOT_HARD_MAX_BYTES
+
+    path = tmp_path / "near-hard-maximum.png"
+    path.write_bytes(payload)
+    with _validator_root(tmp_path):
+        assert VALIDATOR.parse_png(path)[:2] == (width, height)
+
+
+def test_png_decompression_bomb_stays_within_subprocess_memory_budget(
+    tmp_path: Path,
+):
+    compressor = zlib.compressobj(level=1)
+    block = b"\x00" * (1024 * 1024)
+    compressed_parts = [compressor.compress(block) for _ in range(32)]
+    compressed_parts.append(compressor.flush())
+    path = tmp_path / "bomb.png"
+    path.write_bytes(_png(compressed_override=b"".join(compressed_parts)))
+    assert path.stat().st_size < VALIDATOR.SCREENSHOT_HARD_MAX_BYTES
+
+    probe = """
+import importlib.util
+from pathlib import Path
+import resource
+import sys
+
+validator_path = Path(sys.argv[1])
+image_path = Path(sys.argv[2])
+spec = importlib.util.spec_from_file_location("validator_bomb_probe", validator_path)
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+try:
+    module.parse_png(image_path)
+except module.DocumentationError as exc:
+    if "exact scanline budget" not in str(exc):
+        raise
+else:
+    raise SystemExit("bomb unexpectedly decoded")
+after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+scale = 1 if sys.platform == "darwin" else 1024
+print((after - before) * scale)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", probe, str(VALIDATOR_PATH), str(path)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert int(result.stdout.strip()) <= 16 * 1024 * 1024
 
 
 @pytest.mark.parametrize("chunk_type", tuple(VALIDATOR.PNG_FORBIDDEN_METADATA_CHUNKS))
@@ -485,7 +679,8 @@ def test_approved_synthetic_documentation_hosts_are_not_private_data(
     manifest = _manifest(tmp_path)
     _asset(manifest, "hacs-config-flow.png")["route_or_state"] = (
         "Pre-submit form for https://zigbeelens.example.test using "
-        "http://core.zigbeelens.test"
+        "http://core.zigbeelens.test with bare hosts "
+        "zigbeelens.example.test and core.zigbeelens.test"
     )
     _write_json(tmp_path / VALIDATOR.SCREENSHOT_MANIFEST, manifest)
 
@@ -499,6 +694,44 @@ def test_approved_synthetic_documentation_hosts_are_not_private_data(
         "http://core.zigbeelens.test.attacker.invalid",
         "zigbeelens.example.testevil",
         "core.zigbeelens.test.attacker.invalid",
+        "https://zigbeelens.example.test@2130706433",
+        "http://core.zigbeelens.test@0x7f000001",
+        "https://zigbeelens.example.test:443@127.0.0.1",
+        "//zigbeelens.example.test@127.0.0.1",
+        "https://zigbeelens.example.test:443",
+        "https://zigbeelens.example.test/path",
+        "https://zigbeelens.example.test?query=1",
+        "https://zigbeelens.example.test#fragment",
+        "zigbeelens.example.test/path",
+        "core.zigbeelens.test?query=1",
+        "core.zigbeelens.test#fragment",
+        "core.zigbeelens.test:80",
+        "core.zigbeelens.test.",
+        "http://2130706433",
+        "http://0x7f000001",
+        "http://017700000001",
+        "http://127.0.0.1",
+        "http://[::1]",
+        "http://[::ffff:127.0.0.1]",
+        "2130706433",
+        "0x7f000001",
+        "017700000001",
+        "::ffff:127.0.0.1",
+        "https://zigbeelens.example.test.",
+        "https://zigbeelens%2eexample.test",
+        "https://zigbeelens%252eexample.test",
+        "//zigbeelens.example.test",
+        "http://zigbeelens.example.test",
+        "https://core.zigbeelens.test",
+        "https:\\\\zigbeelens.example.test",
+        "https://zigbeelens。example.test",
+        "https://xn--zigbeelens-9za.example.test",
+        "zigbeelens.example.test\u200b.evil.invalid",
+        "zigbeelens.example.test\u2060.evil.invalid",
+        "ｅｖｉｌ.ｉｎｖａｌｉｄ",
+        "ｚｉｇｂｅｅｌｅｎｓ.ｅｘａｍｐｌｅ.ｔｅｓｔ",
+        "evil.іnvalid",
+        "évil.ïnvalid",
     ),
 )
 def test_approved_synthetic_hosts_require_exact_boundaries(
@@ -514,6 +747,11 @@ def test_approved_synthetic_hosts_require_exact_boundaries(
 
     with pytest.raises(VALIDATOR.DocumentationError, match="URL/hostname"):
         _validate(tmp_path, markdown_files)
+
+
+@pytest.mark.parametrize("host_token", ("127", "0177", "0x7f"))
+def test_short_integer_host_tokens_fail_closed(host_token: str):
+    assert VALIDATOR._has_forbidden_network_reference(host_token)
 
 
 def test_manifest_hash_size_dimensions_and_size_policy_are_mechanical(

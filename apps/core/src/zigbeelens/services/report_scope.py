@@ -33,6 +33,13 @@ class ReportScopeNotFoundError(ValueError):
         super().__init__(message)
 
 
+class ReportScopeRequestError(ValueError):
+    """A contextual scope request omitted its required target identity."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
 class ReportScopeDeviceLookup(Protocol):
     def find_devices_by_ieee(self, ieee_address: str): ...
 
@@ -66,13 +73,6 @@ class ReportScopePlan:
     target_incident_id: str | None = None
     require_device_details: bool = False
     require_full_estate_history: bool = False
-    empty_scope: bool = False
-    not_found: bool = False
-    not_found_reason: str | None = None
-
-    @property
-    def is_empty(self) -> bool:
-        return self.empty_scope or self.not_found
 
 
 def resolve_report_scope_plan(
@@ -118,37 +118,14 @@ def resolve_report_scope_plan(
     if request.scope == ReportScope.network:
         network_id = request.network_id
         if not network_id:
-            return ReportScopePlan(
-                scope=ReportScope.network,
-                reference_now=now,
-                include_timeline=include_timeline,
-                network_ids=(),
-                device_keys=(),
-                incident_ids=(),
-                require_device_details=False,
-                empty_scope=True,
-                not_found=True,
-                not_found_reason="network_id is required for network scope",
-            )
+            raise ReportScopeRequestError("network_id is required for network scope")
         exists = True
         if known_network_ids is not None:
             exists = network_id in known_network_ids
         elif repo is not None:
             exists = repo.get_network(network_id) is not None
         if not exists:
-            return ReportScopePlan(
-                scope=ReportScope.network,
-                reference_now=now,
-                include_timeline=include_timeline,
-                network_ids=(),
-                device_keys=(),
-                incident_ids=(),
-                target_network_id=network_id,
-                require_device_details=False,
-                empty_scope=True,
-                not_found=True,
-                not_found_reason="Network not found",
-            )
+            raise ReportScopeNotFoundError(f"Network '{network_id}' was not found")
         return ReportScopePlan(
             scope=ReportScope.network,
             reference_now=now,
@@ -163,33 +140,10 @@ def resolve_report_scope_plan(
     if request.scope == ReportScope.incident:
         incident_id = request.incident_id
         if not incident_id:
-            return ReportScopePlan(
-                scope=ReportScope.incident,
-                reference_now=now,
-                include_timeline=include_timeline,
-                network_ids=(),
-                device_keys=(),
-                incident_ids=(),
-                require_device_details=require_details,
-                empty_scope=True,
-                not_found=True,
-                not_found_reason="incident_id is required for incident scope",
-            )
+            raise ReportScopeRequestError("incident_id is required for incident scope")
         if scenario_incident_networks is not None:
             if incident_id not in scenario_incident_networks:
-                return ReportScopePlan(
-                    scope=ReportScope.incident,
-                    reference_now=now,
-                    include_timeline=include_timeline,
-                    network_ids=(),
-                    device_keys=(),
-                    incident_ids=(),
-                    target_incident_id=incident_id,
-                    require_device_details=require_details,
-                    empty_scope=True,
-                    not_found=True,
-                    not_found_reason="Incident not found",
-                )
+                raise ReportScopeNotFoundError(f"Incident '{incident_id}' was not found")
             network_ids = tuple(scenario_incident_networks.get(incident_id, ()))
             device_keys = tuple(
                 (scenario_incident_devices or {}).get(incident_id, ())
@@ -198,19 +152,7 @@ def resolve_report_scope_plan(
             assert repo is not None
             row = repo.get_incident(incident_id)
             if row is None:
-                return ReportScopePlan(
-                    scope=ReportScope.incident,
-                    reference_now=now,
-                    include_timeline=include_timeline,
-                    network_ids=(),
-                    device_keys=(),
-                    incident_ids=(),
-                    target_incident_id=incident_id,
-                    require_device_details=require_details,
-                    empty_scope=True,
-                    not_found=True,
-                    not_found_reason="Incident not found",
-                )
+                raise ReportScopeNotFoundError(f"Incident '{incident_id}' was not found")
             network_ids = tuple(repo.list_incident_networks(incident_id))
             refs = repo.list_incident_devices(incident_id)
             device_keys = tuple(
@@ -230,18 +172,7 @@ def resolve_report_scope_plan(
     if request.scope == ReportScope.device:
         ieee = (request.device or "").strip()
         if not ieee:
-            return ReportScopePlan(
-                scope=ReportScope.device,
-                reference_now=now,
-                include_timeline=include_timeline,
-                network_ids=(),
-                device_keys=(),
-                incident_ids=(),
-                require_device_details=require_details,
-                empty_scope=True,
-                not_found=True,
-                not_found_reason="device is required for device scope",
-            )
+            raise ReportScopeRequestError("device is required for device scope")
         network_id = request.network_id
         if network_id:
             if scenario_device_keys is not None:
@@ -254,19 +185,8 @@ def resolve_report_scope_plan(
                         if k[0] == network_id and k[1].lower() == ieee.lower()
                     ]
                     if not matches:
-                        return ReportScopePlan(
-                            scope=ReportScope.device,
-                            reference_now=now,
-                            include_timeline=include_timeline,
-                            network_ids=(),
-                            device_keys=(),
-                            incident_ids=(),
-                            target_network_id=network_id,
-                            target_device_ieee=ieee,
-                            require_device_details=require_details,
-                            empty_scope=True,
-                            not_found=True,
-                            not_found_reason="Device not found",
+                        raise ReportScopeNotFoundError(
+                            f"Device '{ieee}' was not found in network '{network_id}'"
                         )
                     network_id, ieee = matches[0]
                 else:
@@ -275,19 +195,8 @@ def resolve_report_scope_plan(
                 assert repo is not None
                 row = repo.get_device(network_id, ieee)
                 if row is None:
-                    return ReportScopePlan(
-                        scope=ReportScope.device,
-                        reference_now=now,
-                        include_timeline=include_timeline,
-                        network_ids=(),
-                        device_keys=(),
-                        incident_ids=(),
-                        target_network_id=network_id,
-                        target_device_ieee=ieee,
-                        require_device_details=require_details,
-                        empty_scope=True,
-                        not_found=True,
-                        not_found_reason="Device not found",
+                    raise ReportScopeNotFoundError(
+                        f"Device '{ieee}' was not found in network '{network_id}'"
                     )
                 ieee = row.ieee_address
                 network_id = row.network_id
@@ -313,19 +222,7 @@ def resolve_report_scope_plan(
             rows = repo.find_devices_by_ieee(ieee)
             matches = [(row.network_id, row.ieee_address) for row in rows]
         if not matches:
-            return ReportScopePlan(
-                scope=ReportScope.device,
-                reference_now=now,
-                include_timeline=include_timeline,
-                network_ids=(),
-                device_keys=(),
-                incident_ids=(),
-                target_device_ieee=ieee,
-                require_device_details=require_details,
-                empty_scope=True,
-                not_found=True,
-                not_found_reason="Device not found",
-            )
+            raise ReportScopeNotFoundError(f"Device '{ieee}' was not found")
         if len(matches) > 1:
             raise ReportScopeAmbiguityError(
                 ieee, tuple(sorted({nid for nid, _ in matches}))
@@ -343,14 +240,4 @@ def resolve_report_scope_plan(
             require_device_details=require_details,
         )
 
-    return ReportScopePlan(
-        scope=request.scope,
-        reference_now=now,
-        include_timeline=include_timeline,
-        network_ids=(),
-        device_keys=(),
-        incident_ids=(),
-        empty_scope=True,
-        not_found=True,
-        not_found_reason=f"Unsupported report scope: {request.scope}",
-    )
+    raise ReportScopeRequestError(f"Unsupported report scope: {request.scope}")

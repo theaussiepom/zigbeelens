@@ -9,18 +9,20 @@ seals a few high-risk public documentation contracts.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import re
 import struct
 import subprocess
 import sys
+import unicodedata
 import zlib
 from collections import Counter
 from datetime import date
 from pathlib import Path
 from types import UnionType
 from typing import Union, get_args, get_origin
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 import yaml
 from pydantic import BaseModel
@@ -197,6 +199,7 @@ SCREENSHOT_HARD_MAX_BYTES = 750 * 1024
 SCREENSHOT_DEFAULT_WIDTH = 1440
 SCREENSHOT_DEFAULT_HEIGHT = 900
 SCREENSHOT_HOME_ASSISTANT_VERSION = "2026.7.3"
+PNG_DECODE_MAX_BYTES = 100_000_000
 SCREENSHOT_ASSETS: dict[str, tuple[str, str]] = {
     "overview-dashboard.png": ("core", "README.md"),
     "mesh-investigate.png": ("core", "docs/topology.md"),
@@ -210,6 +213,16 @@ SCREENSHOT_ASSETS: dict[str, tuple[str, str]] = {
         "home_assistant",
         "docs/hacs-embedded-view.md",
     ),
+}
+SCREENSHOT_TOP_LEVEL_FIELDS = {
+    "screenshot_manifest_version",
+    "capture_source_sha",
+    "release_candidate_version",
+    "capture_date",
+    "data_classification",
+    "contains_real_device_identifiers",
+    "capture_provenance_note",
+    "assets",
 }
 SCREENSHOT_ASSET_FIELDS = {
     "filename",
@@ -230,6 +243,16 @@ SCREENSHOT_ASSET_FIELDS = {
     "privacy_review",
     "visual_review",
     "documentation_destinations",
+}
+SCREENSHOT_ASSET_OPTIONAL_FIELDS = {
+    "capture_exception_rationale",
+    "size_exception_rationale",
+}
+SCREENSHOT_HOME_ASSISTANT_FIELDS = {
+    "hacs_package_source_sha",
+    "hacs_package_origin",
+    "public_hacs_satellite_used",
+    "home_assistant_version",
 }
 SCREENSHOT_IDENTIFIER_PRESENTATIONS = {
     "full_synthetic_fixture",
@@ -334,26 +357,30 @@ def _validate_png_scanlines(
     expected_size = sum((row_bytes + 1) * pass_height for row_bytes, pass_height in rows)
     # Canonical documentation images are modest. Fail before decompression if a
     # malformed IHDR claims an unreasonable decoded allocation.
-    if expected_size > 100_000_000:
+    if expected_size > PNG_DECODE_MAX_BYTES:
         raise DocumentationError(
             f"{label}: decoded PNG exceeds the 100 MB safety limit"
         )
 
     try:
         decompressor = zlib.decompressobj()
-        decoded = decompressor.decompress(compressed, expected_size + 1)
-        decoded += decompressor.flush()
+        # The exact decoded scanline size is the allocation budget. Never call
+        # flush() or drain unconsumed input: either could inflate attacker-owned
+        # data after the bound has been reached.
+        decoded = decompressor.decompress(compressed, expected_size)
     except zlib.error as exc:
         raise DocumentationError(
             f"{label}: IDAT zlib stream does not decode: {exc}"
         ) from exc
-    if (
-        not decompressor.eof
-        or decompressor.unused_data
-        or decompressor.unconsumed_tail
-    ):
+    if decompressor.unconsumed_tail:
         raise DocumentationError(
-            f"{label}: IDAT is truncated or has trailing data"
+            f"{label}: decoded PNG exceeds its exact scanline budget"
+        )
+    if not decompressor.eof:
+        raise DocumentationError(f"{label}: IDAT zlib stream is truncated")
+    if decompressor.unused_data:
+        raise DocumentationError(
+            f"{label}: IDAT zlib stream has trailing data"
         )
     if len(decoded) != expected_size:
         raise DocumentationError(
@@ -541,19 +568,142 @@ def _manifest_keys(value: object) -> list[str]:
     return []
 
 
-def _strip_approved_synthetic_hosts(text: str) -> str:
-    """Remove only the two exact synthetic hosts/origins allowed by the brief."""
-    approved = re.compile(
-        r"(?i)"
-        r"(?<![a-z0-9+.-])"
-        r"(?:https://zigbeelens\.example\.test|"
-        r"http://core\.zigbeelens\.test)"
-        r"(?![a-z0-9.-])|"
-        r"(?<![a-z0-9./:-])"
-        r"(?:zigbeelens\.example\.test|core\.zigbeelens\.test)"
-        r"(?![a-z0-9.-])"
+SCREENSHOT_APPROVED_ORIGINS = {
+    "https://zigbeelens.example.test": (
+        "https",
+        "zigbeelens.example.test",
+    ),
+    "http://core.zigbeelens.test": (
+        "http",
+        "core.zigbeelens.test",
+    ),
+}
+SCREENSHOT_APPROVED_BARE_HOSTS = {
+    host for _, host in SCREENSHOT_APPROVED_ORIGINS.values()
+}
+SCREENSHOT_APPROVED_DOTTED_LITERALS = {
+    "0.1.14",
+    SCREENSHOT_HOME_ASSISTANT_VERSION,
+}
+NETWORK_URL_PATTERN = re.compile(
+    r"(?i)(?<![a-z0-9+.-])"
+    r"(?:[a-z][a-z0-9+.-]*:)?//"
+    r"[^\s<>(){}\"',;]+"
+)
+NETWORK_DOTTED_PATTERN = re.compile(
+    r"(?i)(?<![a-z0-9_.-])"
+    r"(?:[a-z0-9_%:-]+\.)+[a-z0-9_%:-]+\.?"
+    r"(?![a-z0-9_.-])"
+)
+NETWORK_IPV6_PATTERN = re.compile(
+    r"(?i)(?<![a-z0-9])"
+    r"\[?(?:[0-9a-f]{0,4}:){2,}[0-9a-f:.%]*\]?"
+    r"(?![a-z0-9])"
+)
+
+
+def _approved_origin(token: str) -> bool:
+    expected = SCREENSHOT_APPROVED_ORIGINS.get(token)
+    if expected is None:
+        return False
+    try:
+        parsed = urlsplit(token)
+        port = parsed.port
+    except ValueError:
+        return False
+    expected_scheme, expected_host = expected
+    return (
+        parsed.scheme == expected_scheme
+        and parsed.hostname == expected_host
+        and parsed.netloc == expected_host
+        and parsed.username is None
+        and parsed.password is None
+        and port is None
+        and parsed.path == ""
+        and parsed.query == ""
+        and parsed.fragment == ""
     )
-    return approved.sub("", text)
+
+
+def _has_forbidden_network_reference(value: str) -> bool:
+    """Allow only exact approved origins or bare hosts; reject bypass spellings."""
+    if any(
+        unicodedata.category(character) in {"Cc", "Cf", "Cs"}
+        for character in value
+    ):
+        return True
+    normalized_unicode = unicodedata.normalize("NFKC", value)
+    if normalized_unicode != value and any(
+        marker in normalized_unicode for marker in (".", ":", "/", "\\", "@")
+    ):
+        return True
+    if any(ord(character) > 127 for character in value) and any(
+        marker in value for marker in (".", ":", "/", "\\", "@")
+    ):
+        return True
+    stripped = value.strip().lower()
+    if re.fullmatch(r"\d{1,10}", stripped) and int(stripped, 10) <= 2**32 - 1:
+        return True
+    if re.fullmatch(r"0x[0-9a-f]{1,8}", stripped) and int(stripped, 16) <= 2**32 - 1:
+        return True
+    if re.fullmatch(r"0[0-7]{1,11}", stripped) and int(stripped, 8) <= 2**32 - 1:
+        return True
+    if re.search(r"%[0-9a-f]{2}", value, flags=re.IGNORECASE):
+        return True
+    if any(
+        character in value
+        for character in ("\u2024", "\u3002", "\uff0e", "\uff61", "\uff0f", "\uff1a", "\uff20")
+    ):
+        return True
+    if "@" in value or re.search(
+        r"(?i)\b[a-z][a-z0-9+.-]*:\\", value
+    ):
+        return True
+
+    remainder = list(value)
+    for match in NETWORK_URL_PATTERN.finditer(value):
+        token = match.group(0)
+        if not _approved_origin(token):
+            return True
+        remainder[match.start() : match.end()] = " " * len(token)
+    without_urls = "".join(remainder)
+
+    for match in NETWORK_DOTTED_PATTERN.finditer(without_urls):
+        token = match.group(0)
+        if token in SCREENSHOT_APPROVED_DOTTED_LITERALS:
+            continue
+        if token not in SCREENSHOT_APPROVED_BARE_HOSTS:
+            return True
+        before = without_urls[match.start() - 1 : match.start()]
+        after = without_urls[match.end() : match.end() + 1]
+        if before in {"/", ":", "@"} or after in {"/", "?", "#", ":", "@", "\\"}:
+            return True
+
+    if NETWORK_IPV6_PATTERN.search(without_urls):
+        return True
+    if re.search(r"(?i)\blocalhost\b", without_urls):
+        return True
+    if re.search(r"(?i)\b0x[0-9a-f]{7,8}\b", without_urls):
+        return True
+    if re.search(r"\b0[0-7]{8,11}\b", without_urls):
+        return True
+    for candidate in re.findall(
+        r"(?i)(?<![0-9a-z])\d{8,10}(?![0-9a-z])",
+        without_urls,
+    ):
+        if int(candidate) <= (2**32 - 1):
+            return True
+    # ipaddress closes uncommon but valid dotted and IPv6 spellings extracted
+    # as standalone tokens; malformed network-like tokens already fail above.
+    for candidate in re.findall(r"(?i)\[?[0-9a-f:.%]+\]?", without_urls):
+        if not any(marker in candidate for marker in (".", ":")):
+            continue
+        try:
+            ipaddress.ip_address(candidate.strip("[]").split("%", 1)[0])
+        except ValueError:
+            continue
+        return True
+    return False
 
 
 def _normalized_manifest_key_parts(key: str) -> tuple[str, ...]:
@@ -565,16 +715,45 @@ def _normalized_manifest_key_parts(key: str) -> tuple[str, ...]:
 
 def _sensitive_manifest_key(key: str) -> bool:
     parts = _normalized_manifest_key_parts(key)
-    if {"token", "cookie", "port"}.intersection(parts):
+    sensitive_parts = {
+        "apikey",
+        "authorization",
+        "bearer",
+        "cookie",
+        "credential",
+        "credentials",
+        "host",
+        "hostname",
+        "key",
+        "password",
+        "passwd",
+        "path",
+        "port",
+        "profile",
+        "secret",
+        "session",
+        "token",
+        "uri",
+        "url",
+    }
+    if sensitive_parts.intersection(parts):
         return True
-    pairs = set(zip(parts, parts[1:]))
-    return bool(
-        {
-            ("browser", "profile"),
-            ("filesystem", "path"),
-            ("absolute", "path"),
-        }.intersection(pairs)
+    compact = "".join(parts)
+    sensitive_suffixes = (
+        "cookie",
+        "credential",
+        "credentials",
+        "hostname",
+        "password",
+        "passwd",
+        "profile",
+        "secret",
+        "session",
+        "token",
     )
+    if compact.endswith(sensitive_suffixes):
+        return True
+    return compact.endswith("port") and compact not in {"transport", "viewport"}
 
 
 def _validate_manifest_privacy(manifest: dict[str, object], errors: list[str]) -> None:
@@ -582,13 +761,18 @@ def _validate_manifest_privacy(manifest: dict[str, object], errors: list[str]) -
     approved_dotted_values.update(
         destination for _, destination in SCREENSHOT_ASSETS.values()
     )
+    approved_dotted_values.update(SCREENSHOT_APPROVED_DOTTED_LITERALS)
     strings = [
         value
         for value in _manifest_string_values(manifest)
         if value not in approved_dotted_values
     ]
     serialized = "\n".join((*strings, *_manifest_keys(manifest)))
-    serialized = _strip_approved_synthetic_hosts(serialized)
+    if any(
+        _has_forbidden_network_reference(value)
+        for value in (*strings, *_manifest_keys(manifest))
+    ):
+        errors.append("screenshot manifest stores forbidden URL/hostname")
     forbidden_values = {
         "complete IEEE address": (
             r"(?i)\b0x[0-9a-f]{16}\b|"
@@ -597,13 +781,6 @@ def _validate_manifest_privacy(manifest: dict[str, object], errors: list[str]) -
         "absolute filesystem path": (
             r"(?i)(?:^|[\s\"'(])/(?:users|home|private|tmp|var|opt)/|"
             r"\b[a-z]:\\"
-        ),
-        "URL/hostname": (
-            r"(?i)\b[a-z][a-z0-9+.-]*://|"
-            r"(?<![a-z0-9.-])(?:[a-z0-9-]+\.)+"
-            r"[a-z][a-z0-9-]{1,62}(?![a-z0-9.-])|"
-            r"\blocalhost\b|"
-            r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
         ),
         "explicit port": r"(?<!\d):[0-9]{2,5}\b",
         "browser profile": r"(?i)\bbrowser[- ]profile\b",
@@ -715,21 +892,17 @@ def validate_screenshot_manifest(
     manifest: dict[str, object] = loaded
     errors: list[str] = []
 
-    required_top_level = {
-        "screenshot_manifest_version",
-        "capture_source_sha",
-        "release_candidate_version",
-        "capture_date",
-        "data_classification",
-        "contains_real_device_identifiers",
-        "capture_provenance_note",
-        "assets",
-    }
-    missing_top_level = sorted(required_top_level - manifest.keys())
+    missing_top_level = sorted(SCREENSHOT_TOP_LEVEL_FIELDS - manifest.keys())
+    extra_top_level = sorted(manifest.keys() - SCREENSHOT_TOP_LEVEL_FIELDS)
     if missing_top_level:
         errors.append(
             "screenshot manifest missing top-level field(s): "
             + ", ".join(missing_top_level)
+        )
+    if extra_top_level:
+        errors.append(
+            "screenshot manifest has unapproved top-level field(s): "
+            + ", ".join(extra_top_level)
         )
     if not (
         _is_plain_int(manifest.get("screenshot_manifest_version"))
@@ -852,12 +1025,23 @@ def validate_screenshot_manifest(
                 "to docs/screenshots"
             )
             continue
-        missing_fields = sorted(SCREENSHOT_ASSET_FIELDS - asset.keys())
+        required_fields = set(SCREENSHOT_ASSET_FIELDS)
+        allowed_fields = required_fields | SCREENSHOT_ASSET_OPTIONAL_FIELDS
+        expected_owner, expected_destination = SCREENSHOT_ASSETS[filename]
+        if expected_owner == "home_assistant":
+            required_fields |= SCREENSHOT_HOME_ASSISTANT_FIELDS
+            allowed_fields |= SCREENSHOT_HOME_ASSISTANT_FIELDS
+        missing_fields = sorted(required_fields - asset.keys())
+        extra_fields = sorted(asset.keys() - allowed_fields)
         if missing_fields:
             errors.append(
                 f"{filename}: missing manifest field(s): " + ", ".join(missing_fields)
             )
-        expected_owner, expected_destination = SCREENSHOT_ASSETS[filename]
+        if extra_fields:
+            errors.append(
+                f"{filename}: unapproved manifest field(s): "
+                + ", ".join(extra_fields)
+            )
         if asset.get("surface_owner") != expected_owner:
             errors.append(f"{filename}: surface_owner must be {expected_owner}")
         for field in ("route_or_state", "data_source", "capture_method"):
@@ -1129,6 +1313,190 @@ def require_text_fragments(
             f"{label}: missing documentation contract(s): " + ", ".join(missing)
         )
     return len(fragments)
+
+
+RELEASE_BLOCKER_STATUS_GUARDS: tuple[tuple[str, str, str], ...] = (
+    (
+        "hacs_main_commit",
+        "docs/release.md",
+        "public `main` was commit "
+        "`21c24e3355369b94c9ab596cf9fc0591f1282297`",
+    ),
+    (
+        "hacs_tree",
+        "docs/release.md",
+        "tree `9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`",
+    ),
+    (
+        "hacs_source_commit",
+        "docs/release.md",
+        "`SOURCE_COMMIT` "
+        "`906527063ad8bd594fbec51f69f6fc72205302dd`",
+    ),
+    (
+        "hacs_no_tag_or_release",
+        "docs/release.md",
+        "no `v0.1.14` tag or release exists",
+    ),
+    (
+        "hacs_stale_after_correction",
+        "docs/release.md",
+        "the public tree is stale again until a separately authorized "
+        "resynchronization",
+    ),
+    (
+        "public_installation_gated",
+        "docs/release.md",
+        "Public installation remains gated",
+    ),
+    (
+        "rejected_digest_invalid",
+        "docs/release.md",
+        "GHCR manifest digest "
+        "`sha256:8549c49bd3e0389def669ce2e6c14bcbe2b54c967a725fd6373f5d82921f6bc7` "
+        "is rejected Phase 7D evidence",
+    ),
+    (
+        "package_version_oci_metadata",
+        "docs/release.md",
+        "org.opencontainers.image.version=0.1.14",
+    ),
+    (
+        "full_revision_oci_metadata",
+        "docs/release.md",
+        "org.opencontainers.image.revision=<full final source SHA>",
+    ),
+    (
+        "canonical_source_oci_metadata",
+        "docs/release.md",
+        "org.opencontainers.image.source=https://github.com/theaussiepom/zigbeelens",
+    ),
+    (
+        "schema_target_15",
+        "docs/release.md",
+        "The current schema target is `15`",
+    ),
+    (
+        "migration_014_unchanged",
+        "docs/release.md",
+        "Migration `014_report_v3_only_reset.sql` remains unchanged",
+    ),
+    (
+        "snapshot_parsed_json_null",
+        "docs/safety-audit.md",
+        "snapshot `parsed_json` is `NULL`",
+    ),
+    (
+        "snapshot_typed_counts_preserved",
+        "docs/safety-audit.md",
+        "Normalized router, end-device, and link counts remain in their typed "
+        "columns",
+    ),
+    (
+        "screenshots_s1_s9_stale",
+        "docs/test-architecture.md",
+        "The prior Phase 7C2 S1–S9 evidence is stale",
+    ),
+    (
+        "screenshots_one_runtime_recapture",
+        "docs/test-architecture.md",
+        "must be recaptured together from one final runtime",
+    ),
+    (
+        "phase_7d_blocked",
+        "docs/test-architecture.md",
+        "Phase 7D live Beast validation remains blocked",
+    ),
+    (
+        "addon_deferred",
+        "docs/release.md",
+        "The add-on is deferred and is not part of the current HACS release",
+    ),
+    (
+        "review_inventory_unresolved",
+        "RELEASE_CHECKLIST.md",
+        "These findings remain unresolved until a future fixing PR is merged",
+    ),
+    (
+        "pr_106_p1",
+        "RELEASE_CHECKLIST.md",
+        "PR #106 `discussion_r3654140180` (P1)",
+    ),
+    (
+        "pr_106_p2",
+        "RELEASE_CHECKLIST.md",
+        "PR #106 `discussion_r3654140181` (P2)",
+    ),
+    (
+        "pr_100_mixed_case_ieee",
+        "RELEASE_CHECKLIST.md",
+        "PR #100 `discussion_r3626646727`",
+    ),
+    (
+        "pr_97_coordinator_action",
+        "RELEASE_CHECKLIST.md",
+        "PR #97 `discussion_r3618354267`",
+    ),
+    (
+        "delayed_approved_host_bypass",
+        "RELEASE_CHECKLIST.md",
+        "Delayed approved-host bypass review",
+    ),
+    (
+        "changelog_exact_hacs_state",
+        "CHANGELOG.md",
+        "at `21c24e3355369b94c9ab596cf9fc0591f1282297` "
+        "(tree `9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`, "
+        "source `906527063ad8bd594fbec51f69f6fc72205302dd`)",
+    ),
+    (
+        "changelog_hacs_stale_and_gated",
+        "CHANGELOG.md",
+        "It is stale for this correction until a separately authorized "
+        "resynchronization; public installation remains gated",
+    ),
+)
+
+
+def validate_release_blocker_status_truth() -> int:
+    """Seal the exact pre-Phase-7D correction and review state."""
+    normalized_by_file: dict[str, str] = {}
+    missing: list[str] = []
+    for label, relative, fragment in RELEASE_BLOCKER_STATUS_GUARDS:
+        normalized = normalized_by_file.setdefault(
+            relative, normalized_document(relative).lower()
+        )
+        if " ".join(fragment.split()).lower() not in normalized:
+            missing.append(f"{relative}: {label}")
+    if missing:
+        raise DocumentationError(
+            "missing pre-Phase-7D release status guard(s):\n- "
+            + "\n- ".join(missing)
+        )
+
+    stale_parsed_json_claims = {
+        "legacy parsed_json reduced to counts": (
+            r"reduces? (?:legacy )?`parsed_json` to normalized counts"
+        ),
+        "parsed_json limited to counts": (
+            r"`parsed_json` is limited to (?:the )?normalized"
+        ),
+        "count-only parsed_json": r"(?:bounded )?count-only `parsed_json`",
+        "non-null parsed_json rebuild": (
+            r"rebuilds? (?:non-null )?(?:snapshot )?`parsed_json`"
+        ),
+    }
+    status_text = "\n".join(normalized_by_file.values())
+    stale = [
+        label
+        for label, pattern in stale_parsed_json_claims.items()
+        if re.search(pattern, status_text, flags=re.IGNORECASE)
+    ]
+    if stale:
+        raise DocumentationError(
+            "stale topology parsed_json release claim(s): " + ", ".join(stale)
+        )
+    return len(RELEASE_BLOCKER_STATUS_GUARDS) + len(stale_parsed_json_claims)
 
 
 def option_section(text: str, label: str) -> str:
@@ -2044,7 +2412,8 @@ def validate_companion_publication_truth() -> int:
             "generated image-based repository",
             "optional API-token propagation",
             "UID-1000 `/data` writability",
-            "reporting schema/default/unused-control alignment",
+            "`reporting.max_recent_events` accepts `1..1000`",
+            "Removed sample-limit and raw-payload switches are rejected",
             "portable HACS-to-Core origin",
         ),
     )
@@ -2342,6 +2711,7 @@ def validate_current_contract_copy() -> int:
         + validate_live_enrichment_gate_ownership()
         + validate_companion_publication_truth()
         + validate_release_document_ownership()
+        + validate_release_blocker_status_truth()
     )
 
 

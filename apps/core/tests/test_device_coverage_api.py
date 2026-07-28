@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 
 from zigbeelens.decisions.types import CoverageDimension, CoverageLabelCode, CoverageState
@@ -84,15 +85,24 @@ def test_device_coverage_api_dimension_order_is_stable(topology_client: TestClie
     )
 
 
-def test_device_coverage_api_topology_params(topology_client: TestClient):
+@pytest.mark.parametrize("prefix", ("/api", "/api/v1"))
+def test_device_coverage_api_topology_params(
+    topology_client: TestClient,
+    prefix: str,
+):
     ctx = topology_client.app.state.ctx
     _upsert_device(ctx.repo, "0x03")
 
-    res = topology_client.get("/api/devices/home/0x03/coverage")
+    res = topology_client.get(f"{prefix}/devices/home/0X03/coverage")
     topology = next(
         item for item in res.json() if item["dimension"] == CoverageDimension.historical_snapshots
     )
     assert topology["state"] == CoverageState.not_observed
     assert topology["label_code"] == CoverageLabelCode.topology_history_not_observed
-    assert topology["params"]["observed_snapshot_count"] == 0
-    assert topology["params"]["snapshot_window_count"] == 0
+    assert topology["params"] == {
+        "observed_snapshot_count": 0,
+        "complete_snapshot_count": 0,
+        "available_layout_snapshot_count": 0,
+        "limited_layout_snapshot_count": 0,
+        "snapshot_window_count": 0,
+    }

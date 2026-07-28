@@ -297,7 +297,7 @@ const storageStatus = {
     page_count: null,
     freelist_page_count: null,
     reusable_bytes: null,
-    schema_version: 14,
+    schema_version: 15,
   },
   integrity: {
     startup_gates: "quick_and_foreign_keys",
@@ -318,7 +318,7 @@ function health(matchedDevices: number) {
   return {
     status: "ok",
     database: "ok",
-    migration_version: 14,
+    migration_version: 15,
     collector: {
       enabled: true,
       subscribed_topics_count: 1,

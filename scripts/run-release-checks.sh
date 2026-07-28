@@ -96,6 +96,9 @@ ZIGBEELENS_REQUIRE_DOCKER_COMPOSE=1 bash scripts/validate-compose.sh
 echo "==> Core smoke"
 bash scripts/smoke-core.sh
 
+echo "==> Standalone Docker image smoke"
+ZIGBEELENS_REQUIRE_DOCKER=1 bash scripts/smoke-docker.sh
+
 echo ""
 echo "All automated release checks passed."
 echo "Complete manual gates in RELEASE_CHECKLIST.md before tagging v${RELEASE_VERSION}."

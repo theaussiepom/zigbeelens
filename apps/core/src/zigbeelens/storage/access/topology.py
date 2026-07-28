@@ -87,6 +87,16 @@ class TopologyRepository:
     def list_topology_links_for_snapshots(self, snapshot_ids):
         return self._repo.list_topology_links_for_snapshots(snapshot_ids)
 
+    def get_topology_nodes_for_device_in_snapshots(
+        self, snapshot_ids, ieee_address: str
+    ):
+        return self._repo.get_topology_nodes_for_device_in_snapshots(
+            snapshot_ids, ieee_address
+        )
+
+    def get_topology_layout_availability_for_snapshots(self, snapshot_ids):
+        return self._repo.get_topology_layout_availability_for_snapshots(snapshot_ids)
+
     def list_topology_links_for_device_in_snapshots(self, snapshot_ids, ieee_address: str):
         return self._repo.list_topology_links_for_device_in_snapshots(
             snapshot_ids, ieee_address

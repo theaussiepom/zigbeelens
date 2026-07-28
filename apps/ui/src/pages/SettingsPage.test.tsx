@@ -42,7 +42,7 @@ const storagePayload = {
     page_count: null,
     freelist_page_count: null,
     reusable_bytes: null,
-    schema_version: 14,
+    schema_version: 15,
   },
   integrity: {
     startup_gates: "quick_and_foreign_keys",
@@ -54,7 +54,7 @@ const storagePayload = {
 const zeroHealth = {
   status: "ok",
   database: "ok",
-  migration_version: 14,
+  migration_version: 15,
   collector: {
     enabled: true,
     subscribed_topics_count: 0,

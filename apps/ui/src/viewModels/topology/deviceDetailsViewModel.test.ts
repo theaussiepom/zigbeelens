@@ -223,7 +223,13 @@ describe("deviceDetailsViewModel", () => {
         dimension: "historical_snapshots",
         state: "not_observed",
         label_code: "topology_history_not_observed",
-        params: { observed_snapshot_count: 0, snapshot_window_count: 0 },
+        params: {
+          observed_snapshot_count: 0,
+          complete_snapshot_count: 0,
+          available_layout_snapshot_count: 0,
+          limited_layout_snapshot_count: 0,
+          snapshot_window_count: 0,
+        },
       },
       {
         dimension: "ha_enrichment",
@@ -246,7 +252,7 @@ describe("deviceDetailsViewModel", () => {
     expect(section.items.map((item) => item.label)).toEqual([
       "Availability: available",
       "Last seen: available",
-      "Topology history: 0 of 0 snapshots",
+      "Topology history: no complete captures",
       "HA area: missing",
     ]);
     expect(ids.indexOf("dataCoverage")).toBeGreaterThan(ids.indexOf("topologyEvidence"));

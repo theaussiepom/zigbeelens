@@ -372,8 +372,12 @@ class TopologyService:
 _topology: TopologyService | None = None
 
 
-def start_topology(ctx: AppContext) -> TopologyService:
+def start_topology(ctx: AppContext) -> TopologyService | None:
     global _topology
+    stop_topology_scheduler(wait=True)
+    if not ctx.config.topology.enabled:
+        _topology = None
+        return None
     service = TopologyService(ctx)
     _topology = service
     start_topology_scheduler(ctx, service)

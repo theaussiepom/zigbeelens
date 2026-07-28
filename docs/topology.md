@@ -14,12 +14,20 @@ A capture:
    `{base_topic}/bridge/response/networkmap`;
 3. secret-scrubs the snapshot-level raw payload and parses nodes, neighbour
    links, and route counts;
-4. stores the snapshot and parsed node/link rows in local SQLite.
+4. stores the governed scrubbed snapshot representation plus normalized typed
+   node/link facts in local SQLite.
 
-The parser currently operates on the received object before snapshot-level
-scrubbing, so parsed node/link `raw_json` rows may retain source fields that do
-not appear in public node/link projections. Parsed topology rows also include
-IEEE addresses and may include friendly names.
+The parser does not retain original node/link dictionaries. New node/link
+`raw_json` columns contain `{}`, and snapshot `parsed_json` is `NULL`.
+Normalized router, end-device, and link counts remain in their typed columns.
+The only retained source-shaped representation is `raw_redacted_json`, after
+the existing snapshot scrubber.
+Schema target `15` applies the same contract to older rows through
+`015_topology_raw_data_scrub.sql`; it preserves normalized facts and leaves
+`014_report_v3_only_reset.sql` unchanged.
+
+Normalized topology rows still include IEEE addresses and may include friendly
+names.
 Report redaction does not anonymize the topology tables themselves. Protect the
 SQLite database, its backups, and topology APIs as local diagnostic data.
 
@@ -47,21 +55,61 @@ When a response is missing, incomplete, unparseable, or contains no usable
 node/link layout, ZigbeeLens reports limited/unavailable evidence. It does not
 turn unavailable evidence into a measured empty mesh.
 
+Device snapshot history preserves that distinction for every retained capture:
+
+- an **available** layout reports whether the device was represented and gives
+  measured link and route-hint counts, including a factual zero;
+- a **limited** layout reports device presence and both counts as unavailable,
+  never as absence or zero.
+
+A retained node or source/target link is positive evidence for that device in
+the exact snapshot where it was stored. Snapshot comparisons are produced only
+when both the latest and selected snapshots have available layouts. Those
+comparisons include the measured device-presence value from each layout as
+typed evidence alongside link and route-hint counts. If only presence differs,
+the comparison is **Changed**, or **Worth reviewing** when a separately
+established current issue exists; it never claims failure, movement, a current
+route, or causality. A limited layout therefore cannot create an absence,
+no-links, changed, no-change, or watch conclusion.
+
+Device coverage accounts for the complete retained window explicitly:
+
+- `complete_snapshot_count = available_layout_snapshot_count +
+  limited_layout_snapshot_count`;
+- `snapshot_window_count` is retained as an exact alias of
+  `complete_snapshot_count`, never an available-layout-only denominator;
+- `observed_snapshot_count` counts only available layouts in which the exact
+  device appears as a node or link endpoint, and cannot exceed
+  `available_layout_snapshot_count`.
+
+No complete captures means no stored history conclusion. All-limited history is
+unavailable and supports no presence inference. Mixed available/limited history
+is partial/sparse and always discloses the limited capture count. Only when
+every selected complete capture has an available layout can coverage say the
+device was observed in all, some, or none of those layouts. A limited layout is
+unknown evidence, never zero or absence.
+
 ## Current investigation surfaces
+
+> **Screenshot status:** The prior Phase 7C2 S1–S9 set predates the current
+> runtime/UI correction and is stale release evidence. All nine images must be
+> recaptured together from one final corrected runtime before Phase 7D.
 
 ![Mesh Investigate showing a synthetic evidence graph, evidence metrics, and an HA-enriched device drawer](screenshots/mesh-investigate.png)
 
-Illustrative synthetic release-candidate data. Mesh / Investigate presents
-stored evidence around the selected network; graph lines and metric counts are
-capture-time observations, not proof of a current route, causation, or complete
-history. The displayed Home Assistant name and area are additional metadata.
+Illustrative synthetic release-candidate data. This image belongs to the stale
+prior candidate. Mesh / Investigate presents stored evidence around the selected
+network; graph lines and metric counts are capture-time observations, not proof
+of a current route, causation, or complete history. The displayed Home Assistant
+name and area are additional metadata.
 
 ![Device Detail showing the Kitchen Lamp decision, snapshot history, HA area, and preserved source identity](screenshots/device-detail-history.png)
 
-Illustrative synthetic release-candidate data. Device Detail presents the
-preferred Home Assistant name and area alongside the preserved Zigbee2MQTT
-source identity. Its Device Story and snapshot comparisons remain historical
-evidence with explicit coverage limits, not proof of a current path or cause.
+Illustrative synthetic release-candidate data. This image belongs to the stale
+prior candidate. Device Detail presents the preferred Home Assistant name and
+area alongside the preserved Zigbee2MQTT source identity. Its Device Story and
+snapshot comparisons remain historical evidence with explicit coverage
+limits, not proof of a current path or cause.
 
 ## Product surfaces
 
@@ -69,11 +117,13 @@ Primary device comparison:
 
 1. Devices → Device Detail
 2. Device Story
-3. Snapshot history (latest usable snapshot compared with a selected earlier
-   usable snapshot)
+3. Snapshot history (recent complete captures, with comparison only when the
+   latest and selected captures both contain available node/link layouts)
 
 The Mesh device details panel links to full Device Detail rather than
-duplicating snapshot-history comparison.
+duplicating snapshot-history comparison. Router- and Coordinator-led
+investigation cards use **Open device details** because the destination is the
+same generic Device Details drawer.
 
 Advanced and support routes:
 
@@ -128,6 +178,10 @@ topology:
   enabled: false
 ```
 
+Disabled topology owns no service or scheduler. Other startup, interval,
+automatic, and manual values cannot advertise capture activity or publish a
+request while this gate is false; retained snapshots remain readable.
+
 To retain topology response-subscription posture but skip the startup request:
 
 ```yaml
@@ -158,9 +212,8 @@ be pending in a Core process at a time. `capture_on_incident` is accepted by the
 current configuration model but does not currently schedule an
 incident-triggered capture.
 
-Keep `refresh_interval_seconds: 0` whenever `topology.enabled` is false. The
-current scheduler/status path can appear active for a positive interval while
-the capture service rejects every request because topology is disabled.
+When `topology.enabled` is false, a positive interval is inert: status reports
+no automatic capture and Core owns no topology scheduler.
 
 ## Manual capture
 
@@ -201,6 +254,10 @@ required by the deployment. `"confirmed": "true"` is invalid.
 | GET | `/api/v1/topology/{network_id}/devices/{ieee_address}/snapshot-history` | Device-led history and comparison |
 | POST | `/api/v1/topology/{network_id}/capture` | Manual capture; gated and confirmed |
 
+IEEE path parameters are normalized to canonical lowercase before exact
+indexed node/link lookups. Mixed-case spelling returns the same device evidence
+without broadening the query into a case-folded table scan.
+
 ## Home Assistant enrichment
 
 Core also exposes ZigbeeLens-local enrichment storage:
@@ -213,9 +270,9 @@ Core also exposes ZigbeeLens-local enrichment storage:
 
 The POST matches a supplied device by IEEE (high confidence) or by friendly
 name within a supplied network (medium confidence), then stores the supplied
-Home Assistant device/area metadata. The current HACS integration does not
-automatically push registry enrichment; these endpoints are for a reviewed
-client or manual integration. Core works without enrichment.
+Home Assistant device/area metadata. The reviewed HACS enrichment manager
+reconciles official registry snapshots through this exact contract; Core also
+works without enrichment.
 
 ## Safety summary
 
@@ -226,6 +283,9 @@ client or manual integration. Core works without enrichment.
 - Manual capture is feature-gated and confirmed.
 - Startup capture is controlled by explicit configuration defaults and waits
   for readiness.
+- Disabled topology owns no service, scheduler, or active capture status.
+- Original parsed node/link source dictionaries are neither newly persisted nor
+  exposed; migration 015 scrubs legacy rows.
 - Evidence remains capture-time, incomplete, and non-causal.
 
 See [safety-audit.md](safety-audit.md),

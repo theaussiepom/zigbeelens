@@ -7,6 +7,7 @@ import json
 import yaml
 from fastapi.testclient import TestClient
 
+from zigbeelens.app.context import get_context
 from zigbeelens.config.models import AppConfig, ReportingConfig
 from zigbeelens.config.redaction import REDACTED
 from zigbeelens.db.connection import Database
@@ -19,6 +20,7 @@ from zigbeelens.services.report_redaction import (
 )
 from zigbeelens.services.reports import generate_report
 from zigbeelens.storage.repository import Repository
+from zigbeelens.topology.parser import parse_networkmap_payload
 
 DEFAULT = "four_devices_same_room_unavailable"
 
@@ -210,6 +212,81 @@ def test_no_secret_leakage(mock_client: TestClient):
         assert "network_key" not in blob
         server = detail["config_summary"]["mqtt"]["server"]
         assert "***" in server or "redacted" in server
+
+
+def test_reports_never_serialize_private_topology_storage_surfaces(
+    live_client: TestClient,
+):
+    ctx = get_context()
+    previous_topology_enabled = ctx.config.topology.enabled
+    try:
+        ctx.config.topology.enabled = True
+        ctx.repo.create_topology_snapshot(
+            snapshot_id="snap-private-report",
+            network_id="home",
+            requested_by="test",
+            status="pending",
+        )
+        parsed = parse_networkmap_payload(
+            {
+                "nodes": {
+                    "0x01": {"type": "Coordinator"},
+                    "0x02": {"type": "Router"},
+                },
+                "links": [{"source": "0x02", "target": "0x01", "linkquality": 90}],
+            }
+        )
+        ctx.repo.store_topology_parsed(
+            "snap-private-report",
+            "home",
+            parsed,
+            status="complete",
+        )
+        ctx.repo.db.conn.execute(
+            """
+            UPDATE topology_snapshots
+            SET raw_redacted_json = ?, parsed_json = ?
+            WHERE snapshot_id = ?
+            """,
+            (
+                '{"password":"legacy-snapshot-secret"}',
+                '{"token":"legacy-parsed-secret"}',
+                "snap-private-report",
+            ),
+        )
+        ctx.repo.db.conn.execute(
+            """
+            UPDATE topology_nodes
+            SET raw_json = '{"network_key":"legacy-node-secret"}'
+            WHERE snapshot_id = ?
+            """,
+            ("snap-private-report",),
+        )
+        ctx.repo.db.conn.execute(
+            """
+            UPDATE topology_links
+            SET raw_json = '{"api_key":"legacy-link-secret"}'
+            WHERE snapshot_id = ?
+            """,
+            ("snap-private-report",),
+        )
+        ctx.repo.db.conn.commit()
+
+        for prefix in ("/api", "/api/v1"):
+            response = live_client.get(f"{prefix}/reports/preview")
+            assert response.status_code == 200
+            blob = json.dumps(response.json(), sort_keys=True)
+            for private_field in ("raw_redacted_json", "parsed_json", "raw_json"):
+                assert f'"{private_field}"' not in blob
+            for secret in (
+                "legacy-snapshot-secret",
+                "legacy-parsed-secret",
+                "legacy-node-secret",
+                "legacy-link-secret",
+            ):
+                assert secret not in blob
+    finally:
+        ctx.config.topology.enabled = previous_topology_enabled
 
 
 def test_secret_key_detection():

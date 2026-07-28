@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+from pydantic import ValidationError
+
 from zigbeelens.decisions.types import (
+    CoverageDimension,
+    CoverageLabelCode,
+    CoverageState,
     DataCoverage,
     Decision,
     DecisionBundle,
@@ -15,6 +21,8 @@ from zigbeelens.decisions.types import (
     EvidenceFact,
     EvidenceReference,
     SuggestedCheck,
+    TopologyHistoryCoverageParams,
+    classify_topology_history_params,
 )
 
 
@@ -91,6 +99,163 @@ def test_data_coverage_unknown_stays_unknown_not_unavailable():
         }
     )
     assert coverage.state.value == "unknown"
+
+
+def test_topology_history_coverage_params_own_exact_count_arithmetic():
+    params = TopologyHistoryCoverageParams(
+        observed_snapshot_count=2,
+        complete_snapshot_count=4,
+        available_layout_snapshot_count=3,
+        limited_layout_snapshot_count=1,
+        snapshot_window_count=4,
+    )
+
+    assert params.model_dump() == {
+        "observed_snapshot_count": 2,
+        "complete_snapshot_count": 4,
+        "available_layout_snapshot_count": 3,
+        "limited_layout_snapshot_count": 1,
+        "snapshot_window_count": 4,
+    }
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"observed_snapshot_count": True},
+        {"complete_snapshot_count": -1},
+        {"available_layout_snapshot_count": 4},
+        {"observed_snapshot_count": 4},
+        {"snapshot_window_count": 2},
+    ],
+)
+def test_topology_history_coverage_params_reject_malformed_counts(changes):
+    payload = {
+        "observed_snapshot_count": 2,
+        "complete_snapshot_count": 4,
+        "available_layout_snapshot_count": 3,
+        "limited_layout_snapshot_count": 1,
+        "snapshot_window_count": 4,
+        **changes,
+    }
+
+    with pytest.raises(ValidationError):
+        TopologyHistoryCoverageParams.model_validate(payload)
+
+
+def test_topology_history_coverage_params_require_every_exact_count():
+    payload = TopologyHistoryCoverageParams.empty().model_dump()
+    payload.pop("limited_layout_snapshot_count")
+
+    with pytest.raises(ValidationError):
+        TopologyHistoryCoverageParams.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    ("counts", "state", "label_code"),
+    [
+        ((0, 0, 0), CoverageState.not_observed, "topology_history_not_observed"),
+        ((0, 0, 2), CoverageState.unknown, "topology_history_unavailable"),
+        ((1, 1, 1), CoverageState.sparse, "topology_history_sparse"),
+        ((0, 2, 0), CoverageState.not_observed, "topology_history_not_observed"),
+        ((1, 2, 0), CoverageState.sparse, "topology_history_sparse"),
+        ((2, 2, 0), CoverageState.available, "topology_history_available"),
+    ],
+)
+def test_data_coverage_types_and_validates_topology_history_matrix(
+    counts,
+    state,
+    label_code,
+):
+    observed, available, limited = counts
+    complete = available + limited
+    raw_params = {
+        "observed_snapshot_count": observed,
+        "complete_snapshot_count": complete,
+        "available_layout_snapshot_count": available,
+        "limited_layout_snapshot_count": limited,
+        "snapshot_window_count": complete,
+    }
+
+    coverage = DataCoverage.model_validate(
+        {
+            "dimension": "historical_snapshots",
+            "state": state,
+            "label_code": label_code,
+            "params": raw_params,
+        }
+    )
+
+    assert isinstance(coverage.params, TopologyHistoryCoverageParams)
+    assert coverage.params.model_dump() == raw_params
+    assert classify_topology_history_params(coverage.params) == (
+        state,
+        CoverageLabelCode(label_code),
+    )
+    assert coverage.model_dump(mode="json")["params"] == raw_params
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"dimension": CoverageDimension.availability},
+        {"state": CoverageState.sparse},
+        {"label_code": CoverageLabelCode.topology_history_sparse},
+        {"label_code": CoverageLabelCode.battery_history_available},
+        {"params": {"observed_snapshot_count": 1}},
+        {
+            "params": {
+                "observed_snapshot_count": True,
+                "complete_snapshot_count": 1,
+                "available_layout_snapshot_count": 1,
+                "limited_layout_snapshot_count": 0,
+                "snapshot_window_count": 1,
+            }
+        },
+    ],
+)
+def test_data_coverage_rejects_malformed_topology_history(changes):
+    payload = {
+        "dimension": CoverageDimension.historical_snapshots,
+        "state": CoverageState.available,
+        "label_code": CoverageLabelCode.topology_history_available,
+        "params": {
+            "observed_snapshot_count": 1,
+            "complete_snapshot_count": 1,
+            "available_layout_snapshot_count": 1,
+            "limited_layout_snapshot_count": 0,
+            "snapshot_window_count": 1,
+        },
+        **changes,
+    }
+
+    with pytest.raises(ValidationError):
+        DataCoverage.model_validate(payload)
+
+
+def test_data_coverage_rejects_topology_label_on_non_historical_dimension():
+    with pytest.raises(ValidationError):
+        DataCoverage.model_validate(
+            {
+                "dimension": CoverageDimension.availability,
+                "state": CoverageState.available,
+                "label_code": CoverageLabelCode.topology_history_available,
+                "params": TopologyHistoryCoverageParams.empty().model_dump(),
+            }
+        )
+
+
+def test_non_topology_coverage_params_remain_generic_dicts():
+    params = TopologyHistoryCoverageParams.empty().model_dump()
+    coverage = DataCoverage(
+        dimension=CoverageDimension.battery,
+        state=CoverageState.available,
+        label_code=CoverageLabelCode.battery_history_available,
+        params=params,
+    )
+
+    assert type(coverage.params) is dict
+    assert coverage.params == params
 
 
 def test_decisions_package_exports_public_model_pattern_symbols():

@@ -86,6 +86,7 @@ def _add_device(
     model: str = "TS011F",
     device_type: str = "EndDevice",
     availability: str = "online",
+    observed_at: datetime = NOW,
 ) -> None:
     repo.upsert_device(
         network_id=network_id,
@@ -102,7 +103,7 @@ def _add_device(
         network_id=network_id,
         ieee_address=ieee,
         availability=availability,
-        last_seen=NOW.isoformat(),
+        last_seen=observed_at.isoformat(),
     )
 
 
@@ -229,40 +230,117 @@ def test_partial_subject_inventory_does_not_alter_model_pattern(tmp_path: Path):
     assert len(poisoned.model_patterns.patterns) == 0
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Pre-existing Decision surface mismatch (watch vs informational) for "
-        "model_pattern badges; deferred outside Track 4A (no Decision changes)."
-    ),
-    strict=False,
-)
-def test_incident_badge_matches_device_story_for_model_pattern(tmp_path: Path):
-    repo, config = _repo(tmp_path)
-    ieees = [f"0xm{i:02d}" for i in range(MODEL_PATTERN_MIN_GROUP_SIZE)]
-    for ieee in ieees:
-        _add_device(repo, "home", ieee)
-    for ieee in ieees[:MODEL_PATTERN_MIN_AFFECTED_COUNT]:
-        _offline_event(repo, "home", ieee, NOW - timedelta(days=1))
+def _freeze_payload_builder_now(monkeypatch, reference_now: datetime) -> None:
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return reference_now.replace(tzinfo=None)
+            return reference_now.astimezone(tz)
+
+    monkeypatch.setattr(
+        "zigbeelens.services.payload_builder.datetime",
+        FrozenDateTime,
+    )
+
+
+def _assert_model_pattern_surface_parity(
+    *,
+    repo: Repository,
+    config: AppConfig,
+    ieee: str,
+    reference_now: datetime,
+    monkeypatch,
+):
+    story = device_story_for_device(repo, "home", ieee, now=reference_now)
+    assert story is not None
+    badge = device_decision_badge_for_device(
+        repo,
+        "home",
+        ieee,
+        now=reference_now,
+    )
+    assert badge is not None
 
     from zigbeelens.services.device_decision_badge import device_decision_badge_from_story
 
-    story = device_story_for_device(repo, "home", ieees[0], now=NOW)
-    assert story is not None
-    assert any(r.code == ReasonCode.model_pattern_observed for r in story.reasons)
-    badge = device_decision_badge_for_device(repo, "home", ieees[0], now=NOW)
-    assert badge is not None
-    projected = device_decision_badge_from_story(story)
-    assert badge == projected
+    assert badge == device_decision_badge_from_story(story)
 
     health = HealthDiagnosticService(config, repo)
     health.recalculate_all()
-    builder = PayloadBuilder(config, repo, health)
-    devices = builder.devices("home")
-    target = next(d for d in devices if d.ieee_address == ieees[0])
+    _freeze_payload_builder_now(monkeypatch, reference_now)
+    target = next(
+        device
+        for device in PayloadBuilder(config, repo, health).devices("home")
+        if device.ieee_address == ieee
+    )
     assert target.decision is not None
     assert target.decision.status == badge.status
     assert target.decision.headline_code == badge.headline_code
     assert target.decision.priority == badge.priority
+    return story, badge
+
+
+def test_incident_badge_matches_device_story_for_model_pattern(
+    monkeypatch,
+    tmp_path: Path,
+):
+    repo, config = _repo(tmp_path)
+    reference_now = datetime.now(timezone.utc).replace(microsecond=0)
+    ieees = [f"0xm{i:02d}" for i in range(MODEL_PATTERN_MIN_GROUP_SIZE)]
+    for ieee in ieees:
+        _add_device(repo, "home", ieee, observed_at=reference_now)
+    for ieee in ieees[:MODEL_PATTERN_MIN_AFFECTED_COUNT]:
+        _offline_event(repo, "home", ieee, reference_now - timedelta(days=1))
+
+    story, _ = _assert_model_pattern_surface_parity(
+        repo=repo,
+        config=config,
+        ieee=ieees[0],
+        reference_now=reference_now,
+        monkeypatch=monkeypatch,
+    )
+    assert any(r.code == ReasonCode.model_pattern_observed for r in story.reasons)
+
+
+def test_aged_model_pattern_reference_changes_evidence_but_preserves_surface_parity(
+    monkeypatch,
+    tmp_path: Path,
+):
+    repo, config = _repo(tmp_path)
+    reference_now = datetime.now(timezone.utc).replace(microsecond=0)
+    ieees = [f"0xaged{i:02d}" for i in range(MODEL_PATTERN_MIN_GROUP_SIZE)]
+    for ieee in ieees:
+        _add_device(repo, "home", ieee, observed_at=reference_now)
+    for ieee in ieees[:MODEL_PATTERN_MIN_AFFECTED_COUNT]:
+        _offline_event(repo, "home", ieee, reference_now - timedelta(days=1))
+
+    current_story, current_badge = _assert_model_pattern_surface_parity(
+        repo=repo,
+        config=config,
+        ieee=ieees[0],
+        reference_now=reference_now,
+        monkeypatch=monkeypatch,
+    )
+    aged_story, aged_badge = _assert_model_pattern_surface_parity(
+        repo=repo,
+        config=config,
+        ieee=ieees[0],
+        reference_now=reference_now + timedelta(days=8),
+        monkeypatch=monkeypatch,
+    )
+
+    assert any(r.code == ReasonCode.model_pattern_observed for r in current_story.reasons)
+    assert not any(r.code == ReasonCode.model_pattern_observed for r in aged_story.reasons)
+    assert (
+        current_badge.status,
+        current_badge.headline_code,
+        current_badge.priority,
+    ) != (
+        aged_badge.status,
+        aged_badge.headline_code,
+        aged_badge.priority,
+    )
 
 
 def test_availability_tracking_peer_online_agrees_across_surfaces(tmp_path: Path):
@@ -870,6 +948,8 @@ def test_supplied_context_story_and_coverage_zero_device_reads(tmp_path: Path):
     assert story is not None
     assert counter.stats.category_counts.get("read.devices", 0) == 0
     assert counter.stats.category_counts.get("read.device_current_state", 0) == 0
+    assert counter.stats.category_counts.get("read.topology_nodes", 0) == 0
+    assert counter.stats.category_counts.get("read.topology_links", 0) == 0
 
     coverage_ctx = compose_network_evidence_context(
         repo,
@@ -891,6 +971,8 @@ def test_supplied_context_story_and_coverage_zero_device_reads(tmp_path: Path):
     )
     assert coverage is not None
     assert counter.stats.category_counts.get("read.devices", 0) == 0
+    assert counter.stats.category_counts.get("read.topology_nodes", 0) == 0
+    assert counter.stats.category_counts.get("read.topology_links", 0) == 0
 
 
 def test_strict_context_map_missing_network_no_fallback_sql(tmp_path: Path):

@@ -12,7 +12,7 @@ import {
 } from "@/viewModels/decisionCopy";
 import type { DecisionPillTone } from "@/viewModels/types";
 
-export type CoveragePresentation = "network" | "device";
+export type CoveragePresentation = "network" | "device" | "device_story";
 
 /** Network-level topology coverage strip order (Phase 3E). */
 const NETWORK_COVERAGE_STRIP_ORDER: CoverageLabelCode[] = [
@@ -53,6 +53,7 @@ const DEVICE_COVERAGE_LABEL_ORDER: CoverageLabelCode[] = [
   "topology_history_available",
   "topology_history_sparse",
   "topology_history_not_observed",
+  "topology_history_unavailable",
   "ha_area_linked",
   "ha_areas_not_linked",
 ];
@@ -132,8 +133,12 @@ export function buildEvidenceCoverageStripViewModel(
 
   return {
     items: sorted.map((item) => {
-      const params = item.params ?? {};
-      if (presentation === "device") {
+      const params: Record<string, unknown> = { ...(item.params ?? {}) };
+      const useDeviceCopy =
+        presentation === "device" ||
+        (presentation === "device_story" &&
+          item.dimension === "historical_snapshots");
+      if (useDeviceCopy) {
         return {
           label: deviceCoverageLabel(item.label_code, params),
           helper: deviceCoverageHelperText(item.label_code, params),

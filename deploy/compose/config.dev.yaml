@@ -62,7 +62,4 @@ features:
 
 reporting:
   max_recent_events: 100
-  max_metric_samples_per_device: 50
-  max_availability_changes_per_device: 50
-  include_raw_payloads: false
   default_profile: standard

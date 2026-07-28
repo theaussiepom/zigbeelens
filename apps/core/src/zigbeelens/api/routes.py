@@ -43,6 +43,7 @@ from zigbeelens.schemas import (
     BrowserSessionStatus,
     DashboardPayload,
     DeviceDetail,
+    DeviceSnapshotHistoryDetail,
     HealthResponse,
     HomeAssistantEnrichmentRequestV1,
     HomeAssistantEnrichmentResultV1,
@@ -58,7 +59,11 @@ from zigbeelens.schemas import (
     TopologyCaptureRequest,
     ZigbeeLensConfigStatus,
 )
-from zigbeelens.services.report_scope import ReportScopeAmbiguityError
+from zigbeelens.services.report_scope import (
+    ReportScopeAmbiguityError,
+    ReportScopeNotFoundError,
+    ReportScopeRequestError,
+)
 from zigbeelens.services.report_storage import load_stored_report_envelope
 from zigbeelens.services.reports import (
     generate_report,
@@ -499,7 +504,7 @@ def _build_request(
     *,
     scope: ReportScope,
     format: ReportFormat,
-    profile: RedactionProfile,
+    profile: RedactionProfile | None,
     network_id: str | None,
     incident_id: str | None,
     device: str | None,
@@ -509,7 +514,6 @@ def _build_request(
     redact_ip_addresses: bool | None,
     redact_network_names: bool | None,
     include_timeline: bool | None,
-    include_raw_payloads: bool | None,
 ) -> ReportRequest:
     return ReportRequest(
         format=format,
@@ -525,7 +529,6 @@ def _build_request(
             redact_ip_addresses=redact_ip_addresses,
             redact_network_names=redact_network_names,
             include_timeline=include_timeline,
-            include_raw_payloads=include_raw_payloads,
         ),
     )
 
@@ -556,7 +559,7 @@ def report_preview(
     scenario: str | None = Query(default=None),
     scope: ReportScope = Query(default=ReportScope.full),
     format: ReportFormat = Query(default=ReportFormat.json),
-    profile: RedactionProfile = Query(default=RedactionProfile.standard),
+    profile: RedactionProfile | None = Query(default=None),
     network_id: str | None = Query(default=None),
     incident_id: str | None = Query(default=None),
     device: str | None = Query(default=None),
@@ -566,7 +569,6 @@ def report_preview(
     redact_ip_addresses: bool | None = Query(default=None),
     redact_network_names: bool | None = Query(default=None),
     include_timeline: bool | None = Query(default=None),
-    include_raw_payloads: bool | None = Query(default=None),
     ctx: AppContext = Depends(ctx_dep),
 ) -> ReportDetail:
     request = _build_request(
@@ -582,12 +584,13 @@ def report_preview(
         redact_ip_addresses=redact_ip_addresses,
         redact_network_names=redact_network_names,
         include_timeline=include_timeline,
-        include_raw_payloads=include_raw_payloads,
     )
     try:
         return ctx.data.report_preview(scenario, request, collector_status_dict(ctx))
-    except ReportScopeAmbiguityError as exc:
+    except (ReportScopeAmbiguityError, ReportScopeRequestError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ReportScopeNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @mutation_router.post("/reports", response_model=ReportSummary)
@@ -607,8 +610,10 @@ def create_report(
             scenario=scenario,
             repo=ctx.repo,
         )
-    except ReportScopeAmbiguityError as exc:
+    except (ReportScopeAmbiguityError, ReportScopeRequestError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ReportScopeNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     row = store_report(ctx.repo, detail, req)
     return summary_from_detail(row, detail)
 
@@ -758,34 +763,49 @@ def topology_snapshots_compare(
     )
 
 
-@read_router.get("/topology/{network_id}/devices/{ieee_address}/snapshot-history")
+@read_router.get(
+    "/topology/{network_id}/devices/{ieee_address}/snapshot-history",
+    response_model=DeviceSnapshotHistoryDetail,
+)
 def topology_device_snapshot_history(
     network_id: str, ieee_address: str, ctx: AppContext = Depends(ctx_dep)
-) -> dict:
-    """Read-only device-led snapshot history: how one device looks in the
-    latest usable snapshot compared with earlier usable snapshots.
+) -> DeviceSnapshotHistoryDetail:
+    """Read-only device-led snapshot history: how one device looks across
+    recent complete topology captures.
 
-    Per-device link and route-hint counts, availability tracking coverage
-    per period, and an actionable comparison of each earlier snapshot
-    against the latest (no_notable_change / changed / watch /
-    worth_reviewing). Statuses describe snapshot comparison only, never
-    device health, and use existing issue signals only.
+    Per-device observed presence, link and route-hint counts, availability
+    tracking coverage per period, and an actionable comparison of each
+    earlier snapshot against the latest (no_notable_change / changed / watch /
+    worth_reviewing). Presence differences describe only what two stored
+    layouts observed; they do not prove offline state, failure, movement,
+    current routing or causality. Statuses describe snapshot comparison only,
+    never device health, and use existing issue signals only. A comparison is
+    produced only when both the latest and selected captures have available
+    stored node/link layouts. Complete captures without stored node or link
+    layouts are reported as unavailable, not as evidence that a device was
+    absent.
     """
     from zigbeelens.services.evidence_graph import EvidenceGraphService
     from zigbeelens.services.topology_facts_composition import (
+        DeviceTopologyIdentityNotFoundError,
         build_device_snapshot_history_response,
         topology_stale_threshold_hours,
     )
 
     if ctx.repo.get_network(network_id) is None:
         raise HTTPException(status_code=404, detail="Network not found")
-    return build_device_snapshot_history_response(
-        ctx.repo,
-        EvidenceGraphService(ctx.repo),
-        network_id=network_id,
-        device_ieee=ieee_address,
-        stale_after_hours=topology_stale_threshold_hours(ctx.config),
-    )
+    try:
+        return DeviceSnapshotHistoryDetail.model_validate(
+            build_device_snapshot_history_response(
+                ctx.repo,
+                EvidenceGraphService(ctx.repo),
+                network_id=network_id,
+                device_ieee=ieee_address,
+                stale_after_hours=topology_stale_threshold_hours(ctx.config),
+            )
+        )
+    except DeviceTopologyIdentityNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @read_router.get("/topology/{network_id}/snapshots/{snapshot_id}")

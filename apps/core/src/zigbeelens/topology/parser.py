@@ -16,7 +16,6 @@ class ParsedTopologyNode:
     node_type: str
     depth: int | None = None
     lqi: int | None = None
-    raw_json: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -32,7 +31,6 @@ class ParsedTopologyLink:
     # maps attach the source's routes whose next hop is the target). None
     # means the payload carried no routes information — unknown, not zero.
     route_count: int | None = None
-    raw_json: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -165,7 +163,6 @@ def parse_networkmap_payload(payload: bytes | str | dict[str, Any]) -> ParsedTop
                     node_type=node_type,
                     depth=_int_or_none(node_raw.get("depth")),
                     lqi=_int_or_none(node_raw.get("lqi") or node_raw.get("linkquality")),
-                    raw_json=node_raw,
                 )
             )
     elif isinstance(nodes_section, list):
@@ -188,7 +185,6 @@ def parse_networkmap_payload(payload: bytes | str | dict[str, Any]) -> ParsedTop
                     node_type=node_type,
                     depth=_int_or_none(node_raw.get("depth")),
                     lqi=_int_or_none(node_raw.get("lqi") or node_raw.get("linkquality")),
-                    raw_json=node_raw,
                 )
             )
 
@@ -215,7 +211,6 @@ def parse_networkmap_payload(payload: bytes | str | dict[str, Any]) -> ParsedTop
                     depth=_int_or_none(link_raw.get("depth")),
                     relationship=_relationship_label(link_raw.get("relationship")),
                     route_count=_route_count(link_raw),
-                    raw_json=link_raw,
                 )
             )
 

@@ -6,6 +6,12 @@ mockup, component story, generated image, or public-satellite build.
 `manifest.json` owns the machine-checked provenance, dimensions, hashes, review
 results, and documentation destinations for the set.
 
+> **Stale release evidence:** S1–S9 remain valid historical evidence for
+> capture source `747374adbf07fe07282a28c5902a335b2bdc80c4`, but later
+> runtime/UI corrections mean none is current evidence for the next candidate.
+> Recapture and re-review the complete S1–S9 inventory from one new final
+> runtime source before Phase 7D; never mix old and new assets.
+
 ## Canonical inventory
 
 | ID | File | Product surface and accepted state | Documentation placement |
@@ -35,12 +41,13 @@ all came from that commit. The disposable Home Assistant runtime was exactly
 `2026.7.3`, and the installed stage's `SOURCE_COMMIT` matched the capture
 commit.
 
-The final documentation commit is expected to differ from the capture commit:
-Phase 7C2 adds images, documentation, and validation without changing runtime
-behavior. The final HACS stage is regenerated from the final documentation
-HEAD, while runtime-file equivalence to the capture source is checked
-separately. The unsynchronised public HACS satellite was not installed, read as
-a capture source, or modified.
+The manifest records the original Phase 7C2 assumption that its final
+documentation commit could differ without runtime changes. That assumption no
+longer applies to the corrected candidate: runtime/UI changes make the set
+stale. The replacement manifest and every replacement image must name the same
+new final source, and the HACS stage must be generated from that source. The
+public HACS satellite was not installed, read as a capture source, or modified
+for the historical set.
 
 ## Capture and image standard
 
@@ -99,7 +106,11 @@ privacy, evidence wording, unavailable-versus-zero truth, current Decision and
 ReportDetailV3 language, and publication boundaries. Both the privacy and
 visual review must be recorded as passed in the manifest.
 
-## Reproducing or refreshing the set
+## Reproducing the historical set or refreshing the candidate
+
+Use the old source below only to reproduce/audit its historical provenance.
+For release refresh, substitute the final corrected source everywhere and
+replace all S1–S9 in one capture/review batch; partial refresh is invalid.
 
 Use a clean detached worktree at the capture source and keep every runtime,
 database, certificate, browser profile, and log under a newly created temporary

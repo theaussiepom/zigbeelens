@@ -164,7 +164,6 @@ describe("ContextualReportDialog", () => {
         format: "json",
         redaction: expect.objectContaining({
           profile: "standard",
-          include_raw_payloads: false,
         }),
       }),
       undefined,
@@ -195,10 +194,14 @@ describe("ContextualReportDialog", () => {
     expect(previewReport).toHaveBeenCalledTimes(1);
   });
 
-  it("retries preview after an error", async () => {
-    previewReport.mockRejectedValueOnce(new Error("preview failed"));
+  it("shows the contextual target error and recovers when retry finds the target", async () => {
+    previewReport.mockRejectedValueOnce(
+      new Error("Device '0xabc' was not found in network 'home'"),
+    );
     renderDialog();
-    expect(await screen.findByText("preview failed")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Device '0xabc' was not found in network 'home'"),
+    ).toBeInTheDocument();
     previewReport.mockResolvedValueOnce(previewBody());
     fireEvent.click(screen.getByRole("button", { name: /try again/i }));
     await waitFor(() => expect(previewReport).toHaveBeenCalledTimes(2));
@@ -603,7 +606,6 @@ describe("ContextualReportDialog", () => {
       const last = previewReport.mock.calls.at(-1)?.[0];
       expect(last.redaction.profile).toBe("public_safe");
       expect(last.redaction.preserve_friendly_names).toBe(false);
-      expect(last.redaction.include_raw_payloads).toBe(false);
     });
   });
 });

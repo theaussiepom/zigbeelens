@@ -6,10 +6,10 @@ It is written so Cursor can work through the remaining phases strategically with
 
 **Status:** This is now primarily an implementation record. Phases 1–6 are
 implemented, Phase 7A merged in PR #100, and Phase 7B merged in PR #101 from
-approved tip `03c12d4`. Phase 7C1 is the current documentation-truth phase.
-Phase 7C2 screenshot work and Phase 7D live Beast validation remain deferred.
-Older branch/model instructions below describe how completed phases were
-executed; they do not override this status.
+approved tip `03c12d4`. Phase 7C1 is merged. The prior Phase 7C2 S1–S9 set is
+stale and requires complete one-runtime recapture; Phase 7D live Beast
+validation remains blocked. Older branch/model instructions below describe how
+completed phases were executed; they do not override this status.
 
 Use it together with:
 
@@ -1958,8 +1958,8 @@ product without modifying runtime behaviour or image assets.
 
 ### Status
 
-Current phase; incomplete while the runtime/document contradictions in
-[RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md) remain under review.
+Merged; the corrected release state is tracked in
+[RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md).
 
 ## Phase 7C2 — Screenshot and visual evidence
 
@@ -1977,7 +1977,8 @@ Capture current central workflows after Phase 7C1 prose is stable.
 
 ### Status
 
-Deferred. Phase 7C1 must not modify image assets.
+Recapture all S1–S9 from one final corrected runtime. Do not mix the stale
+prior set with replacement assets.
 
 ### Composer model
 
@@ -1991,7 +1992,7 @@ Validate on the live Beast network.
 
 ### Status
 
-Deferred. Documentation and local validation do not complete Phase 7D.
+Blocked. Documentation and local validation do not complete Phase 7D.
 
 ### Smoke scenarios
 

@@ -6,8 +6,9 @@ It exists to prevent the work being watered down as it is split across many PRs.
 
 **Current release status:** Phases 1–6 and the Phase 7A/7B hardening work are
 implemented. Phase 7A merged in PR #100 and Phase 7B merged in PR #101.
-Phase 7C1 is the current documentation-truth phase. Phase 7C2 screenshot
-evidence and Phase 7D live Beast validation remain deferred.
+Phase 7C1 documentation truth is merged. The prior Phase 7C2 screenshot set is
+stale after runtime/UI corrections and requires a complete one-runtime S1–S9
+recapture. Phase 7D live Beast validation remains blocked.
 
 ## Programme statement
 
@@ -725,7 +726,8 @@ Standalone Router diagnostics navigation and `RoutersPage` are removed.
 Core `/api/routers`, HACS/MQTT/report router projections remain.
 Observed router areas are actionable in Mesh via backend
 `router_neighbourhood_review` cards (`Focus router area`, optional
-`Open router details` into the existing NodeDrawer). No parentage/routing/cause
+`Open device details` into the existing NodeDrawer for both Router and
+Coordinator identities). No parentage/routing/cause
 claims; no layout/preset/control mutation on focus.
 
 ### Phase 6C — Snapshot UX consolidation
@@ -766,23 +768,26 @@ Core vocabulary manifest; one freshness owner; self-contained
 unknown-not-zero + primary-copy guardrails; `/api`↔`/api/v1` + OpenAPI
 structural matrix. No v1/v2 stored-report compatibility remains.
 
+The pre-Phase-7D correction adds topology-only migration 015 and advances the
+release schema target to 15. Migration 014 remains byte-identical and continues
+to own only the schema-13 → 14 report reset.
+
 ### Phase 7C1 — Documentation truth
 
-**Current.** Align product, installation, configuration, API/report, safety,
-companion, release, and troubleshooting documentation with implemented
-contracts. Phase 7C1 does not capture or modify screenshots and remains
-incomplete while the release checklist's runtime/document contradictions
-require review.
+**Merged.** Product, installation, configuration, API/report, safety,
+companion, release, and troubleshooting documentation owns implemented
+contracts.
 
 ### Phase 7C2 — Screenshot and visual evidence
 
-**Deferred until Phase 7C1 is complete.** Capture the current Decision-led
-Overview, Mesh / Investigate, Device Detail, Reports, HACS companion, and
-installation states without changing runtime behaviour.
+**Recapture required.** The prior S1–S9 inventory retains historical
+provenance, but runtime/UI corrections make it stale for release. Recapture all
+nine surfaces from one new final runtime source before Phase 7D; partial mixing
+is invalid.
 
 ### Phase 7D — Deployment validation
 
-**Deferred.** Run live Beast smoke tests covering healthy router, problem
+**Blocked.** Run live Beast smoke tests covering healthy router, problem
 sensor, sleepy battery device, no-latest-link device, router area, availability
 history building, route hints and report export. Documentation or local tests
 do not satisfy this phase.

@@ -75,6 +75,56 @@ docker run --rm -p 8377:8377 \
   zigbeelens:local
 ```
 
+The canonical build script labels the image with the exact package version,
+canonical source repository, and full lowercase source revision. In a Git
+checkout, the script requires the exact repository root and rejects tracked or
+staged changes plus non-ignored untracked files. It resolves the current full
+`HEAD`; an explicit `ZIGBEELENS_REVISION` must match that value exactly. The
+Docker context is then materialized from committed `HEAD`, so ignored or
+otherwise untracked files cannot enter the image.
+
+A source export without Git metadata must provide the full revision and an
+explicit attestation that the export is the exact immutable tree for that
+revision:
+
+```bash
+ZIGBEELENS_SOURCE_EXPORT=1 \
+ZIGBEELENS_REVISION="${FULL_SOURCE_SHA}" \
+  ZIGBEELENS_IMAGE=zigbeelens:local \
+  ./scripts/build-docker.sh
+```
+
+Empty, abbreviated, malformed, or uppercase revisions fail before Docker is
+invoked. An override without the source-export attestation also fails when Git
+metadata is absent. The maintained root `.dockerignore` keeps local data,
+dependencies, generated builds, caches, capture state, logs, and image archives
+out of source-export and workflow build contexts.
+
+### Validate the local release image
+
+From a clean committed checkout, run the same strict standalone image smoke
+owned by the release helper:
+
+```bash
+ZIGBEELENS_REQUIRE_DOCKER=1 ./scripts/smoke-docker.sh
+```
+
+The smoke invokes the canonical build script and starts that exact image on a
+free loopback port. It writes a minimal mock configuration, SQLite database, and
+captured logs only beneath one external
+`${TMPDIR:-/tmp}/zigbeelens-docker-smoke.*` state directory; it does not copy the
+production configuration example, and its runtime does not mount, read, or
+write repository config/data. The
+smoke-owned configuration disables MQTT collection, Discovery, topology,
+startup/manual/periodic/incident capture, and payload history. Runtime checks
+assert zero MQTT connection, Discovery publication, or topology request
+attempts; schema 15; the public version and health endpoints; the bundled UI;
+and exact package-version, full-revision, and canonical-source OCI labels.
+Cleanup removes the exact smoke container and temporary state.
+
+This is local single-platform image evidence. It does not replace remote
+multi-architecture Buildx, GHCR digest proof, or Phase 7D Beast validation.
+
 ## Configuration
 
 Copy `deploy/docker/config.example.yaml` to `config/config.yaml`.

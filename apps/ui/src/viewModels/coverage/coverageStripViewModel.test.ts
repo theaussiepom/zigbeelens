@@ -151,12 +151,18 @@ describe("coverageStripViewModel", () => {
         dimension: "historical_snapshots",
         state: "not_observed",
         label_code: "topology_history_not_observed",
-        params: { observed_snapshot_count: 0, snapshot_window_count: 0 },
+        params: {
+          observed_snapshot_count: 0,
+          complete_snapshot_count: 0,
+          available_layout_snapshot_count: 0,
+          limited_layout_snapshot_count: 0,
+          snapshot_window_count: 0,
+        },
       },
     ]);
-    expect(vm.items[0]?.label).toBe("Topology history: 0 of 0 snapshots");
+    expect(vm.items[0]?.label).toBe("Topology history: no complete captures");
     expect(vm.items[0]?.helper).toBe(
-      "No complete stored topology snapshots are available to assess this device yet.",
+      "No complete stored topology captures exist for this device.",
     );
     expect(vm.items[0]?.helper).not.toMatch(/not observed in any considered/i);
   });
@@ -167,12 +173,70 @@ describe("coverageStripViewModel", () => {
         dimension: "historical_snapshots",
         state: "not_observed",
         label_code: "topology_history_not_observed",
-        params: { observed_snapshot_count: 0, snapshot_window_count: 10 },
+        params: {
+          observed_snapshot_count: 0,
+          complete_snapshot_count: 10,
+          available_layout_snapshot_count: 10,
+          limited_layout_snapshot_count: 0,
+          snapshot_window_count: 10,
+        },
       },
     ]);
     expect(vm.items[0]?.helper).toMatch(
-      /not observed in the considered stored topology snapshots/i,
+      /not observed in the available topology layouts/i,
     );
+  });
+
+  it("renders unavailable topology history without presence or count inference", () => {
+    const vm = buildDeviceCoverageStripViewModel([
+      {
+        dimension: "historical_snapshots",
+        state: "unknown",
+        label_code: "topology_history_unavailable",
+        params: {
+          observed_snapshot_count: 0,
+          complete_snapshot_count: 2,
+          available_layout_snapshot_count: 0,
+          limited_layout_snapshot_count: 2,
+          snapshot_window_count: 2,
+        },
+      },
+    ]);
+    expect(vm.items[0]).toMatchObject({
+      label: "Topology history: 2 captures have no usable layouts",
+      tone: "muted",
+    });
+    expect(vm.items[0]?.helper).toMatch(/2 stored topology captures/i);
+    expect(vm.items[0]?.helper).toMatch(
+      /device presence cannot be inferred/i,
+    );
+    expect(`${vm.items[0]?.label} ${vm.items[0]?.helper}`).not.toMatch(
+      /\b0\b|not observed|absent|no links/i,
+    );
+  });
+
+  it("visibly discloses limited captures in mixed topology history", () => {
+    const vm = buildDeviceCoverageStripViewModel([
+      {
+        dimension: "historical_snapshots",
+        state: "sparse",
+        label_code: "topology_history_sparse",
+        params: {
+          observed_snapshot_count: 1,
+          complete_snapshot_count: 2,
+          available_layout_snapshot_count: 1,
+          limited_layout_snapshot_count: 1,
+          snapshot_window_count: 2,
+        },
+      },
+    ]);
+    expect(vm.items[0]).toMatchObject({
+      label:
+        "Topology history: observed in 1 of 1 available layout; 1 additional capture had no usable layout",
+      helper:
+        "Device observed in every available topology layout. 1 additional capture had no usable node/link layout.",
+      tone: "muted",
+    });
   });
 
   it("returns an empty strip when coverage is empty", () => {

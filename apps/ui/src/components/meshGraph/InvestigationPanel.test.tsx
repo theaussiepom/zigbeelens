@@ -221,14 +221,14 @@ describe("InvestigationPanel accessible action names", () => {
           supporting_evidence: ["Hall area"],
         }),
         makeCard({
-          id: "router-b",
+          id: "coordinator-b",
           type: "router_neighbourhood_review",
           action_group: "review_observed_router_area",
-          primary_neighbourhood_ieee: "0xr2",
-          title: "Review observed router area: Garage Router",
-          summary: "Evidence concentrates around Garage Router.",
+          primary_neighbourhood_ieee: "0xcoord",
+          title: "Review observed router area: Home Coordinator",
+          summary: "Evidence concentrates around Home Coordinator.",
           latest_supporting_evidence_at: null,
-          supporting_evidence: ["Garage area"],
+          supporting_evidence: ["Coordinator area"],
         }),
       ],
       { canOpenPrimaryDevice: true },
@@ -241,14 +241,15 @@ describe("InvestigationPanel accessible action names", () => {
     ).toHaveTextContent("Focus router area");
     expect(
       screen.getByRole("button", {
-        name: /Open router details: Review observed router area: Hall Router/i,
+        name: /Open device details: Review observed router area: Hall Router/i,
       }),
-    ).toHaveTextContent("Open router details");
+    ).toHaveTextContent("Open device details");
     expect(
       screen.getByRole("button", {
-        name: /Focus router area: Review observed router area: Garage Router/i,
+        name: /Open device details: Review observed router area: Home Coordinator/i,
       }),
     ).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/Open router details/i);
     expect(document.body.textContent).not.toMatch(
       /Review observed router area — Review observed router area/i,
     );

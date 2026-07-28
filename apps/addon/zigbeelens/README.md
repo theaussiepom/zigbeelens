@@ -17,9 +17,9 @@ This repository contains two different add-on paths:
 Do not present the generated repository as a supported release install. Its
 open gates include the complete runner/option contract, optional API-token
 propagation, HAOS UID-1000 `/data` writability, Supervisor Ingress and spoof
-rejection, reporting schema/default/unused-control alignment, and a portable
-HACS-to-Core origin. Structural package validation does not close those live
-HAOS and runtime gates.
+rejection, and a portable HACS-to-Core origin. Reporting schema/default
+alignment is now owned by the Core/add-on contract, but structural package
+validation still does not close the remaining live HAOS and runtime gates.
 
 The source-built runner is intended to run ZigbeeLens Core and show the
 canonical UI through Home Assistant Ingress. There is no separate add-on
@@ -140,19 +140,13 @@ networks:
 | `diagnostics.interview_failure_min_devices` | `2` |
 | `reporting.default_profile` | `standard` |
 | `reporting.max_recent_events` | `100` |
-| `reporting.max_metric_samples_per_device` | `50` |
-| `reporting.max_availability_changes_per_device` | `50` |
-| `reporting.include_raw_payloads` | `false` |
 
-Use values of at least `1` for all three `reporting.max_*` limits. The current
-Supervisor schema incorrectly accepts `0`, but Core rejects it at startup.
-`reporting.default_profile` is accepted by the schema, but the current report
-request path defaults to `standard` independently; select a non-standard
-redaction profile explicitly when generating a report.
-`reporting.max_metric_samples_per_device`,
-`reporting.max_availability_changes_per_device`, and
-`reporting.include_raw_payloads` are also accepted but have no current
-exact-v3 composition effect.
+`reporting.max_recent_events` accepts `1..1000` and applies independently to
+each serialized report timeline collection; zero is rejected by both the
+Supervisor schema and Core. When a report request omits `redaction.profile`,
+Core uses `reporting.default_profile`; an explicit request profile overrides
+it. Removed sample-limit and raw-payload switches are rejected rather than
+silently accepted.
 
 ### Feature, discovery, and topology defaults
 
@@ -186,10 +180,9 @@ topology capture requires the corresponding feature and topology gates; the
 default startup scan is independent and may publish the allowlisted
 Zigbee2MQTT network-map request.
 
-Keep the Discovery state prefix at its default: the broker last will is
-currently registered before normal topic validation. Also keep the topology
-refresh interval at `0` if topology is disabled; a positive interval can make
-scheduler status appear active while the capture service rejects requests.
+The exact Discovery availability/last-will topic is validated before Paho
+construction or broker side effects. When topology is disabled, Core owns no
+topology service/scheduler and other capture gates or intervals are inert.
 
 Add-on option changes are read at process startup. Restart the add-on after
 changing configuration.
@@ -233,6 +226,11 @@ All persistent data lives under `/data/zigbeelens/` inside the add-on:
 
 - `zigbeelens.sqlite` — telemetry, incidents, reports (reports stay until you delete them unless you set finite `report_retention_days`)
 - `config.yaml` — generated from your add-on options
+
+The current schema target is `15`. Migration 014's one-time exact-v3 report
+reset remains unchanged; migration 015 scrubs legacy topology node/link source
+dictionaries while preserving normalized facts and governed redacted capture
+evidence.
 
 Include the add-on in your **Home Assistant backup** so history and stored reports are preserved. For online SQLite snapshots from a running Core process, use `zigbeelens storage backup` (symlink-safe atomic publish); see [docs/backups.md](../../../docs/backups.md).
 

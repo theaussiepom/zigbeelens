@@ -3,8 +3,9 @@
 Narrow ownership map for Decision, report, and public-contract confidence.
 Phase 7B merged in PR #101 from approved branch tip `03c12d4`. Broader
 contributor and product documentation was completed and merged in Phase 7C1.
-Phase 7C2 screenshot evidence and Phase 7D live Beast validation remain
-deferred.
+The prior Phase 7C2 S1–S9 evidence is stale after runtime/UI corrections and
+must be recaptured together from one final runtime. Phase 7D live Beast
+validation remains blocked.
 
 ## Layers
 
@@ -91,6 +92,16 @@ After migration 014:
   a user-facing label catalogue; statuses and primary copy codes own presentation.
 
 This is a deliberate pre-release reset, not a user-facing migration feature.
+
+## Topology raw-data scrub
+
+Migration `015_topology_raw_data_scrub.sql` advances the release schema target from
+14 to 15. It clears legacy node/link source dictionaries and sets snapshot
+`parsed_json` to `NULL` while preserving the three normalized typed count
+columns. Parser/repository tests own new-write behavior; the migration contract owns
+0.1.13-style existing rows, unrelated-table preservation, restart
+idempotence, and migration-014 byte identity. Public API/report tests prove the
+source dictionaries are never projected.
 
 ## Contract lanes
 
@@ -181,16 +192,14 @@ workflow and makes publication depend on it. Structural contract tests verify
 that ownership; only execution on the synchronized satellite is remote
 publication evidence.
 
-## Intentional xfail
+## Decision reference-clock parity
 
-The full Core suite currently has one intentional non-strict xfail:
-
-`test_incident_badge_matches_device_story_for_model_pattern`
-
-It records a pre-existing Decision-surface mismatch (`watch` versus
-`informational`) for model-pattern badges. Release evidence must report it as
-**xfail**, not pass. Any additional xfail or skip is a new result that requires
-review.
+`test_incident_badge_matches_device_story_for_model_pattern` is a strict
+regression, not an expected failure. Device Story, incident badge, and device
+inventory projections share one explicit reference boundary. A separate aged
+boundary may legitimately change classification, but parity must still hold
+when all surfaces use that same aged reference. The full Core suite must have
+no unexplained xfail.
 
 The canonical Core suite's SQLite 3.34.1 case is intentionally delegated to
 `scripts/smoke-sqlite-3.34.1.sh`. The release UI safety owner resolves the
@@ -204,6 +213,32 @@ and both corpora use the same Zigbee mutation-control phrase policy.
 `scripts/validate-safety-guardrails.sh` remains the single release wrapper and
 fails on zero collected tests or any skipped test. Its release output reports
 the production file count for each corpus so path or discovery drift is visible.
+
+## Pre-Phase-7D release-blocker ownership
+
+Every corrected invariant has one behavioral owner. Documentation records the
+gate; it never substitutes for the production test.
+
+| Gate | Production test owner |
+|------|-----------------------|
+| OCI version/revision/source labels | `tests/contracts/test_docker_metadata_contract.py` plus built-image inspection |
+| Discovery availability/LWT validation ordering | `tests/test_mqtt_discovery.py` construction and side-effect spies |
+| Topology raw persistence and schema 15 upgrade | parser/repository/API tests plus `tests/contracts/test_migration_015_topology_raw_scrub.py` |
+| Reporting controls | `tests/test_reporting_config_traceability.py` field-by-field behavior |
+| Missing/unknown report targets | `tests/test_report_target_contract.py` API-prefix parity and storage non-write |
+| Disabled topology lifecycle/status | `tests/test_topology_startup.py` gate cross-product |
+| Mixed-case IEEE lookup | repository/API/query-plan topology tests |
+| Coordinator/Router action copy | investigation ViewModel, component, and copy-contract tests |
+| PNG decode bounds | screenshot validator subprocess/adversarial contracts |
+| Manifest privacy and approved-host parsing | exact-schema, normalized-key, and URL parser adversarial contracts |
+| Model-pattern Decision parity | strict Core network-evidence regression with shared clocks |
+| Release truth/review inventory | docs validator/status assertions plus the manual thread re-query |
+
+The review inventory remains open until a future fixing PR is merged and exact
+reply/resolve steps are complete: PR #106
+`discussion_r3654140180`/`discussion_r3654140181`, PR #100
+`discussion_r3626646727`, PR #97 `discussion_r3618354267`, and the delayed
+approved-host bypass review.
 
 ## Adding a new Decision code
 

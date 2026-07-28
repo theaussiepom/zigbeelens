@@ -22,24 +22,22 @@ bundled browser UI locked.
 ## Release status — local/staged integration only
 
 **Public HACS installation is unavailable for this reviewed branch.** The
-public `theaussiepom/zigbeelens-hacs` satellite is not synchronized with the
-reviewed staged package and must not be used to validate this branch.
-Synchronizing or publishing that repository requires a separate explicitly
-authorized publication task. Docker/Compose is the current portable Core
-deployment route.
-
-The candidate stage advertises the previously unused version `0.1.14`; the
-materially different public satellite still advertises `0.1.13` at the latest
-re-check. The candidate version therefore identifies the staged tree uniquely,
-but the tree mismatch remains a publication blocker until a separately
-authorized publication task makes the intended satellite tree identical.
+public `theaussiepom/zigbeelens-hacs` satellite contains the prior `0.1.14`
+candidate at commit `21c24e3355369b94c9ab596cf9fc0591f1282297`, tree
+`9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`, with `SOURCE_COMMIT`
+`906527063ad8bd594fbec51f69f6fc72205302dd`. No `v0.1.14` tag or release
+exists. Runtime/UI corrections make that tree stale for the next candidate, so
+it must not be used to validate this branch. Synchronizing or publishing
+requires a separate explicitly authorized task. Docker/Compose is the current
+portable Core deployment route.
 
 Phase 7C1 is merged. The runtime package now owns durable options, fail-closed
 Core/Decision compatibility, distinct Decision payload repairs, declarative and
 runtime single-entry enforcement, exact Home Assistant compatibility lanes,
-and generated official-validation workflows. Phase 7C2 publishes the reviewed
-local/staged release-candidate screenshots and provenance shown below. Phase 7D
-live Beast validation remains deferred.
+and generated official-validation workflows. The prior Phase 7C2 S1–S9 set
+remains provenance-checked evidence for its captured source but is stale after
+the correction. All nine screenshots must be recaptured from one new final
+runtime before Phase 7D, which remains blocked.
 
 Public installation remains unavailable until a separately authorized
 publication task:
@@ -112,7 +110,7 @@ singleton ownership remain as runtime defenses.
 
 ![Home Assistant ZigbeeLens config flow showing a synthetic Core URL, TLS verification, and companion panel options](screenshots/hacs-config-flow.png)
 
-Illustrative synthetic release-candidate data. This real Home Assistant 2026.7.3 config flow was captured from the exact locally staged ZigbeeLens 0.1.14 package built from source `747374adbf07fe07282a28c5902a335b2bdc80c4`; the public HACS satellite was not used.
+Illustrative synthetic release-candidate data. This image belongs to the now-stale prior Phase 7C2 set. This real Home Assistant 2026.7.3 config flow was captured from the exact locally staged ZigbeeLens 0.1.14 package built from source `747374adbf07fe07282a28c5902a335b2bdc80c4`; the public HACS satellite was not used.
 
 The setup dialog explains HTTP vs HTTPS Core URLs, optional SSL verification, and the companion panel sidebar toggle.
 
@@ -431,7 +429,7 @@ described above; authentication alone owns reauthentication.
 
 ![Native Home Assistant ZigbeeLens companion panel showing accepted compatibility, Decision summary, factual counts, and dashboard actions](screenshots/hacs-companion-panel.png)
 
-Illustrative synthetic release-candidate data. This real native companion panel was captured in Home Assistant 2026.7.3 from the exact locally staged ZigbeeLens 0.1.14 package built from source `747374adbf07fe07282a28c5902a335b2bdc80c4`; the public HACS satellite was not used.
+Illustrative synthetic release-candidate data. This image belongs to the now-stale prior Phase 7C2 set. This real native companion panel was captured in Home Assistant 2026.7.3 from the exact locally staged ZigbeeLens 0.1.14 package built from source `747374adbf07fe07282a28c5902a335b2bdc80c4`; the public HACS satellite was not used.
 
 - Pass-through Core `priority`, `title`, and `summary` (escaped for HTML)
 - Cap at three priorities; expose factual `more_investigation_priority_count`
@@ -469,7 +467,7 @@ for them.
 
 | | HACS integration | MQTT Discovery |
 |---|------------------|----------------|
-| Current availability | Local/staged custom-component testing; public satellite unsynchronized | Optional Core feature |
+| Current availability | Local/staged corrected-package testing; public satellite contains the stale prior candidate | Optional Core feature |
 | Enablement | Manual custom-component install from the generated stage | Config flag in Core |
 | Config flow / repairs | Yes | No |
 | Native companion panel | Yes | No |

@@ -384,7 +384,7 @@ expected = {
     "config_loaded": True,
     "mock_mode": True,
     "database": "ok",
-    "migration_version": 14,
+    "migration_version": 15,
 }
 for key, value in expected.items():
     if payload.get(key) != value:
@@ -436,8 +436,8 @@ import sys
 from pathlib import Path
 
 payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-if payload.get("footprint", {}).get("schema_version") != 14:
-    raise SystemExit("temporary database schema is not version 14")
+if payload.get("footprint", {}).get("schema_version") != 15:
+    raise SystemExit("temporary database schema is not version 15")
 integrity = payload.get("integrity", {})
 for key in ("quick_check", "foreign_key_check"):
     fact = integrity.get(key, {})
@@ -452,4 +452,4 @@ if grep -Eiq \
   fail "Core attempted an MQTT or Discovery connection"
 fi
 
-echo "OK: smoke-core passed (version=$EXPECTED_VERSION, schema=14, isolated_state=true, mqtt_attempts=0)"
+echo "OK: smoke-core passed (version=$EXPECTED_VERSION, schema=15, isolated_state=true, mqtt_attempts=0)"

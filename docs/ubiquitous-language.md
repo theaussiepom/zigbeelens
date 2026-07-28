@@ -149,6 +149,26 @@ capture time. It does not prove current live routing.”
 
 Avoid: current route, actual route, routed through.
 
+### Topology-history coverage
+
+Coverage over the bounded set of selected complete topology captures.
+
+Human-facing:
+
+- **No complete captures** when no selected complete capture exists;
+- **Layout unavailable** when every selected complete capture lacks a usable
+  node/link layout;
+- **Partial topology history** when available and limited layouts are mixed;
+- **Available topology history** only when every selected complete capture has
+  a usable layout.
+
+The total complete count always equals available-layout captures plus
+limited-layout captures. “Snapshot window” is an exact alias for that total.
+Observed-device counts use available layouts as their measurement denominator,
+while limited captures remain visible separately. A limited capture means
+presence is unknown; it never means the device was absent or that the count was
+zero.
+
 ### Recent missing link
 
 A link observed in recent previous complete topology snapshots but not present
@@ -219,9 +239,20 @@ Avoid: not found in mesh, missing means offline.
 Snapshot compare is device-led: it lives in the Device details panel as
 “Snapshot history”, never as a whole-network diff. It answers “how does this
 device look in the latest snapshot compared with earlier snapshots?” — a list
-of recent usable snapshots (previous usable selected by default, older ones
-selectable) and a comparison card that leads with an actionable status, then
-why, what this means, suggested checks, and collapsed evidence details.
+of recent complete captures and, when both selected layouts are available, a
+comparison card that leads with an actionable status, then why, what this
+means, suggested checks, and collapsed evidence details.
+
+An available layout may truthfully show a measured zero. A limited layout uses
+**Topology layout unavailable** and must not render zero, device absence,
+“no links”, a comparison status, or a routing claim. A retained node or
+source/target link positively represents the device in that exact snapshot.
+For two available layouts, the comparison evidence states whether the device
+was observed in the latest and selected snapshots. Different presence values
+are a factual **Changed** comparison even when both link and route-hint counts
+are zero; a separate current issue may make it **Worth reviewing**. The wording
+must remain about the two stored snapshots and must not imply failure,
+movement, disconnection, a current route, or causality.
 
 Comparison statuses (about the comparison only, never device health):
 **No notable change** (row label “Similar”), **Changed**, **Watch**,
@@ -229,7 +260,8 @@ Comparison statuses (about the comparison only, never device health):
 
 Human-facing: **Snapshot history**, **links shown**, **links changed**,
 **links only in latest snapshot**, **links only in selected snapshot**,
-**route hints**, **selected snapshot**, **latest snapshot**
+**route hints**, **device observed in the latest snapshot**, **device observed
+in the selected snapshot**, **selected snapshot**, **latest snapshot**
 
 Availability coverage is stated directly, never as vague “limited data”:
 **Availability tracking off** (red — with “Enable Zigbee2MQTT availability and

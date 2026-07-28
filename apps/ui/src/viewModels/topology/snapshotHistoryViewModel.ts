@@ -25,13 +25,22 @@ import {
   SNAPSHOT_HISTORY_EMPTY_COPY,
   SNAPSHOT_HISTORY_EVIDENCE_DETAILS_TITLE,
   SNAPSHOT_HISTORY_LATEST_LABEL,
+  SNAPSHOT_HISTORY_LATEST_DEVICE_NOT_OBSERVED_COPY,
+  SNAPSHOT_HISTORY_LATEST_DEVICE_OBSERVED_COPY,
+  SNAPSHOT_HISTORY_LATEST_LAYOUT_COMPARISON_UNAVAILABLE_COPY,
+  SNAPSHOT_HISTORY_LAYOUT_UNAVAILABLE_COPY,
   SNAPSHOT_HISTORY_MEANING_TITLE,
   SNAPSHOT_HISTORY_ROUTE_HINT_NOTE,
   SNAPSHOT_HISTORY_SECTION_TITLE,
+  SNAPSHOT_HISTORY_SELECTED_LAYOUT_COMPARISON_UNAVAILABLE_COPY,
+  SNAPSHOT_HISTORY_SELECTED_DEVICE_NOT_OBSERVED_COPY,
+  SNAPSHOT_HISTORY_SELECTED_DEVICE_OBSERVED_COPY,
   SNAPSHOT_HISTORY_SELECTED_ONLY_NOTE,
   SNAPSHOT_HISTORY_SOURCE_NOTE,
   SNAPSHOT_HISTORY_UNAVAILABLE_COPY,
   SNAPSHOT_HISTORY_WHY_TITLE,
+  SNAPSHOT_HISTORY_DEVICE_NOT_OBSERVED_COPY,
+  SNAPSHOT_HISTORY_DEVICE_OBSERVED_COPY,
 } from "@/lib/meshGraphCopy";
 import {
   decisionStatusCompactLabel,
@@ -59,6 +68,7 @@ export interface SnapshotHistoryRowViewModel {
 }
 
 export interface SnapshotEvidenceDetailsViewModel {
+  presenceLines: string[];
   linkLines: string[];
   routeLines: string[];
   showSelectedOnlyNote: boolean;
@@ -99,6 +109,7 @@ export interface SnapshotHistoryViewModel {
   unavailableCopy: string;
   rows: SnapshotHistoryRowViewModel[];
   comparison: SnapshotComparisonViewModel | null;
+  comparisonUnavailableCopy: string | null;
   defaultSelectedSnapshotId: string | null;
 }
 
@@ -107,12 +118,18 @@ function plural(count: number, noun: string): string {
 }
 
 function rowCountsCopy(row: DeviceSnapshotHistoryRow): string {
+  if (row.layout_state === "limited") {
+    return SNAPSHOT_HISTORY_LAYOUT_UNAVAILABLE_COPY;
+  }
+  const presence = row.device_present_in_snapshot
+    ? SNAPSHOT_HISTORY_DEVICE_OBSERVED_COPY
+    : SNAPSHOT_HISTORY_DEVICE_NOT_OBSERVED_COPY;
   const links = `${plural(row.links_for_device_count, "link")} shown`;
   const routes =
     row.route_hints_for_device_count > 0
       ? plural(row.route_hints_for_device_count, "route hint")
       : "no route hints";
-  return `${links} · ${routes}`;
+  return `${presence} · ${links} · ${routes}`;
 }
 
 function availabilityStateCopy(row: DeviceSnapshotHistoryRow): string | null {
@@ -149,9 +166,18 @@ function availabilityPillForStatus(
 }
 
 function evidenceDetailLines(comparison: DeviceSnapshotComparison): {
+  presence: string[];
   links: string[];
   routes: string[];
 } {
+  const presence = [
+    comparison.device_presence.latest
+      ? SNAPSHOT_HISTORY_LATEST_DEVICE_OBSERVED_COPY
+      : SNAPSHOT_HISTORY_LATEST_DEVICE_NOT_OBSERVED_COPY,
+    comparison.device_presence.selected
+      ? SNAPSHOT_HISTORY_SELECTED_DEVICE_OBSERVED_COPY
+      : SNAPSHOT_HISTORY_SELECTED_DEVICE_NOT_OBSERVED_COPY,
+  ];
   const link = comparison.link_counts;
   const links = [
     `${plural(link.latest_count, "link")} shown in latest snapshot`,
@@ -187,7 +213,7 @@ function evidenceDetailLines(comparison: DeviceSnapshotComparison): {
       routes.push(`${plural(route.changed_count, "route hint")} changed`);
     }
   }
-  return { links, routes };
+  return { presence, links, routes };
 }
 
 function buildComparisonViewModel(
@@ -206,6 +232,7 @@ function buildComparisonViewModel(
     suggestedChecks: comparison.suggested_checks,
     evidenceDetailsTitle: SNAPSHOT_HISTORY_EVIDENCE_DETAILS_TITLE,
     evidenceDetails: {
+      presenceLines: details.presence,
       linkLines: details.links,
       routeLines: details.routes,
       showSelectedOnlyNote: comparison.link_counts.selected_only_count > 0,
@@ -260,7 +287,10 @@ function buildRowViewModel(
 export function defaultSelectedSnapshotId(
   detail: DeviceSnapshotHistoryDetail,
 ): string | null {
-  return detail.snapshots[0]?.snapshot_id ?? null;
+  const comparable = detail.snapshots.find(
+    (row) => row.comparison_to_latest !== null,
+  );
+  return comparable?.snapshot_id ?? detail.snapshots[0]?.snapshot_id ?? null;
 }
 
 export function buildSnapshotHistoryViewModel(
@@ -282,6 +312,17 @@ export function buildSnapshotHistoryViewModel(
     );
   }
 
+  let comparisonUnavailableCopy: string | null = null;
+  if (selectedRow && selectedRow.comparison_to_latest === null) {
+    if (detail.latest_snapshot?.layout_state === "limited") {
+      comparisonUnavailableCopy =
+        SNAPSHOT_HISTORY_LATEST_LAYOUT_COMPARISON_UNAVAILABLE_COPY;
+    } else if (selectedRow.layout_state === "limited") {
+      comparisonUnavailableCopy =
+        SNAPSHOT_HISTORY_SELECTED_LAYOUT_COMPARISON_UNAVAILABLE_COPY;
+    }
+  }
+
   return {
     loadState: "ready",
     sectionTitle: SNAPSHOT_HISTORY_SECTION_TITLE,
@@ -299,6 +340,7 @@ export function buildSnapshotHistoryViewModel(
       selectedRow?.comparison_to_latest != null
         ? buildComparisonViewModel(selectedRow.comparison_to_latest)
         : null,
+    comparisonUnavailableCopy,
     defaultSelectedSnapshotId: defaultSelectedSnapshotId(detail),
   };
 }
@@ -316,6 +358,7 @@ export function loadingSnapshotHistoryViewModel(): SnapshotHistoryViewModel {
     unavailableCopy: SNAPSHOT_HISTORY_UNAVAILABLE_COPY,
     rows: [],
     comparison: null,
+    comparisonUnavailableCopy: null,
     defaultSelectedSnapshotId: null,
   };
 }

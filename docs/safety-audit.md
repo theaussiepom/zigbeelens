@@ -67,6 +67,10 @@ capture flags off). Manual capture is off by default and requires all of:
 - `topology.manual_capture_enabled: true`
 - a request body with exact boolean `confirmed: true`
 
+When `topology.enabled` is false, Core creates neither the topology service nor
+its scheduler. Startup, periodic, legacy automatic, and manual gates cannot
+advertise or perform capture, even when their other fields are enabled.
+
 The warning explains that a network-map request can temporarily add mesh load.
 It does not claim that the diagnostic request is a device-control write.
 
@@ -89,17 +93,21 @@ When enabled, the separate Discovery publisher writes:
   prefix;
 - retained online/offline availability, including a broker last will.
 
-Normal publish calls reject wildcards, `/set`, `/bridge/request/`, and every
-configured Zigbee2MQTT base-topic subtree. The built-in allowed roots are
-`homeassistant/` and `zigbeelens/`; the configured discovery prefix is also
-allowed. Operators must keep both configured prefixes outside every
-Zigbee2MQTT base topic.
+Normal publish calls reject wildcards, `/set`, `/bridge/request/`, malformed
+separators, unrelated namespaces, and every configured Zigbee2MQTT base-topic
+subtree. The built-in allowed roots are `homeassistant/` and `zigbeelens/`; the
+configured discovery prefix is also allowed.
 
-Current release blocker: the MQTT client last will is registered at
-`{state_topic_prefix}/status` before the normal topic validator runs. A
-misconfigured state prefix can therefore overlap a Zigbee2MQTT base topic for
-that last-will write. Keep the default state prefix and enforce broker ACLs
-until registration validates the topic against configured network roots.
+One production owner constructs and validates the exact
+`{state_topic_prefix}/status` availability topic for the real publisher, fake
+publisher, and service. Validation happens before Paho client construction,
+broker last-will registration, broker parsing, credential/TLS side effects, or
+connection. An allowed Discovery namespace never overrides a configured
+Zigbee2MQTT base-topic overlap.
+
+The former **Current release blocker: the MQTT client last will** ordering gap
+is closed by that production validator and its construction-order tests; it is
+still a mandatory release regression gate.
 
 Implementation: `apps/core/src/zigbeelens/mqtt_discovery/topics.py`,
 `mqtt_discovery/publisher.py`, `mqtt_discovery/service.py`
@@ -113,6 +121,8 @@ Tests: `apps/core/tests/test_mqtt_discovery.py`
 | Recognised passwords, tokens, network keys, and connection credentials are scrubbed | Enforced |
 | Every new stored body is exact `ReportDetailV3` | Enforced |
 | Saved list/detail/download fail closed for malformed or non-v3 bodies | Enforced |
+| Missing contextual targets fail `422`; unknown targets fail `404`; neither path stores a report | Enforced |
+| An omitted request profile uses configured `reporting.default_profile` | Enforced |
 | Migration 014 removes all development-era saved reports once at schema 13 → 14 | Enforced |
 | HA names, area names/IDs, registry/entity IDs, and IEEE values follow the selected report redaction profile | Enforced |
 
@@ -154,12 +164,22 @@ generic mutation method.
 - Unavailable or limited evidence remains unknown. It is not converted to a
   measured zero or a healthy conclusion.
 
-The stored snapshot-level raw payload is scrubbed before persistence. Current
-release blocker: parsed node/link `raw_json` is built from the unredacted
-decoded response and retained locally. Public API/report projections omit that
-field, but omission is not a reviewed local-storage scrub or retention
-contract. Resolve that boundary before treating topology persistence as fully
-redacted.
+The stored snapshot-level source payload is scrubbed before persistence and
+remains the only governed source-shaped topology evidence. Parser objects and
+new writes do not retain original node/link dictionaries: normalized typed
+facts are stored, legacy node/link `raw_json` columns receive `{}`, and snapshot
+`parsed_json` is `NULL`. Normalized router, end-device, and link counts remain
+in their typed columns.
+
+Schema target `15` applies the same contract to existing installations:
+`015_topology_raw_data_scrub.sql` clears legacy node/link source dictionaries and
+sets snapshot `parsed_json` to `NULL`. It preserves normalized facts and typed
+count columns plus `raw_redacted_json`, touches no unrelated table, and leaves
+`014_report_v3_only_reset.sql` unchanged.
+
+The former parsed node/link `raw_json` retention blocker is closed for both new
+writes and schema-14 upgrades; parser/repository/migration/API tests remain its
+release owner.
 
 Human-facing terminology follows [ubiquitous-language.md](ubiquitous-language.md).
 
@@ -216,7 +236,8 @@ uv run pytest -q \
   tests/test_browser_sessions.py \
   tests/test_ha_ingress.py \
   tests/contracts/test_report_v3_contract.py \
-  tests/contracts/test_migration_014_report_reset.py
+  tests/contracts/test_migration_014_report_reset.py \
+  tests/contracts/test_migration_015_topology_raw_scrub.py
 ```
 
 From the repository root, run contract validation:

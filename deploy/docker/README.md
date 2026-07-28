@@ -66,6 +66,17 @@ chmod +x scripts/build-docker.sh scripts/validate-compose.sh deploy/docker/entry
 ZIGBEELENS_IMAGE=zigbeelens:local ./scripts/build-docker.sh
 ```
 
+The script records the package version, canonical source URL, and full
+lowercase source revision in OCI labels. A Git build requires the exact
+repository root and a clean tree; an explicit `ZIGBEELENS_REVISION` must equal
+the resolved full `HEAD`. Git builds use a disposable context materialized from
+committed `HEAD`, excluding even untracked source hidden by local or global Git
+ignore rules. An immutable source export without Git metadata must set both the
+full revision and `ZIGBEELENS_SOURCE_EXPORT=1`. The maintained root
+`.dockerignore` excludes local data, generated output, dependencies, caches,
+capture state, logs, and image archives from source-export and workflow
+contexts.
+
 Set `ZIGBEELENS_IMAGE=zigbeelens:local` when using the maintained Compose
 example, or use that exact local tag with `docker run`.
 

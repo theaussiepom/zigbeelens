@@ -279,6 +279,26 @@ def test_topology_count_cap_ignores_pending(tmp_path: Path):
             """,
             (f"snap-{i}", captured, status),
         )
+    repo.db.conn.execute(
+        """
+        INSERT INTO topology_nodes (
+            snapshot_id, network_id, ieee_address, node_type, raw_json
+        ) VALUES (
+            'snap-2', 'home', '0x01', 'Coordinator',
+            '{"password":"must-delete-with-snapshot"}'
+        )
+        """
+    )
+    repo.db.conn.execute(
+        """
+        INSERT INTO topology_links (
+            snapshot_id, network_id, source_ieee, target_ieee, raw_json
+        ) VALUES (
+            'snap-2', 'home', '0x01', '0x02',
+            '{"network_key":"must-delete-with-snapshot"}'
+        )
+        """
+    )
     repo.db.conn.commit()
     deleted = repo.maintenance.enforce_topology_count_retention("home", 2)
     assert deleted == 1
@@ -289,3 +309,15 @@ def test_topology_count_cap_ignores_pending(tmp_path: Path):
     assert statuses["snap-3"] == "pending"
     assert len([s for s in statuses.values() if s == "complete"]) == 2
     assert len(statuses) == 3
+    assert (
+        repo.db.conn.execute(
+            "SELECT COUNT(*) FROM topology_nodes WHERE snapshot_id = 'snap-2'"
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        repo.db.conn.execute(
+            "SELECT COUNT(*) FROM topology_links WHERE snapshot_id = 'snap-2'"
+        ).fetchone()[0]
+        == 0
+    )

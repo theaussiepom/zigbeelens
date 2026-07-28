@@ -42,6 +42,11 @@ def _chunked(items: list[Any], size: int) -> Iterator[list[Any]]:
         yield items[index : index + size]
 
 
+def _canonical_ieee_address(value: Any) -> str:
+    """Canonical parameter form for exact indexed IEEE lookups."""
+    return str(value or "").strip().lower()
+
+
 def _dedupe_topology_links(links: list[Any]) -> list[Any]:
     """Collapse duplicate source→target rows from raw maps.
 
@@ -1589,6 +1594,107 @@ class Repository:
                     result[snapshot_id].append(item)
         return result
 
+    def _topology_nodes_for_device_in_snapshots_sql(
+        self, chunk: list[str], ieee_address: str
+    ) -> tuple[str, list[Any]]:
+        """Exact indexed node lookup across a caller-bounded snapshot window."""
+        placeholders = ",".join("?" for _ in chunk)
+        sql = f"""
+            SELECT snapshot_id, ieee_address, friendly_name, node_type, depth, lqi
+            FROM topology_nodes
+            WHERE snapshot_id IN ({placeholders})
+              AND ieee_address = ?
+            ORDER BY snapshot_id ASC
+        """
+        return sql, [*chunk, ieee_address]
+
+    def get_topology_nodes_for_device_in_snapshots(
+        self,
+        snapshot_ids: Collection[str],
+        ieee_address: str,
+    ) -> dict[str, dict[str, Any] | None]:
+        """Exact node evidence for one device across selected snapshots.
+
+        Returns at most one indexed primary-key row per selected snapshot and
+        never materialises the complete node inventory.
+        """
+        ordered_ids = list(dict.fromkeys(sid for sid in snapshot_ids if sid))
+        result: dict[str, dict[str, Any] | None] = {
+            sid: None for sid in ordered_ids
+        }
+        ieee = _canonical_ieee_address(ieee_address)
+        if not ordered_ids or not ieee:
+            return result
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            sql, params = self._topology_nodes_for_device_in_snapshots_sql(
+                chunk, ieee
+            )
+            cur = self.db.conn.execute(sql, params)
+            for row in cur.fetchall():
+                snapshot_id = str(row["snapshot_id"])
+                if snapshot_id in result:
+                    item = dict(row)
+                    item.pop("snapshot_id", None)
+                    result[snapshot_id] = item
+        return result
+
+    def _topology_layout_availability_for_snapshots_sql(
+        self,
+        chunk: list[str],
+    ) -> tuple[str, list[Any]]:
+        """Bounded layout-existence probe for caller-selected snapshots.
+
+        The correlated ``EXISTS`` branches stop at the first stored node or
+        link and seek through the snapshot-leading primary-key indexes. They
+        distinguish a genuinely empty/limited capture from an available
+        layout without materialising either graph.
+        """
+        placeholders = ",".join("?" for _ in chunk)
+        sql = f"""
+            SELECT s.snapshot_id,
+                   CASE
+                       WHEN EXISTS (
+                           SELECT 1
+                           FROM topology_nodes AS n
+                           WHERE n.snapshot_id = s.snapshot_id
+                       )
+                       OR EXISTS (
+                           SELECT 1
+                           FROM topology_links AS l
+                           WHERE l.snapshot_id = s.snapshot_id
+                       )
+                       THEN 1
+                       ELSE 0
+                   END AS layout_available
+            FROM topology_snapshots AS s
+            WHERE s.snapshot_id IN ({placeholders})
+            ORDER BY s.snapshot_id ASC
+        """
+        return sql, list(chunk)
+
+    def get_topology_layout_availability_for_snapshots(
+        self,
+        snapshot_ids: Collection[str],
+    ) -> dict[str, bool]:
+        """Whether each selected snapshot has any stored node/link layout.
+
+        Missing snapshot IDs fail closed to ``False``. Callers own the selected
+        window; the device-history owner passes at most
+        ``MAX_SNAPSHOT_HISTORY`` IDs.
+        """
+        ordered_ids = list(dict.fromkeys(sid for sid in snapshot_ids if sid))
+        result = {snapshot_id: False for snapshot_id in ordered_ids}
+        for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
+            sql, params = self._topology_layout_availability_for_snapshots_sql(
+                chunk
+            )
+            cur = self.db.conn.execute(sql, params)
+            for row in cur.fetchall():
+                snapshot_id = str(row["snapshot_id"])
+                if snapshot_id in result:
+                    result[snapshot_id] = bool(row["layout_available"])
+        return result
+
     def _topology_links_for_device_in_snapshots_sql(
         self, chunk: list[str], ieee_address: str
     ) -> tuple[str, list[Any]]:
@@ -1625,7 +1731,7 @@ class Repository:
         """Bulk links involving one device across selected snapshots."""
         ordered_ids = list(dict.fromkeys(sid for sid in snapshot_ids if sid))
         result: dict[str, list[dict[str, Any]]] = {sid: [] for sid in ordered_ids}
-        ieee = str(ieee_address).strip()
+        ieee = _canonical_ieee_address(ieee_address)
         if not ordered_ids or not ieee:
             return result
         for chunk in _chunked(ordered_ids, _SAFE_ID_CHUNK):
@@ -2253,83 +2359,99 @@ class Repository:
         )
         self.db.conn.commit()
 
-    def store_topology_parsed(self, snapshot_id: str, network_id: str, parsed, *, status: str) -> None:
+    def store_topology_parsed(
+        self, snapshot_id: str, network_id: str, parsed, *, status: str
+    ) -> None:
+        """Atomically replace one snapshot's parsed topology.
+
+        Node IEEE addresses are normalized by the parser. Duplicate normalized
+        node identities are rejected by the topology_nodes primary key; the
+        complete replacement is then rolled back rather than merging potentially
+        conflicting device roles.
+        """
         from zigbeelens.topology.parser import ParsedTopology
 
         assert isinstance(parsed, ParsedTopology)
         stored_links = _dedupe_topology_links(parsed.links)
         link_count = len(stored_links)
-        self.db.conn.execute(
-            """
-            UPDATE topology_snapshots SET
-                status = ?,
-                raw_redacted_json = ?,
-                parsed_json = ?,
-                router_count = ?,
-                end_device_count = ?,
-                link_count = ?,
-                error = NULL
-            WHERE snapshot_id = ?
-            """,
-            (
-                status,
-                json.dumps(parsed.raw_redacted),
-                json.dumps(
-                    {
-                        "router_count": parsed.router_count,
-                        "end_device_count": parsed.end_device_count,
-                        "link_count": link_count,
-                    }
-                ),
-                parsed.router_count,
-                parsed.end_device_count,
-                link_count,
-                snapshot_id,
-            ),
+        router_count = sum(
+            1
+            for node in parsed.nodes
+            if node.node_type.lower() in {"router", "coordinator"}
         )
-        self.db.conn.execute("DELETE FROM topology_nodes WHERE snapshot_id = ?", (snapshot_id,))
-        self.db.conn.execute("DELETE FROM topology_links WHERE snapshot_id = ?", (snapshot_id,))
-        for node in parsed.nodes:
+        end_device_count = sum(
+            1 for node in parsed.nodes if "end" in node.node_type.lower()
+        )
+        with self.transaction():
             self.db.conn.execute(
                 """
-                INSERT INTO topology_nodes (
-                    snapshot_id, network_id, ieee_address, friendly_name, node_type, depth, lqi, raw_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                UPDATE topology_snapshots SET
+                    status = ?,
+                    raw_redacted_json = ?,
+                    parsed_json = NULL,
+                    router_count = ?,
+                    end_device_count = ?,
+                    link_count = ?,
+                    error = NULL
+                WHERE snapshot_id = ?
                 """,
                 (
+                    status,
+                    json.dumps(parsed.raw_redacted),
+                    router_count,
+                    end_device_count,
+                    link_count,
                     snapshot_id,
-                    network_id,
-                    node.ieee_address,
-                    node.friendly_name,
-                    node.node_type,
-                    node.depth,
-                    node.lqi,
-                    json.dumps(node.raw_json),
                 ),
             )
-        for link in stored_links:
             self.db.conn.execute(
-                """
-                INSERT INTO topology_links (
-                    snapshot_id, network_id, source_ieee, target_ieee, source_type, target_type,
-                    linkquality, depth, relationship, route_count, raw_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    snapshot_id,
-                    network_id,
-                    link.source_ieee,
-                    link.target_ieee,
-                    link.source_type,
-                    link.target_type,
-                    link.linkquality,
-                    link.depth,
-                    link.relationship,
-                    link.route_count,
-                    json.dumps(link.raw_json),
-                ),
+                "DELETE FROM topology_nodes WHERE snapshot_id = ?", (snapshot_id,)
             )
-        self.db.conn.commit()
+            self.db.conn.execute(
+                "DELETE FROM topology_links WHERE snapshot_id = ?", (snapshot_id,)
+            )
+            for node in parsed.nodes:
+                self.db.conn.execute(
+                    """
+                    INSERT INTO topology_nodes (
+                        snapshot_id, network_id, ieee_address, friendly_name, node_type,
+                        depth, lqi, raw_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        snapshot_id,
+                        network_id,
+                        node.ieee_address,
+                        node.friendly_name,
+                        node.node_type,
+                        node.depth,
+                        node.lqi,
+                        "{}",
+                    ),
+                )
+            for link in stored_links:
+                self.db.conn.execute(
+                    """
+                    INSERT INTO topology_links (
+                        snapshot_id, network_id, source_ieee, target_ieee,
+                        source_type, target_type, linkquality, depth, relationship,
+                        route_count, raw_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        snapshot_id,
+                        network_id,
+                        link.source_ieee,
+                        link.target_ieee,
+                        link.source_type,
+                        link.target_type,
+                        link.linkquality,
+                        link.depth,
+                        link.relationship,
+                        link.route_count,
+                        "{}",
+                    ),
+                )
 
     def enforce_topology_retention(self, network_id: str, max_snapshots: int) -> int:
         """Retain newest terminal snapshots per network; exclude active pending."""
@@ -2468,8 +2590,8 @@ class Repository:
         cur = self.db.conn.execute(
             """
             SELECT snapshot_id, network_id, captured_at, requested_by, status,
-                   router_count, end_device_count, link_count, warning_acknowledged, error,
-                   raw_redacted_json, parsed_json
+                   router_count, end_device_count, link_count,
+                   warning_acknowledged, error
             FROM topology_snapshots
             WHERE network_id = ? AND snapshot_id = ?
             """,
@@ -2501,9 +2623,10 @@ class Repository:
         return [dict(row) for row in cur.fetchall()]
 
     def get_topology_node_name(self, snapshot_id: str, ieee_address: str) -> str | None:
+        ieee = _canonical_ieee_address(ieee_address)
         cur = self.db.conn.execute(
             "SELECT friendly_name FROM topology_nodes WHERE snapshot_id = ? AND ieee_address = ?",
-            (snapshot_id, ieee_address),
+            (snapshot_id, ieee),
         )
         row = cur.fetchone()
         return row[0] if row else None
@@ -2511,6 +2634,7 @@ class Repository:
     def get_topology_node(
         self, snapshot_id: str, ieee_address: str
     ) -> dict[str, Any] | None:
+        ieee = _canonical_ieee_address(ieee_address)
         cur = self.db.conn.execute(
             """
             SELECT ieee_address, friendly_name, node_type, depth, lqi
@@ -2518,29 +2642,31 @@ class Repository:
             WHERE snapshot_id = ? AND ieee_address = ?
             LIMIT 1
             """,
-            (snapshot_id, ieee_address),
+            (snapshot_id, ieee),
         )
         row = cur.fetchone()
         return dict(row) if row else None
 
     def list_topology_children(self, snapshot_id: str, router_ieee: str) -> list[str]:
+        router = _canonical_ieee_address(router_ieee)
         cur = self.db.conn.execute(
             """
             SELECT target_ieee FROM topology_links
             WHERE snapshot_id = ? AND source_ieee = ?
             """,
-            (snapshot_id, router_ieee),
+            (snapshot_id, router),
         )
         return [row[0] for row in cur.fetchall()]
 
     def get_topology_parent_router(self, snapshot_id: str, ieee_address: str) -> str | None:
+        ieee = _canonical_ieee_address(ieee_address)
         cur = self.db.conn.execute(
             """
             SELECT source_ieee FROM topology_links
             WHERE snapshot_id = ? AND target_ieee = ?
             LIMIT 1
             """,
-            (snapshot_id, ieee_address),
+            (snapshot_id, ieee),
         )
         row = cur.fetchone()
         if not row:

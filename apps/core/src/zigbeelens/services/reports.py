@@ -16,6 +16,7 @@ import yaml
 
 from zigbeelens.config.models import AppConfig, ReportingConfig
 from zigbeelens.config.redaction import redact_mqtt_server
+from zigbeelens.decisions.types import coverage_params_as_dict
 from zigbeelens.schemas import (
     DataCoverageWarningSummary,
     DeviceDetail,
@@ -31,7 +32,11 @@ from zigbeelens.schemas import (
     ReportSummary,
 )
 from zigbeelens.services.report_redaction import Redactor, resolve_redaction
-from zigbeelens.services.report_scope import ReportScopeAmbiguityError
+from zigbeelens.services.report_scope import (
+    ReportScopeAmbiguityError,
+    ReportScopeNotFoundError,
+    ReportScopeRequestError,
+)
 from zigbeelens.storage.repository import ReportRow, Repository
 
 STANDARD_LIMITATIONS: list[LimitationItem] = [
@@ -219,30 +224,42 @@ def _filter_coverage_warnings(
     return [w for w in warnings if w.network_id in network_ids]
 
 
-def _without_timelines(detail: ReportDetailV3) -> ReportDetailV3:
-    """Clear every timeline/event collection controlled by include_timeline."""
+def _with_timeline_limit(detail: ReportDetailV3, limit: int) -> ReportDetailV3:
+    """Seal every serialized timeline collection to one authoritative limit."""
+    timeline = list(detail.events_or_timeline)[:limit]
     device_stories = [
-        story.model_copy(update={"timeline": []}) for story in detail.device_stories
+        story.model_copy(update={"timeline": list(story.timeline)[:limit]})
+        for story in detail.device_stories
     ]
     incidents = [
-        incident.model_copy(update={"timeline": []}) for incident in detail.incidents
+        incident.model_copy(update={"timeline": list(incident.timeline)[:limit]})
+        for incident in detail.incidents
     ]
     domain = detail.domain_details.model_copy(
         update={
             "device_details": [
-                det.model_copy(update={"recent_events": []})
+                det.model_copy(update={"recent_events": list(det.recent_events)[:limit]})
                 for det in detail.domain_details.device_details
             ]
         }
     )
     return detail.model_copy(
         update={
-            "events_or_timeline": [],
+            "events_or_timeline": timeline,
             "device_stories": device_stories,
             "incidents": incidents,
             "domain_details": domain,
+            "raw_counts": {
+                **detail.raw_counts,
+                "events_included": len(timeline),
+            },
         }
     )
+
+
+def _without_timelines(detail: ReportDetailV3) -> ReportDetailV3:
+    """Clear every timeline/event collection controlled by include_timeline."""
+    return _with_timeline_limit(detail, 0)
 
 
 def _recorded_incident_interpretation(incident: Incident) -> str | None:
@@ -272,7 +289,6 @@ def generate_report(
     resolved = resolve_redaction(
         request.redaction,
         default_profile=reporting.default_profile,
-        default_include_raw=reporting.include_raw_payloads,
     )
     reference_now = now or datetime.now(timezone.utc)
     if reference_now.tzinfo is None:
@@ -290,6 +306,10 @@ def generate_report(
         config=config,
         collector=collector,
         request=request,
+    )
+    detail = _with_timeline_limit(
+        detail,
+        reporting.max_recent_events if resolved.include_timeline else 0,
     )
 
     redactor = Redactor(resolved)
@@ -316,8 +336,12 @@ def generate_report(
     return redacted
 
 
-# Re-export for API/route handlers that map scope ambiguity to HTTP errors.
-__all_report_errors__ = (ReportScopeAmbiguityError,)
+# Re-export for API/route handlers that map scope failures to HTTP errors.
+__all_report_errors__ = (
+    ReportScopeAmbiguityError,
+    ReportScopeNotFoundError,
+    ReportScopeRequestError,
+)
 
 
 # -- rendering -----------------------------------------------------------
@@ -477,7 +501,9 @@ def render_markdown_v3(detail: ReportDetail) -> str:
             code = str(
                 item.get("label_code") if isinstance(item, dict) else item.label_code
             )
-            params = (item.get("params") if isinstance(item, dict) else item.params) or {}
+            params = coverage_params_as_dict(
+                item.get("params") if isinstance(item, dict) else item.params
+            )
             coverage_lines.append(f"  - {device_coverage_label(code, params)}")
     lines += ["", "## Data coverage", ""]
     lines += coverage_lines or ["No data coverage warnings in this scope."]

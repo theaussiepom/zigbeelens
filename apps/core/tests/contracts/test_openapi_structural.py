@@ -103,6 +103,198 @@ def test_openapi_decision_enums_and_required(openapi_schema: dict):
         assert key in summary["required"], key
 
 
+def test_openapi_owns_exact_topology_history_coverage_params(
+    openapi_schema: dict,
+) -> None:
+    components = openapi_schema["components"]["schemas"]
+    params = _resolve_schema(
+        components["TopologyHistoryCoverageParams"],
+        components,
+    )
+    expected_fields = {
+        "observed_snapshot_count",
+        "complete_snapshot_count",
+        "available_layout_snapshot_count",
+        "limited_layout_snapshot_count",
+        "snapshot_window_count",
+    }
+    assert set(params["required"]) == expected_fields
+    assert set(params["properties"]) == expected_fields
+    for field in expected_fields:
+        field_schema = _resolve_schema(params["properties"][field], components)
+        assert field_schema["type"] == "integer"
+        assert field_schema["minimum"] == 0
+
+    coverage = _resolve_schema(components["DataCoverage"], components)
+    params_schema = coverage["properties"]["params"]
+    assert any(
+        branch.get("$ref", "").endswith("/TopologyHistoryCoverageParams")
+        for branch in params_schema["anyOf"]
+    )
+
+    report_story = _resolve_schema(components["ReportDeviceStory"], components)
+    coverage_items = report_story["properties"]["coverage"]["items"]
+    assert coverage_items["$ref"].endswith("/DataCoverage")
+
+
+@pytest.mark.parametrize("prefix", ("/api", "/api/v1"))
+def test_snapshot_history_openapi_description_states_layout_requirements(
+    openapi_schema: dict,
+    prefix: str,
+) -> None:
+    operation = openapi_schema["paths"][
+        f"{prefix}/topology/{{network_id}}/devices/{{ieee_address}}/snapshot-history"
+    ]["get"]
+    description = " ".join(operation["description"].split())
+    assert "recent complete topology captures" in description
+    assert (
+        "only when both the latest and selected captures have available stored "
+        "node/link layouts"
+        in description
+    )
+    assert "Presence differences describe only what two stored layouts observed" in (
+        description
+    )
+
+    response_schema = operation["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ]
+    assert response_schema["$ref"].endswith("/DeviceSnapshotHistoryDetail")
+
+
+def test_snapshot_history_openapi_owns_typed_presence_comparison(
+    openapi_schema: dict,
+) -> None:
+    components = openapi_schema["components"]["schemas"]
+    detail = _resolve_schema(components["DeviceSnapshotHistoryDetail"], components)
+    assert set(detail["required"]) == {
+        "network_id",
+        "device_ieee",
+        "friendly_name",
+        "has_current_issue",
+        "availability_tracking",
+        "latest_snapshot",
+        "snapshots",
+        "topology_facts",
+    }
+
+    tracking = _resolve_schema(
+        components["DeviceSnapshotAvailabilityTracking"],
+        components,
+    )
+    assert set(tracking["required"]) == {
+        "enabled",
+        "earliest_observation_at",
+    }
+
+    expected_row_fields = {
+        "snapshot_id",
+        "captured_at",
+        "is_latest",
+        "layout_state",
+        "is_usable",
+        "device_present_in_snapshot",
+        "links_for_device_count",
+        "route_hints_for_device_count",
+        "availability_coverage_status",
+        "availability_state_near_snapshot",
+        "comparison_to_latest",
+    }
+    available = _resolve_schema(
+        components["DeviceSnapshotHistoryAvailableRow"],
+        components,
+    )
+    limited = _resolve_schema(
+        components["DeviceSnapshotHistoryLimitedRow"],
+        components,
+    )
+    assert set(available["required"]) == expected_row_fields
+    assert set(limited["required"]) == expected_row_fields
+
+    comparison = _resolve_schema(
+        components["DeviceSnapshotComparison"],
+        components,
+    )
+    assert {
+        "status",
+        "reasons",
+        "suggested_checks",
+        "device_presence",
+        "link_counts",
+        "route_hint_counts",
+    } == set(comparison["required"])
+
+    presence = _resolve_schema(
+        components["DeviceSnapshotPresenceComparison"],
+        components,
+    )
+    assert set(presence["required"]) == {"latest", "selected", "changed"}
+    assert all(
+        presence["properties"][field]["type"] == "boolean"
+        for field in ("latest", "selected", "changed")
+    )
+
+    topology_facts = _resolve_schema(
+        components["DeviceSnapshotTopologyFacts"],
+        components,
+    )
+    assert set(topology_facts["required"]) == {
+        "stale_threshold_hours",
+        "device_facts",
+        "comparison_facts_by_snapshot_id",
+    }
+    latest_fact_items = topology_facts["properties"]["device_facts"]["items"]
+    assert latest_fact_items["discriminator"]["propertyName"] == "code"
+    assert {
+        item["$ref"].rsplit("/", 1)[-1] for item in latest_fact_items["oneOf"]
+    } == {
+        "DeviceSnapshotSeenLatestFact",
+        "DeviceSnapshotAbsentLatestFact",
+        "DeviceSnapshotHasLatestLinksFact",
+        "DeviceSnapshotNoLatestLinksFact",
+    }
+    comparison_fact_items = topology_facts["properties"][
+        "comparison_facts_by_snapshot_id"
+    ]["additionalProperties"]["items"]
+    assert comparison_fact_items["discriminator"]["propertyName"] == "code"
+    assert {
+        item["$ref"].rsplit("/", 1)[-1]
+        for item in comparison_fact_items["oneOf"]
+    } == {
+        "DeviceSnapshotSelectedLinksFact",
+        "DeviceSnapshotChangedFact",
+        "DeviceSnapshotAvailabilityCoverageFact",
+    }
+    latest_presence_params = _resolve_schema(
+        components["DeviceSnapshotLatestPresenceFactParams"],
+        components,
+    )
+    assert set(latest_presence_params["required"]) == {
+        "device_ieee",
+        "snapshot_id",
+    }
+    latest_links_params = _resolve_schema(
+        components["DeviceSnapshotLatestLinksFactParams"],
+        components,
+    )
+    assert set(latest_links_params["required"]) == {
+        "device_ieee",
+        "link_count",
+    }
+    changed_fact_params = _resolve_schema(
+        components["DeviceSnapshotChangedFactParams"],
+        components,
+    )
+    assert set(changed_fact_params["required"]) == {
+        "device_ieee",
+        "comparison_status",
+        "snapshot_id",
+        "latest_device_present_in_snapshot",
+        "selected_device_present_in_snapshot",
+        "device_presence_changed",
+    }
+
+
 def test_openapi_report_v3_required_exact(openapi_schema: dict):
     components = openapi_schema["components"]["schemas"]
     assert "ReportDetailV3" in components or "ReportDetail" in components

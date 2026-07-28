@@ -43,6 +43,7 @@ const topologyGapStory: DeviceStoryDto = {
       params: {},
     },
   ],
+  related_unresolved_incident_ids: [],
   timeline: [],
 };
 
@@ -77,6 +78,7 @@ const extendedSilenceStory: DeviceStoryDto = {
     { code: "confirm_reporting_in_z2m", params: {} },
   ],
   coverage: [],
+  related_unresolved_incident_ids: [],
   timeline: [],
 };
 
@@ -125,6 +127,56 @@ describe("deviceStoryViewModel", () => {
     expect(reasonCopy).not.toContain("median");
     expect(reasonCopy).not.toContain("suspicion");
     expect(reasonCopy).not.toContain("failed");
+  });
+
+  it("uses device coverage presentation and discloses partial topology history", () => {
+    const vm = buildDeviceStoryViewModel({
+      ...topologyGapStory,
+      coverage: [
+        {
+          dimension: "historical_snapshots",
+          state: "sparse",
+          label_code: "topology_history_sparse",
+          params: {
+            observed_snapshot_count: 1,
+            complete_snapshot_count: 2,
+            available_layout_snapshot_count: 1,
+            limited_layout_snapshot_count: 1,
+            snapshot_window_count: 2,
+          },
+        },
+      ],
+    });
+    expect(vm.coverageItems).toEqual([
+      {
+        label:
+          "Topology history: observed in 1 of 1 available layout; 1 additional capture had no usable layout",
+        helper:
+          "Device observed in every available topology layout. 1 additional capture had no usable node/link layout.",
+        tone: "muted",
+      },
+    ]);
+  });
+
+  it("keeps generic Device Story copy for non-topology coverage", () => {
+    const vm = buildDeviceStoryViewModel({
+      ...topologyGapStory,
+      coverage: [
+        {
+          dimension: "ha_enrichment",
+          state: "available",
+          label_code: "ha_area_linked",
+          params: { area_name: "Kitchen" },
+        },
+      ],
+    });
+    expect(vm.coverageItems).toEqual([
+      {
+        label: "HA area: linked",
+        helper: "Home Assistant area enrichment is linked for this device.",
+        tone: "neutral",
+      },
+    ]);
   });
 
   it("maps current issue story to review-first status copy", () => {

@@ -154,6 +154,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -215,6 +218,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -276,6 +282,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -345,6 +354,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -406,6 +418,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -711,9 +726,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -775,6 +787,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -839,6 +854,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -911,6 +929,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -975,6 +996,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -1039,6 +1063,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -1377,7 +1404,7 @@
             "summary": "Topology-dependent conclusions require a topology snapshot, which may not be available."
           }
         ],
-        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Informational\n\nStatus counts:\n- Informational: 5\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### garage_door\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### kitchen_router\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### living_room_motion\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### shed_router\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### workshop_light\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- garage_door:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- kitchen_router:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- living_room_motion:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- shed_router:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- workshop_light:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 2\nDevices: 5\nRouter risks: 2\nTopology snapshots: 0\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Redaction\n\nProfile: standard\n",
+        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Informational\n\nStatus counts:\n- Informational: 5\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### garage_door\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### kitchen_router\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### living_room_motion\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### shed_router\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### workshop_light\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- garage_door:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- kitchen_router:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- living_room_motion:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- shed_router:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- workshop_light:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 2\nDevices: 5\nRouter risks: 2\nTopology snapshots: 0\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Redaction\n\nProfile: standard\n",
         "product": "ZigbeeLens",
         "raw_counts": {
           "devices_included": 5,
@@ -1559,6 +1586,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -1620,6 +1650,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -1681,6 +1714,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -1750,6 +1786,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -1985,9 +2024,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -2049,6 +2085,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -2113,6 +2152,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -2177,6 +2219,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -2249,6 +2294,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -2510,7 +2558,7 @@
             "summary": "Topology-dependent conclusions require a topology snapshot, which may not be available."
           }
         ],
-        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Informational\n\nStatus counts:\n- Informational: 4\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### bedroom_sensor\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### hallway_light\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### kitchen_switch\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### living_room_motion\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- bedroom_sensor:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- hallway_light:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- kitchen_switch:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- living_room_motion:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 1\nDevices: 4\nRouter risks: 1\nTopology snapshots: 0\n\n## Timeline\n\n- 2026-06-14T11:30:00+00:00: Bridge online\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Redaction\n\nProfile: standard\n",
+        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Informational\n\nStatus counts:\n- Informational: 4\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### bedroom_sensor\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### hallway_light\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### kitchen_switch\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### living_room_motion\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- bedroom_sensor:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- hallway_light:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- kitchen_switch:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- living_room_motion:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 1\nDevices: 4\nRouter risks: 1\nTopology snapshots: 0\n\n## Timeline\n\n- 2026-06-14T11:30:00+00:00: Bridge online\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Redaction\n\nProfile: standard\n",
         "product": "ZigbeeLens",
         "raw_counts": {
           "devices_included": 4,
@@ -2683,6 +2731,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -2906,9 +2957,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -2962,6 +3010,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -3203,7 +3254,7 @@
             "summary": "Topology-dependent conclusions require a topology snapshot, which may not be available."
           }
         ],
-        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Informational\n\nStatus counts:\n- Informational: 1\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### living_room_motion\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Availability status could not be confirmed from stored evidence.\n- Home Assistant areas are not linked for this device.\n\nData limitations:\n- Availability and last-seen evidence is limited for this period, so offline or stale interpretation is constrained.\n\n\n## Data coverage\n\n- living_room_motion:\n  - Availability: unknown\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n\n## Incidents\n\n### Home bridge offline\n\nStatus: open\nSeverity: critical\nSummary: Zigbee2MQTT bridge stopped reporting on Home.\n\n\n## Scope details\n\nNetworks: 1\nDevices: 1\nRouter risks: 0\nTopology snapshots: 0\n\n## Timeline\n\n- 2026-06-14T11:15:00+00:00: Bridge offline\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Redaction\n\nProfile: standard\n",
+        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Informational\n\nStatus counts:\n- Informational: 1\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### living_room_motion\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Availability status could not be confirmed from stored evidence.\n- Home Assistant areas are not linked for this device.\n\nData limitations:\n- Availability and last-seen evidence is limited for this period, so offline or stale interpretation is constrained.\n\n\n## Data coverage\n\n- living_room_motion:\n  - Availability: unknown\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n\n## Incidents\n\n### Home bridge offline\n\nStatus: open\nSeverity: critical\nSummary: Zigbee2MQTT bridge stopped reporting on Home.\n\n\n## Scope details\n\nNetworks: 1\nDevices: 1\nRouter risks: 0\nTopology snapshots: 0\n\n## Timeline\n\n- 2026-06-14T11:15:00+00:00: Bridge offline\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Redaction\n\nProfile: standard\n",
         "product": "ZigbeeLens",
         "raw_counts": {
           "devices_included": 1,
@@ -3458,6 +3509,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -3534,6 +3588,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -3610,6 +3667,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -3694,6 +3754,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -3770,6 +3833,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -3839,6 +3905,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -4358,9 +4427,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -4424,6 +4490,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -4503,6 +4572,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -4582,6 +4654,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -4669,6 +4744,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -4748,6 +4826,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -4820,6 +4901,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -5462,7 +5546,7 @@
             "summary": "Topology-dependent conclusions require a topology snapshot, which may not be available."
           }
         ],
-        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Worth reviewing\n\nStatus counts:\n- Worth reviewing: 4\n- Informational: 2\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### office_desk_lamp\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_motion\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_switch\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_temp\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### living_room_motion\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### shed_router\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- office_desk_lamp:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- office_motion:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- office_switch:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- office_temp:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- living_room_motion:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- shed_router:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n\n## Related incident records\n\n### office_desk_lamp\n- Related unresolved incident record (inc-mesh-1)\n\n### office_motion\n- Related unresolved incident record (inc-mesh-1)\n\n### office_switch\n- Related unresolved incident record (inc-mesh-1)\n\n### office_temp\n- Related unresolved incident record (inc-mesh-1)\n\n\n## Incidents\n\n### 4 devices unavailable on Home 2\n\nStatus: open\nSeverity: incident\nSummary: Multiple devices on Home 2 changed to offline within a short window.\n\n\n## Scope details\n\nNetworks: 2\nDevices: 6\nRouter risks: 1\nTopology snapshots: 0\n\n## Timeline\n\n- 2026-06-14T11:49:00+00:00: Bridge warning\n- 2026-06-14T11:48:54+00:00: office_temp offline\n- 2026-06-14T11:48:36+00:00: office_switch offline\n- 2026-06-14T11:48:18+00:00: office_desk_lamp offline\n- 2026-06-14T11:48:00+00:00: office_motion offline\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Suggested checks\n\n### office_desk_lamp\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n### office_motion\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n### office_switch\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n### office_temp\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n\n## Redaction\n\nProfile: standard\n",
+        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Worth reviewing\n\nStatus counts:\n- Worth reviewing: 4\n- Informational: 2\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### office_desk_lamp\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_motion\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_switch\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_temp\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### living_room_motion\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### shed_router\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- office_desk_lamp:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- office_motion:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- office_switch:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- office_temp:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- living_room_motion:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- shed_router:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n\n## Related incident records\n\n### office_desk_lamp\n- Related unresolved incident record (inc-mesh-1)\n\n### office_motion\n- Related unresolved incident record (inc-mesh-1)\n\n### office_switch\n- Related unresolved incident record (inc-mesh-1)\n\n### office_temp\n- Related unresolved incident record (inc-mesh-1)\n\n\n## Incidents\n\n### 4 devices unavailable on Home 2\n\nStatus: open\nSeverity: incident\nSummary: Multiple devices on Home 2 changed to offline within a short window.\n\n\n## Scope details\n\nNetworks: 2\nDevices: 6\nRouter risks: 1\nTopology snapshots: 0\n\n## Timeline\n\n- 2026-06-14T11:49:00+00:00: Bridge warning\n- 2026-06-14T11:48:54+00:00: office_temp offline\n- 2026-06-14T11:48:36+00:00: office_switch offline\n- 2026-06-14T11:48:18+00:00: office_desk_lamp offline\n- 2026-06-14T11:48:00+00:00: office_motion offline\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Suggested checks\n\n### office_desk_lamp\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n### office_motion\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n### office_switch\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n### office_temp\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n\n## Redaction\n\nProfile: standard\n",
         "product": "ZigbeeLens",
         "raw_counts": {
           "devices_included": 6,
@@ -5637,6 +5721,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -5785,9 +5872,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -5841,6 +5925,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -5994,7 +6081,7 @@
             "summary": "Topology-dependent conclusions require a topology snapshot, which may not be available."
           }
         ],
-        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Informational\n\nStatus counts:\n- Informational: 1\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### new_plug\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- new_plug:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 1\nDevices: 1\nRouter risks: 0\nTopology snapshots: 0\n\n## Timeline\n\n- 2026-06-14T11:00:00+00:00: Interview failed\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Redaction\n\nProfile: standard\n",
+        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Informational\n\nStatus counts:\n- Informational: 1\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### new_plug\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- new_plug:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 1\nDevices: 1\nRouter risks: 0\nTopology snapshots: 0\n\n## Timeline\n\n- 2026-06-14T11:00:00+00:00: Interview failed\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Redaction\n\nProfile: standard\n",
         "product": "ZigbeeLens",
         "raw_counts": {
           "devices_included": 1,
@@ -6143,6 +6230,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -6225,6 +6315,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -6307,6 +6400,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -6389,6 +6485,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -6637,9 +6736,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -6701,6 +6797,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -6786,6 +6885,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -6871,6 +6973,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -6956,6 +7061,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -7196,7 +7304,7 @@
             "summary": "Topology-dependent conclusions require a topology snapshot, which may not be available."
           }
         ],
-        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Watch\n\nStatus counts:\n- Watch: 4\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### sensor_1\n\nStatus: Watch\nHeadline: Battery reported low\n\nWhy:\n- Battery is currently reported low.\n- Home Assistant areas are not linked for this device.\n\n### sensor_2\n\nStatus: Watch\nHeadline: Battery reported low\n\nWhy:\n- Battery is currently reported low.\n- Home Assistant areas are not linked for this device.\n\n### sensor_3\n\nStatus: Watch\nHeadline: Battery reported low\n\nWhy:\n- Battery is currently reported low.\n- Home Assistant areas are not linked for this device.\n\n### sensor_4\n\nStatus: Watch\nHeadline: Battery reported low\n\nWhy:\n- Battery is currently reported low.\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- sensor_1:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- sensor_2:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- sensor_3:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- sensor_4:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 1\nDevices: 4\nRouter risks: 0\nTopology snapshots: 0\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Suggested checks\n\n### sensor_1\n- Check the reported battery level (12%).\n\n### sensor_2\n- Check the reported battery level (14%).\n\n### sensor_3\n- Check the reported battery level (16%).\n\n### sensor_4\n- Check the reported battery level (18%).\n\n\n## Redaction\n\nProfile: standard\n",
+        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Watch\n\nStatus counts:\n- Watch: 4\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### sensor_1\n\nStatus: Watch\nHeadline: Battery reported low\n\nWhy:\n- Battery is currently reported low.\n- Home Assistant areas are not linked for this device.\n\n### sensor_2\n\nStatus: Watch\nHeadline: Battery reported low\n\nWhy:\n- Battery is currently reported low.\n- Home Assistant areas are not linked for this device.\n\n### sensor_3\n\nStatus: Watch\nHeadline: Battery reported low\n\nWhy:\n- Battery is currently reported low.\n- Home Assistant areas are not linked for this device.\n\n### sensor_4\n\nStatus: Watch\nHeadline: Battery reported low\n\nWhy:\n- Battery is currently reported low.\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- sensor_1:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- sensor_2:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- sensor_3:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- sensor_4:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 1\nDevices: 4\nRouter risks: 0\nTopology snapshots: 0\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Suggested checks\n\n### sensor_1\n- Check the reported battery level (12%).\n\n### sensor_2\n- Check the reported battery level (14%).\n\n### sensor_3\n- Check the reported battery level (16%).\n\n### sensor_4\n- Check the reported battery level (18%).\n\n\n## Redaction\n\nProfile: standard\n",
         "product": "ZigbeeLens",
         "raw_counts": {
           "devices_included": 4,
@@ -7397,6 +7505,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -7458,6 +7569,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -7519,6 +7633,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -7580,6 +7697,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -7641,6 +7761,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -7946,9 +8069,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -8002,6 +8122,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -8066,6 +8189,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -8130,6 +8256,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -8194,6 +8323,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -8258,6 +8390,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -8555,7 +8690,7 @@
             "summary": "Topology-dependent conclusions require a topology snapshot, which may not be available."
           }
         ],
-        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Informational\n\nStatus counts:\n- Informational: 5\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### home2_flap_1\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### home2_flap_2\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### home_flap_1\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### home_flap_2\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### home_flap_3\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- home2_flap_1:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- home2_flap_2:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- home_flap_1:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- home_flap_2:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- home_flap_3:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 2\nDevices: 5\nRouter risks: 0\nTopology snapshots: 0\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Redaction\n\nProfile: standard\n",
+        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Informational\n\nStatus counts:\n- Informational: 5\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### home2_flap_1\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### home2_flap_2\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### home_flap_1\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### home_flap_2\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### home_flap_3\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- home2_flap_1:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- home2_flap_2:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- home_flap_1:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- home_flap_2:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- home_flap_3:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 2\nDevices: 5\nRouter risks: 0\nTopology snapshots: 0\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Redaction\n\nProfile: standard\n",
         "product": "ZigbeeLens",
         "raw_counts": {
           "devices_included": 5,
@@ -8830,6 +8965,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -8906,6 +9044,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -8982,6 +9123,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -9066,6 +9210,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -9142,6 +9289,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -9211,6 +9361,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -9730,9 +9883,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -9796,6 +9946,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -9875,6 +10028,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -9954,6 +10110,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -10041,6 +10200,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -10120,6 +10282,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -10192,6 +10357,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -10834,7 +11002,7 @@
             "summary": "Topology-dependent conclusions require a topology snapshot, which may not be available."
           }
         ],
-        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Worth reviewing\n\nStatus counts:\n- Worth reviewing: 4\n- Informational: 2\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### office_desk_lamp\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_motion\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_switch\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_temp\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### living_room_motion\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### shed_router\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- office_desk_lamp:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- office_motion:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- office_switch:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- office_temp:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- living_room_motion:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- shed_router:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n\n## Related incident records\n\n### office_desk_lamp\n- Related unresolved incident record (inc-mesh-1)\n\n### office_motion\n- Related unresolved incident record (inc-mesh-1)\n\n### office_switch\n- Related unresolved incident record (inc-mesh-1)\n\n### office_temp\n- Related unresolved incident record (inc-mesh-1)\n\n\n## Incidents\n\n### 4 devices unavailable on Home 2\n\nStatus: open\nSeverity: incident\nSummary: Multiple devices on Home 2 changed to offline within a short window.\n\n\n## Scope details\n\nNetworks: 2\nDevices: 6\nRouter risks: 1\nTopology snapshots: 0\n\n## Timeline\n\n- 2026-06-14T11:49:00+00:00: Bridge warning\n- 2026-06-14T11:48:54+00:00: office_temp offline\n- 2026-06-14T11:48:36+00:00: office_switch offline\n- 2026-06-14T11:48:18+00:00: office_desk_lamp offline\n- 2026-06-14T11:48:00+00:00: office_motion offline\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Suggested checks\n\n### office_desk_lamp\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n### office_motion\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n### office_switch\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n### office_temp\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n\n## Redaction\n\nProfile: standard\n",
+        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Worth reviewing\n\nStatus counts:\n- Worth reviewing: 4\n- Informational: 2\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### office_desk_lamp\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_motion\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_switch\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_temp\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### living_room_motion\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### shed_router\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- office_desk_lamp:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- office_motion:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- office_switch:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- office_temp:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- living_room_motion:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- shed_router:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n\n## Related incident records\n\n### office_desk_lamp\n- Related unresolved incident record (inc-mesh-1)\n\n### office_motion\n- Related unresolved incident record (inc-mesh-1)\n\n### office_switch\n- Related unresolved incident record (inc-mesh-1)\n\n### office_temp\n- Related unresolved incident record (inc-mesh-1)\n\n\n## Incidents\n\n### 4 devices unavailable on Home 2\n\nStatus: open\nSeverity: incident\nSummary: Multiple devices on Home 2 changed to offline within a short window.\n\n\n## Scope details\n\nNetworks: 2\nDevices: 6\nRouter risks: 1\nTopology snapshots: 0\n\n## Timeline\n\n- 2026-06-14T11:49:00+00:00: Bridge warning\n- 2026-06-14T11:48:54+00:00: office_temp offline\n- 2026-06-14T11:48:36+00:00: office_switch offline\n- 2026-06-14T11:48:18+00:00: office_desk_lamp offline\n- 2026-06-14T11:48:00+00:00: office_motion offline\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Suggested checks\n\n### office_desk_lamp\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n### office_motion\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n### office_switch\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n### office_temp\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n\n## Redaction\n\nProfile: standard\n",
         "product": "ZigbeeLens",
         "raw_counts": {
           "devices_included": 6,
@@ -11037,6 +11205,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -11111,6 +11282,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -11185,6 +11359,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -11259,6 +11436,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -11496,9 +11676,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -11554,6 +11731,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -11618,6 +11798,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -11695,6 +11878,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -11772,6 +11958,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -12051,7 +12240,7 @@
             "summary": "Topology-dependent conclusions require a topology snapshot, which may not be available."
           }
         ],
-        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Worth reviewing\n\nStatus counts:\n- Worth reviewing: 3\n- Informational: 1\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### office_device_1\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_device_2\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_device_3\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_router\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- office_device_1:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- office_device_2:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- office_device_3:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- office_router:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 1\nDevices: 4\nRouter risks: 1\nTopology snapshots: 0\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Suggested checks\n\n### office_device_1\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n### office_device_2\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n### office_device_3\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n\n## Redaction\n\nProfile: standard\n",
+        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Worth reviewing\n\nStatus counts:\n- Worth reviewing: 3\n- Informational: 1\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### office_device_1\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_device_2\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_device_3\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Home Assistant areas are not linked for this device.\n\n### office_router\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- office_device_1:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- office_device_2:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- office_device_3:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- office_router:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 1\nDevices: 4\nRouter risks: 1\nTopology snapshots: 0\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Suggested checks\n\n### office_device_1\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n### office_device_2\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n### office_device_3\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n\n\n## Redaction\n\nProfile: standard\n",
         "product": "ZigbeeLens",
         "raw_counts": {
           "devices_included": 4,
@@ -12236,6 +12425,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -12297,6 +12489,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -12366,6 +12561,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -12721,9 +12919,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -12787,6 +12982,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -12859,6 +13057,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -12950,6 +13151,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -13317,7 +13521,7 @@
             "summary": "Topology-dependent conclusions require a topology snapshot, which may not be available."
           }
         ],
-        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Worth reviewing\n\nStatus counts:\n- Worth reviewing: 1\n- Informational: 2\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### bedroom_sensor\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Battery is currently reported low.\n- Home Assistant areas are not linked for this device.\n\n### kitchen_router\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### living_room_motion\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- bedroom_sensor:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- kitchen_router:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- living_room_motion:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n\n## Related incident records\n\n### bedroom_sensor\n- Related unresolved incident record (inc-single-1)\n\n\n## Incidents\n\n### bedroom_sensor unavailable on Home\n\nStatus: open\nSeverity: incident\nSummary: One end device reported offline while the network bridge remained online.\n\n\n## Scope details\n\nNetworks: 1\nDevices: 3\nRouter risks: 1\nTopology snapshots: 0\n\n## Timeline\n\n- 2026-06-14T11:42:00+00:00: bedroom_sensor offline\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Suggested checks\n\n### bedroom_sensor\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n- Check the reported battery level (15%).\n\n\n## Redaction\n\nProfile: standard\n",
+        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Worth reviewing\n\nStatus counts:\n- Worth reviewing: 1\n- Informational: 2\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### bedroom_sensor\n\nStatus: Worth reviewing\nHeadline: Current issue needs attention\n\nWhy:\n- This device currently needs attention based on existing issue signals.\n- Battery is currently reported low.\n- Home Assistant areas are not linked for this device.\n\n### kitchen_router\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### living_room_motion\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- bedroom_sensor:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- kitchen_router:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- living_room_motion:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n\n## Related incident records\n\n### bedroom_sensor\n- Related unresolved incident record (inc-single-1)\n\n\n## Incidents\n\n### bedroom_sensor unavailable on Home\n\nStatus: open\nSeverity: incident\nSummary: One end device reported offline while the network bridge remained online.\n\n\n## Scope details\n\nNetworks: 1\nDevices: 3\nRouter risks: 1\nTopology snapshots: 0\n\n## Timeline\n\n- 2026-06-14T11:42:00+00:00: bedroom_sensor offline\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Suggested checks\n\n### bedroom_sensor\n- Confirm the device is powered.\n- Confirm the device is reporting in Zigbee2MQTT.\n- Check the reported battery level (15%).\n\n\n## Redaction\n\nProfile: standard\n",
         "product": "ZigbeeLens",
         "raw_counts": {
           "devices_included": 3,
@@ -13484,6 +13688,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -13638,9 +13845,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -13702,6 +13906,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -13848,7 +14055,7 @@
             "summary": "Topology-dependent conclusions require a topology snapshot, which may not be available."
           }
         ],
-        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Watch\n\nStatus counts:\n- Watch: 1\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### garden_sensor\n\nStatus: Watch\nHeadline: Last seen looks stale\n\nWhy:\n- Last-seen reporting looks stale.\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- garden_sensor:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 1\nDevices: 1\nRouter risks: 0\nTopology snapshots: 0\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Redaction\n\nProfile: standard\n",
+        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Watch\n\nStatus counts:\n- Watch: 1\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### garden_sensor\n\nStatus: Watch\nHeadline: Last seen looks stale\n\nWhy:\n- Last-seen reporting looks stale.\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- garden_sensor:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (1 sample)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 1\nDevices: 1\nRouter risks: 0\nTopology snapshots: 0\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Redaction\n\nProfile: standard\n",
         "product": "ZigbeeLens",
         "raw_counts": {
           "devices_included": 1,
@@ -13997,6 +14204,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -14072,6 +14282,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -14147,6 +14360,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -14359,9 +14575,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -14423,6 +14636,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -14501,6 +14717,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -14579,6 +14798,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -14783,7 +15005,7 @@
             "summary": "Topology-dependent conclusions require a topology snapshot, which may not be available."
           }
         ],
-        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Watch\n\nStatus counts:\n- Watch: 3\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### stale_1\n\nStatus: Watch\nHeadline: Last seen looks stale\n\nWhy:\n- Last-seen reporting looks stale.\n- Home Assistant areas are not linked for this device.\n\n### stale_2\n\nStatus: Watch\nHeadline: Last seen looks stale\n\nWhy:\n- Last-seen reporting looks stale.\n- Home Assistant areas are not linked for this device.\n\n### stale_3\n\nStatus: Watch\nHeadline: Last seen looks stale\n\nWhy:\n- Last-seen reporting looks stale.\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- stale_1:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (0 samples)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- stale_2:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (0 samples)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- stale_3:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (0 samples)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 1\nDevices: 3\nRouter risks: 0\nTopology snapshots: 0\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Redaction\n\nProfile: standard\n",
+        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Watch\n\nStatus counts:\n- Watch: 3\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### stale_1\n\nStatus: Watch\nHeadline: Last seen looks stale\n\nWhy:\n- Last-seen reporting looks stale.\n- Home Assistant areas are not linked for this device.\n\n### stale_2\n\nStatus: Watch\nHeadline: Last seen looks stale\n\nWhy:\n- Last-seen reporting looks stale.\n- Home Assistant areas are not linked for this device.\n\n### stale_3\n\nStatus: Watch\nHeadline: Last seen looks stale\n\nWhy:\n- Last-seen reporting looks stale.\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- stale_1:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (0 samples)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- stale_2:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (0 samples)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- stale_3:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (0 samples)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 1\nDevices: 3\nRouter risks: 0\nTopology snapshots: 0\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Redaction\n\nProfile: standard\n",
         "product": "ZigbeeLens",
         "raw_counts": {
           "devices_included": 3,
@@ -14942,6 +15164,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -15099,9 +15324,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -15155,6 +15377,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -15304,7 +15529,7 @@
             "summary": "Topology-dependent conclusions require a topology snapshot, which may not be available."
           }
         ],
-        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Improve data coverage\n\nStatus counts:\n- Improve data coverage: 1\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n###  mystery_device\n\nStatus: Improve data coverage\nHeadline: Availability tracking needed\n\nWhy:\n- Availability tracking is off.\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n-  mystery_device:\n  - Availability: tracking off\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (0 samples)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 1\nDevices: 1\nRouter risks: 0\nTopology snapshots: 0\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Suggested checks\n\n###  mystery_device\n- Enable Zigbee2MQTT availability and last-seen reporting.\n\n\n## Redaction\n\nProfile: standard\n",
+        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Improve data coverage\n\nStatus counts:\n- Improve data coverage: 1\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n###  mystery_device\n\nStatus: Improve data coverage\nHeadline: Availability tracking needed\n\nWhy:\n- Availability tracking is off.\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n-  mystery_device:\n  - Availability: tracking off\n  - Last seen: available\n  - Last payload: available\n  - LQI history: sparse (0 samples)\n  - Topology history: no complete captures\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 1\nDevices: 1\nRouter risks: 0\nTopology snapshots: 0\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Suggested checks\n\n###  mystery_device\n- Enable Zigbee2MQTT availability and last-seen reporting.\n\n\n## Redaction\n\nProfile: standard\n",
         "product": "ZigbeeLens",
         "raw_counts": {
           "devices_included": 1,
@@ -15453,6 +15678,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -15522,6 +15750,9 @@
               "dimension": "historical_snapshots",
               "label_code": "topology_history_not_observed",
               "params": {
+                "available_layout_snapshot_count": 0,
+                "complete_snapshot_count": 0,
+                "limited_layout_snapshot_count": 0,
                 "observed_snapshot_count": 0,
                 "snapshot_window_count": 0
               },
@@ -15699,9 +15930,6 @@
           "networks": [],
           "reporting": {
             "default_profile": "standard",
-            "include_raw_payloads": false,
-            "max_availability_changes_per_device": 50,
-            "max_metric_samples_per_device": 50,
             "max_recent_events": 100
           },
           "storage": {
@@ -15763,6 +15991,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -15835,6 +16066,9 @@
                 "dimension": "historical_snapshots",
                 "label_code": "topology_history_not_observed",
                 "params": {
+                  "available_layout_snapshot_count": 0,
+                  "complete_snapshot_count": 0,
+                  "limited_layout_snapshot_count": 0,
                   "observed_snapshot_count": 0,
                   "snapshot_window_count": 0
                 },
@@ -16004,7 +16238,7 @@
             "summary": "Topology-dependent conclusions require a topology snapshot, which may not be available."
           }
         ],
-        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Informational\n\nStatus counts:\n- Informational: 2\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### attic_motion\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### far_garage_sensor\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- attic_motion:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (0 samples)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n- far_garage_sensor:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (0 samples)\n  - LQI history: sparse (1 sample)\n  - Topology history: 0 of 0 snapshots\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 1\nDevices: 2\nRouter risks: 0\nTopology snapshots: 0\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Redaction\n\nProfile: standard\n",
+        "markdown_summary": "# ZigbeeLens Evidence Report\n\nProduct: ZigbeeLens\nReport version: 3\nGenerated: 2026-06-14T12:00:00+00:00\nScope: full\nFormat: json\n\n## Decision summary\n\nOverall status: Informational\n\nStatus counts:\n- Informational: 2\nCoverage warnings: 0\n\n## What to review first\n\nNo investigation priorities in this scope.\n\n## Device Stories\n\n### attic_motion\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n### far_garage_sensor\n\nStatus: Informational\nHeadline: Data coverage gaps\n\nWhy:\n- Home Assistant areas are not linked for this device.\n\n\n## Data coverage\n\n- attic_motion:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (0 samples)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n- far_garage_sensor:\n  - Availability: available\n  - Last seen: available\n  - Last payload: available\n  - Battery history: sparse (0 samples)\n  - LQI history: sparse (1 sample)\n  - Topology history: no complete captures\n  - HA area: missing\n\n## Incidents\n\nNo incidents in this scope.\n\n## Scope details\n\nNetworks: 1\nDevices: 2\nRouter risks: 0\nTopology snapshots: 0\n\n## Limitations\n\n- ZigbeeLens uses observed MQTT and Zigbee2MQTT telemetry.\n- ZigbeeLens does not prove root cause.\n- ZigbeeLens does not mutate Zigbee state.\n- Topology-dependent conclusions require a topology snapshot, which may not be available.\n\n## Redaction\n\nProfile: standard\n",
         "product": "ZigbeeLens",
         "raw_counts": {
           "devices_included": 2,
@@ -16085,7 +16319,8 @@
       "snapshot_stale",
       "topology_history_available",
       "topology_history_not_observed",
-      "topology_history_sparse"
+      "topology_history_sparse",
+      "topology_history_unavailable"
     ],
     "coverage_states": [
       "available",

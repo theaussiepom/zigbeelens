@@ -164,7 +164,8 @@ def test_migration_014_deletes_all_reports_and_preserves_other_data(tmp_path: Pa
         seeded_bodies
     )
 
-    assert db.migrate() == 14
+    _apply_migrations_through(db, 14)
+    assert db.migration_version == 14
     assert db.conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == 0
     after = {
         "networks": db.conn.execute("SELECT * FROM networks ORDER BY id").fetchall(),
@@ -187,9 +188,9 @@ def test_migration_014_deletes_all_reports_and_preserves_other_data(tmp_path: Pa
 
 
 def test_fresh_install_and_idempotent_create_v3(tmp_path: Path):
-    db = Database(tmp_path / "fresh14.sqlite")
-    assert db.migrate() == 14
-    assert db.migrate() == 14
+    db = Database(tmp_path / "fresh15.sqlite")
+    assert db.migrate() == 15
+    assert db.migrate() == 15
     assert db.conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == 0
 
     repo = Repository(db)
@@ -212,7 +213,7 @@ def test_fresh_install_and_idempotent_create_v3(tmp_path: Path):
     assert db.conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == 1
 
     # Second normal migrate must not delete the new report.
-    assert db.migrate() == 14
+    assert db.migrate() == 15
     assert db.conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == 1
     envelope = load_stored_report_envelope(repo.reports.get_report(row.id))
     assert envelope is not None

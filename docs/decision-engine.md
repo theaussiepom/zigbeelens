@@ -330,12 +330,14 @@ Good empty states:
 - user-enabled evidence layer has no available evidence;
 - a required data source is unavailable;
 - no topology snapshot exists yet;
-- snapshot history has no earlier usable snapshots.
+- snapshot history has no earlier complete captures.
 
 Bad empty states:
 
 - repeating that every healthy device has no passive hints;
 - showing zero counts for data that was not tracked;
+- showing zero topology links or device absence when a snapshot layout was
+  limited;
 - saying "limited" without naming the missing source and action.
 
 ## Guardrails

@@ -4,9 +4,10 @@
 
 This guide currently applies to a locally installed integration generated from
 the reviewed monorepo stage. The public HACS satellite is not the reviewed
-staged package and must not be used for this branch test. A future public HACS
-artifact may use these instructions only after the synchronization, version,
-validation, and explicit-publication gates close. See
+staged package: it contains the stale prior `0.1.14` candidate and must not be
+used for this branch test. A future public HACS artifact may use these
+instructions only after the synchronization, version, validation, and
+explicit-publication gates close. See
 [HACS integration release status](hacs.md#release-status--localstaged-integration-only)
 for the authoritative blocker list.
 
@@ -71,7 +72,7 @@ If Home Assistant uses HTTPS and Core uses `http://192.168.100.5:8377`, the pane
 
 ![Home Assistant ZigbeeLens panel explaining the blocked HTTPS Home Assistant and HTTP Core embedded-dashboard path with a return-to-summary action](screenshots/hacs-embedded-blocked.png)
 
-Illustrative synthetic release-candidate data. This real HTTPS-Home-Assistant/HTTP-Core mixed-content blocked path was captured in Home Assistant 2026.7.3 from the exact locally staged ZigbeeLens 0.1.14 package built from source `747374adbf07fe07282a28c5902a335b2bdc80c4`; the public HACS satellite was not used. The safe fallback is **Back to Summary** and **Open Full Dashboard** in a new tab.
+Illustrative synthetic release-candidate data. This image belongs to the now-stale prior Phase 7C2 set. This real HTTPS-Home-Assistant/HTTP-Core mixed-content blocked path was captured in Home Assistant 2026.7.3 from the exact locally staged ZigbeeLens 0.1.14 package built from source `747374adbf07fe07282a28c5902a335b2bdc80c4`; the public HACS satellite was not used. The safe fallback is **Back to Summary** and **Open Full Dashboard** in a new tab. Recapture S1–S9 together from the final corrected runtime before Phase 7D.
 
 ## When to use HTTPS in front of Core
 

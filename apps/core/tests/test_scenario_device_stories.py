@@ -18,6 +18,7 @@ from zigbeelens.mock.device_stories import (
     build_device_stories_for_scenario,
     build_device_story_evidence_for_scenario,
     current_issue_evidence,
+    device_story_evidence,
 )
 from zigbeelens.mock.fixtures import BUILDERS, NOW, get_scenario
 from zigbeelens.schemas import Availability, IncidentStatus
@@ -61,6 +62,28 @@ def test_builtin_scenario_stories_project_exact_badges():
                 assert reason.code in REASON_CODES
             for item in story.coverage:
                 assert item.label_code in {member.value for member in CoverageLabelCode}
+
+
+def test_mock_device_story_topology_history_uses_exact_count_contract():
+    device = BUILDERS["all_ok_single_network"]().devices[0]
+    evidence = device_story_evidence(
+        device,
+        latest_snapshot_id="snap-latest",
+    )
+    topology = next(
+        item
+        for item in evidence.coverage
+        if str(item.dimension) == "historical_snapshots"
+    )
+
+    assert topology.label_code is CoverageLabelCode.topology_history_available
+    assert topology.params.model_dump() == {
+        "observed_snapshot_count": 1,
+        "complete_snapshot_count": 1,
+        "available_layout_snapshot_count": 1,
+        "limited_layout_snapshot_count": 0,
+        "snapshot_window_count": 1,
+    }
 
 
 def test_apply_device_story_badges_is_story_projection_only():

@@ -154,6 +154,9 @@ MQTT Discovery runs only when both `features.mqtt_discovery` and
 The startup scan is an allowlisted diagnostic publish to
 `{base_topic}/bridge/request/networkmap`; it can create temporary mesh load.
 Topology is capture-time evidence, not proof of a current route.
+When `topology.enabled` is false, Core starts no topology service or scheduler;
+the other startup, periodic, automatic, and manual fields cannot advertise or
+perform capture.
 
 ### MQTT Discovery
 
@@ -167,33 +170,25 @@ Topology is capture-time evidence, not proof of a current route.
 | `mqtt_discovery.object_id_prefix` | string, `zigbeelens` | Accepted compatibility option. The current summary publisher ignores it and uses fixed `zigbeelens_<entity-key>` object IDs. |
 
 Normal Discovery publishes are restricted by the topic validator and do not
-target device-control paths. The broker last will is registered before that
-validator; keep the default state prefix and see
-[the safety audit](safety-audit.md#mqtt-discovery) for the current release
-blocker. Changing `mqtt_discovery.object_id_prefix` currently has no runtime
-effect; do not document or rely on custom object IDs until the publisher
-consumes it.
-Keep `mqtt_discovery.state_topic_prefix` at `zigbeelens` unless independently
-reviewed: the broker last will is currently registered at `<prefix>/status`
-before normal topic validation, so configuration loading does not catch an
-overlap with a Zigbee2MQTT base topic.
+target device-control paths. The exact `<state_topic_prefix>/status`
+availability/last-will topic passes the same purpose-specific validator before
+Paho construction, credentials/TLS, will registration, or connection. Empty,
+wildcarded, malformed, unrelated, `/set`, bridge-request, and configured
+Zigbee2MQTT-overlapping prefixes fail before broker side effects. Changing
+`mqtt_discovery.object_id_prefix` currently has no runtime effect; do not
+document or rely on custom object IDs until the publisher consumes it.
 
 ### Reporting
 
 | Key | Type and default | Meaning |
 |-----|------------------|---------|
-| `reporting.max_recent_events` | integer `>=1`, `100` | Maximum recent timeline rows considered for a report. |
-| `reporting.max_metric_samples_per_device` | integer `>=1`, `50` | Accepted compatibility option; current report composition does not consume it. |
-| `reporting.max_availability_changes_per_device` | integer `>=1`, `50` | Accepted compatibility option; current report composition does not consume it. |
-| `reporting.include_raw_payloads` | boolean, `false` | Accepted and resolved, but exact-v3 composition has no raw-payload section and currently does not consume this value. Keep false. |
-| `reporting.default_profile` | `standard`, `public_safe`, or `strict`; `standard` | Accepted configuration option. The current request model supplies `standard` before configuration fallback, so non-standard configured defaults are ineffective; select the profile explicitly per report request. |
+| `reporting.max_recent_events` | integer `1..1000`, `100` | Maximum rows in each serialized report timeline collection: the top-level timeline, each incident timeline, each Device Detail recent-event list, and each Device Story timeline. |
+| `reporting.default_profile` | `standard`, `public_safe`, or `strict`; `standard` | Profile used when the report request omits `redaction.profile`. An explicit request profile overrides it. |
 
 The section name is `reporting`, not `reports`.
-Treat `reporting.default_profile` as a release-blocked compatibility option
-until an omitted request profile can reach the configured fallback (or the
-option is removed). The two unused sample limits and `include_raw_payloads`
-also require implementation or removal before they can be presented as
-effective controls.
+Reporting rejects unknown fields. The removed metric-sample,
+availability-change, and raw-payload switches are not deprecated aliases and
+are not silently accepted; exact-v3 reports do not collect raw MQTT payloads.
 
 ### Security
 
@@ -269,9 +264,10 @@ install or export that token file; bearer fallback is therefore unavailable in
 that packaged path until packaging is corrected. The token does not create a
 HACS-reachable route.
 
-The Supervisor schema also currently accepts `0` for the three
-`reporting.max_*` options while Core requires values of at least `1`; do not use
-zero. Add-on option changes require an add-on restart.
+The Supervisor schema and Core both bound `reporting.max_recent_events` to
+`1..1000`, use the configured default profile when a request omits one, and
+reject removed reporting fields. Add-on option changes require an add-on
+restart.
 
 See the [add-on README](../apps/addon/zigbeelens/README.md) for its option names,
 sentinel values, backup path, logs, and ingress behavior.

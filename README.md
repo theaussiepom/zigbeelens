@@ -13,10 +13,12 @@ prove.
 
 ![ZigbeeLens Overview showing its decision summary, investigation priorities, network context, and recent changes](docs/screenshots/overview-dashboard.png)
 
-Illustrative synthetic release-candidate data. The Overview leads with the
-current Decision summary, then places investigation priorities, network/device
-context, recent changes, and evidence limits together without inventing
-measurements for unavailable data.
+Illustrative synthetic release-candidate data. This image belongs to the
+now-stale prior Phase 7C2 set. The Overview leads with its Decision summary,
+then places investigation priorities, network/device context, recent changes,
+and evidence limits together without inventing measurements for unavailable
+data. Recapture S1–S9 together from the final corrected runtime before Phase
+7D.
 
 ZigbeeLens is part of the **Lens family** of read-only home-network observability tools, alongside [ThreadLens](https://github.com/theaussiepom/threadlens). The active public diagnostic contract is **decision contract v2** (not retired Lens-bucket fields); see [docs/api.md](docs/api.md) and [docs/lens-family.md](docs/lens-family.md).
 
@@ -72,9 +74,10 @@ See [docs/safety-audit.md](docs/safety-audit.md) for the full safety audit.
 | [MQTT Discovery](docs/mqtt-discovery.md) | Optional summary HA entities without HACS | Core configuration |
 | [Topology](docs/topology.md) | Optional mesh enrichment — enabled by default with one startup scan | Core configuration |
 
-Phase 7C1 documentation truth is merged. Phase 7C2 provides the current
-synthetic release-candidate screenshots and provenance; Phase 7D live Beast
-validation remains deferred.
+Phase 7C1 documentation truth is merged. The prior Phase 7C2 screenshots retain
+their exact historical provenance but are stale after runtime/UI corrections;
+all S1–S9 require one-source recapture. Phase 7D live Beast validation remains
+blocked.
 
 ## Using the UI
 
@@ -126,12 +129,13 @@ workflow-built images, choose the channel explicitly in
 
 ### Home Assistant integration
 
-**Local/staged source testing only.** The public HACS satellite is not
-synchronized with the reviewed package and must not be used to validate this
-branch. Generate and manually install the integration from this checkout as
-described in [docs/hacs.md](docs/hacs.md). Synchronizing or publishing the
-satellite requires a separate explicitly authorized task after its runtime,
-version-identity, compatibility, and official-validation gates close.
+**Local/staged source testing only.** The public HACS satellite contains the
+stale prior `0.1.14` candidate, not this corrected package, and must not be used
+to validate this branch. Generate and manually install the integration from
+this checkout as described in [docs/hacs.md](docs/hacs.md). Synchronizing or
+publishing the satellite requires a separate explicitly authorized task after
+its runtime, version-identity, compatibility, and official-validation gates
+close.
 
 The optional integration gives Home Assistant:
 

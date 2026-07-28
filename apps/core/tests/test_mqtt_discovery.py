@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -25,13 +25,14 @@ from zigbeelens.mqtt_discovery.payloads import (
     entity_catalog,
     state_payload,
 )
-from zigbeelens.mqtt_discovery.publisher import FakeDiscoveryPublisher
+from zigbeelens.mqtt_discovery.publisher import FakeDiscoveryPublisher, SafeMqttPublisher
 from zigbeelens.mqtt_discovery.service import MqttDiscoveryService, discovery_enabled
 from zigbeelens.mqtt_discovery.topics import (
     LEGACY_DISCOVERY_TOPICS,
     UnsafeMqttTopicError,
     sanitize_object_id,
     validate_publish_topic,
+    validated_availability_topic,
 )
 from zigbeelens.services.data_service import DataService
 
@@ -81,6 +82,118 @@ def test_validate_publish_topic_allows_zigbeelens_topics():
     validate_publish_topic(
         "zigbeelens/summary/decision_status/state", zigbee_base_topics=("zigbee2mqtt",)
     )
+
+
+@pytest.mark.parametrize(
+    "state_prefix",
+    [
+        "",
+        "/",
+        "zigbee2mqtt",
+        "/zigbee2mqtt/",
+        "zigbee2mqtt/status",
+        "zigbee2mqtt/../zigbeelens",
+        "zigbeelens/+",
+        "zigbeelens/#",
+        "zigbeelens/set",
+        "zigbeelens//status",
+        "zigbeelens/bridge/request",
+        "zigbeelens/../status",
+        "zigbeelens/./status",
+        "zigbeelens\x00status",
+        "zigbeelens\nstatus",
+    ],
+)
+def test_validated_availability_topic_rejects_adversarial_prefixes(
+    state_prefix: str,
+):
+    with pytest.raises(UnsafeMqttTopicError):
+        validated_availability_topic(
+            state_prefix,
+            zigbee_base_topics=("zigbee2mqtt",),
+        )
+
+
+def test_validated_availability_topic_rejects_invalid_or_oversized_utf8():
+    with pytest.raises(UnsafeMqttTopicError, match="valid UTF-8"):
+        validated_availability_topic("zigbeelens\ud800")
+    with pytest.raises(UnsafeMqttTopicError, match="length limit"):
+        validated_availability_topic("a" * 65_529)
+
+
+@pytest.mark.parametrize(
+    ("state_prefix", "zigbee_base"),
+    [
+        ("zigbee2mqtt", "zigbee2mqtt"),
+        ("zigbee2mqtt/zigbeelens", "zigbee2mqtt"),
+        ("zigbee2mqtt", "zigbee2mqtt/home"),
+    ],
+)
+def test_availability_validation_prioritizes_zigbee_base_overlap(
+    state_prefix: str,
+    zigbee_base: str,
+):
+    """Equal or nested namespaces never cross the configured Zigbee boundary."""
+    with pytest.raises(UnsafeMqttTopicError):
+        validated_availability_topic(
+            state_prefix,
+            zigbee_base_topics=(zigbee_base,),
+        )
+
+
+def test_availability_validation_uses_topic_component_boundaries():
+    assert (
+        validated_availability_topic(
+            "zigbee2mqtt-safe",
+            zigbee_base_topics=("zigbee2mqtt",),
+        )
+        == "zigbee2mqtt-safe/status"
+    )
+
+
+def test_custom_state_prefix_is_independent_of_discovery_prefix(tmp_path: Path):
+    config = _config(tmp_path / "custom-state.sqlite")
+    config.mqtt_discovery.topic_prefix = "homeassistant"
+    config.mqtt_discovery.state_topic_prefix = "custom-state"
+
+    client = MagicMock()
+    with patch("paho.mqtt.client.Client", return_value=client):
+        real = SafeMqttPublisher(config)
+    client.will_set.assert_called_once_with(
+        "custom-state/status",
+        payload="offline",
+        retain=True,
+    )
+    assert real._availability_topic() == "custom-state/status"
+
+    fake = FakeDiscoveryPublisher(config=config)
+    fake.disconnect()
+    assert fake.published[-1].topic == "custom-state/status"
+
+
+@pytest.mark.parametrize("unsafe_prefix", ("zigbee2mqtt", "zigbeelens\x00evil"))
+def test_validated_availability_topic_is_shared_by_real_and_fake_publishers(
+    tmp_path: Path,
+    unsafe_prefix: str,
+):
+    config = _config(tmp_path / "unsafe-prefix.sqlite")
+    config.mqtt_discovery.state_topic_prefix = unsafe_prefix
+
+    client_factory = MagicMock()
+    parse_server = MagicMock()
+    with patch("paho.mqtt.client.Client", client_factory), patch(
+        "zigbeelens.mqtt_discovery.publisher.parse_mqtt_server",
+        parse_server,
+    ):
+        with pytest.raises(UnsafeMqttTopicError):
+            SafeMqttPublisher(config)
+
+    # Rejection happens before Paho construction, credential/TLS methods,
+    # will_set, parsing the broker endpoint, or any connection attempt.
+    client_factory.assert_not_called()
+    parse_server.assert_not_called()
+    with pytest.raises(UnsafeMqttTopicError):
+        FakeDiscoveryPublisher(config=config)
 
 
 def test_sanitize_object_id():

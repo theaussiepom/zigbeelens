@@ -191,7 +191,9 @@ No other architectures are declared in the add-on manifest.
       exports the optional API-token file
 - [ ] The packaged HAOS artifact writes `/data`, opens through Ingress, and
       rejects spoofed ingress identity from non-Supervisor peers
-- [ ] Add-on `reporting.max_*` schema minimums match Core (`>= 1`)
+- [ ] Add-on `reporting.max_recent_events` remains `1..1000`, an omitted
+      request profile uses `reporting.default_profile`, and removed reporting
+      fields are rejected
 - [ ] HACS interoperability has a tested Home-Assistant-reachable Core origin,
       or the package explicitly documents Ingress-only UI ownership
 - [ ] Update `apps/addon/zigbeelens/config.yaml` version

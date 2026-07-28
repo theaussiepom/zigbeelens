@@ -254,3 +254,73 @@ def test_failed_begin_that_never_starts_skips_rollback_observer(tmp_path):
     assert not locked._rollback_only()
     assert rollbacks["n"] == 0
     _assert_usable(locked)
+
+
+def test_failed_rollback_method_uses_sql_fallback_before_releasing(tmp_path):
+    locked = _locked(tmp_path)
+    real = locked._conn
+    rollbacks = {"n": 0}
+    locked.set_transaction_observer(
+        on_rollback=lambda: rollbacks.__setitem__("n", rollbacks["n"] + 1),
+    )
+
+    class _FailFirstRollback(_ConnProxy):
+        def __init__(self, conn: sqlite3.Connection) -> None:
+            super().__init__(conn)
+            self.failed = False
+
+        def rollback(self) -> None:
+            if not self.failed:
+                self.failed = True
+                raise sqlite3.OperationalError("rollback method failed")
+            self._real.rollback()
+
+    locked._conn = _FailFirstRollback(real)  # type: ignore[assignment]
+    with pytest.raises(sqlite3.OperationalError, match="rollback method failed"):
+        with locked.transaction():
+            locked.execute("INSERT INTO items (name) VALUES ('partial')").fetchall()
+            raise ValueError("trigger rollback")
+
+    assert not real.in_transaction
+    assert int(real.execute("SELECT COUNT(*) FROM items").fetchone()[0]) == 0
+    assert rollbacks["n"] == 1
+    assert locked.transaction_depth == 0
+    locked._conn = real
+    _assert_other_thread_can_acquire(locked)
+    _assert_usable(locked)
+
+
+def test_unrecoverable_rollback_poison_closes_connection_and_releases_lock(tmp_path):
+    db_path = tmp_path / "poisoned.sqlite"
+    locked = _locked(tmp_path, name=db_path.name)
+    real = locked._conn
+
+    class _FailAllRollbackPaths(_ConnProxy):
+        def execute(self, sql: str, params: Any = ()) -> Any:
+            if str(sql).strip().upper() == "ROLLBACK":
+                raise sqlite3.OperationalError("SQL rollback failed")
+            return self._real.execute(sql, params)
+
+        def rollback(self) -> None:
+            raise sqlite3.OperationalError("rollback method failed")
+
+    locked._conn = _FailAllRollbackPaths(real)  # type: ignore[assignment]
+    with pytest.raises(sqlite3.OperationalError, match="rollback method failed"):
+        with locked.transaction():
+            locked.execute("INSERT INTO items (name) VALUES ('partial')").fetchall()
+            raise ValueError("trigger rollback")
+
+    assert locked.transaction_depth == 0
+    assert locked._poisoned is True
+    _assert_other_thread_can_acquire(locked)
+    with pytest.raises(sqlite3.ProgrammingError, match="unusable"):
+        locked.execute("SELECT 1")
+    with pytest.raises(sqlite3.ProgrammingError, match="unusable"):
+        with locked.transaction():
+            pass
+
+    reader = sqlite3.connect(db_path)
+    try:
+        assert int(reader.execute("SELECT COUNT(*) FROM items").fetchone()[0]) == 0
+    finally:
+        reader.close()

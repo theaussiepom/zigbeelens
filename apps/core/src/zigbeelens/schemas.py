@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -20,6 +20,7 @@ from zigbeelens.decisions.types import (
     DECISION_PRIORITY_ORDER,
     DECISION_STATUS_ORDER,
     CoverageLabelCode,
+    DataCoverage,
     DecisionPriority,
     DecisionStatus,
 )
@@ -615,14 +616,15 @@ class ReportFormat(str, Enum):
 class RedactionOptions(BaseModel):
     """Per-request redaction overrides. None means "use profile default"."""
 
-    profile: RedactionProfile = RedactionProfile.standard
+    model_config = ConfigDict(extra="forbid")
+
+    profile: RedactionProfile | None = None
     preserve_friendly_names: bool | None = None
     hash_ieee_addresses: bool | None = None
     redact_hostnames: bool | None = None
     redact_ip_addresses: bool | None = None
     redact_network_names: bool | None = None
     include_timeline: bool | None = None
-    include_raw_payloads: bool | None = None
 
 
 class ReportRequest(BaseModel):
@@ -698,7 +700,7 @@ class ReportDeviceStory(BaseModel):
     evidence: list[dict[str, Any]]
     limitations: list[dict[str, Any]]
     suggested_checks: list[dict[str, Any]]
-    coverage: list[dict[str, Any]]
+    coverage: list[DataCoverage]
     related_unresolved_incident_ids: list[str]
     timeline: list[ReportStoryTimelineItem]
 
@@ -923,6 +925,537 @@ class PaginatedResponse(BaseModel):
     total: int
     limit: int | None = None
     next_cursor: str | None = None
+
+
+class DeviceSnapshotCompareCounts(BaseModel):
+    """Exact non-negative pair counts for one available-layout comparison."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    latest_count: StrictInt = Field(ge=0)
+    selected_count: StrictInt = Field(ge=0)
+    latest_only_count: StrictInt = Field(ge=0)
+    selected_only_count: StrictInt = Field(ge=0)
+    changed_count: StrictInt = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _validate_pair_arithmetic(self) -> DeviceSnapshotCompareCounts:
+        if (
+            self.latest_only_count > self.latest_count
+            or self.selected_only_count > self.selected_count
+        ):
+            raise ValueError("only-in counts cannot exceed total counts")
+        latest_common = self.latest_count - self.latest_only_count
+        selected_common = self.selected_count - self.selected_only_count
+        if latest_common != selected_common or self.changed_count > latest_common:
+            raise ValueError("snapshot comparison pair counts are inconsistent")
+        return self
+
+
+class DeviceSnapshotPresenceComparison(BaseModel):
+    """Observed-device presence in two available stored layouts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    latest: StrictBool
+    selected: StrictBool
+    changed: StrictBool
+
+    @model_validator(mode="after")
+    def _validate_changed(self) -> DeviceSnapshotPresenceComparison:
+        if self.changed != (self.latest != self.selected):
+            raise ValueError("device presence changed must equal latest != selected")
+        return self
+
+
+class DeviceSnapshotComparison(BaseModel):
+    """Typed comparison of one selected available layout with the latest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal[
+        "no_notable_change",
+        "changed",
+        "watch",
+        "worth_reviewing",
+    ]
+    reasons: list[StrictStr]
+    suggested_checks: list[StrictStr]
+    device_presence: DeviceSnapshotPresenceComparison
+    link_counts: DeviceSnapshotCompareCounts
+    route_hint_counts: DeviceSnapshotCompareCounts
+
+    @model_validator(mode="after")
+    def _reject_no_change_with_presence_difference(
+        self,
+    ) -> DeviceSnapshotComparison:
+        difference_count = (
+            int(self.device_presence.changed)
+            + self.link_counts.latest_only_count
+            + self.link_counts.selected_only_count
+            + self.link_counts.changed_count
+            + self.route_hint_counts.latest_only_count
+            + self.route_hint_counts.selected_only_count
+            + self.route_hint_counts.changed_count
+        )
+        if (difference_count == 0) != (self.status == "no_notable_change"):
+            raise ValueError(
+                "no_notable_change must exactly match an unchanged comparison"
+            )
+        return self
+
+
+class _DeviceSnapshotHistoryRowBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: StrictStr = Field(min_length=1)
+    captured_at: StrictStr | None
+    is_latest: StrictBool
+    availability_coverage_status: Literal["off", "building", "tracked", "unknown"]
+    availability_state_near_snapshot: Literal["online", "offline"] | None
+
+
+class DeviceSnapshotHistoryAvailableRow(_DeviceSnapshotHistoryRowBase):
+    layout_state: Literal["available"]
+    is_usable: Literal[True]
+    device_present_in_snapshot: StrictBool
+    links_for_device_count: StrictInt = Field(ge=0)
+    route_hints_for_device_count: StrictInt = Field(ge=0)
+    comparison_to_latest: DeviceSnapshotComparison | None
+
+    @model_validator(mode="after")
+    def _validate_absence_counts(self) -> DeviceSnapshotHistoryAvailableRow:
+        if not self.device_present_in_snapshot and (
+            self.links_for_device_count != 0
+            or self.route_hints_for_device_count != 0
+        ):
+            raise ValueError("an absent device cannot have link or route counts")
+        return self
+
+
+class DeviceSnapshotHistoryLimitedRow(_DeviceSnapshotHistoryRowBase):
+    layout_state: Literal["limited"]
+    is_usable: Literal[False]
+    device_present_in_snapshot: None
+    links_for_device_count: None
+    route_hints_for_device_count: None
+    comparison_to_latest: None
+
+
+DeviceSnapshotHistoryRow = Annotated[
+    DeviceSnapshotHistoryAvailableRow | DeviceSnapshotHistoryLimitedRow,
+    Field(discriminator="layout_state"),
+]
+
+
+class DeviceSnapshotAvailabilityTracking(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: StrictBool
+    earliest_observation_at: StrictStr | None
+
+
+class DeviceSnapshotLatestPresenceFactParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    device_ieee: StrictStr = Field(min_length=1)
+    snapshot_id: StrictStr = Field(min_length=1)
+
+
+class DeviceSnapshotSeenLatestFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: Literal["device_seen_in_latest_snapshot"]
+    params: DeviceSnapshotLatestPresenceFactParams
+
+
+class DeviceSnapshotAbsentLatestFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: Literal["device_absent_from_latest_snapshot"]
+    params: DeviceSnapshotLatestPresenceFactParams
+
+
+class DeviceSnapshotLatestLinksFactParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    device_ieee: StrictStr = Field(min_length=1)
+    link_count: StrictInt = Field(ge=0)
+
+
+class DeviceSnapshotHasLatestLinksFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: Literal["device_has_latest_links"]
+    params: DeviceSnapshotLatestLinksFactParams
+
+
+class DeviceSnapshotNoLatestLinksFactParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    device_ieee: StrictStr = Field(min_length=1)
+
+
+class DeviceSnapshotNoLatestLinksFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: Literal["device_no_latest_links"]
+    params: DeviceSnapshotNoLatestLinksFactParams
+
+
+DeviceSnapshotLatestFact = Annotated[
+    DeviceSnapshotSeenLatestFact
+    | DeviceSnapshotAbsentLatestFact
+    | DeviceSnapshotHasLatestLinksFact
+    | DeviceSnapshotNoLatestLinksFact,
+    Field(discriminator="code"),
+]
+
+
+class DeviceSnapshotSelectedLinksFactParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    device_ieee: StrictStr = Field(min_length=1)
+    snapshot_id: StrictStr = Field(min_length=1)
+    link_count: StrictInt = Field(ge=0)
+
+
+class DeviceSnapshotSelectedLinksFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: Literal["device_has_selected_snapshot_links"]
+    params: DeviceSnapshotSelectedLinksFactParams
+
+
+class DeviceSnapshotChangedFactParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    device_ieee: StrictStr = Field(min_length=1)
+    comparison_status: Literal["changed", "watch", "worth_reviewing"]
+    snapshot_id: StrictStr = Field(min_length=1)
+    latest_device_present_in_snapshot: StrictBool
+    selected_device_present_in_snapshot: StrictBool
+    device_presence_changed: StrictBool
+
+
+class DeviceSnapshotChangedFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: Literal["device_latest_vs_selected_changed"]
+    params: DeviceSnapshotChangedFactParams
+
+
+class DeviceSnapshotAvailabilityCoverageFactParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    device_ieee: StrictStr = Field(min_length=1)
+    availability_coverage_status: Literal["off", "building", "unknown"]
+    snapshot_id: StrictStr = Field(min_length=1)
+
+
+class DeviceSnapshotAvailabilityCoverageFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: Literal["availability_coverage_affects_snapshot_comparison"]
+    params: DeviceSnapshotAvailabilityCoverageFactParams
+
+
+DeviceSnapshotComparisonFact = Annotated[
+    DeviceSnapshotSelectedLinksFact
+    | DeviceSnapshotChangedFact
+    | DeviceSnapshotAvailabilityCoverageFact,
+    Field(discriminator="code"),
+]
+
+
+class DeviceSnapshotTopologyFacts(BaseModel):
+    """Topology facts aligned with the same device snapshot-history rows."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    stale_threshold_hours: StrictInt | None = Field(ge=0)
+    device_facts: list[DeviceSnapshotLatestFact]
+    comparison_facts_by_snapshot_id: dict[
+        StrictStr,
+        list[DeviceSnapshotComparisonFact],
+    ]
+
+    @field_validator("comparison_facts_by_snapshot_id")
+    @classmethod
+    def _require_snapshot_ids(
+        cls,
+        value: dict[str, list[DeviceSnapshotComparisonFact]],
+    ) -> dict[str, list[DeviceSnapshotComparisonFact]]:
+        if any(not snapshot_id for snapshot_id in value):
+            raise ValueError("comparison fact snapshot IDs must be non-empty")
+        return value
+
+
+class DeviceSnapshotHistoryDetail(BaseModel):
+    """Exact response contract for device-led topology snapshot history."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    network_id: StrictStr = Field(min_length=1)
+    device_ieee: StrictStr = Field(min_length=1)
+    friendly_name: StrictStr | None
+    has_current_issue: StrictBool
+    availability_tracking: DeviceSnapshotAvailabilityTracking
+    latest_snapshot: DeviceSnapshotHistoryRow | None
+    snapshots: list[DeviceSnapshotHistoryRow]
+    topology_facts: DeviceSnapshotTopologyFacts
+
+    @model_validator(mode="after")
+    def _validate_snapshot_comparisons(self) -> DeviceSnapshotHistoryDetail:
+        latest = self.latest_snapshot
+        if latest is None:
+            if self.snapshots:
+                raise ValueError("earlier snapshots require a latest snapshot")
+            if self.topology_facts.device_facts:
+                raise ValueError("latest device facts require an available layout")
+            if self.topology_facts.comparison_facts_by_snapshot_id:
+                raise ValueError("comparison facts require snapshot history")
+            return self
+        if not latest.is_latest or latest.comparison_to_latest is not None:
+            raise ValueError("latest snapshot ownership is invalid")
+        latest_facts = self.topology_facts.device_facts
+        if latest.layout_state == "limited":
+            if latest_facts:
+                raise ValueError("limited latest layouts cannot emit device facts")
+        else:
+            presence_facts = [
+                fact
+                for fact in latest_facts
+                if fact.code
+                in {
+                    "device_seen_in_latest_snapshot",
+                    "device_absent_from_latest_snapshot",
+                }
+            ]
+            link_facts = [
+                fact
+                for fact in latest_facts
+                if fact.code
+                in {
+                    "device_has_latest_links",
+                    "device_no_latest_links",
+                }
+            ]
+            if len(presence_facts) != 1 or len(link_facts) != 1:
+                raise ValueError(
+                    "available latest layouts require exact presence and link facts"
+                )
+            expected_presence_code = (
+                "device_seen_in_latest_snapshot"
+                if latest.device_present_in_snapshot
+                else "device_absent_from_latest_snapshot"
+            )
+            if presence_facts[0].code != expected_presence_code:
+                raise ValueError("latest presence fact contradicts snapshot evidence")
+            presence_params = presence_facts[0].params
+            if (
+                not isinstance(
+                    presence_params,
+                    DeviceSnapshotLatestPresenceFactParams,
+                )
+                or presence_params.device_ieee != self.device_ieee
+                or presence_params.snapshot_id != latest.snapshot_id
+            ):
+                raise ValueError("latest presence fact identity is inconsistent")
+            expected_link_code = (
+                "device_has_latest_links"
+                if latest.links_for_device_count > 0
+                else "device_no_latest_links"
+            )
+            if link_facts[0].code != expected_link_code:
+                raise ValueError("latest link fact contradicts snapshot evidence")
+            link_params = link_facts[0].params
+            if expected_link_code == "device_has_latest_links":
+                if (
+                    not isinstance(
+                        link_params,
+                        DeviceSnapshotLatestLinksFactParams,
+                    )
+                    or link_params.device_ieee != self.device_ieee
+                    or link_params.link_count != latest.links_for_device_count
+                ):
+                    raise ValueError("latest link fact evidence is inconsistent")
+            elif (
+                not isinstance(
+                    link_params,
+                    DeviceSnapshotNoLatestLinksFactParams,
+                )
+                or link_params.device_ieee != self.device_ieee
+            ):
+                raise ValueError("latest no-links fact identity is inconsistent")
+
+        snapshot_ids = {latest.snapshot_id}
+        selected_by_id: dict[str, DeviceSnapshotHistoryRow] = {}
+        for selected in self.snapshots:
+            if selected.is_latest or selected.snapshot_id in snapshot_ids:
+                raise ValueError("earlier snapshot ownership is invalid")
+            snapshot_ids.add(selected.snapshot_id)
+            selected_by_id[selected.snapshot_id] = selected
+            comparable = (
+                latest.layout_state == "available"
+                and selected.layout_state == "available"
+            )
+            if comparable != (selected.comparison_to_latest is not None):
+                raise ValueError(
+                    "comparisons require available latest and selected layouts"
+                )
+            comparison = selected.comparison_to_latest
+            if comparison is not None:
+                presence = comparison.device_presence
+                if (
+                    presence.latest != latest.device_present_in_snapshot
+                    or presence.selected != selected.device_present_in_snapshot
+                    or comparison.link_counts.latest_count
+                    != latest.links_for_device_count
+                    or comparison.link_counts.selected_count
+                    != selected.links_for_device_count
+                    or comparison.route_hint_counts.latest_count
+                    != latest.route_hints_for_device_count
+                    or comparison.route_hint_counts.selected_count
+                    != selected.route_hints_for_device_count
+                ):
+                    raise ValueError(
+                        "comparison evidence must equal its snapshot rows"
+                    )
+                link_differences = (
+                    comparison.link_counts.latest_only_count
+                    + comparison.link_counts.selected_only_count
+                    + comparison.link_counts.changed_count
+                )
+                route_differences = (
+                    comparison.route_hint_counts.latest_only_count
+                    + comparison.route_hint_counts.selected_only_count
+                    + comparison.route_hint_counts.changed_count
+                )
+                any_difference = (
+                    presence.changed
+                    or link_differences > 0
+                    or route_differences > 0
+                )
+                if (
+                    (comparison.status == "worth_reviewing")
+                    != (self.has_current_issue and any_difference)
+                ):
+                    raise ValueError(
+                        "worth_reviewing must exactly match a current issue plus change"
+                    )
+                if (
+                    presence.changed
+                    and not self.has_current_issue
+                    and link_differences == 0
+                    and route_differences == 0
+                    and comparison.status != "changed"
+                ):
+                    raise ValueError(
+                        "presence-only change without a current issue must be changed"
+                    )
+
+        changed_fact_code = "device_latest_vs_selected_changed"
+        for fact_snapshot_id in self.topology_facts.comparison_facts_by_snapshot_id:
+            if fact_snapshot_id not in selected_by_id:
+                raise ValueError("comparison facts reference an unknown snapshot")
+        for snapshot_id, selected in selected_by_id.items():
+            facts = self.topology_facts.comparison_facts_by_snapshot_id.get(
+                snapshot_id,
+                [],
+            )
+            for fact in facts:
+                if (
+                    fact.params.device_ieee != self.device_ieee
+                    or fact.params.snapshot_id != snapshot_id
+                ):
+                    raise ValueError(
+                        "comparison fact identity contradicts snapshot history"
+                    )
+            changed_facts = [
+                fact for fact in facts if fact.code == changed_fact_code
+            ]
+            comparison = selected.comparison_to_latest
+            expects_changed_fact = (
+                comparison is not None
+                and comparison.status != "no_notable_change"
+            )
+            if len(changed_facts) != int(expects_changed_fact):
+                raise ValueError(
+                    "comparison changed fact must exactly match comparison status"
+                )
+            selected_link_facts = [
+                fact
+                for fact in facts
+                if fact.code == "device_has_selected_snapshot_links"
+            ]
+            expects_selected_links_fact = (
+                comparison is not None
+                and selected.layout_state == "available"
+                and selected.links_for_device_count > 0
+            )
+            if len(selected_link_facts) != int(expects_selected_links_fact):
+                raise ValueError(
+                    "selected-link fact must exactly match snapshot link evidence"
+                )
+            if selected_link_facts:
+                params = selected_link_facts[0].params
+                if (
+                    not isinstance(params, DeviceSnapshotSelectedLinksFactParams)
+                    or params.link_count != selected.links_for_device_count
+                ):
+                    raise ValueError(
+                        "selected-link fact contradicts snapshot link evidence"
+                    )
+            coverage_facts = [
+                fact
+                for fact in facts
+                if fact.code
+                == "availability_coverage_affects_snapshot_comparison"
+            ]
+            expects_coverage_fact = (
+                comparison is not None
+                and selected.availability_coverage_status
+                in {"off", "building", "unknown"}
+            )
+            if len(coverage_facts) != int(expects_coverage_fact):
+                raise ValueError(
+                    "comparison coverage fact must exactly match snapshot coverage"
+                )
+            if coverage_facts:
+                params = coverage_facts[0].params
+                if (
+                    not isinstance(
+                        params,
+                        DeviceSnapshotAvailabilityCoverageFactParams,
+                    )
+                    or params.availability_coverage_status
+                    != selected.availability_coverage_status
+                ):
+                    raise ValueError(
+                        "comparison coverage fact contradicts snapshot coverage"
+                    )
+            if not changed_facts:
+                continue
+            assert comparison is not None
+            params = changed_facts[0].params
+            if not isinstance(params, DeviceSnapshotChangedFactParams):
+                raise ValueError("comparison changed fact params are not exact")
+            if (
+                params.device_ieee != self.device_ieee
+                or params.comparison_status != comparison.status
+                or params.snapshot_id != snapshot_id
+                or params.latest_device_present_in_snapshot
+                is not comparison.device_presence.latest
+                or params.selected_device_present_in_snapshot
+                is not comparison.device_presence.selected
+                or params.device_presence_changed
+                is not comparison.device_presence.changed
+            ):
+                raise ValueError(
+                    "comparison changed fact params contradict comparison evidence"
+                )
+        return self
 
 
 class TopologyCaptureRequest(BaseModel):

@@ -8,15 +8,16 @@ import type {
   SuggestedCheckDto,
   TopologyDeviceFactsDto,
 } from "@/types/decisions";
+import type { DeviceSnapshotComparison } from "@zigbeelens/shared";
+
+export type {
+  DeviceSnapshotCompareCounts,
+  DeviceSnapshotComparison,
+  DeviceSnapshotCompareStatus,
+  DeviceSnapshotPresenceComparison,
+} from "@zigbeelens/shared";
 
 /** Device-centric API types from Core topology and device endpoints. */
-
-/** Snapshot-comparison status for one device. About the comparison only, never device health. */
-export type DeviceSnapshotCompareStatus =
-  | "no_notable_change"
-  | "changed"
-  | "watch"
-  | "worth_reviewing";
 
 /**
  * Availability tracking coverage for one snapshot period.
@@ -26,34 +27,52 @@ export type DeviceSnapshotCompareStatus =
  */
 export type AvailabilityCoverageStatus = "off" | "building" | "tracked" | "unknown";
 
-export interface DeviceSnapshotCompareCounts {
-  latest_count: number;
-  selected_count: number;
-  latest_only_count: number;
-  selected_only_count: number;
-  changed_count: number;
-}
+export type DeviceSnapshotLayoutState = "available" | "limited";
 
-export interface DeviceSnapshotComparison {
-  status: DeviceSnapshotCompareStatus;
-  reasons: string[];
-  suggested_checks: string[];
-  link_counts: DeviceSnapshotCompareCounts;
-  route_hint_counts: DeviceSnapshotCompareCounts;
-}
-
-export interface DeviceSnapshotHistoryRow {
+interface DeviceSnapshotHistoryRowBase {
   snapshot_id: string;
   captured_at: string | null;
   is_latest: boolean;
-  is_usable: boolean;
-  links_for_device_count: number;
-  route_hints_for_device_count: number;
+  layout_state: DeviceSnapshotLayoutState;
+  /**
+   * True/false only when the stored snapshot supplied usable node/link layout.
+   * Limited layout keeps presence unknown as null.
+   */
+  device_present_in_snapshot: boolean | null;
+  /**
+   * Measured integers when layout is available. Limited layout is null and
+   * must never be presented as measured zero.
+   */
+  links_for_device_count: number | null;
+  route_hints_for_device_count: number | null;
   availability_coverage_status: AvailabilityCoverageStatus;
   availability_state_near_snapshot: "online" | "offline" | null;
-  /** Null for the latest snapshot (nothing to compare it with). */
+  /** Null for the latest snapshot and whenever either compared layout is limited. */
   comparison_to_latest: DeviceSnapshotComparison | null;
 }
+
+export interface DeviceSnapshotHistoryAvailableRow
+  extends DeviceSnapshotHistoryRowBase {
+  layout_state: "available";
+  is_usable: true;
+  device_present_in_snapshot: boolean;
+  links_for_device_count: number;
+  route_hints_for_device_count: number;
+}
+
+export interface DeviceSnapshotHistoryLimitedRow
+  extends DeviceSnapshotHistoryRowBase {
+  layout_state: "limited";
+  is_usable: false;
+  device_present_in_snapshot: null;
+  links_for_device_count: null;
+  route_hints_for_device_count: null;
+  comparison_to_latest: null;
+}
+
+export type DeviceSnapshotHistoryRow =
+  | DeviceSnapshotHistoryAvailableRow
+  | DeviceSnapshotHistoryLimitedRow;
 
 /** Response of GET /api/topology/{network_id}/devices/{ieee}/snapshot-history. */
 export interface DeviceSnapshotHistoryDetail {
@@ -66,7 +85,10 @@ export interface DeviceSnapshotHistoryDetail {
     earliest_observation_at: string | null;
   };
   latest_snapshot: DeviceSnapshotHistoryRow | null;
-  /** Earlier usable snapshots, newest first. */
+  /**
+   * Earlier retained complete snapshots, newest first. Each row states
+   * whether its node/link layout is available for device comparison.
+   */
   snapshots: DeviceSnapshotHistoryRow[];
   topology_facts: TopologyDeviceFactsDto;
 }

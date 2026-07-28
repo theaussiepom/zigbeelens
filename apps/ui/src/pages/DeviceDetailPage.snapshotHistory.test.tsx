@@ -13,6 +13,7 @@ import type {
   DeviceStoryDto,
 } from "@/types/devices";
 import { ApiError, api } from "@/lib/api";
+import { parseDeviceSnapshotHistoryDetail } from "@/lib/deviceSnapshotHistoryContract";
 import { SNAPSHOT_HISTORY_UNAVAILABLE_COPY } from "@/lib/meshGraphCopy";
 import {
   decisionStatusLabel,
@@ -112,7 +113,9 @@ function historyRow(overrides: Partial<DeviceSnapshotHistoryRow> = {}): DeviceSn
     snapshot_id: "snap-latest",
     captured_at: "2026-07-13T02:00:00Z",
     is_latest: true,
+    layout_state: "available",
     is_usable: true,
+    device_present_in_snapshot: true,
     links_for_device_count: 1,
     route_hints_for_device_count: 0,
     availability_coverage_status: "tracked",
@@ -125,7 +128,7 @@ function historyRow(overrides: Partial<DeviceSnapshotHistoryRow> = {}): DeviceSn
 function emptyHistory(
   overrides: Partial<DeviceSnapshotHistoryDetail> = {},
 ): DeviceSnapshotHistoryDetail {
-  return {
+  const detail: DeviceSnapshotHistoryDetail = {
     network_id: "home",
     device_ieee: "0xa1",
     friendly_name: "Kitchen Plug",
@@ -140,6 +143,37 @@ function emptyHistory(
     },
     ...overrides,
   };
+  const latest = detail.latest_snapshot;
+  if (latest?.layout_state === "available") {
+    detail.topology_facts = {
+      stale_threshold_hours: detail.topology_facts.stale_threshold_hours,
+      device_facts: [
+        {
+          code: latest.device_present_in_snapshot
+            ? "device_seen_in_latest_snapshot"
+            : "device_absent_from_latest_snapshot",
+          params: {
+            device_ieee: detail.device_ieee,
+            snapshot_id: latest.snapshot_id,
+          },
+        },
+        latest.links_for_device_count > 0
+          ? {
+              code: "device_has_latest_links",
+              params: {
+                device_ieee: detail.device_ieee,
+                link_count: latest.links_for_device_count,
+              },
+            }
+          : {
+              code: "device_no_latest_links",
+              params: { device_ieee: detail.device_ieee },
+            },
+      ],
+      comparison_facts_by_snapshot_id: {},
+    };
+  }
+  return parseDeviceSnapshotHistoryDetail(detail);
 }
 
 function deferred<T>() {

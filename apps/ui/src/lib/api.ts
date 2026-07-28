@@ -22,11 +22,7 @@ import {
   type RequestIntent,
 } from "@/lib/sessionTransport";
 import type { Paginated } from "@/types/api";
-import type {
-  DeviceSnapshotHistoryDetail,
-  DeviceStoryDto,
-} from "@/types/devices";
-import type { DataCoverageDto } from "@/types/decisions";
+import type { DeviceStoryDto } from "@/types/devices";
 import type { Incident } from "@/types/incidents";
 import type {
   ReportDetailV3,
@@ -41,7 +37,9 @@ import type {
   TopologyOverview,
 } from "@/types/topology";
 import {
+  parseDataCoverageList,
   parseDeviceDetail,
+  parseDeviceStory,
   parseIncident,
   parseNetworkSummary,
   parseStoredReport,
@@ -51,6 +49,7 @@ import {
   validateNetworkSummaries,
   validateReportDetailV3,
 } from "@/lib/decisionContract";
+import { parseDeviceSnapshotHistoryDetail } from "@/lib/deviceSnapshotHistoryContract";
 
 export type { RequestIntent };
 
@@ -386,7 +385,7 @@ function reportParams(
     scenario,
     scope: request.scope,
     format: request.format,
-    profile: r.profile,
+    profile: r.profile ?? undefined,
     network_id: request.network_id ?? undefined,
     incident_id: request.incident_id ?? undefined,
     device: request.device ?? undefined,
@@ -396,7 +395,6 @@ function reportParams(
     redact_ip_addresses: boolParam(r.redact_ip_addresses),
     redact_network_names: boolParam(r.redact_network_names),
     include_timeline: boolParam(r.include_timeline),
-    include_raw_payloads: boolParam(r.include_raw_payloads),
   };
 }
 
@@ -621,11 +619,11 @@ export const api = {
     fetchJson<DeviceStoryDto>(
       `api/devices/${encodeURIComponent(networkId)}/${encodeURIComponent(ieee)}/story`,
       { scenario },
-    ),
+    ).then(parseDeviceStory),
   deviceCoverage: (networkId: string, ieee: string) =>
-    fetchJson<DataCoverageDto[]>(
+    fetchJson<unknown>(
       `api/devices/${encodeURIComponent(networkId)}/${encodeURIComponent(ieee)}/coverage`,
-    ),
+    ).then(parseDataCoverageList),
   routers: (scenario?: string) => fetchJson<Paginated<RouterRisk>>("api/routers", { scenario }),
   incidents: (query: IncidentListQuery = {}) =>
     fetchJson<Paginated<Incident>>("api/incidents", {
@@ -677,11 +675,11 @@ export const api = {
       `api/topology/${encodeURIComponent(networkId)}/snapshots/compare`,
     ),
   topologyDeviceSnapshotHistory: (networkId: string, ieeeAddress: string) =>
-    fetchJson<DeviceSnapshotHistoryDetail>(
+    fetchJson<unknown>(
       `api/topology/${encodeURIComponent(networkId)}/devices/${encodeURIComponent(
         ieeeAddress,
       )}/snapshot-history`,
-    ),
+    ).then(parseDeviceSnapshotHistoryDetail),
   captureTopology: (networkId: string) =>
     fetchJson<{ snapshot_id: string; status: string }>(
       `api/topology/${encodeURIComponent(networkId)}/capture`,
@@ -699,11 +697,15 @@ export type { Paginated } from "@/types/api";
 export type {
   AvailabilityCoverageStatus,
   DeviceDiagnosticStats,
+  DeviceSnapshotHistoryAvailableRow,
   DeviceSnapshotCompareStatus,
   DeviceSnapshotCompareCounts,
   DeviceSnapshotComparison,
   DeviceSnapshotHistoryDetail,
+  DeviceSnapshotHistoryLimitedRow,
   DeviceSnapshotHistoryRow,
+  DeviceSnapshotLayoutState,
+  DeviceSnapshotPresenceComparison,
   DeviceStatsWindow,
   DeviceStoryDto,
   DeviceStoryTimelineItemDto,

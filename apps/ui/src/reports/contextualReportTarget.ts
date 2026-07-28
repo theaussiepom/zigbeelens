@@ -37,7 +37,6 @@ export interface ContextualReportOptions {
   redactIp: boolean;
   redactNetworkNames: boolean;
   includeTimeline: boolean;
-  includeRaw: boolean;
 }
 
 export const CONTEXTUAL_REPORT_PROFILE_DEFAULTS: Record<
@@ -51,7 +50,6 @@ export const CONTEXTUAL_REPORT_PROFILE_DEFAULTS: Record<
     redactIp: false,
     redactNetworkNames: false,
     includeTimeline: true,
-    includeRaw: false,
   },
   strict: {
     preserveFriendly: false,
@@ -60,7 +58,6 @@ export const CONTEXTUAL_REPORT_PROFILE_DEFAULTS: Record<
     redactIp: true,
     redactNetworkNames: true,
     includeTimeline: true,
-    includeRaw: false,
   },
   public_safe: {
     preserveFriendly: false,
@@ -69,7 +66,6 @@ export const CONTEXTUAL_REPORT_PROFILE_DEFAULTS: Record<
     redactIp: true,
     redactNetworkNames: true,
     includeTimeline: true,
-    includeRaw: false,
   },
 };
 
@@ -144,7 +140,6 @@ export function contextualRequestKey(
     redactIp: options.redactIp,
     redactNetworkNames: options.redactNetworkNames,
     includeTimeline: options.includeTimeline,
-    includeRaw: options.includeRaw,
   });
 }
 
@@ -205,7 +200,6 @@ export function buildContextualReportRequest(
     redact_ip_addresses: options.redactIp,
     redact_network_names: options.redactNetworkNames,
     include_timeline: options.includeTimeline,
-    include_raw_payloads: options.includeRaw,
   };
 
   switch (target.scope) {

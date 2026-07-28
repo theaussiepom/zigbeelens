@@ -6,7 +6,6 @@ import type { DeviceSummary } from "@zigbeelens/shared";
 import { TopologyGraphPage } from "@/pages/TopologyGraphPage";
 import type {
   DeviceSnapshotHistoryDetail,
-  DeviceSnapshotHistoryRow,
   DeviceStoryDto,
   HistoricalEdgeAggregate,
   InvestigationCard,
@@ -188,12 +187,6 @@ const emptyTopologyNetworkFacts = {
   stale_threshold_hours: null,
   network_facts: [],
   coverage: [],
-};
-
-const emptyTopologyDeviceFacts = {
-  stale_threshold_hours: null,
-  device_facts: [],
-  comparison_facts_by_snapshot_id: {},
 };
 
 function makeHistoricalAggregate(
@@ -539,7 +532,9 @@ const emptyDeviceHistory: DeviceSnapshotHistoryDetail = {
     snapshot_id: "snap-live",
     captured_at: "2026-07-06T00:30:00+00:00",
     is_latest: true,
+    layout_state: "available",
     is_usable: true,
+    device_present_in_snapshot: true,
     links_for_device_count: 1,
     route_hints_for_device_count: 0,
     availability_coverage_status: "tracked",
@@ -547,7 +542,26 @@ const emptyDeviceHistory: DeviceSnapshotHistoryDetail = {
     comparison_to_latest: null,
   },
   snapshots: [],
-  topology_facts: emptyTopologyDeviceFacts,
+  topology_facts: {
+    stale_threshold_hours: null,
+    device_facts: [
+      {
+        code: "device_seen_in_latest_snapshot",
+        params: {
+          device_ieee: "0x0000000000000000",
+          snapshot_id: "snap-live",
+        },
+      },
+      {
+        code: "device_has_latest_links",
+        params: {
+          device_ieee: "0x0000000000000000",
+          link_count: 1,
+        },
+      },
+    ],
+    comparison_facts_by_snapshot_id: {},
+  },
 };
 
 const emptyDeviceStory: DeviceStoryDto = {
@@ -2605,10 +2619,10 @@ describe("TopologyGraphPage investigation panel", () => {
       within(card).getByRole("button", { name: /^focus router area:/i }),
     ).toBeInTheDocument();
     expect(
-      within(card).getByRole("button", { name: /^open router details:/i }),
+      within(card).getByRole("button", { name: /^open device details:/i }),
     ).toBeInTheDocument();
 
-    await user.click(within(card).getByRole("button", { name: /^open router details:/i }));
+    await user.click(within(card).getByRole("button", { name: /^open device details:/i }));
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: /device details/i })).toBeInTheDocument();
       expect(container.querySelectorAll(".mesh-node--investigation-focus")).toHaveLength(2);
@@ -2618,7 +2632,7 @@ describe("TopologyGraphPage investigation panel", () => {
     expect(preset.value).toBe(presetBefore);
   });
 
-  it("omits Open router details when the neighbourhood IEEE is absent from inventory", async () => {
+  it("omits Open device details when the neighbourhood IEEE is absent from inventory", async () => {
     mockDetail = {
       ...liveDetailWithInvestigations,
       investigations: [
@@ -2635,7 +2649,7 @@ describe("TopologyGraphPage investigation panel", () => {
     const card = screen.getByTestId("investigation-card");
     expect(within(card).getByRole("button", { name: /^focus router area:/i })).toBeInTheDocument();
     expect(
-      within(card).queryByRole("button", { name: /^open router details:/i }),
+      within(card).queryByRole("button", { name: /^open device details:/i }),
     ).not.toBeInTheDocument();
   });
 
@@ -2963,162 +2977,6 @@ describe("device search", () => {
     expect(findForbiddenUserFacingPhrases(list.textContent ?? "")).toEqual([]);
   });
 });
-
-function makeHistoryRow(
-  overrides: Partial<DeviceSnapshotHistoryRow>,
-): DeviceSnapshotHistoryRow {
-  return {
-    snapshot_id: "snap-prev",
-    captured_at: "2026-07-05T19:10:00+00:00",
-    is_latest: false,
-    is_usable: true,
-    links_for_device_count: 6,
-    route_hints_for_device_count: 2,
-    availability_coverage_status: "tracked",
-    availability_state_near_snapshot: "online",
-    comparison_to_latest: {
-      status: "no_notable_change",
-      reasons: [
-        "Similar number of links shown.",
-        "No route-hint change that looks relevant.",
-        "There is no current ZigbeeLens issue for this device.",
-      ],
-      suggested_checks: [],
-      link_counts: {
-        latest_count: 6,
-        selected_count: 6,
-        latest_only_count: 0,
-        selected_only_count: 0,
-        changed_count: 0,
-      },
-      route_hint_counts: {
-        latest_count: 2,
-        selected_count: 2,
-        latest_only_count: 0,
-        selected_only_count: 0,
-        changed_count: 0,
-      },
-    },
-    ...overrides,
-  };
-}
-
-/** Device needing attention: no links in the latest snapshot, links before. */
-const worthReviewingHistory: DeviceSnapshotHistoryDetail = {
-  network_id: "home",
-  device_ieee: "0xr1",
-  friendly_name: "Live Hall Router",
-  has_current_issue: true,
-  availability_tracking: {
-    enabled: true,
-    earliest_observation_at: "2026-07-01T00:00:00+00:00",
-  },
-  latest_snapshot: makeHistoryRow({
-    snapshot_id: "snap-live",
-    captured_at: "2026-07-06T00:30:00+00:00",
-    is_latest: true,
-    links_for_device_count: 0,
-    route_hints_for_device_count: 0,
-    availability_state_near_snapshot: "offline",
-    comparison_to_latest: null,
-  }),
-  snapshots: [
-    // Previous usable snapshot: default comparison, worth reviewing.
-    makeHistoryRow({
-      snapshot_id: "snap-prev",
-      captured_at: "2026-07-05T19:10:00+00:00",
-      comparison_to_latest: {
-        status: "worth_reviewing",
-        reasons: [
-          "Latest snapshot shows no links for this device.",
-          "The selected snapshot showed 6 links.",
-          "This device currently needs attention.",
-        ],
-        suggested_checks: [
-          "Confirm the device is powered.",
-          "Check whether it is reporting in Zigbee2MQTT.",
-          "Compare with another earlier snapshot to see whether this is a one-off snapshot difference.",
-        ],
-        link_counts: {
-          latest_count: 0,
-          selected_count: 6,
-          latest_only_count: 0,
-          selected_only_count: 6,
-          changed_count: 0,
-        },
-        route_hint_counts: {
-          latest_count: 0,
-          selected_count: 2,
-          latest_only_count: 0,
-          selected_only_count: 2,
-          changed_count: 0,
-        },
-      },
-    }),
-    // Older snapshot: differences but nothing actionable.
-    makeHistoryRow({
-      snapshot_id: "snap-older",
-      captured_at: "2026-07-03T09:03:00+00:00",
-      links_for_device_count: 8,
-      route_hints_for_device_count: 3,
-      comparison_to_latest: {
-        status: "changed",
-        reasons: [
-          "8 links only in the selected snapshot.",
-          "Route hints differ between the two snapshots.",
-          "There is no current ZigbeeLens issue for this device.",
-        ],
-        suggested_checks: [],
-        link_counts: {
-          latest_count: 0,
-          selected_count: 8,
-          latest_only_count: 0,
-          selected_only_count: 8,
-          changed_count: 0,
-        },
-        route_hint_counts: {
-          latest_count: 0,
-          selected_count: 3,
-          latest_only_count: 0,
-          selected_only_count: 3,
-          changed_count: 0,
-        },
-      },
-    }),
-    // Oldest snapshot: before availability tracking started.
-    makeHistoryRow({
-      snapshot_id: "snap-oldest",
-      captured_at: "2026-06-28T10:00:00+00:00",
-      links_for_device_count: 7,
-      route_hints_for_device_count: 0,
-      availability_coverage_status: "building",
-      availability_state_near_snapshot: null,
-    }),
-  ],
-  topology_facts: emptyTopologyDeviceFacts,
-};
-
-/** Availability reporting not enabled in Zigbee2MQTT at all. */
-const trackingOffHistory: DeviceSnapshotHistoryDetail = {
-  ...worthReviewingHistory,
-  has_current_issue: false,
-  availability_tracking: { enabled: false, earliest_observation_at: null },
-  latest_snapshot: makeHistoryRow({
-    snapshot_id: "snap-live",
-    captured_at: "2026-07-06T00:30:00+00:00",
-    is_latest: true,
-    availability_coverage_status: "off",
-    availability_state_near_snapshot: null,
-    comparison_to_latest: null,
-  }),
-  snapshots: [
-    makeHistoryRow({
-      snapshot_id: "snap-prev",
-      availability_coverage_status: "off",
-      availability_state_near_snapshot: null,
-    }),
-  ],
-};
 
 describe("NodeDrawer device details without snapshot history", () => {
   beforeEach(() => {

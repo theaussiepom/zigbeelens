@@ -30,8 +30,25 @@ helper does not replace the Phase 7-specific checks or manual gates.
       temporary config/database, and leaves repository `config/` and `data/`
       untouched
 - [ ] Version alignment check passes (`./scripts/check-version-alignment.sh`)
+- [ ] Docker metadata contract proves `org.opencontainers.image.version` is
+      the package version, `revision` is the full source SHA, and `source` is
+      the canonical repository before Buildx consumes the labels
+- [ ] Canonical local Docker build starts from a clean exact Git checkout
+      (or an explicitly attested immutable source export), rejects mismatched
+      revision overrides, and uses the maintained root `.dockerignore`
+- [ ] Strict standalone Docker image smoke passes
+      (`ZIGBEELENS_REQUIRE_DOCKER=1 ./scripts/smoke-docker.sh`): it builds the
+      clean committed source through the canonical owner, runs that exact image
+      with repository-external temporary config/database/log state, makes zero
+      MQTT connection, Discovery publication, or topology request attempts,
+      reports schema 15, and proves the exact package-version, full-revision,
+      and canonical-source OCI labels
 - [ ] Storage retention policy v2: telemetry / resolved incidents / reports; startup + periodic maintenance
 - [ ] `zigbeelens storage check` / `backup` / `maintenance --dry-run` validated on a release candidate DB
+
+The standalone Docker smoke is local single-platform evidence. It does not
+replace remote multi-architecture Buildx, GHCR digest proof, or Phase 7D Beast
+validation.
 
 ### Structural companion-package validation
 
@@ -59,10 +76,10 @@ below.
 - [ ] Add-on source structure validates (`./scripts/validate-addon.sh`)
 - [ ] Add-on staging package generates and validates (`./scripts/package-addon-repo.sh` then `bash dist/zigbeelens-addons/scripts/validate-addon-repo.sh`)
 
-The Core suite currently has one intentional non-strict xfail:
-`test_incident_badge_matches_device_story_for_model_pattern` (`watch` versus
-`informational` Decision-surface mismatch). Record it as **xfail**, not pass.
-Any additional skip, xfail, or warning requires an explicit release note.
+The model-pattern Decision parity regression is strict and shares one explicit
+reference clock across Device Story, incident badge, and inventory surfaces.
+The full Core suite must have no unexplained xfail. Record every skip, xfail,
+or warning exactly; any new one requires explicit review.
 
 The canonical Core suite's SQLite 3.34.1 case is expected to skip outside its
 dedicated container smoke and must still be recorded. The UI safety owner runs
@@ -74,11 +91,16 @@ failure, never a skip.
 - [x] Phase 7A query/cardinality/runtime baseline merged (PR #100)
 - [x] Phase 7B release-quality test architecture and exact-v3 report reset merged (PR #101)
 - [x] Phase 7C1 documentation truth and cross-surface alignment merged
-- [x] Phase 7C2 current screenshots captured and reviewed
+- [ ] Phase 7C2 S1–S9 recaptured and reviewed together from one final corrected
+      runtime source (the prior set is stale after runtime/UI corrections)
 - [ ] Phase 7D live Beast deployment validation complete
 
 Local validation evidence is not remote CI evidence. Do not mark Phase 7C2 or
 Phase 7D complete from documentation or local tests.
+
+Phase 7D is blocked until the correction is merged, a new package-version-labeled
+image is built from that final source, HACS is separately resynchronized, and
+the complete S1–S9 set is recaptured from one final runtime.
 
 The Home Assistant add-on is deferred and is not part of the current HACS
 release. Its future-only gate remains below; structural validation is
@@ -105,6 +127,8 @@ non-regression evidence, not current installation readiness.
 ## Manual gates — real-world (Beast / production-like)
 
 - [ ] Real GHCR edge container tested on Beast (`ghcr.io/theaussiepom/zigbeelens:edge`)
+- [ ] Candidate image reports package version `0.1.14`, the full final source
+      revision, and `https://github.com/theaussiepom/zigbeelens` in OCI labels
 - [ ] Real MQTT broker tested with a dedicated `zigbeelens` user: subscribe permissions plus only the exact per-network `bridge/request/networkmap` publish needed by the default startup scan (and Discovery prefixes only when that optional feature is under test)
 - [ ] Both real networks visible: `home`, `home2`
 - [ ] Real report generation tested
@@ -119,12 +143,18 @@ package validation above is necessary but not sufficient.
 - [ ] The current branch is tested by manually installing
       `dist/zigbeelens-hacs/custom_components/zigbeelens` at
       `<home-assistant-config>/custom_components/zigbeelens`; the
-      unsynchronized public satellite is not used as branch evidence
+      stale prior-candidate public satellite is not used as branch evidence
 - [ ] The complete staged tree matches the intended
       `theaussiepom/zigbeelens-hacs` satellite tree exactly
-- [x] The candidate manifest/package uses the previously unused version
-      `0.1.14`, while the reviewed public satellite remains at `0.1.13`, so the
-      manifest/package version uniquely identifies that tree
+- [ ] The public satellite is resynchronized from the final corrected source in
+      a separately authorized task. Public `main` currently contains the prior
+      `0.1.14` candidate at commit
+      `21c24e3355369b94c9ab596cf9fc0591f1282297` (tree
+      `9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`, source
+      `906527063ad8bd594fbec51f69f6fc72205302dd`) and has no `v0.1.14`
+      tag/release, so it is stale for this correction
+- [ ] After resynchronization, the manifest/package version uniquely identifies
+      that tree and is rechecked immediately before publication
 - [ ] Exact Home Assistant `2025.1.0` / Python `3.12` and Home Assistant
       `2026.7.3` / Python `3.14` both pass the same integration suite
 - [ ] The canonical monorepo live enrichment E2E is green remotely for the
@@ -173,9 +203,10 @@ explicitly scoped future add-on task.
 - [ ] Ingress enabled; MQTT Discovery off; topology enabled for one startup scan with periodic/manual/incident capture gates off
 - [ ] Packaged repository entrypoint matches the required add-on startup contract, including option conversion, exact Ingress security, `/data` writability, and optional token-file installation
 - [ ] `security.api_token` from add-on options is installed/exported into Core; packaged HAOS bearer smoke passes
-- [ ] Add-on `reporting.max_*` schema minimums match Core (`>= 1`); zero is rejected consistently
-- [ ] `reporting.default_profile` is effective when a request omits a profile, or the ineffective option is removed and documentation is qualified
-- [ ] Unused reporting options (`max_metric_samples_per_device`, `max_availability_changes_per_device`, `include_raw_payloads`) are implemented or removed
+- [ ] Add-on `reporting.max_recent_events` is bounded to `1..1000`, and an
+      omitted request profile demonstrably uses `reporting.default_profile`
+- [ ] Removed reporting no-ops and raw-payload request switches are rejected
+      rather than silently accepted
 - [ ] A portable Home-Assistant-reachable Core origin for HACS is implemented and documented, or HACS interoperability is explicitly out of scope; do not assume `localhost` across namespaces while the add-on exposes `ports: {}`
 - [ ] Packaged add-on with no API token: Ingress UI opens and SSE/download/mutation work
 - [ ] Packaged add-on with optional token: Ingress still works and a direct bearer request succeeds
@@ -203,9 +234,14 @@ explicitly scoped future add-on task.
 - [ ] MQTT Discovery **disabled** by default
 - [ ] Topology **enabled** by default with startup scan only (no periodic refresh unless configured)
 - [ ] No unsafe MQTT topics published with default config
-- [ ] MQTT Discovery validates `{state_topic_prefix}/status` against Zigbee2MQTT base topics before registering the broker last will
-- [ ] `topology.enabled: false` plus a positive refresh interval does not advertise an active scheduler that can only reject captures
-- [ ] Parsed topology node/link `raw_json` storage has a reviewed scrub/retention contract
+- [ ] MQTT Discovery validates `{state_topic_prefix}/status` against the exact
+      publish-safety contract before Paho construction, broker last-will
+      registration, credentials/TLS, or connection
+- [ ] `topology.enabled: false` owns no topology service or scheduler and
+      advertises no capture activity for every legacy/current gate combination
+- [ ] Schema target is `15`; migration `015_topology_raw_data_scrub.sql` removes
+      legacy node/link source dictionaries and unsafe parsed snapshot fields
+      while migration `014_report_v3_only_reset.sql` remains byte-identical
 - [ ] SSE `/api/events/stream` works (not shadowed by static SPA catch-all)
 
 ## Safety
@@ -226,11 +262,30 @@ explicitly scoped future add-on task.
 - [ ] Current report docs promise exact `ReportDetailV3` only; no v1/v2 reader/download path
 - [ ] No docs promise iframe as normal HACS experience
 - [ ] No docs imply reverse proxy required for HACS sidebar value
-- [x] Phase 7C2 screenshots show the current Decision-led UI and HACS contract-v2 companion
+- [ ] No screenshot is described as current release evidence until S1–S9 are
+      recaptured together from the final corrected runtime
+
+## Review-thread closure inventory
+
+These findings remain unresolved until a future fixing PR is merged, an exact
+merged PR/commit reply is posted, and the owning thread is then resolved.
+Before release, re-query each PR and confirm there are no remaining
+non-outdated unresolved review threads.
+
+| Review owner | Finding | Required release evidence |
+|--------------|---------|---------------------------|
+| PR #106 `discussion_r3654140180` (P1) | PNG decompression bounds | Merged fixing PR/commit reply, then resolved thread |
+| PR #106 `discussion_r3654140181` (P2) | Screenshot manifest privacy/schema parsing | Merged fixing PR/commit reply, then resolved thread |
+| PR #100 `discussion_r3626646727` | Mixed-case IEEE topology lookup | Merged fixing PR/commit reply, then resolved thread |
+| PR #97 `discussion_r3618354267` | Coordinator action says device, not router | Merged fixing PR/commit reply, then resolved thread |
+| Delayed approved-host bypass review | Exact-origin and bare-host parser bypass cases | Fixing PR review record and merged commit before closure |
 
 ## Packaging and publish
 
 - [ ] Docker image builds (`./scripts/build-docker.sh`)
+- [ ] Do not use GHCR manifest digest
+      `sha256:8549c49bd3e0389def669ce2e6c14bcbe2b54c967a725fd6373f5d82921f6bc7`
+      as Phase 7D evidence; its OCI version label was `edge`
 - [ ] Release tag `v<version>` created only after the Docker/Core gates and all
       gates for companion artifacts included in this release pass
 - [ ] Versioned Docker image pushed to GHCR (`ghcr.io/theaussiepom/zigbeelens:<version>`)

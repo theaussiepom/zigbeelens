@@ -247,7 +247,7 @@ describe("Home Assistant enrichment live production path", () => {
       await screen.findByRole("heading", { level: 1, name: "HA Kitchen Lamp" });
       expect(within(identityRow("Home Assistant area")).getByText("Kitchen")).toBeVisible();
       await screen.findByText(
-        "No earlier usable topology snapshots are available for this device yet.",
+        "No earlier complete topology captures are available for this device yet.",
       );
       await waitFor(() => {
         expect(networkState.lastError).toBe("");

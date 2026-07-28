@@ -63,9 +63,6 @@ options:
   reporting:
     default_profile: standard
     max_recent_events: 100
-    max_metric_samples_per_device: 50
-    max_availability_changes_per_device: 50
-    include_raw_payloads: false
   features:
     mqtt_collector: true
     mqtt_discovery: false
@@ -130,10 +127,7 @@ schema:
     interview_failure_min_devices: int(1,100)?
   reporting:
     default_profile: list(standard|public_safe|strict)?
-    max_recent_events: int(0,1000)?
-    max_metric_samples_per_device: int(0,1000)?
-    max_availability_changes_per_device: int(0,1000)?
-    include_raw_payloads: bool?
+    max_recent_events: int(1,1000)?
   features:
     mqtt_collector: bool?
     mqtt_discovery: bool?

@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type {
+  CoverageDimension,
   CoverageLabelCode,
+  CoverageState,
+  DataCoverage,
   DecisionBadge,
   DecisionCountSummary,
   DecisionPriority,
   DecisionStatus,
+  DeviceSnapshotChangedFact,
+  DeviceSnapshotComparison,
   Incident,
   ReportDetailV3,
+  ReportDeviceStory,
+  TopologyHistoryCoverageParams,
 } from "@zigbeelens/shared";
 import { parseIncident } from "@/lib/decisionContract";
 import { buildIncidentRecordViewModel } from "@/viewModels/incidents/incidentViewModel";
@@ -23,9 +30,12 @@ describe("shared decision contract", () => {
     const status: DecisionStatus = badge.status;
     const priority: DecisionPriority = badge.priority;
     const label: CoverageLabelCode = badge.coverage_label_codes[0];
+    const unavailableTopology: CoverageLabelCode =
+      "topology_history_unavailable";
     expect(status).toBe("watch");
     expect(priority).toBe("medium");
     expect(label).toBe("availability_tracking_off");
+    expect(unavailableTopology).toBe("topology_history_unavailable");
   });
 
   it("types DecisionCountSummary with canonical status and priority maps", () => {
@@ -38,6 +48,91 @@ describe("shared decision contract", () => {
       coverage_warning_count: 1,
     };
     expect(summary.status_counts.worth_reviewing).toBe(2);
+  });
+
+  it("types exact topology-history coverage counts", () => {
+    const params: TopologyHistoryCoverageParams = {
+      observed_snapshot_count: 2,
+      complete_snapshot_count: 4,
+      available_layout_snapshot_count: 3,
+      limited_layout_snapshot_count: 1,
+      snapshot_window_count: 4,
+    };
+    expect(params.complete_snapshot_count).toBe(
+      params.available_layout_snapshot_count +
+        params.limited_layout_snapshot_count,
+    );
+    expect(params.snapshot_window_count).toBe(params.complete_snapshot_count);
+  });
+
+  it("ties topology-history coverage to exact label/state pairs and params", () => {
+    const topologyCoverage: DataCoverage = {
+      dimension: "historical_snapshots",
+      state: "sparse",
+      label_code: "topology_history_sparse",
+      params: {
+        observed_snapshot_count: 2,
+        complete_snapshot_count: 4,
+        available_layout_snapshot_count: 3,
+        limited_layout_snapshot_count: 1,
+        snapshot_window_count: 4,
+      },
+    };
+    const reportCoverage: ReportDeviceStory["coverage"] = [topologyCoverage];
+    const dimension: CoverageDimension = topologyCoverage.dimension;
+    const state: CoverageState = topologyCoverage.state;
+
+    expect(dimension).toBe("historical_snapshots");
+    expect(state).toBe("sparse");
+    expect(reportCoverage[0].params).toEqual(topologyCoverage.params);
+  });
+
+  it("types snapshot presence as owned comparison evidence", () => {
+    const comparison: DeviceSnapshotComparison = {
+      status: "changed",
+      reasons: [
+        "The device was observed in the selected snapshot but not the latest snapshot.",
+      ],
+      suggested_checks: [],
+      device_presence: {
+        latest: false,
+        selected: true,
+        changed: true,
+      },
+      link_counts: {
+        latest_count: 0,
+        selected_count: 0,
+        latest_only_count: 0,
+        selected_only_count: 0,
+        changed_count: 0,
+      },
+      route_hint_counts: {
+        latest_count: 0,
+        selected_count: 0,
+        latest_only_count: 0,
+        selected_only_count: 0,
+        changed_count: 0,
+      },
+    };
+
+    expect(comparison.device_presence).toEqual({
+      latest: false,
+      selected: true,
+      changed: true,
+    });
+
+    const fact: DeviceSnapshotChangedFact = {
+      code: "device_latest_vs_selected_changed",
+      params: {
+        device_ieee: "0xabc",
+        comparison_status: "changed",
+        snapshot_id: "snap-earlier",
+        latest_device_present_in_snapshot: false,
+        selected_device_present_in_snapshot: true,
+        device_presence_changed: true,
+      },
+    };
+    expect(fact.params.device_presence_changed).toBe(true);
   });
 
   it("types stored reports as exact ReportDetailV3 only", () => {

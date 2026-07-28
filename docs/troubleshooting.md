@@ -81,10 +81,11 @@ If two devices share a name within one network, use IEEE address in the UI and r
 
 ![Incident detail showing status, affected scope, evidence, interpretation, and explicit limitations](screenshots/incidents-page.png)
 
-Illustrative synthetic release-candidate data. An Incident keeps status,
-affected scope, supporting evidence, counter-evidence, and limitations visible
-together. It records a pattern worth investigating; it does not establish a
-root cause.
+Illustrative synthetic release-candidate data. This image belongs to the
+now-stale prior Phase 7C2 set. An Incident keeps status, affected scope,
+supporting evidence, counter-evidence, and limitations visible together. It
+records a pattern worth investigating; it does not establish a root cause.
+Recapture S1–S9 together from the final corrected runtime before Phase 7D.
 
 ## Reports redaction looks too aggressive
 
@@ -98,8 +99,8 @@ See [redaction.md](redaction.md).
 
 This applies to the manually installed monorepo stage now, or to a future
 synchronized and authorized public artifact. The current public HACS satellite
-is not the reviewed staged package and must not be used to validate this
-branch.
+contains the stale prior `0.1.14` candidate, is not the reviewed corrected
+staged package, and must not be used to validate this branch.
 
 1. Confirm a standalone or otherwise Home-Assistant-reachable ZigbeeLens Core
    service is running. The packaged add-on has no portable HACS backend origin.

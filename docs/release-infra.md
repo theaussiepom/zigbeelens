@@ -8,12 +8,12 @@ GitHub owner: **theaussiepom**
 |------|--------|
 | Version source | Package and manifest versions; validate with `./scripts/check-version-alignment.sh` |
 | Main repo | https://github.com/theaussiepom/zigbeelens |
-| Public HACS satellite | https://github.com/theaussiepom/zigbeelens-hacs — unsynchronized; not current branch-validation evidence |
+| Public HACS satellite | https://github.com/theaussiepom/zigbeelens-hacs — prior `0.1.14` candidate from source `906527063ad8bd594fbec51f69f6fc72205302dd`; stale for the correction |
 | Add-on repo | https://github.com/theaussiepom/zigbeelens-addons |
 | GHCR image | `ghcr.io/theaussiepom/zigbeelens` |
 | Pre-release tag | **`edge`** (also `main`, `sha-*`) |
 | Main CI | Split required jobs; verify the exact release commit before tagging |
-| Docker workflow | Push `edge` on `main`; version/`latest` on `v*` tags |
+| Docker workflow | Push `edge` on `main`; version/`latest` on `v*` tags; package version/full revision/source own OCI labels |
 
 ## Target images
 
@@ -32,8 +32,8 @@ ghcr.io/theaussiepom/zigbeelens:latest    # release tag only
 | 7A — query/cardinality/runtime baseline | Merged in PR #100 |
 | 7B — test architecture / exact-v3 reset | Merged in PR #101 |
 | 7C1 — documentation truth | Merged |
-| 7C2 — screenshots / visual evidence | Deferred |
-| 7D — live Beast validation | Deferred; not satisfied by docs or local CI |
+| 7C2 — screenshots / visual evidence | Prior S1–S9 stale; full one-runtime recapture required |
+| 7D — live Beast validation | Blocked; not satisfied by docs or local CI |
 
 ## Add-on publication status
 
@@ -45,26 +45,33 @@ supported route. Its future publication gates still include:
   it generates add-on options and Ingress configuration, but does not install
   or export the optional `security.api_token`, and its UID-1000 `/data`
   writability still needs an HAOS smoke test;
-- the add-on schema accepts zero for `reporting.max_*`, while Core requires
-  values of at least one;
-- `reporting.default_profile` is currently ineffective because the request
-  model supplies `standard` before the resolver can fall back to configuration;
 - the add-on exposes `ports: {}` in a separate namespace, so there is no
   portable HACS-to-add-on Core origin; only the Ingress UI path is documented.
 
-Close these blockers and run the packaged HAOS Ingress, bearer, and
+The Core/add-on contract now bounds `reporting.max_recent_events` to `1..1000`,
+uses `reporting.default_profile` when a request omits its profile, and rejects
+removed reporting fields. Run the packaged HAOS Ingress, bearer, and
 non-Supervisor spoofing smokes before publishing the add-on repository.
 
 ## HACS integration publication boundary
 
-The public HACS satellite is not synchronized with the reviewed monorepo
-stage. It still contains a materially older integration and advertises
-`0.1.13`, while the candidate stage uses the previously unused version
-`0.1.14`. The candidate version identifies the staged tree uniquely, but the
-tree mismatch remains a publication blocker. Validate the current branch only
-with the locally generated package from `./scripts/package-hacs-repo.sh`.
-External synchronization or publication requires a separate explicitly
-authorized task.
+The public HACS satellite contains the prior `0.1.14` candidate, not the
+corrected monorepo stage. It is stale again until a separately authorized
+resynchronization. Validate the current branch only with the locally generated
+package from `./scripts/package-hacs-repo.sh`; public installation remains
+gated.
+
+Current public-satellite state at correction preflight:
+
+- repository: `theaussiepom/zigbeelens-hacs`
+- commit: `21c24e3355369b94c9ab596cf9fc0591f1282297`
+- tree: `9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`
+- `SOURCE_COMMIT`: `906527063ad8bd594fbec51f69f6fc72205302dd`
+- version: `0.1.14`
+- tag/release: no `v0.1.14`
+
+Re-check commit, tree, source provenance, tags, and releases immediately before
+any synchronization or publication decision.
 
 Reviewed public-satellite state (historical evidence):
 
@@ -72,11 +79,10 @@ Reviewed public-satellite state (historical evidence):
 - commit: `050d118b3e1406343255594fe64cd569e2420888`
 - reviewed: `2026-07-23`
 
-That commit advertises integration version `0.1.13`, `@zigbeelens` ownership,
-and no Python requirements. Its README and integration implementation remain
-materially different from this stage. The satellite is not assumed to remain at
-that commit; re-check its current tree immediately before any publication
-decision.
+That historical review found integration version `0.1.13` before the prior
+candidate was synchronized. It does not replace the exact correction-preflight
+state above. The satellite is not assumed to remain at either inspected commit;
+re-check its current tree immediately before any publication decision.
 
 ### Staged source provenance
 
@@ -115,6 +121,12 @@ Generated `release.yml` calls the generated CI workflow and makes release
 publication depend on it. These templates establish ownership, not a remote
 pass: the official jobs must still run successfully on the synchronized
 satellite tree.
+
+The rejected GHCR manifest digest
+`sha256:8549c49bd3e0389def669ce2e6c14bcbe2b54c967a725fd6373f5d82921f6bc7`
+is not Phase 7D evidence: its OCI version label was `edge`. The next candidate
+must label every platform with package version `0.1.14`, the full final source
+revision, and canonical repository source.
 
 The integration reads Core diagnostic/configuration/Decision/capability and
 bounded inventory data. Its sole write is the exact Core-local Home Assistant

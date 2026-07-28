@@ -15,6 +15,27 @@ class UnsafeMqttTopicError(ValueError):
     """Raised when a topic fails ZigbeeLens publish safety checks."""
 
 
+def _validate_mqtt_topic_text(topic: str) -> None:
+    """Enforce MQTT's bounded UTF-8 topic-name representation."""
+    try:
+        encoded = topic.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise UnsafeMqttTopicError("Topic must be valid UTF-8") from exc
+    if len(encoded) > 65_535:
+        raise UnsafeMqttTopicError("Topic exceeds the MQTT UTF-8 length limit")
+    if any(
+        codepoint == 0
+        or codepoint < 0x20
+        or 0x7F <= codepoint <= 0x9F
+        or 0xFDD0 <= codepoint <= 0xFDEF
+        or codepoint & 0xFFFF in {0xFFFE, 0xFFFF}
+        for codepoint in map(ord, topic)
+    ):
+        raise UnsafeMqttTopicError(
+            "Topic contains a forbidden MQTT Unicode code point"
+        )
+
+
 def sanitize_object_id(value: str) -> str:
     cleaned = _OBJECT_ID_RE.sub("_", value.strip()).strip("_")
     return cleaned or "unknown"
@@ -25,10 +46,12 @@ def validate_publish_topic(
     *,
     zigbee_base_topics: tuple[str, ...] = (),
     discovery_topic_prefix: str | None = None,
+    allowed_topic_prefixes: tuple[str, ...] = (),
 ) -> None:
     """Reject topics that could mutate Zigbee2MQTT or use wildcards."""
     if not topic or not topic.strip():
         raise UnsafeMqttTopicError("Topic must not be empty")
+    _validate_mqtt_topic_text(topic)
     normalized = topic.strip()
     if "+" in normalized or "#" in normalized:
         raise UnsafeMqttTopicError("Wildcard topics are not allowed")
@@ -46,6 +69,10 @@ def validate_publish_topic(
     allowed = ["homeassistant/", f"{PRODUCT}/"]
     if discovery_topic_prefix:
         custom = discovery_topic_prefix.strip("/")
+        if custom:
+            allowed.append(f"{custom}/")
+    for configured_prefix in allowed_topic_prefixes:
+        custom = configured_prefix.strip("/")
         if custom:
             allowed.append(f"{custom}/")
     if not any(normalized.startswith(prefix) for prefix in allowed):
@@ -68,6 +95,58 @@ def discovery_config_topic(
 def availability_topic(state_topic_prefix: str) -> str:
     prefix = state_topic_prefix.strip("/")
     return f"{prefix}/status"
+
+
+def validated_availability_topic(
+    state_topic_prefix: str,
+    *,
+    zigbee_base_topics: tuple[str, ...] = (),
+) -> str:
+    """Build and validate the exact Discovery availability/LWT topic.
+
+    This is the single production owner for the topic used by the real
+    publisher, the fake publisher, and the Discovery service payloads.
+    """
+    prefix = state_topic_prefix
+    if not prefix or prefix != prefix.strip():
+        raise UnsafeMqttTopicError("State topic prefix must be nonempty and canonical")
+    _validate_mqtt_topic_text(f"{prefix}/status")
+    segments = prefix.split("/")
+    if any(not segment or segment != segment.strip() for segment in segments):
+        raise UnsafeMqttTopicError("State topic prefix contains malformed separators")
+    if any(segment in {".", ".."} for segment in segments):
+        raise UnsafeMqttTopicError("State topic prefix contains a traversal segment")
+    if any("+" in segment or "#" in segment for segment in segments):
+        raise UnsafeMqttTopicError("Wildcard topics are not allowed")
+    if any(segment.casefold() == "set" for segment in segments):
+        raise UnsafeMqttTopicError("Set topic segments are not allowed")
+    lowered_segments = tuple(segment.casefold() for segment in segments)
+    if any(
+        lowered_segments[index : index + 2] == ("bridge", "request")
+        for index in range(len(lowered_segments) - 1)
+    ):
+        raise UnsafeMqttTopicError("Bridge request topic segments are not allowed")
+
+    for raw_base in zigbee_base_topics:
+        base = raw_base.strip().strip("/")
+        if not base:
+            continue
+        if (
+            prefix == base
+            or prefix.startswith(f"{base}/")
+            or base.startswith(f"{prefix}/")
+        ):
+            raise UnsafeMqttTopicError(
+                "State topic prefix must not overlap a Zigbee2MQTT base topic"
+            )
+
+    topic = f"{prefix}/status"
+    validate_publish_topic(
+        topic,
+        zigbee_base_topics=zigbee_base_topics,
+        allowed_topic_prefixes=(prefix,),
+    )
+    return topic
 
 
 def summary_state_topic(state_topic_prefix: str, entity_key: str) -> str:

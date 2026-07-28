@@ -200,13 +200,31 @@ export const COMPARE_NO_CHANGES_COPY =
 
 export const SNAPSHOT_HISTORY_SECTION_TITLE = "Snapshot history";
 export const SNAPSHOT_HISTORY_LATEST_LABEL = "Latest snapshot";
-export const SNAPSHOT_HISTORY_COMPARE_WITH_LABEL = "Compare latest snapshot with";
+export const SNAPSHOT_HISTORY_COMPARE_WITH_LABEL = "Earlier snapshots";
 export const SNAPSHOT_HISTORY_EMPTY_COPY =
-  "No earlier usable topology snapshots are available for this device yet.";
+  "No earlier complete topology captures are available for this device yet.";
 export const SNAPSHOT_HISTORY_UNAVAILABLE_COPY =
   "Snapshot history is unavailable right now.";
 export const SNAPSHOT_HISTORY_REFRESH_FAILED_COPY =
   "Snapshot history could not be refreshed. Showing the last loaded data.";
+export const SNAPSHOT_HISTORY_LAYOUT_UNAVAILABLE_COPY =
+  "Topology layout unavailable";
+export const SNAPSHOT_HISTORY_DEVICE_OBSERVED_COPY =
+  "Device observed in this snapshot";
+export const SNAPSHOT_HISTORY_DEVICE_NOT_OBSERVED_COPY =
+  "Device not observed in this snapshot";
+export const SNAPSHOT_HISTORY_LATEST_DEVICE_OBSERVED_COPY =
+  "Device observed in the latest snapshot";
+export const SNAPSHOT_HISTORY_LATEST_DEVICE_NOT_OBSERVED_COPY =
+  "Device not observed in the latest snapshot";
+export const SNAPSHOT_HISTORY_SELECTED_DEVICE_OBSERVED_COPY =
+  "Device observed in the selected snapshot";
+export const SNAPSHOT_HISTORY_SELECTED_DEVICE_NOT_OBSERVED_COPY =
+  "Device not observed in the selected snapshot";
+export const SNAPSHOT_HISTORY_LATEST_LAYOUT_COMPARISON_UNAVAILABLE_COPY =
+  "Snapshot comparison is unavailable because the latest topology layout is unavailable.";
+export const SNAPSHOT_HISTORY_SELECTED_LAYOUT_COMPARISON_UNAVAILABLE_COPY =
+  "Snapshot comparison is unavailable because the selected topology layout is unavailable.";
 export const RAW_SNAPSHOT_REFRESH_FAILED_COPY =
   "Raw snapshot could not be refreshed. Showing the last loaded data.";
 
@@ -326,7 +344,7 @@ export const INVESTIGATION_ACTION_LEADS: Record<InvestigationActionGroup, string
 /** Focus-action labels — identity is action_group, not rendered English elsewhere. */
 export const INVESTIGATION_FOCUS_LABEL_DEFAULT = "Focus graph";
 export const INVESTIGATION_FOCUS_LABEL_ROUTER_AREA = "Focus router area";
-export const INVESTIGATION_OPEN_ROUTER_DETAILS_LABEL = "Open router details";
+export const INVESTIGATION_OPEN_DEVICE_DETAILS_LABEL = "Open device details";
 
 
 /* ------------------------------------------------------------------------ */
@@ -615,6 +633,7 @@ export const FORBIDDEN_USER_FACING_PHRASES: readonly string[] = [
   "semantic inference",
   "nothing to see",
   "no problems found",
+  "Open router details",
   "drawer",
 ];
 

@@ -100,6 +100,14 @@ function ComparisonCard({ comparison }: { comparison: SnapshotComparisonViewMode
         {detailsOpen && (
           <div className="mt-2 space-y-2 text-xs" data-testid="snapshot-evidence-details">
             <div>
+              <p className="font-medium text-zl-text">Device presence</p>
+              <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-zl-muted">
+                {evidenceDetails.presenceLines.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
               <p className="font-medium text-zl-text">Links</p>
               <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-zl-muted">
                 {evidenceDetails.linkLines.map((line) => (
@@ -247,7 +255,18 @@ export function SnapshotHistoryContent({
                 </ul>
               </div>
 
-              {viewModel.comparison && <ComparisonCard comparison={viewModel.comparison} />}
+              {viewModel.comparison ? (
+                <ComparisonCard comparison={viewModel.comparison} />
+              ) : (
+                viewModel.comparisonUnavailableCopy && (
+                  <p
+                    className="text-xs text-zl-muted"
+                    data-testid="snapshot-comparison-unavailable"
+                  >
+                    {viewModel.comparisonUnavailableCopy}
+                  </p>
+                )
+              )}
             </>
           )}
         </>

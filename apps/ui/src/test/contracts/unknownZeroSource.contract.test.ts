@@ -45,7 +45,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/lib/decisionContract.ts",
     "kind": "nullishCoalescing",
     "expression": "status_counts[status] ?? 0",
-    "line": 287,
+    "line": 339,
     "character": 12,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary status enum key means a measured count of zero subjects for that status."
@@ -54,7 +54,7 @@ const DECLARED: DeclaredEntry[] = [
     "file": "apps/ui/src/lib/decisionContract.ts",
     "kind": "nullishCoalescing",
     "expression": "priority_counts[priority] ?? 0",
-    "line": 297,
+    "line": 349,
     "character": 12,
     "classification": "factual measured default",
     "note": "Missing DecisionCountSummary priority enum key means a measured count of zero subjects for that priority."

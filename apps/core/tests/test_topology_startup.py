@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from itertools import product
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from zigbeelens.app.context import bootstrap, reset_context
 from zigbeelens.config.models import (
@@ -22,15 +26,26 @@ from zigbeelens.topology.scheduler import (
     TopologyScheduler,
     bridges_ready,
     collector_ready,
+    get_topology_scheduler,
     periodic_capture_allowed,
     periodic_capture_interval_seconds,
+    start_topology_scheduler,
     startup_scan_allowed,
+    stop_topology_scheduler,
 )
-from zigbeelens.topology.service import TopologyService
+from zigbeelens.topology.service import (
+    TopologyService,
+    get_topology_service,
+    manual_capture_allowed,
+    start_topology,
+    stop_topology,
+    topology_status_dict,
+)
 
 
 def _published_topics(publisher: FakeTopologyRequestPublisher) -> list[str]:
     return [record.topic for record in publisher.published]
+
 
 def _live_config(db_path: Path, **topology_overrides) -> AppConfig:
     topology_defaults = {
@@ -83,6 +98,168 @@ def test_periodic_capture_uses_refresh_interval_seconds():
     cfg = AppConfig(topology=TopologyConfig(enabled=True, refresh_interval_seconds=3600))
     assert periodic_capture_interval_seconds(cfg) == 3600
     assert periodic_capture_allowed(cfg) is True
+
+
+@pytest.mark.parametrize(
+    (
+        "enabled",
+        "refresh_interval",
+        "automatic_capture",
+        "collector_is_ready",
+        "networks_present",
+    ),
+    list(product((False, True), (0, 60), (False, True), (False, True), (False, True))),
+)
+def test_topology_scheduler_lifecycle_cross_product(
+    tmp_path: Path,
+    enabled: bool,
+    refresh_interval: int,
+    automatic_capture: bool,
+    collector_is_ready: bool,
+    networks_present: bool,
+):
+    stop_topology()
+    cfg = _live_config(
+        tmp_path / "scheduler-cross-product.sqlite",
+        enabled=enabled,
+        startup_scan=True,
+        refresh_interval_seconds=refresh_interval,
+        automatic_capture_enabled=automatic_capture,
+    )
+    cfg.features.automatic_network_map = automatic_capture
+    if not networks_present:
+        cfg.networks = []
+
+    repo = MagicMock()
+    network_rows = (
+        [SimpleNamespace(id="home", name="Home", bridge_state="online")]
+        if networks_present
+        else []
+    )
+    repo.list_networks.return_value = network_rows
+    repo.get_latest_topology_snapshots_for_networks.return_value = {}
+    repo.get_network.return_value = network_rows[0] if network_rows else None
+    collector = None
+    if collector_is_ready:
+        collector = SimpleNamespace(
+            status=lambda: SimpleNamespace(enabled=True, connected=True)
+        )
+    ctx = SimpleNamespace(config=cfg, repo=repo, collector=collector)
+    publisher = FakeTopologyRequestPublisher(cfg)
+    service = TopologyService(
+        ctx,
+        publisher=publisher,
+    )
+
+    expected_periodic = enabled and (
+        refresh_interval > 0 or automatic_capture
+    )
+    expected_startup = enabled and networks_present
+    expected_scheduler = expected_periodic or expected_startup
+    assert periodic_capture_allowed(cfg) is expected_periodic
+    assert startup_scan_allowed(cfg) is expected_startup
+    assert collector_ready(ctx) is collector_is_ready
+
+    thread = MagicMock()
+    thread.is_alive.return_value = False
+    try:
+        with patch(
+            "zigbeelens.topology.scheduler.threading.Thread",
+            return_value=thread,
+        ) as thread_factory:
+            scheduler = start_topology_scheduler(ctx, service)
+        assert (scheduler is not None) is expected_scheduler
+        assert thread_factory.called is expected_scheduler
+        assert thread.start.called is expected_scheduler
+        assert (get_topology_scheduler() is not None) is expected_scheduler
+
+        if not enabled:
+            status = topology_status_dict(ctx)
+            assert status["enabled"] is False
+            assert status["manual_capture_enabled"] is False
+            assert status["automatic_capture_enabled"] is False
+            assert service.status.capture_in_progress is False
+            assert publisher.published == []
+    finally:
+        stop_topology_scheduler(wait=True)
+    assert get_topology_scheduler() is None
+
+
+@pytest.mark.parametrize(
+    (
+        "refresh_interval",
+        "legacy_feature",
+        "legacy_topology",
+        "startup_scan",
+        "manual_feature",
+        "manual_topology",
+    ),
+    list(
+        product(
+            (0, 60),
+            (False, True),
+            (False, True),
+            (False, True),
+            (False, True),
+            (False, True),
+        )
+    ),
+)
+def test_disabled_topology_owns_zero_scheduler_status_and_capture_cross_product(
+    tmp_path: Path,
+    refresh_interval: int,
+    legacy_feature: bool,
+    legacy_topology: bool,
+    startup_scan: bool,
+    manual_feature: bool,
+    manual_topology: bool,
+):
+    cfg = _live_config(
+        tmp_path / "disabled-cross-product.sqlite",
+        enabled=False,
+        startup_scan=startup_scan,
+        refresh_interval_seconds=refresh_interval,
+        automatic_capture_enabled=legacy_topology,
+        manual_capture_enabled=manual_topology,
+    )
+    cfg.features.automatic_network_map = legacy_feature
+    cfg.features.manual_network_map = manual_feature
+    ctx = SimpleNamespace(config=cfg, repo=MagicMock())
+    ctx.repo.list_networks.return_value = []
+
+    assert periodic_capture_interval_seconds(cfg) == 0
+    assert periodic_capture_allowed(cfg) is False
+    assert startup_scan_allowed(cfg) is False
+    assert manual_capture_allowed(cfg) is False
+
+    publisher = FakeTopologyRequestPublisher(cfg)
+    service = TopologyService(ctx, publisher=publisher)
+    scheduler = TopologyScheduler(ctx, service)
+    scheduler.start()
+    assert scheduler._thread is None
+    assert start_topology_scheduler(ctx, service) is None
+    assert get_topology_scheduler() is None
+    with pytest.raises(PermissionError, match="disabled"):
+        service.request_capture("home", confirmed=True)
+    with pytest.raises(PermissionError, match="disabled"):
+        service.request_system_capture("home", requested_by="startup_scan")
+    with pytest.raises(PermissionError, match="disabled"):
+        service.request_system_capture("home", requested_by="periodic_refresh")
+    assert publisher.published == []
+
+    try:
+        assert start_topology(ctx) is None
+        assert get_topology_service() is None
+        assert topology_status_dict(ctx) == {
+            "enabled": False,
+            "manual_capture_enabled": False,
+            "automatic_capture_enabled": False,
+            "capture_in_progress": False,
+            "last_capture_error": None,
+            "networks": [],
+        }
+    finally:
+        stop_topology()
 
 
 def test_startup_scan_waits_for_collector_and_bridge(tmp_path: Path):

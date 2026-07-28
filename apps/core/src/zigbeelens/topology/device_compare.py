@@ -13,7 +13,8 @@ status, plain-language reasons and practical suggested checks.
 
 Safety rules enforced here:
 
-- Only complete ("usable") snapshots are listed or compared.
+- Complete snapshots are listed, but an empty/limited stored layout is marked
+  unavailable and is never compared as measured zero.
 - Statuses describe snapshot comparison only, never device health, and use
   existing issue signals only (currently reported unavailable, or linked to
   an active incident). No new issue inference, no causality.
@@ -93,7 +94,9 @@ class DeviceSnapshotHistoryNetworkContext(BaseModel):
 
     network_id: str
     usable_snapshots: list[dict[str, Any]] = Field(default_factory=list)
+    nodes_by_snapshot_id: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     links_by_snapshot_id: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    layout_available_by_snapshot_id: dict[str, bool] = Field(default_factory=dict)
     earliest_availability_at: str | None = None
     tracking_enabled_now: bool = False
 
@@ -101,7 +104,16 @@ class DeviceSnapshotHistoryNetworkContext(BaseModel):
 class _DeviceSnapshotEvidence:
     """Per-device link and route-hint evidence from one snapshot."""
 
-    def __init__(self, links: list[dict[str, Any]], device: str) -> None:
+    def __init__(
+        self,
+        links: list[dict[str, Any]],
+        device: str,
+        *,
+        nodes: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.device_present = any(
+            _norm(node.get("ieee_address")) == device for node in (nodes or [])
+        )
         # Undirected neighbour pairs involving the device -> best recorded LQI.
         self.link_lqi: dict[tuple[str, str], int | None] = {}
         # Directed route pairs involving the device -> recorded route count.
@@ -109,6 +121,8 @@ class _DeviceSnapshotEvidence:
         for link in links:
             source = _norm(link["source_ieee"])
             target = _norm(link["target_ieee"])
+            if device in (source, target):
+                self.device_present = True
             if not source or not target or source == target:
                 continue
             if device not in (source, target):
@@ -249,6 +263,13 @@ def _comparison_to_latest(
         selected_evidence.route_counts,
         changed=changed_route_count,
     )
+    device_presence = {
+        "latest": latest_evidence.device_present,
+        "selected": selected_evidence.device_present,
+        "changed": (
+            latest_evidence.device_present != selected_evidence.device_present
+        ),
+    }
 
     link_diff_total = (
         link_counts["latest_only_count"]
@@ -263,10 +284,26 @@ def _comparison_to_latest(
     no_latest_links_after_selected = (
         link_counts["latest_count"] == 0 and link_counts["selected_count"] > 0
     )
-    any_difference = link_diff_total > 0 or route_diff_total > 0
+    any_difference = (
+        device_presence["changed"]
+        or link_diff_total > 0
+        or route_diff_total > 0
+    )
 
     reasons: list[str] = []
     checks: list[str] = []
+
+    if device_presence["changed"]:
+        if device_presence["selected"]:
+            reasons.append(
+                "The device was observed in the selected snapshot but not "
+                "the latest snapshot."
+            )
+        else:
+            reasons.append(
+                "The device was observed in the latest snapshot but not "
+                "the selected snapshot."
+            )
 
     if no_latest_links_after_selected:
         reasons.append("Latest snapshot shows no links for this device.")
@@ -340,6 +377,7 @@ def _comparison_to_latest(
         "status": status,
         "reasons": reasons,
         "suggested_checks": checks,
+        "device_presence": device_presence,
         "link_counts": link_counts,
         "route_hint_counts": route_counts,
     }
@@ -351,7 +389,9 @@ def load_device_snapshot_history_network_context(
     *,
     max_snapshots: int = MAX_SNAPSHOT_HISTORY,
     snapshots: list[dict[str, Any]] | None = None,
+    nodes_by_snapshot_id: dict[str, list[dict[str, Any]]] | None = None,
     links_by_snapshot_id: dict[str, list[dict[str, Any]]] | None = None,
+    layout_available_by_snapshot_id: dict[str, bool] | None = None,
     earliest_availability_at: str | None | object = None,
     earliest_availability_supplied: bool = False,
     tracking_enabled_now: bool | None = None,
@@ -373,6 +413,18 @@ def load_device_snapshot_history_network_context(
         usable = list(
             repo.list_complete_topology_snapshots(network_id, limit=max_snapshots)
         )
+    resolved_nodes: dict[str, list[dict[str, Any]]] = {}
+    missing_node_ids: list[str] = []
+    for snapshot in usable:
+        snapshot_id = str(snapshot["snapshot_id"])
+        if nodes_by_snapshot_id is not None and snapshot_id in nodes_by_snapshot_id:
+            resolved_nodes[snapshot_id] = list(nodes_by_snapshot_id[snapshot_id])
+        else:
+            missing_node_ids.append(snapshot_id)
+    if missing_node_ids:
+        bulk_nodes = repo.list_topology_nodes_for_snapshots(missing_node_ids)
+        for snapshot_id in missing_node_ids:
+            resolved_nodes[snapshot_id] = list(bulk_nodes.get(snapshot_id, []))
     resolved_links: dict[str, list[dict[str, Any]]] = {}
     missing_link_ids: list[str] = []
     for snapshot in usable:
@@ -385,6 +437,27 @@ def load_device_snapshot_history_network_context(
         bulk_links = repo.list_topology_links_for_snapshots(missing_link_ids)
         for snapshot_id in missing_link_ids:
             resolved_links[snapshot_id] = list(bulk_links.get(snapshot_id, []))
+    resolved_layout_available: dict[str, bool] = {}
+    missing_layout_ids: list[str] = []
+    for snapshot in usable:
+        snapshot_id = str(snapshot["snapshot_id"])
+        if (
+            layout_available_by_snapshot_id is not None
+            and snapshot_id in layout_available_by_snapshot_id
+        ):
+            resolved_layout_available[snapshot_id] = bool(
+                layout_available_by_snapshot_id[snapshot_id]
+            )
+        else:
+            missing_layout_ids.append(snapshot_id)
+    if missing_layout_ids:
+        stored_layout = repo.get_topology_layout_availability_for_snapshots(
+            missing_layout_ids
+        )
+        for snapshot_id in missing_layout_ids:
+            resolved_layout_available[snapshot_id] = bool(
+                stored_layout.get(snapshot_id, False)
+            )
     if earliest_availability_supplied:
         resolved_earliest = earliest_availability_at  # may be None
     else:
@@ -403,7 +476,9 @@ def load_device_snapshot_history_network_context(
     return DeviceSnapshotHistoryNetworkContext(
         network_id=network_id,
         usable_snapshots=usable,
+        nodes_by_snapshot_id=resolved_nodes,
         links_by_snapshot_id=resolved_links,
+        layout_available_by_snapshot_id=resolved_layout_available,
         earliest_availability_at=resolved_earliest,  # type: ignore[arg-type]
         tracking_enabled_now=resolved_tracking,
     )
@@ -435,11 +510,22 @@ def build_device_snapshot_history(
     device_changes = list(reversed(raw_device_changes))  # oldest first
 
     def _evidence_for(snapshot_id: str) -> _DeviceSnapshotEvidence:
+        nodes = network_context.nodes_by_snapshot_id.get(snapshot_id, [])
         links = network_context.links_by_snapshot_id.get(snapshot_id, [])
-        return _DeviceSnapshotEvidence(links, device)
+        return _DeviceSnapshotEvidence(links, device, nodes=nodes)
 
     latest_evidence = (
         _evidence_for(str(usable[0]["snapshot_id"])) if usable else None
+    )
+    latest_layout_available = (
+        bool(
+            network_context.layout_available_by_snapshot_id.get(
+                str(usable[0]["snapshot_id"]),
+                False,
+            )
+        )
+        if usable
+        else False
     )
 
     snapshots: list[dict[str, Any]] = []
@@ -448,6 +534,12 @@ def build_device_snapshot_history(
         snapshot_id = str(snapshot["snapshot_id"])
         evidence = latest_evidence if is_latest else _evidence_for(snapshot_id)
         assert evidence is not None
+        layout_available = bool(
+            network_context.layout_available_by_snapshot_id.get(
+                snapshot_id,
+                False,
+            )
+        )
         coverage = _coverage_for_snapshot(
             snapshot.get("captured_at"),
             is_latest=is_latest,
@@ -458,9 +550,17 @@ def build_device_snapshot_history(
             "snapshot_id": snapshot["snapshot_id"],
             "captured_at": snapshot.get("captured_at"),
             "is_latest": is_latest,
-            "is_usable": True,
-            "links_for_device_count": len(evidence.link_lqi),
-            "route_hints_for_device_count": len(evidence.route_counts),
+            "is_usable": layout_available,
+            "layout_state": "available" if layout_available else "limited",
+            "device_present_in_snapshot": (
+                evidence.device_present if layout_available else None
+            ),
+            "links_for_device_count": (
+                len(evidence.link_lqi) if layout_available else None
+            ),
+            "route_hints_for_device_count": (
+                len(evidence.route_counts) if layout_available else None
+            ),
             "availability_coverage_status": coverage,
             "availability_state_near_snapshot": _state_near_snapshot(
                 device_changes,
@@ -471,7 +571,12 @@ def build_device_snapshot_history(
             ),
             "comparison_to_latest": None,
         }
-        if not is_latest and latest_evidence is not None:
+        if (
+            not is_latest
+            and latest_evidence is not None
+            and latest_layout_available
+            and layout_available
+        ):
             row["comparison_to_latest"] = _comparison_to_latest(
                 latest_evidence=latest_evidence,
                 selected_evidence=evidence,
@@ -502,9 +607,9 @@ def device_snapshot_history(
     max_snapshots: int = MAX_SNAPSHOT_HISTORY,
     network_context: DeviceSnapshotHistoryNetworkContext | None = None,
 ) -> dict[str, Any]:
-    """Snapshot history for one device: recent usable snapshots with
-    per-device counts, availability coverage, and a comparison of each
-    earlier snapshot against the latest.
+    """Snapshot history for one device: recent complete snapshots with
+    per-device layout availability, counts, availability coverage, and
+    comparisons only between snapshots whose layouts are usable.
 
     Read-only over stored snapshots and availability history. Deterministic
     ordering (newest first). Unknown values stay None, never zero.

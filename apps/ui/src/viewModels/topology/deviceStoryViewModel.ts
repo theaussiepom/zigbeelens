@@ -81,7 +81,9 @@ function evidenceLine(
 }
 
 export function buildDeviceStoryViewModel(story: DeviceStoryDto): DeviceStoryViewModel {
-  const coverage = buildEvidenceCoverageStripViewModel(story.coverage);
+  const coverage = buildEvidenceCoverageStripViewModel(story.coverage, {
+    presentation: "device_story",
+  });
 
   return {
     loadState: "ready",

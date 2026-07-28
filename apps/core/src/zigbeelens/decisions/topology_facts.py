@@ -226,15 +226,30 @@ def build_device_latest_topology_facts(
     latest_snapshot: dict[str, Any] | None,
     nodes: list[dict[str, Any]],
     links: list[dict[str, Any]],
+    layout_available: bool | None = None,
+    device_present_in_snapshot: bool | None = None,
 ) -> list[EvidenceFact]:
     """Derive latest-snapshot device facts that do not depend on historical rows."""
     device = _norm(device_ieee)
     if not device or latest_snapshot is None:
         return []
 
-    facts: list[EvidenceFact] = []
+    resolved_layout_available = (
+        bool(nodes or links) if layout_available is None else layout_available
+    )
+    if not resolved_layout_available:
+        return []
 
-    if _device_in_nodes(device, nodes):
+    facts: list[EvidenceFact] = []
+    latest_link_count = _device_link_count(device, links)
+    derived_device_present = _device_in_nodes(device, nodes) or latest_link_count > 0
+    resolved_device_present = (
+        derived_device_present
+        if device_present_in_snapshot is None
+        else device_present_in_snapshot or derived_device_present
+    )
+
+    if resolved_device_present:
         facts.append(
             _fact(
                 TopologyFactCode.device_seen_in_latest_snapshot,
@@ -251,7 +266,6 @@ def build_device_latest_topology_facts(
             )
         )
 
-    latest_link_count = _device_link_count(device, links)
     if latest_link_count > 0:
         facts.append(
             _fact(
@@ -281,10 +295,38 @@ def build_device_snapshot_comparison_facts(
     snapshot_id = comparison_snapshot_row.get("snapshot_id")
     if not device or not snapshot_id:
         return []
+    if comparison_snapshot_row.get("layout_state") != "available":
+        return []
+    selected_present = comparison_snapshot_row.get("device_present_in_snapshot")
+    if not isinstance(selected_present, bool):
+        return []
 
     facts: list[EvidenceFact] = []
+    comparison = comparison_snapshot_row.get("comparison_to_latest")
+    if not isinstance(comparison, dict):
+        return facts
+    presence = comparison.get("device_presence")
+    if not isinstance(presence, dict):
+        return facts
+    latest_present = presence.get("latest")
+    compared_selected_present = presence.get("selected")
+    presence_changed = presence.get("changed")
+    if (
+        not isinstance(latest_present, bool)
+        or not isinstance(compared_selected_present, bool)
+        or not isinstance(presence_changed, bool)
+        or compared_selected_present != selected_present
+        or presence_changed != (latest_present != compared_selected_present)
+    ):
+        return facts
 
-    selected_link_count = int(comparison_snapshot_row.get("links_for_device_count") or 0)
+    selected_link_count = comparison_snapshot_row.get("links_for_device_count")
+    if (
+        isinstance(selected_link_count, bool)
+        or not isinstance(selected_link_count, int)
+        or selected_link_count < 0
+    ):
+        return []
     if selected_link_count > 0:
         facts.append(
             _fact(
@@ -295,31 +337,39 @@ def build_device_snapshot_comparison_facts(
             )
         )
 
-    comparison = comparison_snapshot_row.get("comparison_to_latest")
-    if isinstance(comparison, dict):
-        comparison_status = comparison.get("status")
-        if comparison_status in _COMPARISON_CHANGED_STATUSES:
-            facts.append(
-                _fact(
-                    TopologyFactCode.device_latest_vs_selected_changed,
-                    device_ieee=device,
-                    comparison_status=comparison_status,
-                    snapshot_id=snapshot_id,
-                )
+    comparison_status = comparison.get("status")
+    if comparison_status not in {
+        STATUS_NO_NOTABLE_CHANGE,
+        *_COMPARISON_CHANGED_STATUSES,
+    }:
+        return []
+    if presence_changed and comparison_status == STATUS_NO_NOTABLE_CHANGE:
+        return []
+    if comparison_status in _COMPARISON_CHANGED_STATUSES:
+        facts.append(
+            _fact(
+                TopologyFactCode.device_latest_vs_selected_changed,
+                device_ieee=device,
+                comparison_status=comparison_status,
+                snapshot_id=snapshot_id,
+                latest_device_present_in_snapshot=latest_present,
+                selected_device_present_in_snapshot=compared_selected_present,
+                device_presence_changed=presence_changed,
             )
-        elif comparison_status == STATUS_NO_NOTABLE_CHANGE:
-            pass
+        )
+    elif comparison_status == STATUS_NO_NOTABLE_CHANGE:
+        pass
 
-        coverage = comparison_snapshot_row.get("availability_coverage_status")
-        if coverage in _COVERAGE_AFFECTS_COMPARISON:
-            facts.append(
-                _fact(
-                    TopologyFactCode.availability_coverage_affects_snapshot_comparison,
-                    device_ieee=device,
-                    availability_coverage_status=coverage,
-                    snapshot_id=snapshot_id,
-                )
+    coverage = comparison_snapshot_row.get("availability_coverage_status")
+    if coverage in _COVERAGE_AFFECTS_COMPARISON:
+        facts.append(
+            _fact(
+                TopologyFactCode.availability_coverage_affects_snapshot_comparison,
+                device_ieee=device,
+                availability_coverage_status=coverage,
+                snapshot_id=snapshot_id,
             )
+        )
 
     return facts
 
@@ -369,14 +419,29 @@ def build_topology_facts_from_evidence_graph(
         device = _norm(ieee)
         if not device:
             continue
+        history = histories_by_device.get(device)
+        layout_available: bool | None = None
+        device_present_in_snapshot: bool | None = None
+        if history:
+            latest_history_row = history.get("latest_snapshot")
+            if isinstance(latest_history_row, dict):
+                layout_state = latest_history_row.get("layout_state")
+                if layout_state == "available":
+                    layout_available = True
+                    present = latest_history_row.get("device_present_in_snapshot")
+                    if isinstance(present, bool):
+                        device_present_in_snapshot = present
+                elif layout_state == "limited":
+                    layout_available = False
         device_facts[device] = build_device_latest_topology_facts(
             device_ieee=device,
             latest_snapshot=latest_snapshot,
             nodes=nodes,
             links=links,
+            layout_available=layout_available,
+            device_present_in_snapshot=device_present_in_snapshot,
         )
         comparison_by_snapshot: dict[str, list[EvidenceFact]] = {}
-        history = histories_by_device.get(device)
         if history:
             for row in history.get("snapshots") or []:
                 snapshot_id = row.get("snapshot_id")

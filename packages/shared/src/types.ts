@@ -27,8 +27,133 @@ export type DecisionStatus =
   | "improve_data_coverage"
   | "data_unavailable";
 
+/** Status for one device comparison between two available stored topology layouts. */
+export type DeviceSnapshotCompareStatus =
+  | "no_notable_change"
+  | "changed"
+  | "watch"
+  | "worth_reviewing";
+
+/** Exact pair-count evidence for one available-layout snapshot comparison. */
+export interface DeviceSnapshotCompareCounts {
+  latest_count: number;
+  selected_count: number;
+  latest_only_count: number;
+  selected_only_count: number;
+  changed_count: number;
+}
+
+/** Measured device presence in the latest and selected available layouts. */
+export interface DeviceSnapshotPresenceComparison {
+  latest: boolean;
+  selected: boolean;
+  /** Must equal `latest !== selected`. */
+  changed: boolean;
+}
+
+/** Typed device comparison owned by Core and shared with UI consumers. */
+export interface DeviceSnapshotComparison {
+  status: DeviceSnapshotCompareStatus;
+  reasons: string[];
+  suggested_checks: string[];
+  device_presence: DeviceSnapshotPresenceComparison;
+  link_counts: DeviceSnapshotCompareCounts;
+  route_hint_counts: DeviceSnapshotCompareCounts;
+}
+
+/** Exact fact emitted when an earlier available snapshot has links for the device. */
+export interface DeviceSnapshotSelectedLinksFact {
+  code: "device_has_selected_snapshot_links";
+  params: {
+    device_ieee: string;
+    snapshot_id: string;
+    link_count: number;
+  };
+}
+
+/** Exact factual projection of a changed device snapshot comparison. */
+export interface DeviceSnapshotChangedFact {
+  code: "device_latest_vs_selected_changed";
+  params: {
+    device_ieee: string;
+    comparison_status: Exclude<
+      DeviceSnapshotCompareStatus,
+      "no_notable_change"
+    >;
+    snapshot_id: string;
+    latest_device_present_in_snapshot: boolean;
+    selected_device_present_in_snapshot: boolean;
+    device_presence_changed: boolean;
+  };
+}
+
+/** Exact availability limitation attached to one available-layout comparison. */
+export interface DeviceSnapshotComparisonCoverageFact {
+  code: "availability_coverage_affects_snapshot_comparison";
+  params: {
+    device_ieee: string;
+    availability_coverage_status: "off" | "building" | "unknown";
+    snapshot_id: string;
+  };
+}
+
+export type DeviceSnapshotComparisonFact =
+  | DeviceSnapshotSelectedLinksFact
+  | DeviceSnapshotChangedFact
+  | DeviceSnapshotComparisonCoverageFact;
+
+export type DeviceSnapshotLatestFact =
+  | {
+      code:
+        | "device_seen_in_latest_snapshot"
+        | "device_absent_from_latest_snapshot";
+      params: {
+        device_ieee: string;
+        snapshot_id: string;
+      };
+    }
+  | {
+      code: "device_has_latest_links";
+      params: {
+        device_ieee: string;
+        link_count: number;
+      };
+    }
+  | {
+      code: "device_no_latest_links";
+      params: {
+        device_ieee: string;
+      };
+    };
+
 /** Canonical decision priority. */
 export type DecisionPriority = "none" | "low" | "medium" | "high";
+
+/** Stable evidence-coverage dimensions emitted by the decision engine. */
+export type CoverageDimension =
+  | "availability"
+  | "last_seen"
+  | "last_payload"
+  | "battery"
+  | "linkquality"
+  | "topology_snapshot"
+  | "route_hints"
+  | "historical_snapshots"
+  | "passive_history"
+  | "ha_enrichment"
+  | "incidents"
+  | "reports";
+
+/** Stable evidence-coverage states emitted by the decision engine. */
+export type CoverageState =
+  | "available"
+  | "off"
+  | "building"
+  | "unknown"
+  | "stale"
+  | "not_configured"
+  | "not_observed"
+  | "sparse";
 
 /** Stable coverage label codes mapped by UI/report presenters. */
 export type CoverageLabelCode =
@@ -50,7 +175,69 @@ export type CoverageLabelCode =
   | "topology_history_available"
   | "topology_history_sparse"
   | "topology_history_not_observed"
+  | "topology_history_unavailable"
   | "ha_area_linked";
+
+/**
+ * Exact measured coverage for selected complete topology captures.
+ *
+ * `snapshot_window_count` is retained as a compatibility alias for
+ * `complete_snapshot_count`; both always count every selected complete
+ * capture, including captures whose node/link layout is unavailable.
+ */
+export interface TopologyHistoryCoverageParams {
+  observed_snapshot_count: number;
+  complete_snapshot_count: number;
+  available_layout_snapshot_count: number;
+  limited_layout_snapshot_count: number;
+  snapshot_window_count: number;
+}
+
+/** Label/state pairs permitted for measured topology-history coverage. */
+export type TopologyHistoryDataCoverage =
+  | {
+      dimension: "historical_snapshots";
+      state: "available";
+      label_code: "topology_history_available";
+      params: TopologyHistoryCoverageParams;
+    }
+  | {
+      dimension: "historical_snapshots";
+      state: "sparse";
+      label_code: "topology_history_sparse";
+      params: TopologyHistoryCoverageParams;
+    }
+  | {
+      dimension: "historical_snapshots";
+      state: "not_observed";
+      label_code: "topology_history_not_observed";
+      params: TopologyHistoryCoverageParams;
+    }
+  | {
+      dimension: "historical_snapshots";
+      state: "unknown";
+      label_code: "topology_history_unavailable";
+      params: TopologyHistoryCoverageParams;
+    };
+
+/** Coverage outside topology history cannot carry topology-history label codes. */
+export interface NonTopologyDataCoverage {
+  dimension: Exclude<CoverageDimension, "historical_snapshots">;
+  state: CoverageState;
+  label_code: Exclude<
+    CoverageLabelCode,
+    | "topology_history_available"
+    | "topology_history_sparse"
+    | "topology_history_not_observed"
+    | "topology_history_unavailable"
+  >;
+  params?: Record<string, unknown>;
+}
+
+/** Exact static ownership for all structured decision coverage statements. */
+export type DataCoverage =
+  | TopologyHistoryDataCoverage
+  | NonTopologyDataCoverage;
 
 /** Bridge online state */
 export type BridgeState = "online" | "offline" | "unknown";
@@ -343,14 +530,13 @@ export type RedactionMode = "preserved" | "labeled" | "hashed" | "redacted";
 
 /** Per-request redaction overrides (null = use profile default) */
 export interface RedactionOptions {
-  profile: RedactionProfile;
+  profile?: RedactionProfile | null;
   preserve_friendly_names?: boolean | null;
   hash_ieee_addresses?: boolean | null;
   redact_hostnames?: boolean | null;
   redact_ip_addresses?: boolean | null;
   redact_network_names?: boolean | null;
   include_timeline?: boolean | null;
-  include_raw_payloads?: boolean | null;
 }
 
 /** Request body for generating a report */
@@ -391,7 +577,7 @@ export interface ReportDeviceStory {
   evidence: Array<Record<string, unknown>>;
   limitations: Array<{ code: string; params?: Record<string, unknown> }>;
   suggested_checks: Array<{ code: string; params?: Record<string, unknown> }>;
-  coverage: Array<Record<string, unknown>>;
+  coverage: DataCoverage[];
   related_unresolved_incident_ids: string[];
   timeline: Array<{
     code: string;

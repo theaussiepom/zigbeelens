@@ -42,7 +42,6 @@ describe("buildContextualReportRequest", () => {
             redact_ip_addresses: CONTEXTUAL_REPORT_PROFILE_DEFAULTS[profile].redactIp,
             redact_network_names: CONTEXTUAL_REPORT_PROFILE_DEFAULTS[profile].redactNetworkNames,
             include_timeline: CONTEXTUAL_REPORT_PROFILE_DEFAULTS[profile].includeTimeline,
-            include_raw_payloads: CONTEXTUAL_REPORT_PROFILE_DEFAULTS[profile].includeRaw,
           },
         });
       }
