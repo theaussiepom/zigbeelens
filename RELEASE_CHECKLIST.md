@@ -33,6 +33,9 @@ helper does not replace the Phase 7-specific checks or manual gates.
 - [ ] Docker metadata contract proves `org.opencontainers.image.version` is
       the package version, `revision` is the full source SHA, and `source` is
       the canonical repository before Buildx consumes the labels
+- [ ] Canonical local Docker build starts from a clean exact Git checkout
+      (or an explicitly attested immutable source export), rejects mismatched
+      revision overrides, and uses the maintained root `.dockerignore`
 - [ ] Storage retention policy v2: telemetry / resolved incidents / reports; startup + periodic maintenance
 - [ ] `zigbeelens storage check` / `backup` / `maintenance --dry-run` validated on a release candidate DB
 

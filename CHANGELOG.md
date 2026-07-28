@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Release artifact identity:** the Docker workflow owns package-version OCI metadata separately from channel tags and validates version, full revision, and source before Buildx consumes the labels.
+- **Canonical Docker provenance:** local release builds reject dirty Git trees,
+  require revision overrides to match clean `HEAD`, and admit non-Git source
+  exports only with an explicit immutable-export attestation; the maintained
+  `.dockerignore` excludes generated and private host state from the context.
 - **Snapshot-history availability:** layout-limited captures expose unknown
   device presence and nullable link/route counts instead of measured zero;
   device absence, no-links facts, and comparisons require available layouts.

@@ -1,0 +1,96 @@
+# Source-control metadata
+.git
+.git/**
+
+# Runtime data and SQLite state
+data/
+**/data/
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.sqlite-*
+**/*.sqlite3
+**/*.sqlite3-*
+.env
+.env.local
+**/.env
+**/.env.local
+
+# Python and JavaScript environments
+.venv/
+.venv-*/
+**/.venv/
+**/.venv-*/
+venv/
+**/venv/
+env/
+**/env/
+node_modules/
+**/node_modules/
+.pnpm-store/
+**/.pnpm-store/
+
+# Generated builds and package staging
+dist/
+**/dist/
+build/
+**/build/
+apps/ui/dist/
+packages/shared/dist/
+apps/addon/zigbeelens/.build/
+**/.build/
+**/*.tsbuildinfo
+apps/core/uv.lock
+
+# Python bytecode and tool caches
+**/__pycache__/
+**/*.py[cod]
+**/*.pyc
+**/*.pyo
+**/*.egg-info/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+.coverage
+**/.coverage
+htmlcov/
+**/htmlcov/
+
+# Browser, capture, and test-run state
+.playwright/
+**/.playwright/
+playwright-report/
+**/playwright-report/
+test-results/
+**/test-results/
+browser-profile/
+**/browser-profile/
+.browser-profile/
+**/.browser-profile/
+browser-profiles/
+**/browser-profiles/
+captures/
+**/captures/
+capture/
+**/capture/
+local/zigbeelens-test/
+zigbeelens-test/
+
+# Logs, temporary files, and Docker image archives
+**/*.log
+**/*.tmp
+**/*.temp
+**/*.swp
+**/*~
+**/*.tar
+**/*.tar.gz
+**/*.tgz
+**/*.oci
+
+# Editor and operating-system state
+.DS_Store
+**/.DS_Store
+.idea/
+**/.idea/
+.vscode/
+**/.vscode/

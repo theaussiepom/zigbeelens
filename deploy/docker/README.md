@@ -67,10 +67,15 @@ ZIGBEELENS_IMAGE=zigbeelens:local ./scripts/build-docker.sh
 ```
 
 The script records the package version, canonical source URL, and full
-lowercase source revision in OCI labels. It resolves `git rev-parse HEAD` by
-default, or accepts an explicit full `ZIGBEELENS_REVISION` for a source export
-without Git metadata. Dirty checkouts retain the committed `HEAD` revision, so
-use a clean checkout when producing reproducible release evidence.
+lowercase source revision in OCI labels. A Git build requires the exact
+repository root and a clean tree; an explicit `ZIGBEELENS_REVISION` must equal
+the resolved full `HEAD`. Git builds use a disposable context materialized from
+committed `HEAD`, excluding even untracked source hidden by local or global Git
+ignore rules. An immutable source export without Git metadata must set both the
+full revision and `ZIGBEELENS_SOURCE_EXPORT=1`. The maintained root
+`.dockerignore` excludes local data, generated output, dependencies, caches,
+capture state, logs, and image archives from source-export and workflow
+contexts.
 
 Set `ZIGBEELENS_IMAGE=zigbeelens:local` when using the maintained Compose
 example, or use that exact local tag with `docker run`.

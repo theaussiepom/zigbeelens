@@ -76,21 +76,29 @@ docker run --rm -p 8377:8377 \
 ```
 
 The canonical build script labels the image with the exact package version,
-canonical source repository, and full lowercase source revision. It uses
-`ZIGBEELENS_REVISION` when explicitly supplied; otherwise it resolves the
-current `git rev-parse HEAD`. A source export without Git metadata must provide
-the full 40-character revision explicitly:
+canonical source repository, and full lowercase source revision. In a Git
+checkout, the script requires the exact repository root and rejects tracked or
+staged changes plus non-ignored untracked files. It resolves the current full
+`HEAD`; an explicit `ZIGBEELENS_REVISION` must match that value exactly. The
+Docker context is then materialized from committed `HEAD`, so ignored or
+otherwise untracked files cannot enter the image.
+
+A source export without Git metadata must provide the full revision and an
+explicit attestation that the export is the exact immutable tree for that
+revision:
 
 ```bash
+ZIGBEELENS_SOURCE_EXPORT=1 \
 ZIGBEELENS_REVISION="${FULL_SOURCE_SHA}" \
   ZIGBEELENS_IMAGE=zigbeelens:local \
   ./scripts/build-docker.sh
 ```
 
 Empty, abbreviated, malformed, or uppercase revisions fail before Docker is
-invoked. A dirty checkout deliberately retains the committed `HEAD` revision
-label; local modifications are not represented by that label, so use a clean
-checkout for reproducible release evidence.
+invoked. An override without the source-export attestation also fails when Git
+metadata is absent. The maintained root `.dockerignore` keeps local data,
+dependencies, generated builds, caches, capture state, logs, and image archives
+out of source-export and workflow build contexts.
 
 ## Configuration
 

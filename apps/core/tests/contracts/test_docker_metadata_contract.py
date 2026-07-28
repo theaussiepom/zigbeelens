@@ -20,6 +20,8 @@ CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 BUILD_SCRIPT = ROOT / "scripts" / "build-docker.sh"
 SMOKE_SCRIPT = ROOT / "scripts" / "smoke-docker.sh"
 DOCKERFILE = ROOT / "deploy" / "docker" / "Dockerfile"
+DOCKERIGNORE = ROOT / ".dockerignore"
+GITIGNORE = ROOT / ".gitignore"
 VALIDATOR = ROOT / "deploy" / "docker" / "validate_oci_metadata.py"
 SPEC = importlib.util.spec_from_file_location(
     "zigbeelens_validate_oci_metadata_contract",
@@ -99,14 +101,36 @@ def _local_build_fixture(
     tmp_path: Path,
     *,
     package_version: str = PACKAGE_VERSION,
+    include_dockerignore: bool = True,
 ) -> tuple[Path, Path, Path]:
     checkout = tmp_path / "checkout"
     scripts = checkout / "scripts"
     docker_dir = checkout / "deploy" / "docker"
+    core_source = checkout / "apps" / "core" / "src" / "zigbeelens"
+    ui_source = checkout / "apps" / "ui" / "src"
+    shared_source = checkout / "packages" / "shared" / "src"
     scripts.mkdir(parents=True)
     docker_dir.mkdir(parents=True)
+    core_source.mkdir(parents=True)
+    ui_source.mkdir(parents=True)
+    shared_source.mkdir(parents=True)
     shutil.copy2(BUILD_SCRIPT, scripts / "build-docker.sh")
     shutil.copy2(DOCKERFILE, docker_dir / "Dockerfile")
+    shutil.copy2(GITIGNORE, checkout / ".gitignore")
+    if include_dockerignore:
+        shutil.copy2(DOCKERIGNORE, checkout / ".dockerignore")
+    (core_source / "release_fixture.py").write_text(
+        'RELEASE_FIXTURE = "core"\n',
+        encoding="utf-8",
+    )
+    (ui_source / "release-fixture.ts").write_text(
+        'export const releaseFixture = "ui";\n',
+        encoding="utf-8",
+    )
+    (shared_source / "release-fixture.ts").write_text(
+        'export const releaseFixture = "shared";\n',
+        encoding="utf-8",
+    )
     (checkout / "package.json").write_text(
         json.dumps(
             {
@@ -125,7 +149,14 @@ def _local_build_fixture(
     fake_docker.write_text(
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
-        'printf "%s\\n" "$@" > "${DOCKER_ARGS_FILE:?}"\n',
+        'printf "%s\\n" "$@" > "${DOCKER_ARGS_FILE:?}"\n'
+        'context="${@: -1}"\n'
+        'if [[ -d "${context}" ]]; then\n'
+        "  (\n"
+        '    cd "${context}"\n'
+        '    find . -type f -print | LC_ALL=C sort\n'
+        '  ) > "${DOCKER_CONTEXT_FILES:?}"\n'
+        "fi\n",
         encoding="utf-8",
     )
     fake_docker.chmod(0o755)
@@ -143,12 +174,16 @@ def _run_local_build(
     for name in (
         "ZIGBEELENS_IMAGE",
         "ZIGBEELENS_REVISION",
+        "ZIGBEELENS_SOURCE_EXPORT",
         "ZIGBEELENS_VERSION",
     ):
         build_environment.pop(name, None)
     build_environment.update(
         {
             "DOCKER_ARGS_FILE": str(docker_args),
+            "DOCKER_CONTEXT_FILES": str(
+                docker_args.with_name("docker-context-files")
+            ),
             "PATH": f"{fake_bin}{os.pathsep}{build_environment['PATH']}",
             "ZIGBEELENS_IMAGE": "zigbeelens:contract",
         }
@@ -193,11 +228,16 @@ def _initialise_git_checkout(checkout: Path) -> str:
     return _git(checkout, "rev-parse", "HEAD")
 
 
-def _expected_local_build_arguments(revision: str) -> list[str]:
+def _expected_local_build_arguments(
+    revision: str,
+    *,
+    context: str = ".",
+    dockerfile: str = "deploy/docker/Dockerfile",
+) -> list[str]:
     return [
         "build",
         "-f",
-        "deploy/docker/Dockerfile",
+        dockerfile,
         "--build-arg",
         f"VERSION={PACKAGE_VERSION}",
         "--build-arg",
@@ -208,12 +248,43 @@ def _expected_local_build_arguments(revision: str) -> list[str]:
         "zigbeelens:contract",
         "-t",
         f"ghcr.io/theaussiepom/zigbeelens:{PACKAGE_VERSION}",
-        ".",
+        context,
     ]
 
 
 def _recorded_docker_arguments(path: Path) -> list[str]:
     return path.read_text(encoding="utf-8").splitlines()
+
+
+def _assert_recorded_docker_arguments(
+    path: Path,
+    revision: str,
+    *,
+    source_export: bool = False,
+) -> None:
+    recorded = _recorded_docker_arguments(path)
+    if source_export:
+        assert recorded == _expected_local_build_arguments(revision)
+        return
+    context = Path(recorded[-1])
+    assert context.is_absolute()
+    assert context.name == "context"
+    assert context.parent.name.startswith("zigbeelens-docker-context.")
+    assert Path(recorded[2]) == context / "deploy" / "docker" / "Dockerfile"
+    assert not context.exists()
+    normalized = list(recorded)
+    normalized[2] = "<committed-context>/deploy/docker/Dockerfile"
+    normalized[-1] = "<committed-context>"
+    assert normalized == _expected_local_build_arguments(
+        revision,
+        context="<committed-context>",
+        dockerfile="<committed-context>/deploy/docker/Dockerfile",
+    )
+
+
+def _recorded_docker_context_files(path: Path) -> set[str]:
+    context_files = path.with_name("docker-context-files")
+    return set(context_files.read_text(encoding="utf-8").splitlines())
 
 
 def _assert_workflow_contract(workflow: str) -> None:
@@ -391,16 +462,14 @@ def test_canonical_local_build_resolves_full_git_head(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert re.fullmatch(r"[0-9a-f]{40}", revision)
-    assert _recorded_docker_arguments(docker_args) == (
-        _expected_local_build_arguments(revision)
-    )
+    _assert_recorded_docker_arguments(docker_args, revision)
 
 
-def test_canonical_local_build_honours_revision_override_without_git(
+def test_canonical_local_build_accepts_matching_git_revision_override(
     tmp_path: Path,
 ) -> None:
     checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
-    revision = "a" * 40
+    revision = _initialise_git_checkout(checkout)
 
     result = _run_local_build(
         checkout,
@@ -410,9 +479,77 @@ def test_canonical_local_build_honours_revision_override_without_git(
     )
 
     assert result.returncode == 0, result.stderr
-    assert _recorded_docker_arguments(docker_args) == (
-        _expected_local_build_arguments(revision)
+    _assert_recorded_docker_arguments(docker_args, revision)
+
+
+def test_canonical_local_build_rejects_mismatched_git_revision_override(
+    tmp_path: Path,
+) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
+    revision = _initialise_git_checkout(checkout)
+    mismatched_revision = "a" * 40
+    assert revision != mismatched_revision
+
+    result = _run_local_build(
+        checkout,
+        fake_bin,
+        docker_args,
+        environment={"ZIGBEELENS_REVISION": mismatched_revision},
     )
+
+    assert result.returncode != 0
+    assert "must match the resolved Git HEAD" in result.stderr
+    assert not docker_args.exists()
+
+
+def test_canonical_source_export_requires_explicit_attestation(
+    tmp_path: Path,
+) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
+    revision = "a" * 40
+
+    result = _run_local_build(
+        checkout,
+        fake_bin,
+        docker_args,
+        environment={
+            "ZIGBEELENS_REVISION": revision,
+            "ZIGBEELENS_SOURCE_EXPORT": "1",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    _assert_recorded_docker_arguments(
+        docker_args,
+        revision,
+        source_export=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "attestation",
+    (None, "", "true", "0"),
+    ids=("unset", "empty", "truthy-word", "zero"),
+)
+def test_canonical_source_export_rejects_revision_without_exact_attestation(
+    tmp_path: Path,
+    attestation: str | None,
+) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
+    environment = {"ZIGBEELENS_REVISION": "a" * 40}
+    if attestation is not None:
+        environment["ZIGBEELENS_SOURCE_EXPORT"] = attestation
+
+    result = _run_local_build(
+        checkout,
+        fake_bin,
+        docker_args,
+        environment=environment,
+    )
+
+    assert result.returncode != 0
+    assert "requires ZIGBEELENS_SOURCE_EXPORT=1" in result.stderr
+    assert not docker_args.exists()
 
 
 def test_canonical_local_build_fails_without_git_or_override(
@@ -424,6 +561,22 @@ def test_canonical_local_build_fails_without_git_or_override(
 
     assert result.returncode != 0
     assert "unable to resolve a Git revision" in result.stderr
+    assert not docker_args.exists()
+
+
+def test_canonical_local_build_requires_maintained_root_dockerignore(
+    tmp_path: Path,
+) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(
+        tmp_path,
+        include_dockerignore=False,
+    )
+    _initialise_git_checkout(checkout)
+
+    result = _run_local_build(checkout, fake_bin, docker_args)
+
+    assert result.returncode != 0
+    assert "requires the maintained root .dockerignore" in result.stderr
     assert not docker_args.exists()
 
 
@@ -448,7 +601,15 @@ def test_canonical_local_build_rejects_unrelated_parent_git_checkout(
     )
     checkout, fake_bin, docker_args = _local_build_fixture(parent)
 
-    result = _run_local_build(checkout, fake_bin, docker_args)
+    result = _run_local_build(
+        checkout,
+        fake_bin,
+        docker_args,
+        environment={
+            "ZIGBEELENS_REVISION": "a" * 40,
+            "ZIGBEELENS_SOURCE_EXPORT": "1",
+        },
+    )
 
     assert result.returncode != 0
     assert "build root must be the exact Git checkout root" in result.stderr
@@ -490,7 +651,10 @@ def test_canonical_local_build_rejects_invalid_explicit_revision_before_docker(
         checkout,
         fake_bin,
         docker_args,
-        environment={"ZIGBEELENS_REVISION": revision},
+        environment={
+            "ZIGBEELENS_REVISION": revision,
+            "ZIGBEELENS_SOURCE_EXPORT": "1",
+        },
     )
 
     assert result.returncode != 0
@@ -566,6 +730,70 @@ def test_canonical_local_build_rejects_failed_git_with_plausible_stdout(
     assert not docker_args.exists()
 
 
+def test_canonical_local_build_does_not_reclassify_failed_git_as_source_export(
+    tmp_path: Path,
+) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
+    revision = _initialise_git_checkout(checkout)
+    fake_git = fake_bin / "git"
+    fake_git.write_text(
+        "#!/usr/bin/env bash\n"
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    fake_git.chmod(0o755)
+
+    result = _run_local_build(
+        checkout,
+        fake_bin,
+        docker_args,
+        environment={
+            "ZIGBEELENS_REVISION": revision,
+            "ZIGBEELENS_SOURCE_EXPORT": "1",
+        },
+    )
+
+    assert result.returncode != 0
+    assert (
+        "Git metadata applies to the build root but Git revision resolution failed"
+        in result.stderr
+    )
+    assert not docker_args.exists()
+
+
+def test_canonical_source_export_rejects_failed_git_with_ancestor_metadata(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    _git(parent, "init", "--quiet")
+    checkout, fake_bin, docker_args = _local_build_fixture(parent)
+    fake_git = fake_bin / "git"
+    fake_git.write_text(
+        "#!/usr/bin/env bash\n"
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    fake_git.chmod(0o755)
+
+    result = _run_local_build(
+        checkout,
+        fake_bin,
+        docker_args,
+        environment={
+            "ZIGBEELENS_REVISION": "a" * 40,
+            "ZIGBEELENS_SOURCE_EXPORT": "1",
+        },
+    )
+
+    assert result.returncode != 0
+    assert (
+        "Git metadata applies to the build root but Git revision resolution failed"
+        in result.stderr
+    )
+    assert not docker_args.exists()
+
+
 def test_canonical_local_build_resolves_detached_head(tmp_path: Path) -> None:
     checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
     revision = _initialise_git_checkout(checkout)
@@ -575,29 +803,186 @@ def test_canonical_local_build_resolves_detached_head(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert _git(checkout, "branch", "--show-current") == ""
-    assert _recorded_docker_arguments(docker_args) == (
-        _expected_local_build_arguments(revision)
+    _assert_recorded_docker_arguments(docker_args, revision)
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "stage_change", "use_revision_override"),
+    (
+        ("deploy/docker/Dockerfile", False, False),
+        ("apps/core/src/zigbeelens/release_fixture.py", False, False),
+        ("apps/ui/src/release-fixture.ts", False, False),
+        ("packages/shared/src/release-fixture.ts", False, False),
+        ("deploy/docker/Dockerfile", True, True),
+    ),
+    ids=(
+        "modified-dockerfile",
+        "modified-core-source",
+        "modified-ui-source",
+        "modified-shared-source",
+        "staged-input",
+    ),
+)
+def test_canonical_local_build_rejects_dirty_tracked_source_before_docker(
+    tmp_path: Path,
+    relative_path: str,
+    stage_change: bool,
+    use_revision_override: bool,
+) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
+    revision = _initialise_git_checkout(checkout)
+    source = checkout / relative_path
+    source.write_text(
+        source.read_text(encoding="utf-8") + "\n# dirty fixture\n",
+        encoding="utf-8",
+    )
+    if stage_change:
+        _git(checkout, "add", relative_path)
+    assert _git(checkout, "status", "--short")
+    environment = (
+        {"ZIGBEELENS_REVISION": revision}
+        if use_revision_override
+        else None
     )
 
+    result = _run_local_build(
+        checkout,
+        fake_bin,
+        docker_args,
+        environment=environment,
+    )
 
-def test_canonical_local_build_deliberately_identifies_head_when_dirty(
+    assert result.returncode != 0
+    assert "require a clean Git source tree" in result.stderr
+    assert not docker_args.exists()
+
+
+def test_canonical_local_build_rejects_untracked_copied_source_before_docker(
+    tmp_path: Path,
+) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
+    _initialise_git_checkout(checkout)
+    untracked_source = checkout / "apps" / "ui" / "src" / "untracked-release-input.ts"
+    untracked_source.write_text(
+        'export const untrackedReleaseInput = "unsafe";\n',
+        encoding="utf-8",
+    )
+    assert "?? apps/ui/src/untracked-release-input.ts" in _git(
+        checkout,
+        "status",
+        "--short",
+    )
+
+    result = _run_local_build(checkout, fake_bin, docker_args)
+
+    assert result.returncode != 0
+    assert "require a clean Git source tree" in result.stderr
+    assert not docker_args.exists()
+
+
+@pytest.mark.parametrize(
+    ("ignore_owner", "relative_path"),
+    (
+        ("repository-local", "apps/ui/src/locally-hidden-release-input.ts"),
+        ("global", "packages/shared/src/globally-hidden-release-input.ts"),
+    ),
+)
+def test_canonical_local_build_archives_only_head_when_untracked_source_is_ignored(
+    tmp_path: Path,
+    ignore_owner: str,
+    relative_path: str,
+) -> None:
+    checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
+    revision = _initialise_git_checkout(checkout)
+    hidden_source = checkout / relative_path
+    hidden_source.write_text(
+        'export const hiddenReleaseInput = "unsafe";\n',
+        encoding="utf-8",
+    )
+    environment: dict[str, str] = {}
+    if ignore_owner == "repository-local":
+        info_exclude = checkout / ".git" / "info" / "exclude"
+        info_exclude.write_text(
+            info_exclude.read_text(encoding="utf-8")
+            + f"\n{relative_path}\n",
+            encoding="utf-8",
+        )
+    else:
+        global_excludes = tmp_path / "global-excludes"
+        global_excludes.write_text(f"{relative_path}\n", encoding="utf-8")
+        global_config = tmp_path / "global-git-config"
+        global_config.write_text(
+            "[core]\n"
+            f"\texcludesFile = {global_excludes}\n",
+            encoding="utf-8",
+        )
+        environment.update(
+            {
+                "GIT_CONFIG_GLOBAL": str(global_config),
+                "GIT_CONFIG_NOSYSTEM": "1",
+            }
+        )
+    status_environment = os.environ.copy()
+    status_environment.update(environment)
+    status = subprocess.run(
+        ["git", "status", "--short"],
+        cwd=checkout,
+        env=status_environment,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert status.stdout == ""
+
+    result = _run_local_build(
+        checkout,
+        fake_bin,
+        docker_args,
+        environment=environment,
+    )
+
+    assert result.returncode == 0, result.stderr
+    _assert_recorded_docker_arguments(docker_args, revision)
+    context_files = _recorded_docker_context_files(docker_args)
+    assert f"./{relative_path}" not in context_files
+    assert "./apps/ui/src/release-fixture.ts" in context_files
+    assert "./packages/shared/src/release-fixture.ts" in context_files
+
+
+def test_canonical_local_build_allows_ignored_generated_host_artifacts(
     tmp_path: Path,
 ) -> None:
     checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
     revision = _initialise_git_checkout(checkout)
-    fixture_dockerfile = checkout / "deploy" / "docker" / "Dockerfile"
-    fixture_dockerfile.write_text(
-        fixture_dockerfile.read_text(encoding="utf-8") + "\n# dirty fixture\n",
-        encoding="utf-8",
+    generated_paths = (
+        "data/active.sqlite",
+        ".venv/generated-marker",
+        "node_modules/generated-marker",
+        "apps/ui/node_modules/generated-marker",
+        "apps/ui/dist/generated.js",
+        "apps/ui/tsconfig.tsbuildinfo",
+        "packages/shared/dist/generated.js",
+        "apps/core/src/zigbeelens/__pycache__/generated.pyc",
+        "apps/core/src/zigbeelens/generated.pyd",
+        "apps/ui/src/generated.swp",
+        "apps/addon/zigbeelens/.build/generated-marker",
+        "dist/zigbeelens-hacs/generated-marker",
     )
-    assert _git(checkout, "status", "--short")
+    for relative_path in generated_paths:
+        generated = checkout / relative_path
+        generated.parent.mkdir(parents=True, exist_ok=True)
+        generated.write_text("generated\n", encoding="utf-8")
+    assert _git(checkout, "status", "--short") == ""
 
     result = _run_local_build(checkout, fake_bin, docker_args)
 
     assert result.returncode == 0, result.stderr
-    assert _recorded_docker_arguments(docker_args) == (
-        _expected_local_build_arguments(revision)
-    )
+    _assert_recorded_docker_arguments(docker_args, revision)
+    context_files = _recorded_docker_context_files(docker_args)
+    for relative_path in generated_paths:
+        assert f"./{relative_path}" not in context_files
+    assert "./apps/ui/src/release-fixture.ts" in context_files
+    assert "./packages/shared/src/release-fixture.ts" in context_files
 
 
 @pytest.mark.parametrize(
@@ -646,7 +1031,7 @@ def test_canonical_local_build_accepts_exact_package_version_override(
     tmp_path: Path,
 ) -> None:
     checkout, fake_bin, docker_args = _local_build_fixture(tmp_path)
-    revision = "b" * 40
+    revision = _initialise_git_checkout(checkout)
 
     result = _run_local_build(
         checkout,
@@ -659,9 +1044,106 @@ def test_canonical_local_build_accepts_exact_package_version_override(
     )
 
     assert result.returncode == 0, result.stderr
-    assert _recorded_docker_arguments(docker_args) == (
-        _expected_local_build_arguments(revision)
+    _assert_recorded_docker_arguments(docker_args, revision)
+
+
+def test_root_dockerignore_excludes_generated_and_private_host_state() -> None:
+    patterns = {
+        line
+        for raw_line in DOCKERIGNORE.read_text(encoding="utf-8").splitlines()
+        if (line := raw_line.strip()) and not line.startswith("#")
+    }
+    required_patterns = {
+        ".git",
+        ".git/**",
+        "data/",
+        "**/data/",
+        "**/*.db",
+        "**/*.sqlite",
+        ".venv/",
+        "**/.venv/",
+        "venv/",
+        "**/venv/",
+        "node_modules/",
+        "**/node_modules/",
+        ".pnpm-store/",
+        "dist/",
+        "**/dist/",
+        "build/",
+        "**/build/",
+        "apps/ui/dist/",
+        "packages/shared/dist/",
+        "apps/addon/zigbeelens/.build/",
+        "**/.build/",
+        "**/*.tsbuildinfo",
+        "apps/core/uv.lock",
+        "**/__pycache__/",
+        "**/*.py[cod]",
+        "**/*.pyc",
+        "**/*.egg-info/",
+        "**/.pytest_cache/",
+        "**/.ruff_cache/",
+        "**/.mypy_cache/",
+        ".playwright/",
+        "playwright-report/",
+        "test-results/",
+        "browser-profile/",
+        "browser-profiles/",
+        "captures/",
+        "local/zigbeelens-test/",
+        "**/*.log",
+        "**/*.tmp",
+        "**/*.swp",
+        "**/*.tar",
+        "**/*.tar.gz",
+        "**/*.oci",
+        ".DS_Store",
+        ".idea/",
+        ".vscode/",
+    }
+
+    assert required_patterns <= patterns
+    assert not {pattern for pattern in patterns if pattern.startswith("!")}
+    for required_source in (
+        "package.json",
+        "pnpm-workspace.yaml",
+        "pnpm-lock.yaml",
+        ".npmrc",
+        "apps/core/src/",
+        "apps/core/pyproject.toml",
+        "apps/ui/src/",
+        "apps/ui/package.json",
+        "packages/shared/src/",
+        "packages/shared/package.json",
+        "deploy/docker/entrypoint.sh",
+    ):
+        assert required_source not in patterns
+    excluded_tracked = set(
+        _git(
+            ROOT,
+            "ls-files",
+            "-ci",
+            "--exclude-from=.dockerignore",
+        ).splitlines()
     )
+    required_tracked = set(
+        _git(
+            ROOT,
+            "ls-files",
+            "--",
+            "package.json",
+            "pnpm-workspace.yaml",
+            "pnpm-lock.yaml",
+            ".npmrc",
+            "apps/core/pyproject.toml",
+            "apps/core/README.md",
+            "apps/core/src",
+            "apps/ui",
+            "packages/shared",
+            "deploy/docker/entrypoint.sh",
+        ).splitlines()
+    )
+    assert excluded_tracked.isdisjoint(required_tracked)
 
 
 def test_dockerfile_owns_version_revision_and_source_labels() -> None:
