@@ -91,16 +91,20 @@ failure, never a skip.
 - [x] Phase 7A query/cardinality/runtime baseline merged (PR #100)
 - [x] Phase 7B release-quality test architecture and exact-v3 report reset merged (PR #101)
 - [x] Phase 7C1 documentation truth and cross-surface alignment merged
-- [ ] Phase 7C2 S1–S9 recaptured and reviewed together from one final corrected
-      runtime source (the prior set is stale after runtime/UI corrections)
+- [x] Phase 7C2 local candidate S1–S9 recaptured and locally reviewed together
+      from final corrected runtime source
+      `af04ee906b71de77ee6e0eb5d866c0647d502410`
+- [ ] Focused Phase 7C2 screenshot PR independently reviewed, required remote CI
+      green, and merged
 - [ ] Phase 7D live Beast deployment validation complete
 
-Local validation evidence is not remote CI evidence. Do not mark Phase 7C2 or
-Phase 7D complete from documentation or local tests.
+Local capture and validation evidence is not remote CI or merge evidence. The
+checked local-candidate gate does not close Phase 7C2 until the focused
+screenshot PR passes independent review, required remote CI, and merge.
 
-Phase 7D is blocked until the correction is merged, a new package-version-labeled
-image is built from that final source, HACS is separately resynchronized, and
-the complete S1–S9 set is recaptured from one final runtime.
+Phase 7D remains blocked until the focused screenshot PR is merged, the final
+docs-bearing HACS tree is separately authorized, resynchronized, and remotely
+validated, and the final monorepo/HACS/GHCR pairing is frozen.
 
 The Home Assistant add-on is deferred and is not part of the current HACS
 release. Its future-only gate remains below; structural validation is
@@ -262,8 +266,12 @@ explicitly scoped future add-on task.
 - [ ] Current report docs promise exact `ReportDetailV3` only; no v1/v2 reader/download path
 - [ ] No docs promise iframe as normal HACS experience
 - [ ] No docs imply reverse proxy required for HACS sidebar value
-- [ ] No screenshot is described as current release evidence until S1–S9 are
-      recaptured together from the final corrected runtime
+- [x] Screenshot documentation identifies S1–S9 as one coherent local
+      candidate captured from final corrected runtime source
+      `af04ee906b71de77ee6e0eb5d866c0647d502410`
+- [ ] Screenshot documentation may be promoted from local-candidate to merged
+      release evidence only after independent review, green remote CI, and
+      merge of the focused screenshot PR
 
 ## Review-thread closure inventory
 

@@ -6,8 +6,10 @@ It is written so Cursor can work through the remaining phases strategically with
 
 **Status:** This is now primarily an implementation record. Phases 1–6 are
 implemented, Phase 7A merged in PR #100, and Phase 7B merged in PR #101 from
-approved tip `03c12d4`. Phase 7C1 is merged. The prior Phase 7C2 S1–S9 set is
-stale and requires complete one-runtime recapture; Phase 7D live Beast
+approved tip `03c12d4`. Phase 7C1 is merged. The Phase 7C2 local candidate
+contains all S1–S9 assets captured together from final corrected runtime source
+`af04ee906b71de77ee6e0eb5d866c0647d502410`; the focused screenshot PR still
+requires independent review, green remote CI, and merge. Phase 7D live Beast
 validation remains blocked. Older branch/model instructions below describe how
 completed phases were executed; they do not override this status.
 
@@ -1977,8 +1979,10 @@ Capture current central workflows after Phase 7C1 prose is stable.
 
 ### Status
 
-Recapture all S1–S9 from one final corrected runtime. Do not mix the stale
-prior set with replacement assets.
+All S1–S9 assets were captured together from final corrected runtime source
+`af04ee906b71de77ee6e0eb5d866c0647d502410`. The local candidate contains no
+old/new asset mixing; its focused screenshot PR still requires independent
+review, green remote CI, and merge.
 
 ### Composer model
 

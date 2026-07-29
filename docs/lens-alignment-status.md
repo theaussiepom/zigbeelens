@@ -21,10 +21,12 @@ is described in historical CHANGELOG notes.
 
 ## Release-work boundary
 
-Phase 7A, Phase 7B, and Phase 7C1 are merged. The prior Phase 7C2 S1–S9 set is
-stale after runtime/UI corrections and must be recaptured together from one
-final source. Phase 7D live Beast validation remains blocked. Historical
-release notes and screenshots are not evidence that either gate has passed.
+Phase 7A, Phase 7B, and Phase 7C1 are merged. The Phase 7C2 local candidate
+contains all S1–S9 assets captured together from final corrected runtime source
+`af04ee906b71de77ee6e0eb5d866c0647d502410`; the focused screenshot PR still
+requires independent review, green remote CI, and merge. Phase 7D live Beast
+validation remains blocked. Historical release notes and screenshots are not
+evidence that those remote/merge or deployment gates have passed.
 
 See:
 

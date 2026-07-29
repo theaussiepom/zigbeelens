@@ -91,25 +91,30 @@ unknown evidence, never zero or absence.
 
 ## Current investigation surfaces
 
-> **Screenshot status:** The prior Phase 7C2 S1–S9 set predates the current
-> runtime/UI correction and is stale release evidence. All nine images must be
-> recaptured together from one final corrected runtime before Phase 7D.
+> **Screenshot status:** The complete Phase 7C2 S1–S9 set was recaptured
+> together on `2026-07-29` from immutable source
+> `af04ee906b71de77ee6e0eb5d866c0647d502410`. It is final-candidate review
+> evidence; Phase 7D remains blocked.
 
-![Mesh Investigate showing a synthetic evidence graph, evidence metrics, and an HA-enriched device drawer](screenshots/mesh-investigate.png)
+![Mesh Investigate for the synthetic Home network showing evidence metrics, investigation cards, the evidence graph, and the HA-enriched Kitchen Lamp drawer with Open device details](screenshots/mesh-investigate.png)
 
-Illustrative synthetic release-candidate data. This image belongs to the stale
-prior candidate. Mesh / Investigate presents stored evidence around the selected
-network; graph lines and metric counts are capture-time observations, not proof
-of a current route, causation, or complete history. The displayed Home Assistant
-name and area are additional metadata.
+Illustrative synthetic release-candidate data. This final-candidate evidence
+was captured from source `af04ee906b71de77ee6e0eb5d866c0647d502410` on
+`2026-07-29`. Mesh / Investigate presents stored evidence around the selected
+network, with the Kitchen Lamp drawer and **Open device details** action
+visible. Graph lines and metric counts are capture-time observations, not proof
+of a current route, causation, or complete history. The displayed Home
+Assistant name and area are additional metadata.
 
-![Device Detail showing the Kitchen Lamp decision, snapshot history, HA area, and preserved source identity](screenshots/device-detail-history.png)
+![Kitchen Lamp Device Detail showing its current Decision and Device Story, partial topology-history coverage, a selected earlier snapshot marked Changed, Kitchen HA metadata, and preserved source-lamp identity](screenshots/device-detail-history.png)
 
-Illustrative synthetic release-candidate data. This image belongs to the stale
-prior candidate. Device Detail presents the preferred Home Assistant name and
-area alongside the preserved Zigbee2MQTT source identity. Its Device Story and
-snapshot comparisons remain historical evidence with explicit coverage
-limits, not proof of a current path or cause.
+Illustrative synthetic release-candidate data. This final-candidate evidence
+was captured from source `af04ee906b71de77ee6e0eb5d866c0647d502410` on
+`2026-07-29`. Device Detail presents the Kitchen Lamp Home Assistant name and
+area alongside preserved `source-lamp` Zigbee2MQTT identity. Its current Device
+Story, available and limited coverage, and selected earlier `Changed`
+comparison are historical evidence with unavailable values left unavailable;
+they do not prove a current path, movement, parent, failure, or cause.
 
 ## Product surfaces
 

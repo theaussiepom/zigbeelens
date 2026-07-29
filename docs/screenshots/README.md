@@ -6,23 +6,22 @@ mockup, component story, generated image, or public-satellite build.
 `manifest.json` owns the machine-checked provenance, dimensions, hashes, review
 results, and documentation destinations for the set.
 
-> **Stale release evidence:** S1–S9 remain valid historical evidence for
-> capture source `747374adbf07fe07282a28c5902a335b2bdc80c4`, but later
-> runtime/UI corrections mean none is current evidence for the next candidate.
-> Recapture and re-review the complete S1–S9 inventory from one new final
-> runtime source before Phase 7D; never mix old and new assets.
+> **Current final-candidate evidence:** S1–S9 were recaptured and reviewed
+> together on `2026-07-29` from immutable source
+> `af04ee906b71de77ee6e0eb5d866c0647d502410`. This documentation evidence
+> does not release `0.1.14` or unblock Phase 7D.
 
 ## Canonical inventory
 
 | ID | File | Product surface and accepted state | Documentation placement |
 |----|------|------------------------------------|-------------------------|
 | S1 | `overview-dashboard.png` | Core Overview with the Decision summary, investigation priorities, network/device context, recent changes, and explicit evidence limits | `README.md`, beside the product overview |
-| S2 | `mesh-investigate.png` | Core Mesh / Investigate with the evidence graph and metrics, investigation controls, and the HA-enriched Kitchen Lamp drawer | `docs/topology.md`, under Current investigation surfaces |
-| S3 | `device-detail-history.png` | Core Device Detail with the Decision status, Device Story, data coverage, snapshot history, HA name/area, and preserved Zigbee2MQTT source identity | `docs/topology.md`, under Current investigation surfaces |
-| S4 | `incidents-page.png` | Core incident detail with status, affected scope, evidence, counter-evidence, interpretation, and limitations | `docs/troubleshooting.md`, under Incidents not appearing |
-| S5 | `reports-page.png` | Core Saved Reports with current exact-v3 scope, format, redaction ownership, evidence counts, and download actions | `docs/reports.md`, near the current report contract |
-| S6 | `report-contextual-create.png` | Core contextual device-report flow with a fixed synthetic target, current controls, and a proven nonempty exact-v3 preview | `docs/reports.md`, under Contextual report flow |
-| S7 | `hacs-config-flow.png` | Home Assistant ZigbeeLens config flow from the exact local stage, showing a synthetic Core URL, TLS verification, a blank token, and companion-panel ownership | `docs/hacs.md`, under local staged setup |
+| S2 | `mesh-investigate.png` | Core Mesh / Investigate with the evidence graph and metrics, investigation cards, and the HA-enriched Kitchen Lamp drawer with **Open device details** | `docs/topology.md`, under Current investigation surfaces |
+| S3 | `device-detail-history.png` | Core Kitchen Lamp Device Detail with the current Decision and Device Story, partial available/limited topology-history coverage, a selected earlier `Changed` comparison, HA name/area, and preserved Zigbee2MQTT source identity | `docs/topology.md`, under Current investigation surfaces |
+| S4 | `incidents-page.png` | Core resolved synthetic Study availability incident with recorded severity Incident, recorded confidence High, affected scope, evidence, counter-evidence, interpretation, and limitations | `docs/troubleshooting.md`, under Incidents not appearing |
+| S5 | `reports-page.png` | Core Reports saved-report summary collection with a generated synthetic report, visible generated time/scope/format/redaction metadata, and Download, Copy Markdown, and Delete actions | `docs/reports.md`, near the current report contract |
+| S6 | `report-contextual-create.png` | Core contextual device-report flow with the fixed synthetic Kitchen Lamp target, current scope/format/redaction controls, and a valid nonempty exact-v3 preview | `docs/reports.md`, under Contextual report flow |
+| S7 | `hacs-config-flow.png` | Genuine initial Home Assistant ZigbeeLens config flow from the exact local stage, showing a safe synthetic Core URL, blank password token, Verify SSL, and companion-panel enablement; polling belongs to the later Options flow | `docs/hacs.md`, under local staged setup |
 | S8 | `hacs-companion-panel.png` | Native Home Assistant companion panel with accepted Core/Decision/enrichment compatibility, factual counts, Decision summary, and the full-dashboard action | `docs/hacs.md`, under Companion panel |
 | S9 | `hacs-embedded-blocked.png` | Native panel's real HTTPS-HA/HTTP-Core embedded-view block, with the technical limitation, safe fallback, and Back to Summary | `docs/hacs-embedded-view.md`, beside the mixed-content limitation |
 
@@ -33,37 +32,45 @@ panel.
 
 ## Provenance
 
-The capture runtime was the immutable source commit
-`747374adbf07fe07282a28c5902a335b2bdc80c4`, release-candidate version
-`0.1.14`, captured on `2026-07-27`. Core source, the production UI build,
-shared contracts, and the locally generated Home Assistant integration stage
-all came from that commit. The disposable Home Assistant runtime was exactly
-`2026.7.3`, and the installed stage's `SOURCE_COMMIT` matched the capture
-commit.
+The capture runtime was immutable source commit
+`af04ee906b71de77ee6e0eb5d866c0647d502410`, release-candidate version
+`0.1.14`, database schema `15`, captured on `2026-07-29`. The exact GHCR
+manifest was
+`sha256:012e97b5dc0ef3a2ad0c0437d22251d5c09ae45ddb4eeff69e03a3adf8253731`;
+the capture host selected the `linux/arm64` platform manifest
+`sha256:aadd05a93bab50aaad3038fcdacf66b60712e530cbf5c3693b2a79b247518747`.
+Its OCI revision matched the capture source.
 
-The manifest records the original Phase 7C2 assumption that its final
-documentation commit could differ without runtime changes. That assumption no
-longer applies to the corrected candidate: runtime/UI changes make the set
-stale. The replacement manifest and every replacement image must name the same
-new final source, and the HACS stage must be generated from that source. The
-public HACS satellite was not installed, read as a capture source, or modified
-for the historical set.
+Core, the production UI, shared contracts, and the locally generated Home
+Assistant integration stage all came from that source. The disposable Home
+Assistant runtime was exactly `2026.7.3`, and the installed local stage's
+`SOURCE_COMMIT` matched the capture commit. The public HACS satellite was not
+installed, read as capture input, or modified. It remains the stale prior
+`0.1.14` candidate at commit
+`21c24e3355369b94c9ab596cf9fc0591f1282297`, tree
+`9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`, and `SOURCE_COMMIT`
+`906527063ad8bd594fbec51f69f6fc72205302dd`.
+
+No `v0.1.14` tag or release exists. Public HACS resynchronization remains a
+separately authorized later task, the Home Assistant add-on remains deferred,
+and Phase 7D remains blocked.
 
 ## Capture and image standard
 
-The default was a `1440 × 900` CSS-pixel viewport, device scale factor `1`,
-browser zoom `100%`, the production/default theme, reduced motion, no browser
-chrome, and no developer overlay. Four documented framing exceptions keep
+The default final frame was `1440 × 900` at device scale factor `1` and browser
+zoom `100%`, with the production/default theme, reduced motion, no browser
+chrome, and no developer overlay. Five documented framing exceptions keep
 required product content complete and readable:
 
 | ID | Final dimensions | Exception |
 |----|------------------|-----------|
-| S1 | `1440 × 820` | The default frame is cropped after the complete recent-change card and before the next section, leaving no partial card |
-| S2 | `1680 × 1731` | A `1920 × 1400` viewport is captured as one `1920 × 1731` full-page frame; cropping only the 240-pixel left navigation keeps the complete evidence strip, controls, graph boundary, and HA-enriched drawer readable together |
-| S3 | `1440 × 1760` | Taller viewport keeps Device Story, data coverage, snapshot history, identity, HA area, and source name in one truthful state |
-| S8 | `1440 × 1100` | Taller viewport includes the complete native Integration health card and its actions |
+| S1 | `1440 × 1170` | Taller framing ends after the complete Garden device card so Overview coverage remains visible without clipping or a partial card |
+| S2 | `1680 × 1770` | One `1920 × 1892` full-page capture was losslessly cropped to exclude nonessential shell space while retaining the complete evidence strip, controls, graph boundary, investigation cards, and HA-enriched drawer |
+| S3 | `1440 × 2037` | Taller full-page framing keeps current Device Story, available/limited coverage, selected earlier comparison, history, identity, HA area, and source name in one truthful state |
+| S4 | `1440 × 1200` | Taller framing keeps the complete incident evidence, counter-evidence, interpretation, limitations, and start of the timeline visible without clipping |
+| S8 | `1440 × 1400` | Taller framing includes the complete native Integration health card and its actions |
 
-S4–S7 and S9 use the default `1440 × 900`; every asset uses scale factor `1`
+S5–S7 and S9 use the default `1440 × 900`; every asset uses scale factor `1`
 and zoom `100%`.
 
 The browser capture interface returned JPEG raster data. Each accepted raster
@@ -106,27 +113,31 @@ privacy, evidence wording, unavailable-versus-zero truth, current Decision and
 ReportDetailV3 language, and publication boundaries. Both the privacy and
 visual review must be recorded as passed in the manifest.
 
-## Reproducing the historical set or refreshing the candidate
+## Reproducing the current final-candidate set
 
-Use the old source below only to reproduce/audit its historical provenance.
-For release refresh, substitute the final corrected source everywhere and
-replace all S1–S9 in one capture/review batch; partial refresh is invalid.
+Use the exact source and artifact identities below. Replace and review S1–S9
+as one batch if any runtime visual, package-surface, or imagery change requires
+a later refresh; partial refresh is invalid.
 
 Use a clean detached worktree at the capture source and keep every runtime,
 database, certificate, browser profile, and log under a newly created temporary
 directory:
 
 1. Verify the detached `HEAD` is
-   `747374adbf07fe07282a28c5902a335b2bdc80c4`, repository versions are
-   `0.1.14`, and the runtime/package input paths are clean. Record source hashes
-   before launching anything.
-2. Build the shared package and production UI from that worktree. Create a
-   temporary Core configuration whose storage path is a new temporary SQLite
-   file, points only to an isolated loopback MQTT broker, uses live production
-   mode, and serves the production UI build. Disable unrelated active capture
-   behavior. Never point the configuration at an existing database or broker.
-3. Populate only the controlled synthetic `home` network and two synthetic
-   lamp identities through the normal Zigbee2MQTT/MQTT and Core production
+   `af04ee906b71de77ee6e0eb5d866c0647d502410`, repository versions are
+   `0.1.14`, the schema target is `15`, and the runtime/package input paths are
+   clean. Record source hashes before launching anything.
+2. Pull the immutable GHCR manifest
+   `sha256:012e97b5dc0ef3a2ad0c0437d22251d5c09ae45ddb4eeff69e03a3adf8253731`
+   and verify its OCI version, revision, source, selected platform manifest, and
+   `zigbeelens` runtime user. Create a temporary Core configuration whose
+   storage path is a new temporary SQLite file, points only to an isolated
+   loopback MQTT broker, uses live production mode, and serves the image's
+   production UI. Disable unrelated active capture behavior. Never point the
+   configuration at an existing database or broker.
+3. Populate only the controlled synthetic `home` network and its five-device
+   fixture—Coordinator, Kitchen Lamp, Study Lamp, `garden-sensor`, and
+   `utility-sensor`—through the normal Zigbee2MQTT/MQTT and Core production
    paths. Produce the accepted Device Story/history, incident, and exact-v3
    report states through product behavior. Confirm every API used by S1–S6
    succeeds, loading and `aria-busy` states settle, and the browser console has
@@ -140,12 +151,14 @@ directory:
    temporary configuration directory. While Home Assistant is stopped, copy
    the generated `custom_components/zigbeelens` directory into that
    configuration as one clean unit, then perform a full start.
-6. In Home Assistant's real config flow, use a safe synthetic documentation
-   Core URL for S7, leave the token blank (or safely masked), and show the
-   current TLS and companion-panel controls. Use a separate loopback-only Core
-   origin for the working disposable entry used by S8/S9. If the native
-   Integration health surface displays that origin, it must remain a
-   capture-local loopback value rather than deployment identity.
+6. In Home Assistant's real initial config flow, use a safe synthetic
+   documentation Core URL for S7, leave the real password token field blank,
+   and show Verify SSL plus companion-panel enablement. Configure polling only
+   in the later Configure / Options flow; verify its `15`–`900` range,
+   persistence, one effective reload, and effective coordinator interval. Use
+   a separate loopback-only Core origin for the working disposable entry used
+   by S8/S9. If the native Integration health surface displays that origin, it
+   must remain a capture-local loopback value rather than deployment identity.
 7. Create synthetic Home Assistant device/area registry records that resolve to
    the controlled Core identities. Confirm initial enrichment, then perform one
    official registry rename/area update and wait for the production default

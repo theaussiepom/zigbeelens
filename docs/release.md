@@ -41,8 +41,9 @@ Before tagging, all release phases must be complete:
 - Phase 7A query/cardinality/runtime baseline (merged in PR #100)
 - Phase 7B test architecture and exact-v3 report reset (merged in PR #101)
 - Phase 7C1 documentation truth (merged)
-- Phase 7C2 screenshots (S1–S9 from the prior runtime are now stale; recapture
-  all nine from one final corrected runtime)
+- Phase 7C2 screenshots (all S1–S9 captured together from final corrected
+  runtime source `af04ee906b71de77ee6e0eb5d866c0647d502410`; focused
+  screenshot PR still requires independent review, green remote CI, and merge)
 - Phase 7D live Beast deployment validation (blocked)
 
 The add-on is deferred and is not part of the current HACS release. Keep its

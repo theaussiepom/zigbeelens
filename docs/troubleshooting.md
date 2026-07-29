@@ -79,13 +79,15 @@ If two devices share a name within one network, use IEEE address in the UI and r
 - Mock mode — switch to live or select a scenario with incidents
 - Recent instability may still be in "watching" state
 
-![Incident detail showing status, affected scope, evidence, interpretation, and explicit limitations](screenshots/incidents-page.png)
+![Resolved synthetic Study availability incident showing recorded severity Incident, recorded confidence High, affected scope, supporting evidence, counter-evidence, interpretation, and explicit limitations](screenshots/incidents-page.png)
 
-Illustrative synthetic release-candidate data. This image belongs to the
-now-stale prior Phase 7C2 set. An Incident keeps status, affected scope,
-supporting evidence, counter-evidence, and limitations visible together. It
+Illustrative synthetic release-candidate data. This final-candidate evidence
+was captured from immutable source
+`af04ee906b71de77ee6e0eb5d866c0647d502410` on `2026-07-29`. This resolved
+Study availability incident shows recorded severity `Incident`, recorded
+confidence `High`, its affected Study scope, supporting evidence,
+counter-evidence statement, interpretation, and limitations together. It
 records a pattern worth investigating; it does not establish a root cause.
-Recapture S1–S9 together from the final corrected runtime before Phase 7D.
 
 ## Reports redaction looks too aggressive
 

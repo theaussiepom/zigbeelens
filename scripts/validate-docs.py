@@ -192,7 +192,7 @@ def validate_fenced_examples(markdown_files: list[Path]) -> int:
 
 SCREENSHOT_MANIFEST = Path("docs/screenshots/manifest.json")
 SCREENSHOT_DIRECTORY = Path("docs/screenshots")
-PHASE_7C2_CAPTURE_SOURCE_SHA = "747374adbf07fe07282a28c5902a335b2bdc80c4"
+PHASE_7C2_CAPTURE_SOURCE_SHA = "af04ee906b71de77ee6e0eb5d866c0647d502410"
 SCREENSHOT_CAPTION_PREFIX = "Illustrative synthetic release-candidate data."
 SCREENSHOT_PREFERRED_MAX_BYTES = 500 * 1024
 SCREENSHOT_HARD_MAX_BYTES = 750 * 1024
@@ -212,6 +212,23 @@ SCREENSHOT_ASSETS: dict[str, tuple[str, str]] = {
     "hacs-embedded-blocked.png": (
         "home_assistant",
         "docs/hacs-embedded-view.md",
+    ),
+}
+SCREENSHOT_EXACT_ROUTE_STATES = {
+    "incidents-page.png": (
+        "Core Incident detail for the deterministic synthetic Study Lamp "
+        "availability incident with resolved status, recorded severity Incident, "
+        "recorded confidence High, evidence, counter-evidence, interpretation, "
+        "and limitations"
+    ),
+    "reports-page.png": (
+        "Core Reports saved-report collection with a generated synthetic report, "
+        "current scope/format/redaction metadata, and saved-report actions"
+    ),
+    "hacs-config-flow.png": (
+        "Home Assistant ZigbeeLens initial config flow before submission with "
+        "synthetic Core URL, blank token, TLS verification, and companion-panel "
+        "ownership"
     ),
 }
 SCREENSHOT_TOP_LEVEL_FIELDS = {
@@ -1048,6 +1065,15 @@ def validate_screenshot_manifest(
             value = asset.get(field)
             if not isinstance(value, str) or not value.strip():
                 errors.append(f"{filename}: {field} must be a nonempty string")
+        exact_route_state = SCREENSHOT_EXACT_ROUTE_STATES.get(filename)
+        if (
+            exact_route_state is not None
+            and asset.get("route_or_state") != exact_route_state
+        ):
+            errors.append(
+                f"{filename}: route_or_state must exactly describe the accepted "
+                f"surface as {exact_route_state!r}"
+            )
         data_source = asset.get("data_source")
         if isinstance(data_source, str) and "synthetic" not in data_source.lower():
             errors.append(f"{filename}: data_source must disclose synthetic data")
@@ -1393,14 +1419,15 @@ RELEASE_BLOCKER_STATUS_GUARDS: tuple[tuple[str, str, str], ...] = (
         "columns",
     ),
     (
-        "screenshots_s1_s9_stale",
+        "screenshots_s1_s9_current",
         "docs/test-architecture.md",
-        "The prior Phase 7C2 S1–S9 evidence is stale",
+        "The refreshed Phase 7C2 S1–S9 evidence is current for capture source "
+        "`af04ee906b71de77ee6e0eb5d866c0647d502410`",
     ),
     (
-        "screenshots_one_runtime_recapture",
+        "screenshots_one_runtime_source",
         "docs/test-architecture.md",
-        "must be recaptured together from one final runtime",
+        "all nine assets were captured together from one final corrected runtime",
     ),
     (
         "phase_7d_blocked",

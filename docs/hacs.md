@@ -34,10 +34,11 @@ portable Core deployment route.
 Phase 7C1 is merged. The runtime package now owns durable options, fail-closed
 Core/Decision compatibility, distinct Decision payload repairs, declarative and
 runtime single-entry enforcement, exact Home Assistant compatibility lanes,
-and generated official-validation workflows. The prior Phase 7C2 S1–S9 set
-remains provenance-checked evidence for its captured source but is stale after
-the correction. All nine screenshots must be recaptured from one new final
-runtime before Phase 7D, which remains blocked.
+and generated official-validation workflows. The complete Phase 7C2 S1–S9 set
+was recaptured on `2026-07-29` from corrected source
+`af04ee906b71de77ee6e0eb5d866c0647d502410`, with the local HACS stage built
+from the same source. The evidence is ready for independent review; it is not a
+release, and Phase 7D remains blocked.
 
 Public installation remains unavailable until a separately authorized
 publication task:
@@ -108,15 +109,25 @@ Only one ZigbeeLens config entry/Core target is supported. The manifest declares
 `single_config_entry: true`; config-flow concurrency checks and setup-time
 singleton ownership remain as runtime defenses.
 
-![Home Assistant ZigbeeLens config flow showing a synthetic Core URL, TLS verification, and companion panel options](screenshots/hacs-config-flow.png)
+![Home Assistant ZigbeeLens initial config flow showing a safe synthetic Core URL, a blank password token field, Verify SSL, and Show ZigbeeLens companion panel](screenshots/hacs-config-flow.png)
 
-Illustrative synthetic release-candidate data. This image belongs to the now-stale prior Phase 7C2 set. This real Home Assistant 2026.7.3 config flow was captured from the exact locally staged ZigbeeLens 0.1.14 package built from source `747374adbf07fe07282a28c5902a335b2bdc80c4`; the public HACS satellite was not used.
+Illustrative synthetic release-candidate data. This is the genuine
+final-candidate initial flow captured on `2026-07-29` in Home Assistant
+`2026.7.3`, using the exact locally staged ZigbeeLens `0.1.14` package built
+from source
+`af04ee906b71de77ee6e0eb5d866c0647d502410`; the public HACS satellite was
+not used. The API token is blank in the real password field. The safe Core URL,
+**Verify SSL**, and companion-panel enablement belong to initial setup.
 
-The setup dialog explains HTTP vs HTTPS Core URLs, optional SSL verification, and the companion panel sidebar toggle.
+Polling is configured later through the real **Configure / Options** flow,
+which also owns later companion-panel preference changes. Runtime verification
+proved the documented `15`–`900` second range, persistence of a non-default
+interval, exactly one effective reload, and use of the persisted coordinator
+interval. Polling is intentionally not shown in S7.
 
 Pre-release Core image: `ghcr.io/theaussiepom/zigbeelens:edge`
 
-Setup defaults:
+Initial-flow defaults:
 
 | Setting | Default |
 |---------|---------|
@@ -124,6 +135,12 @@ Setup defaults:
 | API token | blank |
 | Verify SSL | `false` |
 | Panel enabled | `true` |
+
+Configure / Options defaults and ownership:
+
+| Setting | Default |
+|---------|---------|
+| Panel enabled | The current config-entry preference; later changes are owned here |
 | Poll interval | `60` seconds; Configure accepts and persists `15` to `900` |
 
 ## Core URL
@@ -427,9 +444,13 @@ described above; authentication alone owns reauthentication.
 
 ### Native panel projection
 
-![Native Home Assistant ZigbeeLens companion panel showing accepted compatibility, Decision summary, factual counts, and dashboard actions](screenshots/hacs-companion-panel.png)
+![Native Home Assistant ZigbeeLens companion panel showing accepted Core, Decision v2 and enrichment v1 compatibility, factual counts, Decision summary, Integration health, and dashboard actions](screenshots/hacs-companion-panel.png)
 
-Illustrative synthetic release-candidate data. This image belongs to the now-stale prior Phase 7C2 set. This real native companion panel was captured in Home Assistant 2026.7.3 from the exact locally staged ZigbeeLens 0.1.14 package built from source `747374adbf07fe07282a28c5902a335b2bdc80c4`; the public HACS satellite was not used.
+Illustrative synthetic release-candidate data. This real final-candidate native
+companion panel was captured on `2026-07-29` in Home Assistant `2026.7.3` from
+the exact locally staged ZigbeeLens `0.1.14` package built from source
+`af04ee906b71de77ee6e0eb5d866c0647d502410`; the public HACS satellite was
+not used.
 
 - Pass-through Core `priority`, `title`, and `summary` (escaped for HTML)
 - Cap at three priorities; expose factual `more_investigation_priority_count`
