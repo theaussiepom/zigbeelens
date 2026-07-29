@@ -154,7 +154,10 @@ def _build_contract(root: Path) -> list[Path]:
         asset: dict[str, object] = {
             "filename": filename,
             "surface_owner": owner,
-            "route_or_state": f"Real synthetic fixture state {index}",
+            "route_or_state": VALIDATOR.SCREENSHOT_EXACT_ROUTE_STATES.get(
+                filename,
+                f"Real synthetic fixture state {index}",
+            ),
             "data_source": "isolated deterministic synthetic fixture",
             "capture_source_sha": CAPTURE_SHA,
             "width": 1,
@@ -209,7 +212,7 @@ def _build_contract(root: Path) -> list[Path]:
             "screenshot_manifest_version": 1,
             "capture_source_sha": CAPTURE_SHA,
             "release_candidate_version": "0.1.14",
-            "capture_date": "2026-07-27",
+            "capture_date": "2026-07-29",
             "data_classification": "synthetic",
             "contains_real_device_identifiers": False,
             "capture_provenance_note": (
@@ -235,6 +238,37 @@ def test_canonical_phase_7c2_screenshot_manifest_contract():
 def test_complete_isolated_screenshot_contract_is_accepted(tmp_path: Path):
     markdown_files = _build_contract(tmp_path)
     assert _validate(tmp_path, markdown_files) == 9
+
+
+@pytest.mark.parametrize(
+    ("filename", "stale_route"),
+    (
+        (
+            "reports-page.png",
+            "Core Reports with a saved synthetic ReportDetailV3 report selected",
+        ),
+        (
+            "hacs-config-flow.png",
+            "Home Assistant combined config flow with URL, token, TLS, panel, "
+            "and polling interval",
+        ),
+    ),
+)
+def test_amended_s5_s7_route_state_semantics_fail_closed(
+    tmp_path: Path,
+    filename: str,
+    stale_route: str,
+):
+    markdown_files = _build_contract(tmp_path)
+    manifest = _manifest(tmp_path)
+    _asset(manifest, filename)["route_or_state"] = stale_route
+    _write_json(tmp_path / VALIDATOR.SCREENSHOT_MANIFEST, manifest)
+
+    with pytest.raises(
+        VALIDATOR.DocumentationError,
+        match="route_or_state must exactly describe the accepted surface",
+    ):
+        _validate(tmp_path, markdown_files)
 
 
 @pytest.mark.parametrize(
@@ -677,8 +711,9 @@ def test_approved_synthetic_documentation_hosts_are_not_private_data(
 ):
     markdown_files = _build_contract(tmp_path)
     manifest = _manifest(tmp_path)
-    _asset(manifest, "hacs-config-flow.png")["route_or_state"] = (
-        "Pre-submit form for https://zigbeelens.example.test using "
+    _asset(manifest, "hacs-config-flow.png")["data_source"] = (
+        "isolated deterministic synthetic fixture for "
+        "https://zigbeelens.example.test using "
         "http://core.zigbeelens.test with bare hosts "
         "zigbeelens.example.test and core.zigbeelens.test"
     )
@@ -740,8 +775,9 @@ def test_approved_synthetic_hosts_require_exact_boundaries(
 ):
     markdown_files = _build_contract(tmp_path)
     manifest = _manifest(tmp_path)
-    _asset(manifest, "hacs-config-flow.png")["route_or_state"] = (
-        f"Unsafe capture host {unsafe_host}"
+    _asset(manifest, "hacs-config-flow.png")["data_source"] = (
+        f"isolated deterministic synthetic fixture with unsafe capture host "
+        f"{unsafe_host}"
     )
     _write_json(tmp_path / VALIDATOR.SCREENSHOT_MANIFEST, manifest)
 

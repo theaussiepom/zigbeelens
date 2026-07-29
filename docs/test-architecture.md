@@ -3,9 +3,10 @@
 Narrow ownership map for Decision, report, and public-contract confidence.
 Phase 7B merged in PR #101 from approved branch tip `03c12d4`. Broader
 contributor and product documentation was completed and merged in Phase 7C1.
-The prior Phase 7C2 S1–S9 evidence is stale after runtime/UI corrections and
-must be recaptured together from one final runtime. Phase 7D live Beast
-validation remains blocked.
+The refreshed Phase 7C2 S1–S9 evidence is current for capture source `af04ee906b71de77ee6e0eb5d866c0647d502410`;
+all nine assets were captured together from one final corrected runtime. The
+focused screenshot PR still requires independent review, green remote CI, and
+merge. Phase 7D live Beast validation remains blocked.
 
 ## Layers
 

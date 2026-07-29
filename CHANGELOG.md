@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Release schema target:** migration `015_topology_raw_data_scrub.sql` advances the schema target to `15`, clears retained node/link source dictionaries, and sets legacy snapshot `parsed_json` to `NULL` while preserving normalized counts in typed columns. Migration `014_report_v3_only_reset.sql` remains unchanged.
 - **Reporting controls:** `reporting.max_recent_events` is bounded to `1..1000`, and an omitted request profile now uses the effective configured `reporting.default_profile`. The ineffective sample limits and raw-payload switches have been removed from Core, request, example, and add-on contracts.
-- **Phase 7C2 evidence status:** the existing synthetic S1–S9 set remains provenance-checked historical evidence for its captured source, but runtime/UI corrections make it stale for the next release candidate. All nine images must be recaptured from one new final runtime before Phase 7D.
+- **Phase 7C2 evidence status:** all synthetic S1–S9 assets were captured together from the final corrected runtime at `af04ee906b71de77ee6e0eb5d866c0647d502410`. This is a local focused-screenshot candidate until independent review, green remote CI, and merge; Phase 7D remains blocked.
 
 ### Fixed
 

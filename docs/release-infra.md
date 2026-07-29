@@ -32,7 +32,7 @@ ghcr.io/theaussiepom/zigbeelens:latest    # release tag only
 | 7A — query/cardinality/runtime baseline | Merged in PR #100 |
 | 7B — test architecture / exact-v3 reset | Merged in PR #101 |
 | 7C1 — documentation truth | Merged |
-| 7C2 — screenshots / visual evidence | Prior S1–S9 stale; full one-runtime recapture required |
+| 7C2 — screenshots / visual evidence | Local S1–S9 candidate captured together from `af04ee906b71de77ee6e0eb5d866c0647d502410`; focused PR still needs independent review, green remote CI, and merge |
 | 7D — live Beast validation | Blocked; not satisfied by docs or local CI |
 
 ## Add-on publication status

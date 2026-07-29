@@ -6,9 +6,11 @@ It exists to prevent the work being watered down as it is split across many PRs.
 
 **Current release status:** Phases 1–6 and the Phase 7A/7B hardening work are
 implemented. Phase 7A merged in PR #100 and Phase 7B merged in PR #101.
-Phase 7C1 documentation truth is merged. The prior Phase 7C2 screenshot set is
-stale after runtime/UI corrections and requires a complete one-runtime S1–S9
-recapture. Phase 7D live Beast validation remains blocked.
+Phase 7C1 documentation truth is merged. The Phase 7C2 local candidate contains
+all S1–S9 assets captured together from final corrected runtime source
+`af04ee906b71de77ee6e0eb5d866c0647d502410`; its focused screenshot PR still
+requires independent review, green remote CI, and merge. Phase 7D live Beast
+validation remains blocked.
 
 ## Programme statement
 
@@ -780,10 +782,11 @@ contracts.
 
 ### Phase 7C2 — Screenshot and visual evidence
 
-**Recapture required.** The prior S1–S9 inventory retains historical
-provenance, but runtime/UI corrections make it stale for release. Recapture all
-nine surfaces from one new final runtime source before Phase 7D; partial mixing
-is invalid.
+**Local candidate captured.** All S1–S9 assets were captured together from
+final corrected runtime source
+`af04ee906b71de77ee6e0eb5d866c0647d502410`; no old/new asset mixing remains.
+The focused screenshot PR still requires independent review, green remote CI,
+and merge before Phase 7C2 closes.
 
 ### Phase 7D — Deployment validation
 
@@ -796,7 +799,7 @@ do not satisfy this phase.
 
 | Surface | Implemented current state | Release disposition |
 |---|---|---|
-| Overview | Decision priorities, recent changes, data coverage, factual network/incident context. | Primary; document in 7C1, recapture in 7C2. |
+| Overview | Decision priorities, recent changes, data coverage, factual network/incident context. | Primary; documented in 7C1 and captured in the local 7C2 candidate pending PR review/CI/merge. |
 | Mesh / Investigate | Main network investigation workspace consuming shared decisions and evidence. | Primary; validate live in 7D. |
 | Devices / Device Detail | Inventory/search with decision badges; Device Story and device-led Snapshot history. | Primary; validate copy and history in 7D. |
 | Incidents | Correlated issue records tied to shared decision facts. | Primary; not an independent root-cause authority. |
