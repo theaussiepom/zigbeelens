@@ -70,9 +70,15 @@ Traefik serves HTTPS on **port 443 only**. Appending `:8377` to an HTTPS hostnam
 
 If Home Assistant uses HTTPS and Core uses `http://192.168.100.5:8377`, the panel shows a friendly blocked explanation — not a broken iframe. **Open Full Dashboard** still works in a new tab.
 
-![Home Assistant ZigbeeLens panel explaining the blocked HTTPS Home Assistant and HTTP Core embedded-dashboard path with a return-to-summary action](screenshots/hacs-embedded-blocked.png)
+![Home Assistant ZigbeeLens panel showing the real HTTPS Home Assistant and HTTP Core embedded-view block, its technical explanation, Back to Summary, and Open full ZigbeeLens dashboard fallback](screenshots/hacs-embedded-blocked.png)
 
-Illustrative synthetic release-candidate data. This image belongs to the now-stale prior Phase 7C2 set. This real HTTPS-Home-Assistant/HTTP-Core mixed-content blocked path was captured in Home Assistant 2026.7.3 from the exact locally staged ZigbeeLens 0.1.14 package built from source `747374adbf07fe07282a28c5902a335b2bdc80c4`; the public HACS satellite was not used. The safe fallback is **Back to Summary** and **Open Full Dashboard** in a new tab. Recapture S1–S9 together from the final corrected runtime before Phase 7D.
+Illustrative synthetic release-candidate data. This real final-candidate
+HTTPS-Home-Assistant/HTTP-Core mixed-content blocked path was captured on
+`2026-07-29` in Home Assistant `2026.7.3` from the exact locally staged
+ZigbeeLens `0.1.14` package built from source
+`af04ee906b71de77ee6e0eb5d866c0647d502410`; the public HACS satellite was
+not used. The safe fallbacks are **Back to Summary** and **Open full ZigbeeLens
+dashboard** in a new tab. Phase 7D remains blocked.
 
 ## When to use HTTPS in front of Core
 
