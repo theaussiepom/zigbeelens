@@ -215,6 +215,12 @@ SCREENSHOT_ASSETS: dict[str, tuple[str, str]] = {
     ),
 }
 SCREENSHOT_EXACT_ROUTE_STATES = {
+    "incidents-page.png": (
+        "Core Incident detail for the deterministic synthetic Study Lamp "
+        "availability incident with resolved status, recorded severity Incident, "
+        "recorded confidence High, evidence, counter-evidence, interpretation, "
+        "and limitations"
+    ),
     "reports-page.png": (
         "Core Reports saved-report collection with a generated synthetic report, "
         "current scope/format/redaction metadata, and saved-report actions"

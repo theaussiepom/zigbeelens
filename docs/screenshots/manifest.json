@@ -80,7 +80,7 @@
     {
       "filename": "incidents-page.png",
       "surface_owner": "core",
-      "route_or_state": "Core Incident detail for the deterministic synthetic Study Lamp availability incident with resolved status, high severity, evidence, counter-evidence, interpretation, and limitations",
+      "route_or_state": "Core Incident detail for the deterministic synthetic Study Lamp availability incident with resolved status, recorded severity Incident, recorded confidence High, evidence, counter-evidence, interpretation, and limitations",
       "data_source": "isolated deterministic synthetic Core fixture",
       "capture_source_sha": "af04ee906b71de77ee6e0eb5d866c0647d502410",
       "width": 1440,

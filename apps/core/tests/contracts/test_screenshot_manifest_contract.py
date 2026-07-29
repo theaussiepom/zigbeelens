@@ -244,6 +244,12 @@ def test_complete_isolated_screenshot_contract_is_accepted(tmp_path: Path):
     ("filename", "stale_route"),
     (
         (
+            "incidents-page.png",
+            "Core Incident detail for the deterministic synthetic Study Lamp "
+            "availability incident with resolved status, high severity, evidence, "
+            "counter-evidence, interpretation, and limitations",
+        ),
+        (
             "reports-page.png",
             "Core Reports with a saved synthetic ReportDetailV3 report selected",
         ),
@@ -254,7 +260,7 @@ def test_complete_isolated_screenshot_contract_is_accepted(tmp_path: Path):
         ),
     ),
 )
-def test_amended_s5_s7_route_state_semantics_fail_closed(
+def test_exact_screenshot_route_state_semantics_fail_closed(
     tmp_path: Path,
     filename: str,
     stale_route: str,
@@ -269,6 +275,43 @@ def test_amended_s5_s7_route_state_semantics_fail_closed(
         match="route_or_state must exactly describe the accepted surface",
     ):
         _validate(tmp_path, markdown_files)
+
+
+def test_s4_canonical_documentation_distinguishes_severity_and_confidence():
+    inventory = (
+        REPO_ROOT / "docs/screenshots/README.md"
+    ).read_text(encoding="utf-8")
+    troubleshooting = (
+        REPO_ROOT / "docs/troubleshooting.md"
+    ).read_text(encoding="utf-8")
+
+    inventory_line = next(
+        line for line in inventory.splitlines() if line.startswith("| S4 |")
+    )
+    image_marker = "](screenshots/incidents-page.png)"
+    marker_index = troubleshooting.index(image_marker)
+    alt_start = troubleshooting.rfind("![", 0, marker_index)
+    assert alt_start >= 0
+    alt_text = troubleshooting[alt_start + 2 : marker_index]
+    caption_start = marker_index + len(image_marker)
+    caption_end = troubleshooting.index("\n## ", caption_start)
+    caption = troubleshooting[caption_start:caption_end]
+
+    inventory_context, alt_context, caption_context = (
+        " ".join(context.split())
+        for context in (inventory_line, alt_text, caption)
+    )
+    assert "recorded severity Incident" in inventory_context
+    assert "recorded confidence High" in inventory_context
+    assert "recorded severity Incident" in alt_context
+    assert "recorded confidence High" in alt_context
+    assert "recorded severity `Incident`" in caption_context
+    assert "recorded confidence `High`" in caption_context
+
+    for s4_context in (inventory_context, alt_context, caption_context):
+        lowered = s4_context.lower()
+        assert "high-severity" not in lowered
+        assert "high severity" not in lowered
 
 
 @pytest.mark.parametrize(
