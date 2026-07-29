@@ -11,14 +11,14 @@ reports for troubleshooting. Its job is to show what is worth reviewing, why,
 which evidence supports that judgement, and what the available data cannot
 prove.
 
-![ZigbeeLens Overview showing its decision summary, investigation priorities, network context, and recent changes](docs/screenshots/overview-dashboard.png)
+![ZigbeeLens Overview for the synthetic Home network showing its Decision summary, investigation priorities, network and device context, recent changes, and evidence limits](docs/screenshots/overview-dashboard.png)
 
-Illustrative synthetic release-candidate data. This image belongs to the
-now-stale prior Phase 7C2 set. The Overview leads with its Decision summary,
-then places investigation priorities, network/device context, recent changes,
-and evidence limits together without inventing measurements for unavailable
-data. Recapture S1–S9 together from the final corrected runtime before Phase
-7D.
+Illustrative synthetic release-candidate data. This final-candidate evidence
+was captured on `2026-07-29` from immutable source
+`af04ee906b71de77ee6e0eb5d866c0647d502410`. The Overview leads with its
+Decision summary, then places investigation priorities, network/device context,
+recent changes, and evidence limits together without inventing measurements
+for unavailable data.
 
 ZigbeeLens is part of the **Lens family** of read-only home-network observability tools, alongside [ThreadLens](https://github.com/theaussiepom/threadlens). The active public diagnostic contract is **decision contract v2** (not retired Lens-bucket fields); see [docs/api.md](docs/api.md) and [docs/lens-family.md](docs/lens-family.md).
 
@@ -74,10 +74,12 @@ See [docs/safety-audit.md](docs/safety-audit.md) for the full safety audit.
 | [MQTT Discovery](docs/mqtt-discovery.md) | Optional summary HA entities without HACS | Core configuration |
 | [Topology](docs/topology.md) | Optional mesh enrichment — enabled by default with one startup scan | Core configuration |
 
-Phase 7C1 documentation truth is merged. The prior Phase 7C2 screenshots retain
-their exact historical provenance but are stale after runtime/UI corrections;
-all S1–S9 require one-source recapture. Phase 7D live Beast validation remains
-blocked.
+Phase 7C1 documentation truth is merged. The refreshed Phase 7C2 S1–S9 evidence
+was captured from one immutable runtime source,
+`af04ee906b71de77ee6e0eb5d866c0647d502410`, and is ready for independent
+review. This does not release `0.1.14` or unblock Phase 7D: the public HACS
+satellite remains stale, the add-on remains deferred, and Phase 7D live Beast
+validation remains blocked.
 
 ## Using the UI
 

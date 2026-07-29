@@ -5,16 +5,21 @@ history and the current decision-led diagnostic state. A report records what
 Core observed and the limitations of that evidence; it does not prove a root
 cause or a live Zigbee route.
 
-> **Screenshot status:** The prior Phase 7C2 S1–S9 set predates the current
-> runtime/UI correction and is stale release evidence. All nine images must be
-> recaptured together from one final corrected runtime before Phase 7D.
+> **Screenshot status:** The complete Phase 7C2 S1–S9 set was recaptured
+> together on `2026-07-29` from immutable source
+> `af04ee906b71de77ee6e0eb5d866c0647d502410`. It is final-candidate review
+> evidence; Phase 7D remains blocked.
 
-![Saved Reports showing exact-v3 scope, format, redaction profile, and download actions](screenshots/reports-page.png)
+![Saved Reports collection showing a generated synthetic report's summary, generated time, scope, format, redaction profile, and Download, Copy Markdown, and Delete actions](screenshots/reports-page.png)
 
-Illustrative synthetic release-candidate data. This image belongs to the stale
-prior candidate. Saved Reports shows the captured exact-v3 report state, with
-each row's scope, format, redaction ownership, evidence counts, and supported
-download actions kept explicit.
+Illustrative synthetic release-candidate data. This final-candidate evidence
+was captured from source `af04ee906b71de77ee6e0eb5d866c0647d502410` on
+`2026-07-29`. The image shows the current saved-report summary collection,
+including visible generated time, scope, format, redaction profile, and
+saved-report actions. The exact `ReportDetailV3` stored body, per-collection
+timeline bounds, `/api` and `/api/v1` parity, structured downloads, and
+clipboard Markdown were validated mechanically; they are not visual claims
+about this summary-only collection.
 
 ## Current contract: exact ReportDetailV3
 
@@ -109,6 +114,13 @@ Preview returns `ReportDetailV3` and does not store it. A create request returns
 `redaction_applied`, `incident_count`, `device_count`, `network_count`,
 `summary`, `format`, `scope`, and `redaction_profile`.
 
+The production Reports page renders a collection of these `ReportSummary`
+rows; it does not render a stored `ReportDetailV3` body inline. The full stored
+detail is fetched only for **Copy Markdown** and downloads. S5 therefore
+documents summary metadata and saved-report actions, while S6 owns contextual
+creation and preview. Exact-v3 body validity and timeline limits remain
+runtime/API contracts.
+
 ## API lifecycle
 
 `/api/v1` is preferred for new clients. Every route below has a compatible
@@ -154,12 +166,13 @@ The UI fixes scope and target at the launching surface:
 | Mesh / Investigate | Create network report | `network` for that route's network |
 | Reports | Create full report | `full` |
 
-![Contextual device report dialog showing the fixed Kitchen Lamp target, exact-v3 controls, and a nonempty preview](screenshots/report-contextual-create.png)
+![Contextual device report dialog for Kitchen Lamp showing the fixed synthetic target, current scope, format and redaction controls, a valid nonempty preview, and the create action](screenshots/report-contextual-create.png)
 
-Illustrative synthetic release-candidate data. This image belongs to the stale
-prior candidate. This contextual flow fixes the exact synthetic device target
+Illustrative synthetic release-candidate data. This final-candidate evidence
+was captured from source `af04ee906b71de77ee6e0eb5d866c0647d502410` on
+`2026-07-29`. This contextual flow fixes the exact synthetic device target
 before preview, then applies the captured scope, format, and redaction controls
-to a nonempty exact-v3 plan; it does not rediscover or guess the target.
+to a valid nonempty exact-v3 plan; it does not rediscover or guess the target.
 
 The Reports page is primarily Saved reports history. The shared dialog selects
 format and redaction profile, shows a compact preview, then offers Save or Save
