@@ -103,10 +103,10 @@ the post-merge main CI and Docker workflows were green. The S4 correction
 distinguishing recorded severity `Incident` from recorded confidence `High`
 was reviewed and resolved without changing the screenshot binary.
 
-Phase 7D remains blocked until this status closure is independently reviewed
-and merged, a final docs-bearing HACS tree is generated from that merge,
-separately authorized synchronization and remote validation complete, and the
-final monorepo/HACS/GHCR pairing is frozen.
+Phase 7D remains blocked until a final docs-bearing HACS tree is generated from
+merged main, the exact tree is synchronized under separate explicit
+authorization, the generated exact HA and official HACS/hassfest checks pass
+remotely, and the final monorepo/HACS/GHCR pairing is frozen.
 
 The Home Assistant add-on is deferred and is not part of the current HACS
 release. Its future-only gate remains below; structural validation is

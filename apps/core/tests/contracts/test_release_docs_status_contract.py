@@ -158,6 +158,9 @@ def test_stale_parsed_json_claims_fail_closed(
 @pytest.mark.parametrize(
     "stale_claim",
     (
+        "This status closure still requires review.",
+        "This status closure is pending merge.",
+        "Phase 7D waits for this status-closure PR to merge.",
         "The focused screenshot PR still requires merge.",
         "The evidence is ready for independent review.",
         "This remains a local screenshot candidate until merge.",
@@ -229,6 +232,92 @@ def test_each_current_status_scope_rejects_stale_status(
         match=rf"{re.escape(scope)}: ready_for_independent_review",
     ):
         VALIDATOR.validate_release_blocker_status_truth()
+
+
+@pytest.mark.parametrize(
+    ("scope", "relative", "start_marker", "end_marker"),
+    VALIDATOR.CURRENT_RELEASE_STATUS_SCOPES,
+    ids=[scope[0] for scope in VALIDATOR.CURRENT_RELEASE_STATUS_SCOPES],
+)
+def test_each_current_status_scope_rejects_self_expiring_status_closure(
+    tmp_path: Path,
+    scope: str,
+    relative: str,
+    start_marker: str,
+    end_marker: str,
+) -> None:
+    _copy_guard_documents(tmp_path)
+    path = tmp_path / relative
+    text = path.read_text(encoding="utf-8")
+    start = text.find(start_marker)
+    end = text.find(end_marker, start + len(start_marker))
+    assert start >= 0, scope
+    assert end >= 0, scope
+    path.write_text(
+        text[:end]
+        + "Phase 7D waits for this status-closure PR to merge.\n\n"
+        + text[end:],
+        encoding="utf-8",
+    )
+
+    with _validator_root(tmp_path), pytest.raises(
+        VALIDATOR.DocumentationError,
+        match=rf"{re.escape(scope)}: status_closure_pending_merge",
+    ):
+        VALIDATOR.validate_release_blocker_status_truth()
+
+
+def test_old_release_checklist_status_closure_wording_fails_closed(
+    tmp_path: Path,
+) -> None:
+    _copy_guard_documents(tmp_path)
+    checklist = tmp_path / "RELEASE_CHECKLIST.md"
+    text = checklist.read_text(encoding="utf-8")
+    durable = (
+        "Phase 7D remains blocked until a final docs-bearing HACS tree is "
+        "generated from\nmerged main, the exact tree is synchronized under "
+        "separate explicit\nauthorization, the generated exact HA and official "
+        "HACS/hassfest checks pass\nremotely, and the final monorepo/HACS/GHCR "
+        "pairing is frozen."
+    )
+    assert durable in text
+    checklist.write_text(
+        text.replace(
+            durable,
+            "Phase 7D remains blocked until this status closure is "
+            "independently reviewed\nand merged.",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    with _validator_root(tmp_path), pytest.raises(
+        VALIDATOR.DocumentationError,
+        match=(
+            "release_checklist_phase_status: "
+            "status_closure_pending_merge"
+        ),
+    ):
+        VALIDATOR.validate_release_blocker_status_truth()
+
+
+def test_historical_status_closure_review_prose_remains_allowed(
+    tmp_path: Path,
+) -> None:
+    _copy_guard_documents(tmp_path)
+    readme = tmp_path / "README.md"
+    text = readme.read_text(encoding="utf-8")
+    marker = "## Using the UI"
+    assert marker in text
+    readme.write_text(
+        text
+        + "\n## Archived execution record\n\n"
+        + "At the time, this status closure was pending merge.\n",
+        encoding="utf-8",
+    )
+
+    with _validator_root(tmp_path):
+        assert VALIDATOR.validate_release_blocker_status_truth() > 0
 
 
 def test_pr_108_merged_statement_is_required(tmp_path: Path) -> None:

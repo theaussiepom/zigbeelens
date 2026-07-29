@@ -1676,6 +1676,17 @@ CURRENT_RELEASE_STATUS_SCOPES: tuple[tuple[str, str, str, str], ...] = (
 
 STALE_CURRENT_STATUS_PATTERNS: tuple[tuple[str, str], ...] = (
     (
+        "status_closure_pending_merge",
+        r"(?:"
+        r"(?:this|the) status[- ]closure(?: pr)?\b.{0,160}"
+        r"(?:(?:still )?(?:requires?|needs?|awaits?)\b.{0,80}(?:review|merge)"
+        r"|is pending\b.{0,40}merge"
+        r"|is independently reviewed\b.{0,80}(?:and )?merged\b)"
+        r"|phase 7d\b.{0,160}(?:waits?|blocked)\b.{0,160}"
+        r"(?:this|the) status[- ]closure(?: pr)?\b.{0,100}(?:review|merge)"
+        r")",
+    ),
+    (
         "focused_screenshot_pr_pending",
         r"focused(?: phase 7c2)?(?: screenshot)? pr.{0,160}"
         r"(?:still (?:requires|needs)|gated (?:on|pending)).{0,200}"
