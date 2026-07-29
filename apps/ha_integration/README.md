@@ -44,25 +44,28 @@ does not define a portable HACS-to-add-on backend URL.
 
 ## Release status — local/staged integration only
 
-**Public HACS installation is unavailable for this reviewed branch.** The
-public `theaussiepom/zigbeelens-hacs` satellite is not synchronized with this
-staged package and must not be used to validate the branch. The candidate stage
-advertises the unused version `0.1.14`; the materially different public
-satellite still advertises `0.1.13` at the latest re-check. The candidate
-version therefore identifies the staged tree uniquely, but synchronization and
-publication require a separate explicitly authorized task. Docker/Compose is
-the current portable Core deployment route.
+**Public HACS installation remains unavailable.** At the pre-synchronization
+review, public `theaussiepom/zigbeelens-hacs` `main` was commit
+`21c24e3355369b94c9ab596cf9fc0591f1282297`, tree
+`9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`, with `SOURCE_COMMIT`
+`906527063ad8bd594fbec51f69f6fc72205302dd`, manifest version `0.1.14`, and no
+`v0.1.14` tag or release. That prior candidate is stale for this correction.
+Synchronization requires a separate explicitly authorized task and does not by
+itself authorize installation or release. Docker/Compose remains the portable
+Core deployment route.
 
-Phase 7C1 is merged. Durable polling options, fail-closed compatibility,
-distinct Decision payload repair guidance, declarative/runtime single-entry
-ownership, exact HA compatibility lanes, and generated official-validation
-workflow ownership are implemented. Phase 7C2 screenshots and Phase 7D live
-Beast validation remain deferred.
+Phase 7C1 and Phase 7C2 are complete and merged. PR #108's evidence merge is
+`93fb26617042ed46d8920a7b75a42e3ae9da4d62`; all S1–S9 screenshots retain
+immutable runtime capture source
+`af04ee906b71de77ee6e0eb5d866c0647d502410`. Public HACS synchronization and
+the final HACS/artifact pairing remain pending, so Phase 7D remains blocked.
 
-Public installation remains unavailable until the staged and satellite trees
-and version are synchronized, the generated exact HA matrix and official
-HACS/hassfest jobs pass remotely on that tree, and publication is explicitly
-authorized.
+Before release, `SOURCE_COMMIT` plus the generated Git tree identify the exact
+candidate; manifest version `0.1.14` is aligned but does not distinguish
+candidate trees by itself. Public installation remains unavailable until that
+exact generated tree is reviewed on the satellite, both exact HA lanes and
+official HACS/hassfest jobs pass remotely, and the `v0.1.14` tag and GitHub
+release are explicitly authorized to point to that tree.
 
 ## Local staged integration testing
 
@@ -125,11 +128,12 @@ See [docs/hacs-embedded-view.md](../../docs/hacs-embedded-view.md) for HTTPS rev
 ## Conditional public HACS installation
 
 Public custom-repository installation is a future route only. Before restoring
-it, the staged tree must match the intended satellite tree, the package version
-must uniquely identify that tree, exact Home Assistant `2025.1.0` / Python
-`3.12` and Home Assistant `2026.7.3` / Python `3.14` coverage must pass,
-generated official HACS and hassfest validation must pass remotely on the
-synchronized tree, and explicit publication authorization must be recorded.
+it, `SOURCE_COMMIT` plus the generated Git tree must identify the exact reviewed
+satellite candidate, exact Home Assistant `2025.1.0` / Python `3.12` and Home
+Assistant `2026.7.3` / Python `3.14` coverage must pass, generated official
+HACS and hassfest validation must pass remotely on that tree, and the
+`v0.1.14` tag and GitHub release must be explicitly authorized to point to that
+tree.
 Only after those gates close may operators add the synchronized
 `https://github.com/theaussiepom/zigbeelens-hacs` repository in HACS.
 

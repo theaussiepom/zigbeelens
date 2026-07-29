@@ -159,8 +159,11 @@ package validation above is necessary but not sufficient.
       `9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`, source
       `906527063ad8bd594fbec51f69f6fc72205302dd`) and has no `v0.1.14`
       tag/release, so it is stale for this correction
-- [ ] After resynchronization, the manifest/package version uniquely identifies
-      that tree and is rechecked immediately before publication
+- [ ] Before release, `SOURCE_COMMIT` plus the generated Git tree identify the
+      exact pre-release candidate; manifest version `0.1.14` remains aligned
+      but is not sufficient identity by itself
+- [ ] At final publication, the `v0.1.14` tag and GitHub release point to the
+      exact reviewed, synchronized tree
 - [ ] Exact Home Assistant `2025.1.0` / Python `3.12` and Home Assistant
       `2026.7.3` / Python `3.14` both pass the same integration suite
 - [ ] The canonical monorepo live enrichment E2E is green remotely for the
@@ -308,8 +311,8 @@ again that each has zero non-outdated unresolved review threads.
       gates for companion artifacts included in this release pass
 - [ ] Versioned Docker image pushed to GHCR (`ghcr.io/theaussiepom/zigbeelens:<version>`)
 - [ ] If HACS is included after its publication gates close, the synchronized
-      tree and uniquely identifying version are rechecked immediately before
-      publication
+      `SOURCE_COMMIT`/generated-tree identity and final `v0.1.14` tag/release
+      target are rechecked immediately before publication
 - [ ] If HACS is included, its staged artifact is pushed to
       `theaussiepom/zigbeelens-hacs` only in the separately authorized
       publication task

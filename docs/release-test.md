@@ -561,10 +561,11 @@ Regenerate the local HACS staging tree if integration source changed:
 `dist/zigbeelens-hacs` is a freshly generated staging directory, not a Git
 checkout or authorization to publish. Do not synchronize or push the public
 satellite from this guide. A separate explicitly authorized publication task
-must first prove exact staged/satellite tree equality, assign a version that
-uniquely identifies that tree, pass exact Home Assistant 2025.1.0/Python 3.12
-and 2026.7.3/Python 3.14 plus generated remote official HACS/hassfest
-validation, and then inspect the external repository diff before publication.
+must first prove that `SOURCE_COMMIT` plus the generated Git tree identify the
+exact reviewed satellite candidate, pass exact Home Assistant
+2025.1.0/Python 3.12 and 2026.7.3/Python 3.14 plus generated remote official
+HACS/hassfest validation, inspect the external repository diff, and authorize
+the `v0.1.14` tag and GitHub release to point to that exact tree.
 
 ---
 

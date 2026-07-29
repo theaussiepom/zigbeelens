@@ -2301,7 +2301,7 @@ def validate_companion_publication_truth() -> int:
             "custom_components/zigbeelens/",
             "<home-assistant-config>/custom_components/zigbeelens/",
             "full Home Assistant restart",
-            "Do not use the unsynchronized public satellite",
+            "Use this generated tree for the test",
             "@SOURCE_REPOSITORY@",
             "@SOURCE_COMMIT@",
             "generated `SOURCE_COMMIT` file records the same commit",
@@ -2310,28 +2310,28 @@ def validate_companion_publication_truth() -> int:
     }
     future_install_contracts: dict[str, tuple[str, ...]] = {
         "docs/hacs.md": (
-            "staged tree matches the intended satellite tree exactly",
-            "manifest/package version uniquely identifies that tree",
+            "`SOURCE_COMMIT` plus the generated Git tree identify the exact "
+            "reviewed satellite candidate",
             "Home Assistant `2025.1.0` / Python `3.12` and Home Assistant "
             "`2026.7.3` / Python `3.14` coverage passes",
             "official HACS and hassfest validation passes remotely",
-            "explicit publication authorization is recorded",
+            "`v0.1.14` tag and GitHub release",
         ),
         "apps/ha_integration/README.md": (
-            "staged tree must match the intended satellite tree",
-            "version must uniquely identify that tree",
+            "`SOURCE_COMMIT` plus the generated Git tree must identify the "
+            "exact reviewed satellite candidate",
             "Home Assistant `2025.1.0` / Python `3.12` and Home Assistant "
             "`2026.7.3` / Python `3.14` coverage must pass",
             "official HACS and hassfest validation must pass remotely",
-            "explicit publication authorization must be recorded",
+            "`v0.1.14` tag and GitHub release",
         ),
         "release/zigbeelens-hacs/README.md.in": (
-            "staged tree must match the intended satellite tree",
-            "version must uniquely identify that tree",
+            "`SOURCE_COMMIT` plus the generated Git tree must identify the "
+            "exact reviewed satellite candidate",
             "Home Assistant `2025.1.0` / Python `3.12` and Home Assistant "
             "`2026.7.3` / Python `3.14` coverage must pass",
             "official HACS and hassfest validation must pass remotely",
-            "explicit publication authorization must be recorded",
+            "`@PRE_SYNC_HACS_RELEASE_TAG@` tag and GitHub release",
             "https://github.com/@FUTURE_HACS_REPOSITORY@",
         ),
     }
@@ -2475,102 +2475,139 @@ def validate_companion_publication_truth() -> int:
     )
     synchronization_gates: dict[str, tuple[str, ...]] = {
         "RELEASE_CHECKLIST.md": (
-            "complete staged tree matches the intended",
-            "manifest/package version uniquely identifies that tree",
+            "`SOURCE_COMMIT` plus the generated Git tree identify the exact "
+            "pre-release candidate",
+            "`v0.1.14` tag and GitHub release point to the exact reviewed, "
+            "synchronized tree",
             "Home Assistant `2025.1.0` / Python `3.12` and Home Assistant "
             "`2026.7.3` / Python `3.14`",
             "generated remote official HACS/hassfest checks",
             "Explicit authorization to synchronize and publish",
         ),
         "docs/release-infra.md": (
-            "complete staged tree matches the intended satellite tree",
-            "manifest/package version that uniquely identifies that exact tree",
+            "`SOURCE_COMMIT` plus the generated Git tree identify the exact "
+            "reviewed satellite candidate",
+            "`v0.1.14` tag and GitHub release",
             "Home Assistant 2025.1.0/Python 3.12 and "
             "2026.7.3/Python 3.14 lanes remotely",
             "generated official HACS and hassfest validation remotely",
-            "explicit publication authorization before modifying",
+            "explicit publication authorization",
         ),
         "docs/release.md": (
-            "complete staged tree must match the intended satellite tree",
-            "manifest/package version must uniquely identify that exact tree",
+            "`SOURCE_COMMIT` plus the generated Git tree must identify the "
+            "exact reviewed satellite candidate",
+            "`v0.1.14` tag and GitHub release",
             "Home Assistant 2025.1.0/Python 3.12 and "
             "2026.7.3/Python 3.14 lanes must pass",
             "generated official HACS and hassfest validation must pass remotely",
-            "explicit publication authorization must be recorded",
+            "explicit publication authorization",
         ),
     }
     assertions += sum(
         require_document_fragments(relative, fragments)
         for relative, fragments in synchronization_gates.items()
     )
-    reviewed_state_pattern = re.compile(
-        r"Reviewed public-satellite state \(historical evidence\):\s*"
-        r"- repository: `(?P<repository>@REVIEWED_HACS_REPOSITORY@|"
-        r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)`\s*"
-        r"- commit: `(?P<commit>[0-9a-f]{40})`\s*"
-        r"- reviewed: `(?P<reviewed>[0-9]{4}-[0-9]{2}-[0-9]{2})`"
+    pre_sync_evidence_path = (
+        ROOT / "release/zigbeelens-hacs/pre-sync-evidence.json"
     )
-    reviewed_evidence: list[tuple[str, str, str]] = []
-    for relative in (
-        "docs/release-infra.md",
-        "release/zigbeelens-hacs/README.md.in",
-    ):
+    pre_sync_evidence = _load_json_without_duplicate_keys(
+        pre_sync_evidence_path
+    )
+    expected_pre_sync_evidence = {
+        "repository": "theaussiepom/zigbeelens-hacs",
+        "commit": "21c24e3355369b94c9ab596cf9fc0591f1282297",
+        "tree": "9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9",
+        "source_commit": "906527063ad8bd594fbec51f69f6fc72205302dd",
+        "manifest_version": "0.1.14",
+        "reviewed_on": "2026-07-29",
+        "release_tag": "v0.1.14",
+        "tag_present": False,
+        "release_present": False,
+    }
+    if pre_sync_evidence != expected_pre_sync_evidence:
+        raise DocumentationError(
+            "release/zigbeelens-hacs/pre-sync-evidence.json must contain the "
+            "exact verified pre-synchronization satellite state"
+        )
+    try:
+        reviewed_on = date.fromisoformat(pre_sync_evidence["reviewed_on"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DocumentationError(
+            "pre-sync HACS reviewed_on must be a valid ISO date"
+        ) from exc
+    if reviewed_on.isoformat() != pre_sync_evidence["reviewed_on"]:
+        raise DocumentationError(
+            "pre-sync HACS reviewed_on must be a canonical ISO date"
+        )
+    exact_document_block = (
+        "Pre-synchronization historical evidence:\n\n"
+        f"- repository: `{pre_sync_evidence['repository']}`\n"
+        f"- commit: `{pre_sync_evidence['commit']}`\n"
+        f"- tree: `{pre_sync_evidence['tree']}`\n"
+        f"- `SOURCE_COMMIT`: `{pre_sync_evidence['source_commit']}`\n"
+        f"- manifest version: `{pre_sync_evidence['manifest_version']}`\n"
+        f"- reviewed: `{pre_sync_evidence['reviewed_on']}`\n"
+        f"- `{pre_sync_evidence['release_tag']}` tag: absent\n"
+        f"- `{pre_sync_evidence['release_tag']}` release: absent"
+    )
+    exact_template_block = (
+        "Pre-synchronization historical evidence:\n\n"
+        "- repository: `@PRE_SYNC_HACS_REPOSITORY@`\n"
+        "- commit: `@PRE_SYNC_HACS_COMMIT@`\n"
+        "- tree: `@PRE_SYNC_HACS_TREE@`\n"
+        "- `SOURCE_COMMIT`: `@PRE_SYNC_HACS_SOURCE_COMMIT@`\n"
+        "- manifest version: `@PRE_SYNC_HACS_VERSION@`\n"
+        "- reviewed: `@PRE_SYNC_HACS_REVIEW_DATE@`\n"
+        "- `@PRE_SYNC_HACS_RELEASE_TAG@` tag: "
+        "@PRE_SYNC_HACS_TAG_STATE@\n"
+        "- `@PRE_SYNC_HACS_RELEASE_TAG@` release: "
+        "@PRE_SYNC_HACS_RELEASE_STATE@"
+    )
+    evidence_owners = {
+        "docs/release-infra.md": exact_document_block,
+        "release/zigbeelens-hacs/README.md.in": exact_template_block,
+    }
+    for relative, expected_block in evidence_owners.items():
         text = (ROOT / relative).read_text(encoding="utf-8")
-        reviewed_states = list(reviewed_state_pattern.finditer(text))
-        if len(reviewed_states) != 1:
+        if text.count(expected_block) != 1:
             raise DocumentationError(
-                f"{relative}: reviewed public-satellite state must contain "
-                "exactly one repository, 40-character commit SHA, and "
-                "ISO-format review date block"
+                f"{relative}: exact pre-synchronization evidence block must "
+                "appear once"
             )
-        reviewed_state = reviewed_states[0]
-        reviewed_repository = reviewed_state.group("repository")
-        if reviewed_repository == "@REVIEWED_HACS_REPOSITORY@":
-            reviewed_repository = "theaussiepom/zigbeelens-hacs"
-        if reviewed_repository != "theaussiepom/zigbeelens-hacs":
-            raise DocumentationError(
-                f"{relative}: reviewed public-satellite repository must remain "
-                "theaussiepom/zigbeelens-hacs"
+        if (
+            "This record identifies what the final generated tree is intended "
+            "to replace."
+            not in text
+            or (
+                "It is not a claim about the satellite state after "
+                "synchronization."
+                not in text
             )
-        try:
-            date.fromisoformat(reviewed_state.group("reviewed"))
-        except ValueError as exc:
+        ):
             raise DocumentationError(
-                f"{relative}: public-satellite review date must be a valid ISO date"
-            ) from exc
+                f"{relative}: pre-synchronization evidence must be labelled "
+                "as historical replacement context"
+            )
         if re.search(
-            r"re-check its current tree(?: immediately)? before (?:any )?publication",
+            r"re-check\s+(?:the public\s+)?commit, tree, source provenance, "
+            r"tags?, and releases?\s+immediately before",
             text,
             flags=re.IGNORECASE,
         ) is None:
             raise DocumentationError(
-                f"{relative}: public-satellite evidence must require a re-check "
-                "before publication"
+                f"{relative}: exact satellite state must be re-checked before "
+                "synchronization or publication"
             )
-        reviewed_evidence.append(
-            (
-                reviewed_repository,
-                reviewed_state.group("commit"),
-                reviewed_state.group("reviewed"),
-            )
-        )
-        assertions += 5
-    if len(set(reviewed_evidence)) != 1:
+        assertions += 3
+    hacs_template = (
+        ROOT / "release/zigbeelens-hacs/README.md.in"
+    ).read_text(encoding="utf-8")
+    if "050d118b3e1406343255594fe64cd569e2420888" in hacs_template:
         raise DocumentationError(
-            "public-satellite reviewed repository, commit, and date must agree between "
-            "release infrastructure and the generated HACS README template"
+            "generated HACS README template must not depend on the obsolete "
+            "050d118-only public-satellite review"
         )
-    expected_reviewed_evidence = (
-        "theaussiepom/zigbeelens-hacs",
-        "050d118b3e1406343255594fe64cd569e2420888",
-        "2026-07-23",
-    )
-    if reviewed_evidence[0] != expected_reviewed_evidence:
-        raise DocumentationError(
-            "public-satellite historical evidence must remain coupled to the "
-            "repository, commit, and review date actually inspected"
-        )
-    assertions += 2
+    assertions += 4
     manifest = json.loads(
         (
             ROOT
@@ -2606,10 +2643,20 @@ def validate_companion_publication_truth() -> int:
             '${#SOURCE_COMMIT_VALUE}',
             "*[!0-9a-f]*",
             '"${DIST}/SOURCE_COMMIT"',
+            "pre-sync-evidence.json",
             "@SOURCE_REPOSITORY@",
             "@FUTURE_HACS_REPOSITORY@",
-            "@REVIEWED_HACS_REPOSITORY@",
             "@SOURCE_COMMIT@",
+            "@PRE_SYNC_HACS_REPOSITORY@",
+            "@PRE_SYNC_HACS_COMMIT@",
+            "@PRE_SYNC_HACS_TREE@",
+            "@PRE_SYNC_HACS_SOURCE_COMMIT@",
+            "@PRE_SYNC_HACS_VERSION@",
+            "@PRE_SYNC_HACS_REVIEW_DATE@",
+            "@PRE_SYNC_HACS_RELEASE_TAG@",
+            "@PRE_SYNC_HACS_TAG_STATE@",
+            "@PRE_SYNC_HACS_RELEASE_STATE@",
+            "object_pairs_hook=unique_object",
             "docs/hacs.md",
         ),
     )
@@ -2627,7 +2674,15 @@ def validate_companion_publication_truth() -> int:
         (
             "@SOURCE_REPOSITORY@",
             "@FUTURE_HACS_REPOSITORY@",
-            "@REVIEWED_HACS_REPOSITORY@",
+            "@PRE_SYNC_HACS_REPOSITORY@",
+            "@PRE_SYNC_HACS_COMMIT@",
+            "@PRE_SYNC_HACS_TREE@",
+            "@PRE_SYNC_HACS_SOURCE_COMMIT@",
+            "@PRE_SYNC_HACS_VERSION@",
+            "@PRE_SYNC_HACS_REVIEW_DATE@",
+            "@PRE_SYNC_HACS_RELEASE_TAG@",
+            "@PRE_SYNC_HACS_TAG_STATE@",
+            "@PRE_SYNC_HACS_RELEASE_STATE@",
         ),
     )
     template_future_start = hacs_template.index(
@@ -2698,6 +2753,11 @@ def validate_companion_publication_truth() -> int:
             "README current/local guidance must not use blob/main documentation",
             "README pinned Docker documentation URL does not match",
             "theaussiepom/zigbeelens-hacs",
+            "pre-sync-evidence.json",
+            "EXPECTED_PRE_SYNC_HACS_EVIDENCE",
+            "README pre-synchronization evidence does not match",
+            "pre-release candidate, not a public release",
+            "SOURCE_COMMIT` plus the generated Git tree identify this candidate",
             "unresolved template placeholder",
         ),
     )
@@ -2714,6 +2774,15 @@ def validate_companion_publication_truth() -> int:
             "test_packager_rejects_untracked_integration_source",
             "test_packager_separates_nondefault_repository_identities",
             "test_package_validator_rejects_source_commit_mismatch",
+            "test_generated_hacs_tree_is_deterministic",
+            "test_packager_rejects_invalid_canonical_pre_sync_evidence",
+            "test_packager_rejects_unresolved_template_placeholder",
+            "test_packager_rejects_duplicate_evidence_placeholder",
+            "test_package_validator_rejects_pre_sync_evidence_mismatch",
+            "test_package_validator_rejects_obsolete_pre_release_claim",
+            "test_package_validator_rejects_duplicate_pre_sync_evidence_block",
+            "test_package_validator_rejects_invalid_pre_sync_evidence_file",
+            "test_package_validator_accepts_future_synchronized_tree_wording",
         ),
     )
     assertions += require_document_fragments(

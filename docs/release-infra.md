@@ -67,19 +67,23 @@ resynchronization. Validate the current branch only with the locally generated
 package from `./scripts/package-hacs-repo.sh`; public installation remains
 gated.
 
-Current public-satellite state at correction preflight:
+Pre-synchronization historical evidence:
 
 - repository: `theaussiepom/zigbeelens-hacs`
 - commit: `21c24e3355369b94c9ab596cf9fc0591f1282297`
 - tree: `9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`
 - `SOURCE_COMMIT`: `906527063ad8bd594fbec51f69f6fc72205302dd`
-- version: `0.1.14`
-- tag/release: no `v0.1.14`
+- manifest version: `0.1.14`
+- reviewed: `2026-07-29`
+- `v0.1.14` tag: absent
+- `v0.1.14` release: absent
 
-Re-check commit, tree, source provenance, tags, and releases immediately before
-any synchronization or publication decision.
+This record identifies what the final generated tree is intended to replace.
+It is not a claim about the satellite state after synchronization. Re-check
+commit, tree, source provenance, tags, and releases immediately before any
+synchronization or publication decision.
 
-Reviewed public-satellite state (historical evidence):
+Earlier public-satellite historical evidence:
 
 - repository: `theaussiepom/zigbeelens-hacs`
 - commit: `050d118b3e1406343255594fe64cd569e2420888`
@@ -107,10 +111,13 @@ the generated README, and pins both staged installation guides to immutable
 immutable links and defaults to `theaussiepom/zigbeelens`.
 `ZIGBEELENS_FUTURE_HACS_REPOSITORY` independently identifies the conditional
 future publication destination and defaults to
-`theaussiepom/zigbeelens-hacs`. Neither setting rewrites the fixed historical
-repository, commit, and review date above. The selected tree, provenance file,
-README, and manifest must agree. This identifies the reviewed monorepo source;
-it does not establish satellite synchronization or publication readiness.
+`theaussiepom/zigbeelens-hacs`. Neither setting rewrites the fixed public
+satellite identity. The canonical
+`release/zigbeelens-hacs/pre-sync-evidence.json` record supplies the generated
+README and validator with the exact pre-synchronization repository, commit,
+tree, source commit, manifest version, review date, and absent tag/release
+state. The selected tree, evidence record, provenance file, README, validator,
+and manifest must agree.
 
 The reviewed monorepo/stage now owns:
 
@@ -142,13 +149,13 @@ retains the prior accepted snapshot on unavailable or transient failure.
 
 Before restoring public HACS installation guidance or publishing the satellite:
 
-- prove the complete staged tree matches the intended satellite tree;
-- assign a manifest/package version that uniquely identifies that exact tree;
+- prove `SOURCE_COMMIT` plus the generated Git tree identify the exact reviewed
+  satellite candidate;
 - pass the generated exact Home Assistant 2025.1.0/Python 3.12 and
   2026.7.3/Python 3.14 lanes remotely;
 - pass generated official HACS and hassfest validation remotely; and
-- record explicit publication authorization before modifying the external
-  repository.
+- record explicit publication authorization for the `v0.1.14` tag and GitHub
+  release to point to that exact reviewed tree.
 
 ## Local pre-release test
 

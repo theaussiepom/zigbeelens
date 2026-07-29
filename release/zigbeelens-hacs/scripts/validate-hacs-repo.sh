@@ -14,6 +14,7 @@ REQUIRED=(
   SOURCE_COMMIT
   hacs.json
   README.md
+  pre-sync-evidence.json
   LICENSE
   CHANGELOG.md
   .github/workflows/ci.yml
@@ -69,7 +70,7 @@ else
   fail "scripts/test-ha-integration-matrix.sh must be executable"
 fi
 
-python3 - "${ROOT}" <<'PY'
+python3 - "${ROOT}" "${ROOT}/scripts/validate-hacs-repo.sh" <<'PY'
 import json, re, sys
 from datetime import date
 from pathlib import Path
@@ -78,9 +79,26 @@ REPOSITORY_PATTERN = (
     r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?"
     r"/[A-Za-z0-9_.-]{1,100}"
 )
-REVIEWED_HACS_REPOSITORY = "theaussiepom/zigbeelens-hacs"
-REVIEWED_HACS_COMMIT = "050d118b3e1406343255594fe64cd569e2420888"
-REVIEWED_HACS_DATE = "2026-07-23"
+PRE_SYNC_HACS_REPOSITORY = "@PRE_SYNC_HACS_REPOSITORY@"
+PRE_SYNC_HACS_COMMIT = "@PRE_SYNC_HACS_COMMIT@"
+PRE_SYNC_HACS_TREE = "@PRE_SYNC_HACS_TREE@"
+PRE_SYNC_HACS_SOURCE_COMMIT = "@PRE_SYNC_HACS_SOURCE_COMMIT@"
+PRE_SYNC_HACS_VERSION = "@PRE_SYNC_HACS_VERSION@"
+PRE_SYNC_HACS_REVIEW_DATE = "@PRE_SYNC_HACS_REVIEW_DATE@"
+PRE_SYNC_HACS_RELEASE_TAG = "@PRE_SYNC_HACS_RELEASE_TAG@"
+PRE_SYNC_HACS_TAG_STATE = "@PRE_SYNC_HACS_TAG_STATE@"
+PRE_SYNC_HACS_RELEASE_STATE = "@PRE_SYNC_HACS_RELEASE_STATE@"
+EXPECTED_PRE_SYNC_HACS_EVIDENCE = {
+    "repository": PRE_SYNC_HACS_REPOSITORY,
+    "commit": PRE_SYNC_HACS_COMMIT,
+    "tree": PRE_SYNC_HACS_TREE,
+    "source_commit": PRE_SYNC_HACS_SOURCE_COMMIT,
+    "manifest_version": PRE_SYNC_HACS_VERSION,
+    "reviewed_on": PRE_SYNC_HACS_REVIEW_DATE,
+    "release_tag": PRE_SYNC_HACS_RELEASE_TAG,
+    "tag_present": PRE_SYNC_HACS_TAG_STATE == "present",
+    "release_present": PRE_SYNC_HACS_RELEASE_STATE == "present",
+}
 
 
 def repository_is_valid(value: str) -> bool:
@@ -90,7 +108,73 @@ def repository_is_valid(value: str) -> bool:
     return repository not in {".", ".."}
 
 
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate key {key!r}")
+        result[key] = value
+    return result
+
+
+def load_unique_json(path: Path, label: str):
+    try:
+        return json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=unique_object,
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(f"{label} must be valid duplicate-free JSON: {exc}") from exc
+
+
 root = Path(sys.argv[1])
+validator_path = Path(sys.argv[2])
+validator_placeholders = sorted(
+    set(
+        re.findall(
+            r"@[A-Z][A-Z0-9_]*@",
+            validator_path.read_text(encoding="utf-8"),
+        )
+    )
+)
+if validator_placeholders:
+    sys.exit(
+        "generated validator contains an unresolved template placeholder: "
+        + ", ".join(validator_placeholders)
+    )
+evidence = load_unique_json(
+    root / "pre-sync-evidence.json",
+    "pre-sync-evidence.json",
+)
+if evidence != EXPECTED_PRE_SYNC_HACS_EVIDENCE:
+    sys.exit(
+        "pre-sync-evidence.json does not match the generated exact "
+        "pre-synchronization contract"
+    )
+if PRE_SYNC_HACS_REPOSITORY != "theaussiepom/zigbeelens-hacs":
+    sys.exit(
+        "pre-synchronization public satellite repository identity is not exact"
+    )
+if PRE_SYNC_HACS_RELEASE_TAG != f"v{PRE_SYNC_HACS_VERSION}":
+    sys.exit("pre-synchronization release tag does not match manifest version")
+if PRE_SYNC_HACS_TAG_STATE != "absent":
+    sys.exit("pre-synchronization tag state must be absent")
+if PRE_SYNC_HACS_RELEASE_STATE != "absent":
+    sys.exit("pre-synchronization release state must be absent")
+for field in ("commit", "tree", "source_commit"):
+    if re.fullmatch(r"[0-9a-f]{40}", evidence[field]) is None:
+        sys.exit(
+            f"pre-sync-evidence.json {field} must be 40 lowercase hex characters"
+        )
+try:
+    reviewed_on = date.fromisoformat(PRE_SYNC_HACS_REVIEW_DATE)
+except ValueError as exc:
+    raise SystemExit(
+        "pre-synchronization review date must be a valid ISO date"
+    ) from exc
+if reviewed_on.isoformat() != PRE_SYNC_HACS_REVIEW_DATE:
+    sys.exit("pre-synchronization review date must be canonical")
+
 source_commit_path = root / "SOURCE_COMMIT"
 if not source_commit_path.is_file():
     sys.exit("missing SOURCE_COMMIT")
@@ -101,14 +185,21 @@ if re.fullmatch(r"[0-9a-f]{40}\n", source_commit_raw) is None:
         "40-character commit SHA followed by a newline"
     )
 source_commit = source_commit_raw[:-1]
-hacs = json.loads((root / "hacs.json").read_text())
+hacs = load_unique_json(root / "hacs.json", "hacs.json")
 if hacs.get("content_in_root") is not False:
     sys.exit("hacs.json content_in_root must be false for custom_components layout")
-manifest = json.loads((root / "custom_components/zigbeelens/manifest.json").read_text())
+manifest = load_unique_json(
+    root / "custom_components/zigbeelens/manifest.json",
+    "manifest.json",
+)
 if manifest.get("domain") != "zigbeelens":
     sys.exit("manifest domain must be zigbeelens")
 if not manifest.get("version"):
     sys.exit("manifest version required")
+if manifest.get("version") != PRE_SYNC_HACS_VERSION:
+    sys.exit(
+        "manifest version does not match pre-synchronization evidence"
+    )
 if manifest.get("config_flow") is not True:
     sys.exit("manifest config_flow must be true")
 if manifest.get("single_config_entry") is not True:
@@ -271,61 +362,64 @@ if (
         "README conditional future HACS repository must be one exact "
         "owner/repository URL"
     )
-reviewed_state_pattern = re.compile(
-    r"Reviewed public-satellite state \(historical evidence\):\s*"
+pre_sync_state_pattern = re.compile(
+    r"Pre-synchronization historical evidence:\s*"
     r"- repository: `(?P<repository>"
     + REPOSITORY_PATTERN
     + r")`\s*"
     r"- commit: `(?P<commit>[0-9a-f]{40})`\s*"
-    r"- reviewed: `(?P<reviewed>[0-9]{4}-[0-9]{2}-[0-9]{2})`",
+    r"- tree: `(?P<tree>[0-9a-f]{40})`\s*"
+    r"- `SOURCE_COMMIT`: `(?P<source_commit>[0-9a-f]{40})`\s*"
+    r"- manifest version: `(?P<manifest_version>[0-9]+\.[0-9]+\.[0-9]+)`\s*"
+    r"- reviewed: `(?P<reviewed_on>[0-9]{4}-[0-9]{2}-[0-9]{2})`\s*"
+    r"- `(?P<release_tag>v[0-9]+\.[0-9]+\.[0-9]+)` tag: "
+    r"(?P<tag_state>present|absent)\s*"
+    r"- `(?P=release_tag)` release: "
+    r"(?P<release_state>present|absent)",
 )
-reviewed_states = list(reviewed_state_pattern.finditer(readme))
-if len(reviewed_states) != 1:
+pre_sync_states = list(pre_sync_state_pattern.finditer(readme))
+if len(pre_sync_states) != 1:
     sys.exit(
-        "README must contain exactly one reviewed public-satellite state with "
-        "an exact repository, 40-character commit SHA, and ISO-format review date"
+        "README must contain exactly one complete pre-synchronization "
+        "historical evidence block"
     )
-reviewed_state = reviewed_states[0]
-reviewed_repository = reviewed_state.group("repository")
-if (
-    not repository_is_valid(reviewed_repository)
-    or reviewed_repository != REVIEWED_HACS_REPOSITORY
-):
+pre_sync_state = pre_sync_states[0]
+pre_sync_repository = pre_sync_state.group("repository")
+if not repository_is_valid(pre_sync_repository):
     sys.exit(
-        "README reviewed public-satellite repository does not match the "
-        "repository actually inspected"
+        "README pre-synchronization repository is malformed"
     )
-if (
-    reviewed_state.group("commit") != REVIEWED_HACS_COMMIT
-    or reviewed_state.group("reviewed") != REVIEWED_HACS_DATE
-):
+readme_evidence = {
+    "repository": pre_sync_repository,
+    "commit": pre_sync_state.group("commit"),
+    "tree": pre_sync_state.group("tree"),
+    "source_commit": pre_sync_state.group("source_commit"),
+    "manifest_version": pre_sync_state.group("manifest_version"),
+    "reviewed_on": pre_sync_state.group("reviewed_on"),
+    "release_tag": pre_sync_state.group("release_tag"),
+    "tag_present": pre_sync_state.group("tag_state") == "present",
+    "release_present": pre_sync_state.group("release_state") == "present",
+}
+if readme_evidence != EXPECTED_PRE_SYNC_HACS_EVIDENCE:
     sys.exit(
-        "README reviewed public-satellite commit and date do not match the "
-        "coupled historical evidence"
-    )
-if (
-    current_readme.count(
-        f"reviewed public `{reviewed_repository}` satellite"
-    )
-    != 1
-):
-    sys.exit(
-        "README release status must name the reviewed public-satellite "
-        "repository"
+        "README pre-synchronization evidence does not match the canonical "
+        "generated contract"
     )
 try:
-    date.fromisoformat(reviewed_state.group("reviewed"))
+    date.fromisoformat(pre_sync_state.group("reviewed_on"))
 except ValueError as exc:
     raise SystemExit(
-        "README public-satellite review date must be a valid ISO date"
+        "README pre-synchronization review date must be a valid ISO date"
     ) from exc
 if re.search(
-    r"re-check its current tree(?: immediately)? before (?:any )?publication",
+    r"re-check\s+the\s+public\s+commit,\s+tree,\s+source\s+provenance,"
+    r"\s+tag,\s+and\s+release\s+immediately\s+before\s+any"
+    r"\s+synchronization\s+or\s+publication\s+decision",
     readme,
     flags=re.IGNORECASE,
 ) is None:
     sys.exit(
-        "README must require the public satellite to be re-checked before publication"
+        "README must require exact public state to be re-checked before action"
     )
 strings = json.loads((root / "custom_components/zigbeelens/strings.json").read_text())
 translations = json.loads((root / "custom_components/zigbeelens/translations/en.json").read_text())
@@ -531,7 +625,11 @@ else
   fail "node not available to check panel JS"
 fi
 
-README="$(tr '[:upper:]' '[:lower:]' < "${ROOT}/README.md")"
+README="$(
+  tr '[:upper:]' '[:lower:]' < "${ROOT}/README.md" |
+    tr '\n' ' ' |
+    sed -E 's/[[:space:]]+/ /g'
+)"
 require_readme() {
   local needle="$1"
   if grep -Fqi -- "$needle" <<<"${README}"; then
@@ -552,20 +650,23 @@ require_readme "back to summary"
 require_readme "package provenance"
 require_readme 'the generated `source_commit` file records the same commit'
 require_readme "release status — local/staged integration only"
-require_readme "public hacs installation is unavailable"
-require_readme "not synchronized"
-require_readme "must not be used to validate"
+require_readme "public hacs installation remains unavailable"
+require_readme "pre-release candidate, not a public release"
+require_readme "synchronization alone does not authorize installation or release"
+require_readme "its presence does not imply that a public release has been authorized"
 require_readme "local staged integration testing"
 require_readme "full home assistant restart"
 require_readme "conditional public hacs installation"
-require_readme "reviewed public-satellite state (historical evidence)"
-require_readme "re-check its current tree before publication"
-require_readme "staged tree must match the intended satellite tree"
-require_readme "version must uniquely identify that tree"
+require_readme "pre-synchronization historical evidence"
+require_readme "not a claim about the satellite state after synchronization"
+require_readme '`source_commit` plus the generated git tree identify this candidate'
+require_readme "does not distinguish pre-release candidate trees by itself"
+require_readme "tag and github release"
+require_readme "exact generated tree is the reviewed satellite tree"
 require_readme '| minimum | `2025.1.0` | `3.12` |'
 require_readme '| current | `2026.7.3` | `3.14` |'
 require_readme "official hacs and hassfest"
-require_readme "explicit publication authorization"
+require_readme "final release authorization is recorded"
 
 if grep -Eqi 'does \*\*not\*\* create per-priority or per-device-story entities|does not create per-priority or per-device-story entities' <<<"${README}"; then
   ok "README distinguishes summary entities from per-priority/device-story entities"
@@ -589,6 +690,14 @@ if grep -Eqi 'same-protocol auto-embed|same protocol auto-embed' <<<"${README}";
   fail "README must not document stale same-protocol auto-embed behavior"
 else
   ok "README omits stale same-protocol auto-embed behavior"
+fi
+if grep -Eqi \
+  '050d118b3e1406343255594fe64cd569e2420888|previously unused version|unused version|unsynchroni[sz]ed[^.]{0,120}(satellite|stage|candidate|tree)|(satellite|stage|candidate|tree)[^.]{0,120}unsynchroni[sz]ed|(satellite|stage|candidate|tree)[^.]{0,120}(not|never)[^.]{0,80}synchroni[sz]|(not|never)[^.]{0,80}synchroni[sz][^.]{0,120}(satellite|stage|candidate|tree)|(manifest |package )?version[^.]{0,160}(unique|identif)|(candidate|tree)[^.]{0,160}(unique|identif)[^.]{0,80}(manifest |package )?version' \
+  <<<"${README}"
+then
+  fail "README contains stale pre-release synchronization or version-only identity"
+else
+  ok "README omits stale synchronization and version-only identity claims"
 fi
 CURRENT_README="${README%%## conditional public hacs installation*}"
 if grep -Eqi \

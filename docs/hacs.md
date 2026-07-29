@@ -45,11 +45,13 @@ and Phase 7D remains blocked.
 Public installation remains unavailable until a separately authorized
 publication task:
 
-- makes the complete staged and satellite trees identical;
-- assigns a version that uniquely identifies that tree;
+- makes the exact generated tree the reviewed satellite tree;
+- verifies that `SOURCE_COMMIT` plus the generated Git tree identify the exact
+  pre-release candidate;
 - runs the generated exact Home Assistant matrix and official HACS/hassfest
   checks on the synchronized satellite; and
-- records and inspects those remote results before publication.
+- authorizes the `v0.1.14` tag and GitHub release to point to that exact tree
+  after recording and inspecting the remote results.
 
 Local structural packaging and local matrix results are not substitutes for
 those remote satellite checks.
@@ -533,16 +535,16 @@ Remove leftover unavailable entities from the Home Assistant entity registry man
 These are future instructions, not a current branch-validation route. Restore
 public custom-repository installation only after all of these gates close:
 
-- the staged tree matches the intended satellite tree exactly;
-- the manifest/package version uniquely identifies that tree, remains unused,
-  and has not already been published;
+- `SOURCE_COMMIT` plus the generated Git tree identify the exact reviewed
+  satellite candidate;
 - exact Home Assistant `2025.1.0` / Python `3.12` and Home Assistant
   `2026.7.3` / Python `3.14` coverage passes;
 - the required monorepo `enrichment-live-e2e` check passes remotely for the
   exact source commit before synchronization or tagging;
 - generated official HACS and hassfest validation passes remotely on the
   synchronized satellite; and
-- explicit publication authorization is recorded.
+- explicit publication authorization records that the `v0.1.14` tag and
+  GitHub release will point to that exact reviewed tree.
 
 Generated satellite CI is package-scoped: it does not contain Core, the UI, or
 the cross-runtime live harness and therefore does not replace the monorepo

@@ -1,0 +1,11 @@
+{
+  "repository": "theaussiepom/zigbeelens-hacs",
+  "commit": "21c24e3355369b94c9ab596cf9fc0591f1282297",
+  "tree": "9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9",
+  "source_commit": "906527063ad8bd594fbec51f69f6fc72205302dd",
+  "manifest_version": "0.1.14",
+  "reviewed_on": "2026-07-29",
+  "release_tag": "v0.1.14",
+  "tag_present": false,
+  "release_present": false
+}

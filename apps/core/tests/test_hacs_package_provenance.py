@@ -14,6 +14,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGER = ROOT / "scripts" / "package-hacs-repo.sh"
 README_TEMPLATE = ROOT / "release" / "zigbeelens-hacs" / "README.md.in"
+PRE_SYNC_EVIDENCE_SOURCE = (
+    ROOT / "release" / "zigbeelens-hacs" / "pre-sync-evidence.json"
+)
 PACKAGE_VALIDATOR = (
     ROOT / "release" / "zigbeelens-hacs" / "scripts" / "validate-hacs-repo.sh"
 )
@@ -56,9 +59,17 @@ LOCAL_SOURCE_HA_MATRIX_COMMAND = (
 
 DEFAULT_SOURCE_REPOSITORY = "theaussiepom/zigbeelens"
 DEFAULT_FUTURE_HACS_REPOSITORY = "theaussiepom/zigbeelens-hacs"
-REVIEWED_HACS_REPOSITORY = "theaussiepom/zigbeelens-hacs"
-REVIEWED_HACS_COMMIT = "050d118b3e1406343255594fe64cd569e2420888"
-REVIEWED_HACS_DATE = "2026-07-23"
+EXPECTED_PRE_SYNC_EVIDENCE = {
+    "repository": "theaussiepom/zigbeelens-hacs",
+    "commit": "21c24e3355369b94c9ab596cf9fc0591f1282297",
+    "tree": "9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9",
+    "source_commit": "906527063ad8bd594fbec51f69f6fc72205302dd",
+    "manifest_version": "0.1.14",
+    "reviewed_on": "2026-07-29",
+    "release_tag": "v0.1.14",
+    "tag_present": False,
+    "release_present": False,
+}
 HASSFEST_COMMIT = "e3fb68ebda13d88a0d695082f471ba2c83d025fb"
 HACS_ACTION_COMMIT = "1ebf01c408f29afcb6406bd431bc98fd8cbb15aa"
 EXPECTED_HA_MATRIX = {
@@ -78,6 +89,48 @@ EXPECTED_HA_MATRIX = {
         },
     ],
 }
+
+
+def _pre_sync_placeholders(
+    evidence: dict[str, object] = EXPECTED_PRE_SYNC_EVIDENCE,
+) -> dict[str, str]:
+    return {
+        "@PRE_SYNC_HACS_REPOSITORY@": str(evidence["repository"]),
+        "@PRE_SYNC_HACS_COMMIT@": str(evidence["commit"]),
+        "@PRE_SYNC_HACS_TREE@": str(evidence["tree"]),
+        "@PRE_SYNC_HACS_SOURCE_COMMIT@": str(evidence["source_commit"]),
+        "@PRE_SYNC_HACS_VERSION@": str(evidence["manifest_version"]),
+        "@PRE_SYNC_HACS_REVIEW_DATE@": str(evidence["reviewed_on"]),
+        "@PRE_SYNC_HACS_RELEASE_TAG@": str(evidence["release_tag"]),
+        "@PRE_SYNC_HACS_TAG_STATE@": (
+            "present" if evidence["tag_present"] else "absent"
+        ),
+        "@PRE_SYNC_HACS_RELEASE_STATE@": (
+            "present" if evidence["release_present"] else "absent"
+        ),
+    }
+
+
+def _render_template(text: str, substitutions: dict[str, str]) -> str:
+    rendered = text
+    for placeholder, value in substitutions.items():
+        rendered = rendered.replace(placeholder, value)
+    return rendered
+
+
+def _expected_pre_sync_readme_block() -> str:
+    evidence = EXPECTED_PRE_SYNC_EVIDENCE
+    return (
+        "Pre-synchronization historical evidence:\n\n"
+        f"- repository: `{evidence['repository']}`\n"
+        f"- commit: `{evidence['commit']}`\n"
+        f"- tree: `{evidence['tree']}`\n"
+        f"- `SOURCE_COMMIT`: `{evidence['source_commit']}`\n"
+        f"- manifest version: `{evidence['manifest_version']}`\n"
+        f"- reviewed: `{evidence['reviewed_on']}`\n"
+        f"- `{evidence['release_tag']}` tag: absent\n"
+        f"- `{evidence['release_tag']}` release: absent"
+    )
 
 
 def _job_body(workflow: str, job_name: str) -> str:
@@ -338,6 +391,13 @@ def _copy_fixture_files(repository: Path) -> None:
         repository / "release" / "zigbeelens-hacs" / "README.md.in",
     )
     _copy_file(
+        PRE_SYNC_EVIDENCE_SOURCE,
+        repository
+        / "release"
+        / "zigbeelens-hacs"
+        / "pre-sync-evidence.json",
+    )
+    _copy_file(
         PACKAGE_VALIDATOR,
         repository
         / "release"
@@ -568,17 +628,26 @@ def _assert_packaged_provenance(
         in future_section
     )
     assert f"Issues: https://github.com/{source_repository}/issues" in readme
+    assert _expected_pre_sync_readme_block() in readme
+    assert json.loads(
+        (stage / "pre-sync-evidence.json").read_text(encoding="utf-8")
+    ) == EXPECTED_PRE_SYNC_EVIDENCE
+    normalized_readme = " ".join(readme.split())
     assert (
-        "Reviewed public-satellite state (historical evidence):\n\n"
-        f"- repository: `{REVIEWED_HACS_REPOSITORY}`\n"
-        f"- commit: `{REVIEWED_HACS_COMMIT}`\n"
-        f"- reviewed: `{REVIEWED_HACS_DATE}`"
-    ) in readme
+        "Synchronization alone does not authorize installation or release"
+        in normalized_readme
+    )
+    assert (
+        "`SOURCE_COMMIT` plus the generated Git tree identify this candidate"
+        in normalized_readme
+    )
+    assert "previously unused version" not in readme.lower()
+    assert "not synchronized with this stage" not in readme.lower()
     for placeholder in {
         "@SOURCE_COMMIT@",
         "@SOURCE_REPOSITORY@",
         "@FUTURE_HACS_REPOSITORY@",
-        "@REVIEWED_HACS_REPOSITORY@",
+        *_pre_sync_placeholders(),
         "@GITHUB_OWNER@",
     }:
         assert placeholder not in readme
@@ -727,6 +796,7 @@ def _assert_package_tree_matches_commit(
     expected_stage_files.update(
         {
             "SOURCE_COMMIT",
+            "pre-sync-evidence.json",
             "hacs.json",
             "README.md",
             "LICENSE",
@@ -811,11 +881,11 @@ def _assert_package_tree_matches_commit(
             "release/zigbeelens-hacs/.github/workflows/release.yml"
         ): ".github/workflows/release.yml",
         (
-            "release/zigbeelens-hacs/scripts/validate-hacs-repo.sh"
-        ): "scripts/validate-hacs-repo.sh",
-        (
             "scripts/test-ha-integration-matrix.sh"
         ): "scripts/test-ha-integration-matrix.sh",
+        (
+            "release/zigbeelens-hacs/pre-sync-evidence.json"
+        ): "pre-sync-evidence.json",
         "apps/ha_integration/ha-test-matrix.json": "ha-test-matrix.json",
         "apps/ha_integration/pytest.ini": "pytest.ini",
         "apps/ha_integration/requirements-test.txt": "requirements-test.txt",
@@ -848,11 +918,26 @@ def _assert_package_tree_matches_commit(
     for placeholder, value in (
         ("@SOURCE_REPOSITORY@", source_repository),
         ("@FUTURE_HACS_REPOSITORY@", future_hacs_repository),
-        ("@REVIEWED_HACS_REPOSITORY@", REVIEWED_HACS_REPOSITORY),
         ("@SOURCE_COMMIT@", expected_commit),
+        *_pre_sync_placeholders().items(),
     ):
         expected_readme = expected_readme.replace(placeholder, value)
     assert (stage / "README.md").read_text(encoding="utf-8") == expected_readme
+    validator_template = _git_bytes(
+        repository,
+        "show",
+        (
+            f"{expected_commit}:"
+            "release/zigbeelens-hacs/scripts/validate-hacs-repo.sh"
+        ),
+    ).decode()
+    expected_validator = _render_template(
+        validator_template,
+        _pre_sync_placeholders(),
+    )
+    assert (
+        stage / "scripts" / "validate-hacs-repo.sh"
+    ).read_text(encoding="utf-8") == expected_validator
     assert json.loads((stage / "hacs.json").read_text(encoding="utf-8")) == {
         "name": "ZigbeeLens",
         "content_in_root": False,
@@ -892,6 +977,40 @@ def test_package_validator_accepts_matching_provenance(tmp_path: Path):
 
     assert validation.returncode == 0, validation.stderr
     assert "SOURCE_COMMIT" in validation.stdout
+
+
+def test_canonical_pre_sync_hacs_evidence_is_exact() -> None:
+    assert json.loads(
+        PRE_SYNC_EVIDENCE_SOURCE.read_text(encoding="utf-8")
+    ) == EXPECTED_PRE_SYNC_EVIDENCE
+
+
+def test_generated_hacs_tree_is_deterministic(tmp_path: Path):
+    repository = _fixture_repository(tmp_path)
+    first_result = _run_packager(repository)
+    assert first_result.returncode == 0, first_result.stderr
+    stage = repository / "dist" / "zigbeelens-hacs"
+    first = {
+        path.relative_to(stage).as_posix(): (
+            path.read_bytes(),
+            path.stat().st_mode & 0o777,
+        )
+        for path in stage.rglob("*")
+        if path.is_file()
+    }
+
+    second_result = _run_packager(repository)
+    assert second_result.returncode == 0, second_result.stderr
+    second = {
+        path.relative_to(stage).as_posix(): (
+            path.read_bytes(),
+            path.stat().st_mode & 0o777,
+        )
+        for path in stage.rglob("*")
+        if path.is_file()
+    }
+
+    assert second == first
 
 
 def test_generated_release_infrastructure_is_sealed(tmp_path: Path):
@@ -1345,12 +1464,105 @@ def test_packager_rejects_dirty_readme_template(tmp_path: Path):
 
 
 @pytest.mark.parametrize(
+    "mutation",
+    ("missing", "malformed", "duplicate", "extra", "wrong_version"),
+)
+def test_packager_rejects_invalid_canonical_pre_sync_evidence(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    evidence_path = (
+        repository / "release" / "zigbeelens-hacs"
+        / "pre-sync-evidence.json"
+    )
+    if mutation == "missing":
+        evidence_path.unlink()
+    elif mutation == "malformed":
+        evidence_path.write_text("{", encoding="utf-8")
+    elif mutation == "duplicate":
+        evidence_path.write_text(
+            evidence_path.read_text(encoding="utf-8").replace(
+                "{\n",
+                '{\n  "repository": "duplicate/identity",\n',
+                1,
+            ),
+            encoding="utf-8",
+        )
+    else:
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+        if mutation == "extra":
+            evidence["extra"] = "forbidden"
+        else:
+            evidence["manifest_version"] = "0.1.15"
+            evidence["release_tag"] = "v0.1.15"
+        evidence_path.write_text(
+            json.dumps(evidence, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    _commit_all(repository, f"mutate evidence: {mutation}")
+
+    result = _run_packager(repository)
+
+    assert result.returncode != 0
+    assert not (repository / "dist" / "zigbeelens-hacs").exists()
+
+
+def test_packager_rejects_unresolved_template_placeholder(
+    tmp_path: Path,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    template = repository / "release" / "zigbeelens-hacs" / "README.md.in"
+    template.write_text(
+        template.read_text(encoding="utf-8")
+        + "\n@PRE_SYNC_HACS_UNKNOWN@\n",
+        encoding="utf-8",
+    )
+    _commit_all(repository, "add unresolved evidence placeholder")
+
+    result = _run_packager(repository)
+
+    assert result.returncode != 0
+    assert "unknown placeholder" in _combined_output(result)
+    assert not (repository / "dist" / "zigbeelens-hacs").exists()
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "release/zigbeelens-hacs/README.md.in",
+        "release/zigbeelens-hacs/scripts/validate-hacs-repo.sh",
+    ),
+    ids=("readme", "validator"),
+)
+def test_packager_rejects_duplicate_evidence_placeholder(
+    tmp_path: Path,
+    relative: str,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    template = repository / relative
+    template.write_text(
+        template.read_text(encoding="utf-8")
+        + "\nMirror tree: @PRE_SYNC_HACS_TREE@\n",
+        encoding="utf-8",
+    )
+    _commit_all(repository, "duplicate evidence placeholder")
+
+    result = _run_packager(repository)
+
+    assert result.returncode != 0
+    assert "duplicated or misplaced placeholder" in _combined_output(result)
+    assert not (repository / "dist" / "zigbeelens-hacs").exists()
+
+
+@pytest.mark.parametrize(
     "relative",
     (
         "LICENSE",
         "CHANGELOG.md",
         "release/zigbeelens-hacs/.github/workflows/ci.yml",
         "release/zigbeelens-hacs/.github/workflows/release.yml",
+        "release/zigbeelens-hacs/pre-sync-evidence.json",
         "release/zigbeelens-hacs/scripts/validate-hacs-repo.sh",
         "apps/ha_integration/ha-test-matrix.json",
         "apps/ha_integration/docs/zigbeelens-icon.svg",
@@ -1509,7 +1721,7 @@ def test_package_validator_rejects_operational_url_suffix(
         "docker_image",
         "issues",
         "package_commit",
-        "historical_evidence",
+        "pre_sync_evidence",
     ),
 )
 def test_package_validator_rejects_conflicting_source_identity_decoy(
@@ -1531,11 +1743,18 @@ def test_package_validator_rejects_conflicting_source_identity_decoy(
             f"[`{head}`](https://github.com/impostor/zigbeelens/"
             f"commit/{head})"
         ),
-        "historical_evidence": (
-            "Reviewed public-satellite state (historical evidence):\n\n"
+        "pre_sync_evidence": (
+            "Pre-synchronization historical evidence:\n\n"
             "- repository: `impostor/zigbeelens-hacs`\n"
-            f"- commit: `{REVIEWED_HACS_COMMIT}`\n"
-            f"- reviewed: `{REVIEWED_HACS_DATE}`"
+            f"- commit: `{EXPECTED_PRE_SYNC_EVIDENCE['commit']}`\n"
+            f"- tree: `{EXPECTED_PRE_SYNC_EVIDENCE['tree']}`\n"
+            "- `SOURCE_COMMIT`: "
+            f"`{EXPECTED_PRE_SYNC_EVIDENCE['source_commit']}`\n"
+            "- manifest version: "
+            f"`{EXPECTED_PRE_SYNC_EVIDENCE['manifest_version']}`\n"
+            f"- reviewed: `{EXPECTED_PRE_SYNC_EVIDENCE['reviewed_on']}`\n"
+            f"- `{EXPECTED_PRE_SYNC_EVIDENCE['release_tag']}` tag: absent\n"
+            f"- `{EXPECTED_PRE_SYNC_EVIDENCE['release_tag']}` release: absent"
         ),
     }
     decoy = decoys[surface]
@@ -1615,7 +1834,7 @@ def test_package_validator_rejects_source_commit_mismatch(
     assert "SOURCE_COMMIT" in _combined_output(validation)
 
 
-def test_package_validator_rejects_reviewed_satellite_identity_mismatch(
+def test_package_validator_rejects_pre_sync_satellite_identity_mismatch(
     tmp_path: Path,
 ):
     repository = _fixture_repository(tmp_path)
@@ -1626,7 +1845,7 @@ def test_package_validator_rejects_reviewed_satellite_identity_mismatch(
     readme = readme_path.read_text(encoding="utf-8")
     readme_path.write_text(
         readme.replace(
-            f"- repository: `{REVIEWED_HACS_REPOSITORY}`",
+            f"- repository: `{EXPECTED_PRE_SYNC_EVIDENCE['repository']}`",
             "- repository: `different-owner/different-satellite`",
             1,
         ),
@@ -1636,7 +1855,237 @@ def test_package_validator_rejects_reviewed_satellite_identity_mismatch(
     validation = _run_package_validator(repository)
 
     assert validation.returncode != 0
-    assert "repository actually inspected" in _combined_output(validation)
+    assert "pre-synchronization evidence" in _combined_output(validation)
+
+
+@pytest.mark.parametrize(
+    ("owned_line", "replacement"),
+    (
+        (
+            f"- commit: `{EXPECTED_PRE_SYNC_EVIDENCE['commit']}`",
+            f"- commit: `{'c' * 40}`",
+        ),
+        (
+            f"- tree: `{EXPECTED_PRE_SYNC_EVIDENCE['tree']}`",
+            f"- tree: `{'a' * 40}`",
+        ),
+        (
+            "- `SOURCE_COMMIT`: "
+            f"`{EXPECTED_PRE_SYNC_EVIDENCE['source_commit']}`",
+            f"- `SOURCE_COMMIT`: `{'b' * 40}`",
+        ),
+        (
+            "- manifest version: "
+            f"`{EXPECTED_PRE_SYNC_EVIDENCE['manifest_version']}`",
+            "- manifest version: `0.1.15`",
+        ),
+        (
+            f"- `{EXPECTED_PRE_SYNC_EVIDENCE['release_tag']}` tag: absent\n",
+            "",
+        ),
+        (
+            f"- `{EXPECTED_PRE_SYNC_EVIDENCE['release_tag']}` release: absent",
+            "",
+        ),
+        (
+            f"- `{EXPECTED_PRE_SYNC_EVIDENCE['release_tag']}` tag: absent",
+            f"- `{EXPECTED_PRE_SYNC_EVIDENCE['release_tag']}` tag: present",
+        ),
+        (
+            f"- `{EXPECTED_PRE_SYNC_EVIDENCE['release_tag']}` release: absent",
+            f"- `{EXPECTED_PRE_SYNC_EVIDENCE['release_tag']}` release: present",
+        ),
+    ),
+    ids=(
+        "wrong_commit",
+        "wrong_tree",
+        "wrong_source_commit",
+        "wrong_manifest_version",
+        "missing_tag_state",
+        "missing_release_state",
+        "tag_present",
+        "release_present",
+    ),
+)
+def test_package_validator_rejects_pre_sync_evidence_mismatch(
+    tmp_path: Path,
+    owned_line: str,
+    replacement: str,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    readme_path = repository / "dist" / "zigbeelens-hacs" / "README.md"
+    readme = readme_path.read_text(encoding="utf-8")
+    assert owned_line in readme
+    readme_path.write_text(
+        readme.replace(owned_line, replacement, 1),
+        encoding="utf-8",
+    )
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+    assert "pre-synchronization" in _combined_output(validation)
+
+
+@pytest.mark.parametrize(
+    "stale_claim",
+    (
+        "Reviewed public-satellite state (historical evidence):\n\n"
+        "- repository: `theaussiepom/zigbeelens-hacs`\n"
+        "- commit: `050d118b3e1406343255594fe64cd569e2420888`\n"
+        "- reviewed: `2026-07-23`\n",
+        "This candidate uses a previously unused version.",
+        "The public satellite is not synchronized with this stage.",
+        "The public satellite has not yet been synchronized to this stage.",
+        "Do not use the unsynchronized public satellite.",
+        "The public satellite remains unsynchronized from this stage.",
+        "Manifest version alone uniquely identifies this candidate tree.",
+        "Manifest version uniquely identifies this candidate.",
+        "This candidate is uniquely identified by manifest version.",
+    ),
+    ids=(
+        "obsolete_050d118_only_evidence",
+        "previously_unused_version",
+        "not_synchronized",
+        "not_yet_synchronized",
+        "unsynchronized_satellite",
+        "satellite_remains_unsynchronized",
+        "version_only_identity",
+        "manifest_version_unique_identity",
+        "reverse_version_only_identity",
+    ),
+)
+def test_package_validator_rejects_obsolete_pre_release_claim(
+    tmp_path: Path,
+    stale_claim: str,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    readme_path = repository / "dist" / "zigbeelens-hacs" / "README.md"
+    readme_path.write_text(
+        readme_path.read_text(encoding="utf-8") + "\n" + stale_claim,
+        encoding="utf-8",
+    )
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+    assert (
+        "stale pre-release synchronization or version-only identity"
+        in _combined_output(validation)
+    )
+
+
+def test_package_validator_rejects_duplicate_pre_sync_evidence_block(
+    tmp_path: Path,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    readme_path = repository / "dist" / "zigbeelens-hacs" / "README.md"
+    readme_path.write_text(
+        readme_path.read_text(encoding="utf-8")
+        + "\n\n"
+        + _expected_pre_sync_readme_block()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+    assert "exactly one complete" in _combined_output(validation)
+
+
+def test_package_validator_rejects_unresolved_readme_placeholder(
+    tmp_path: Path,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    readme_path = repository / "dist" / "zigbeelens-hacs" / "README.md"
+    readme_path.write_text(
+        readme_path.read_text(encoding="utf-8")
+        + "\n@PRE_SYNC_HACS_UNRESOLVED@\n",
+        encoding="utf-8",
+    )
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+    assert "unresolved template placeholder" in _combined_output(validation)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("missing", "malformed", "duplicate", "extra", "inconsistent"),
+)
+def test_package_validator_rejects_invalid_pre_sync_evidence_file(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    evidence_path = (
+        repository / "dist" / "zigbeelens-hacs"
+        / "pre-sync-evidence.json"
+    )
+    if mutation == "missing":
+        evidence_path.unlink()
+    elif mutation == "malformed":
+        evidence_path.write_text("{", encoding="utf-8")
+    elif mutation == "duplicate":
+        evidence_path.write_text(
+            evidence_path.read_text(encoding="utf-8").replace(
+                "{\n",
+                '{\n  "repository": "duplicate/identity",\n',
+                1,
+            ),
+            encoding="utf-8",
+        )
+    else:
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+        if mutation == "extra":
+            evidence["extra"] = "forbidden"
+        else:
+            evidence["tree"] = "c" * 40
+        evidence_path.write_text(
+            json.dumps(evidence, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+
+
+def test_package_validator_accepts_future_synchronized_tree_wording(
+    tmp_path: Path,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    readme_path = repository / "dist" / "zigbeelens-hacs" / "README.md"
+    readme_path.write_text(
+        readme_path.read_text(encoding="utf-8")
+        + "\nAfter synchronization, the exact generated tree is the reviewed "
+        "satellite tree; its presence still does not authorize release.\n",
+        encoding="utf-8",
+    )
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode == 0, validation.stderr
 
 
 def test_packager_separates_nondefault_repository_identities(
@@ -1675,7 +2124,7 @@ def test_packager_separates_nondefault_repository_identities(
     )
     assert f"https://github.com/{future_hacs_repository}" not in current_section
     assert f"https://github.com/{future_hacs_repository}" in future_section
-    assert REVIEWED_HACS_REPOSITORY in current_section
+    assert EXPECTED_PRE_SYNC_EVIDENCE["repository"] in current_section
 
     validation = _run_package_validator(repository)
     assert validation.returncode == 0, validation.stderr

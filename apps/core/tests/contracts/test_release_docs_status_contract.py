@@ -307,12 +307,18 @@ def test_historical_status_closure_review_prose_remains_allowed(
     _copy_guard_documents(tmp_path)
     readme = tmp_path / "README.md"
     text = readme.read_text(encoding="utf-8")
-    marker = "## Using the UI"
-    assert marker in text
+    archived_claim = "Phase 7D waits for this status-closure PR to merge."
+    status_pattern = next(
+        pattern
+        for label, pattern in VALIDATOR.STALE_CURRENT_STATUS_PATTERNS
+        if label == "status_closure_pending_merge"
+    )
+    assert re.search(status_pattern, archived_claim, flags=re.IGNORECASE | re.DOTALL)
     readme.write_text(
         text
         + "\n## Archived execution record\n\n"
-        + "At the time, this status closure was pending merge.\n",
+        + archived_claim
+        + "\n",
         encoding="utf-8",
     )
 

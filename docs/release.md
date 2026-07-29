@@ -174,14 +174,14 @@ the full Core suite must have no unexplained xfail.
 The generated HACS directory is a local stage, not a publication instruction.
 Before public HACS guidance or publication is restored:
 
-- the complete staged tree must match the intended satellite tree;
-- the manifest/package version must uniquely identify that exact tree;
+- `SOURCE_COMMIT` plus the generated Git tree must identify the exact reviewed
+  satellite candidate;
 - exact Home Assistant 2025.1.0/Python 3.12 and
   2026.7.3/Python 3.14 lanes must pass;
 - generated official HACS and hassfest validation must pass remotely on the
   synchronized satellite; and
-- explicit publication authorization must be recorded before the external
-  repository is modified.
+- explicit publication authorization must record that the `v0.1.14` tag and
+  GitHub release will point to that exact tree before release.
 
 The current schema target is `15`. Migration
 `015_topology_raw_data_scrub.sql` removes unsafe legacy topology source dictionaries
