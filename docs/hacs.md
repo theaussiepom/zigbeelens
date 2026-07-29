@@ -31,14 +31,16 @@ it must not be used to validate this branch. Synchronizing or publishing
 requires a separate explicitly authorized task. Docker/Compose is the current
 portable Core deployment route.
 
-Phase 7C1 is merged. The runtime package now owns durable options, fail-closed
-Core/Decision compatibility, distinct Decision payload repairs, declarative and
-runtime single-entry enforcement, exact Home Assistant compatibility lanes,
-and generated official-validation workflows. The complete Phase 7C2 S1–S9 set
-was recaptured on `2026-07-29` from corrected source
-`af04ee906b71de77ee6e0eb5d866c0647d502410`, with the local HACS stage built
-from the same source. The evidence is ready for independent review; it is not a
-release, and Phase 7D remains blocked.
+Phase 7C1 and Phase 7C2 are complete and merged. PR #108's reviewed head
+`1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f` landed as evidence merge
+`93fb26617042ed46d8920a7b75a42e3ae9da4d62`. All S1–S9 assets were captured
+on `2026-07-29` from immutable runtime source
+`af04ee906b71de77ee6e0eb5d866c0647d502410`; the evidence merge is not their
+capture source. Required checks were green, and the S4 recorded-severity
+`Incident` versus recorded-confidence `High` review finding was resolved
+without changing its PNG. Public HACS remains stale pending separately
+authorized synchronization, the final HACS/artifact pairing remains pending,
+and Phase 7D remains blocked.
 
 Public installation remains unavailable until a separately authorized
 publication task:

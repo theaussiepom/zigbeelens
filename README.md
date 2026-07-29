@@ -74,12 +74,15 @@ See [docs/safety-audit.md](docs/safety-audit.md) for the full safety audit.
 | [MQTT Discovery](docs/mqtt-discovery.md) | Optional summary HA entities without HACS | Core configuration |
 | [Topology](docs/topology.md) | Optional mesh enrichment — enabled by default with one startup scan | Core configuration |
 
-Phase 7C1 documentation truth is merged. The refreshed Phase 7C2 S1–S9 evidence
-was captured from one immutable runtime source,
-`af04ee906b71de77ee6e0eb5d866c0647d502410`, and is ready for independent
-review. This does not release `0.1.14` or unblock Phase 7D: the public HACS
-satellite remains stale, the add-on remains deferred, and Phase 7D live Beast
-validation remains blocked.
+Phase 7C1 and Phase 7C2 are merged. PR #108 owns the current S1–S9 evidence set:
+its final reviewed head was
+`1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f`, its evidence merge is
+`93fb26617042ed46d8920a7b75a42e3ae9da4d62`, and every image retains immutable
+runtime capture source `af04ee906b71de77ee6e0eb5d866c0647d502410`.
+Required checks were green and the S4 severity/confidence finding was resolved.
+This does not release `0.1.14`: the public HACS satellite remains stale, the
+add-on remains deferred, and Phase 7D remains blocked pending final HACS
+synchronization and artifact freeze.
 
 ## Using the UI
 

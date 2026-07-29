@@ -6,11 +6,13 @@ It exists to prevent the work being watered down as it is split across many PRs.
 
 **Current release status:** Phases 1–6 and the Phase 7A/7B hardening work are
 implemented. Phase 7A merged in PR #100 and Phase 7B merged in PR #101.
-Phase 7C1 documentation truth is merged. The Phase 7C2 local candidate contains
-all S1–S9 assets captured together from final corrected runtime source
-`af04ee906b71de77ee6e0eb5d866c0647d502410`; its focused screenshot PR still
-requires independent review, green remote CI, and merge. Phase 7D live Beast
-validation remains blocked.
+Phase 7C1 documentation truth is merged. Phase 7C2 is complete: PR #108 merged
+reviewed head `1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f` as evidence merge
+`93fb26617042ed46d8920a7b75a42e3ae9da4d62`. All S1–S9 assets retain capture
+source `af04ee906b71de77ee6e0eb5d866c0647d502410`; required checks were green,
+and the S4 recorded-severity `Incident` versus recorded-confidence `High`
+review was resolved. Public HACS synchronization and final artifact pairing
+remain pending, so Phase 7D live Beast validation remains blocked.
 
 ## Programme statement
 
@@ -782,11 +784,13 @@ contracts.
 
 ### Phase 7C2 — Screenshot and visual evidence
 
-**Local candidate captured.** All S1–S9 assets were captured together from
-final corrected runtime source
+**Complete and merged in PR #108.** All S1–S9 assets were captured together
+from final corrected runtime source
 `af04ee906b71de77ee6e0eb5d866c0647d502410`; no old/new asset mixing remains.
-The focused screenshot PR still requires independent review, green remote CI,
-and merge before Phase 7C2 closes.
+Reviewed head `1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f` merged as evidence
+merge `93fb26617042ed46d8920a7b75a42e3ae9da4d62` with green required checks
+and the S4 severity/confidence review resolved. Public HACS synchronization and
+final artifact pairing remain pending; Phase 7D remains blocked.
 
 ### Phase 7D — Deployment validation
 
@@ -799,7 +803,7 @@ do not satisfy this phase.
 
 | Surface | Implemented current state | Release disposition |
 |---|---|---|
-| Overview | Decision priorities, recent changes, data coverage, factual network/incident context. | Primary; documented in 7C1 and captured in the local 7C2 candidate pending PR review/CI/merge. |
+| Overview | Decision priorities, recent changes, data coverage, factual network/incident context. | Primary; documented in 7C1 and captured in the merged PR #108 Phase 7C2 evidence set. |
 | Mesh / Investigate | Main network investigation workspace consuming shared decisions and evidence. | Primary; validate live in 7D. |
 | Devices / Device Detail | Inventory/search with decision badges; Device Story and device-led Snapshot history. | Primary; validate copy and history in 7D. |
 | Incidents | Correlated issue records tied to shared decision facts. | Primary; not an independent root-cause authority. |
@@ -808,7 +812,7 @@ do not satisfy this phase.
 | Raw snapshots | Advanced `/topology` landing and exact point-in-time detail. | Support evidence only. |
 | Whole-network compare | API/debug endpoint after UI demotion. | Advanced/debug only. |
 | Router-area evidence | Investigated in Mesh; `/routers` is a compatibility redirect. | No standalone primary router workflow. |
-| HACS companion | Exact decision contract v2, factual/Decision entities, native companion and launcher. | Companion only; Core UI remains canonical. |
+| HACS companion | Exact decision contract v2, factual/Decision entities, native companion and launcher. | Companion only; Core UI remains canonical and public HACS synchronization is pending. |
 | MQTT Discovery | Six decision/factual summary entities. | Optional; no per-device expansion. |
 
 ## Per-PR checklist

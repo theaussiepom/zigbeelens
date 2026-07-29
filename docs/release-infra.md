@@ -32,8 +32,14 @@ ghcr.io/theaussiepom/zigbeelens:latest    # release tag only
 | 7A — query/cardinality/runtime baseline | Merged in PR #100 |
 | 7B — test architecture / exact-v3 reset | Merged in PR #101 |
 | 7C1 — documentation truth | Merged |
-| 7C2 — screenshots / visual evidence | Local S1–S9 candidate captured together from `af04ee906b71de77ee6e0eb5d866c0647d502410`; focused PR still needs independent review, green remote CI, and merge |
+| 7C2 — screenshots / visual evidence | Complete and merged in PR #108: reviewed head `1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f`, evidence merge `93fb26617042ed46d8920a7b75a42e3ae9da4d62`; all S1–S9 assets retain capture source `af04ee906b71de77ee6e0eb5d866c0647d502410` |
 | 7D — live Beast validation | Blocked; not satisfied by docs or local CI |
+
+PR #108's required checks were green, and its S4 recorded-severity `Incident`
+versus recorded-confidence `High` review finding was resolved without changing
+the screenshot. The public HACS satellite remains stale pending separately
+authorized synchronization; the final HACS/artifact pairing remains pending,
+so Phase 7D remains blocked.
 
 ## Add-on publication status
 

@@ -16,12 +16,15 @@ the corrected package and is not evidence for this branch.
 
 ## Phase 7 release boundary
 
-Phase 7A (PR #100), Phase 7B (PR #101), and Phase 7C1 documentation truth are
-merged. All Phase 7C2 S1–S9 assets were captured together from final corrected
-runtime source `af04ee906b71de77ee6e0eb5d866c0647d502410`. They remain a
-local focused-screenshot candidate until independent review, green remote CI,
-and merge. Phase 7D remains blocked until that merge, final HACS provenance,
-the frozen artifact pairing, and all other release gates are complete.
+Phase 7A (PR #100), Phase 7B (PR #101), Phase 7C1, and Phase 7C2 are complete
+and merged. PR #108's reviewed head
+`1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f` landed as evidence merge
+`93fb26617042ed46d8920a7b75a42e3ae9da4d62`; all S1–S9 assets retain immutable
+runtime capture source `af04ee906b71de77ee6e0eb5d866c0647d502410`. Required
+checks were green, and the S4 recorded-severity `Incident` versus
+recorded-confidence `High` review finding was resolved without changing the
+PNG. Public HACS remains stale pending separately authorized synchronization,
+the final HACS/artifact pairing remains pending, and Phase 7D remains blocked.
 
 Do not treat local results as remote CI results. Record exact skips, xfails, and
 warnings. The model-pattern Decision parity regression is strict; the full

@@ -91,20 +91,22 @@ failure, never a skip.
 - [x] Phase 7A query/cardinality/runtime baseline merged (PR #100)
 - [x] Phase 7B release-quality test architecture and exact-v3 report reset merged (PR #101)
 - [x] Phase 7C1 documentation truth and cross-surface alignment merged
-- [x] Phase 7C2 local candidate S1–S9 recaptured and locally reviewed together
-      from final corrected runtime source
-      `af04ee906b71de77ee6e0eb5d866c0647d502410`
-- [ ] Focused Phase 7C2 screenshot PR independently reviewed, required remote CI
-      green, and merged
+- [x] Phase 7C2 S1–S9 captured from one final runtime source
+      `af04ee906b71de77ee6e0eb5d866c0647d502410`, independently reviewed,
+      green remotely, and merged in PR #108
 - [ ] Phase 7D live Beast deployment validation complete
 
-Local capture and validation evidence is not remote CI or merge evidence. The
-checked local-candidate gate does not close Phase 7C2 until the focused
-screenshot PR passes independent review, required remote CI, and merge.
+Phase 7C2 is closed. PR #108's final reviewed head was
+`1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f` and its evidence merge was
+`93fb26617042ed46d8920a7b75a42e3ae9da4d62`. All ten required PR checks and
+the post-merge main CI and Docker workflows were green. The S4 correction
+distinguishing recorded severity `Incident` from recorded confidence `High`
+was reviewed and resolved without changing the screenshot binary.
 
-Phase 7D remains blocked until the focused screenshot PR is merged, the final
-docs-bearing HACS tree is separately authorized, resynchronized, and remotely
-validated, and the final monorepo/HACS/GHCR pairing is frozen.
+Phase 7D remains blocked until this status closure is independently reviewed
+and merged, a final docs-bearing HACS tree is generated from that merge,
+separately authorized synchronization and remote validation complete, and the
+final monorepo/HACS/GHCR pairing is frozen.
 
 The Home Assistant add-on is deferred and is not part of the current HACS
 release. Its future-only gate remains below; structural validation is
@@ -266,27 +268,35 @@ explicitly scoped future add-on task.
 - [ ] Current report docs promise exact `ReportDetailV3` only; no v1/v2 reader/download path
 - [ ] No docs promise iframe as normal HACS experience
 - [ ] No docs imply reverse proxy required for HACS sidebar value
-- [x] Screenshot documentation identifies S1–S9 as one coherent local
-      candidate captured from final corrected runtime source
+- [x] Screenshot documentation identifies S1–S9 as one coherent merged
+      Phase 7C2 evidence set captured from final corrected runtime source
       `af04ee906b71de77ee6e0eb5d866c0647d502410`
-- [ ] Screenshot documentation may be promoted from local-candidate to merged
-      release evidence only after independent review, green remote CI, and
-      merge of the focused screenshot PR
+- [x] Screenshot documentation was independently reviewed, passed required
+      remote checks, and merged in PR #108
 
 ## Review-thread closure inventory
 
-These findings remain unresolved until a future fixing PR is merged, an exact
-merged PR/commit reply is posted, and the owning thread is then resolved.
-Before release, re-query each PR and confirm there are no remaining
-non-outdated unresolved review threads.
+The review inventory is resolved. Every listed item has merged fixing evidence,
+an exact reply or closure record, and a resolved thread where a thread exists.
+Each owning PR has zero non-outdated unresolved findings.
 
-| Review owner | Finding | Required release evidence |
-|--------------|---------|---------------------------|
-| PR #106 `discussion_r3654140180` (P1) | PNG decompression bounds | Merged fixing PR/commit reply, then resolved thread |
-| PR #106 `discussion_r3654140181` (P2) | Screenshot manifest privacy/schema parsing | Merged fixing PR/commit reply, then resolved thread |
-| PR #100 `discussion_r3626646727` | Mixed-case IEEE topology lookup | Merged fixing PR/commit reply, then resolved thread |
-| PR #97 `discussion_r3618354267` | Coordinator action says device, not router | Merged fixing PR/commit reply, then resolved thread |
-| Delayed approved-host bypass review | Exact-origin and bare-host parser bypass cases | Fixing PR review record and merged commit before closure |
+PR #107 closed its inventory at reviewed head
+`d4771860f155e8ecbe51d995ff729c8da6529c87`, merged as
+`af04ee906b71de77ee6e0eb5d866c0647d502410`. PR #108 closed its S4 finding at
+reviewed head `1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f`, merged as
+`93fb26617042ed46d8920a7b75a42e3ae9da4d62`.
+
+| Review owner | Finding | Merged closure evidence |
+|--------------|---------|-------------------------|
+| PR #106 `discussion_r3654140180` (P1) | PNG decompression bounds | PR #107 / `af04ee906b71de77ee6e0eb5d866c0647d502410`; reply `discussion_r3669046766`; resolved |
+| PR #106 `discussion_r3654140181` (P2) | Screenshot privacy/schema parsing | PR #107 / `af04ee906b71de77ee6e0eb5d866c0647d502410`; reply `discussion_r3669047203`; resolved |
+| PR #100 `discussion_r3626646727` | Mixed-case IEEE topology lookup | PR #107 / `af04ee906b71de77ee6e0eb5d866c0647d502410`; reply `discussion_r3669047791`; resolved |
+| PR #97 `discussion_r3618354267` | Coordinator action uses device-neutral copy | PR #107 / `af04ee906b71de77ee6e0eb5d866c0647d502410`; reply `discussion_r3669048273`; resolved |
+| Delayed approved-host integer/userinfo bypass | Exact-origin and bare-host parser bypass cases | PR #107 / `af04ee906b71de77ee6e0eb5d866c0647d502410`; [closure record](https://github.com/theaussiepom/zigbeelens/pull/106#issuecomment-5109485498) |
+| PR #108 `discussion_r3671437623` | Recorded severity `Incident` versus recorded confidence `High` | PR #108 / `93fb26617042ed46d8920a7b75a42e3ae9da4d62`; reply `discussion_r3672142130`; resolved |
+
+Immediately before tagging, re-query PRs #106, #100, #97, and #108 and confirm
+again that each has zero non-outdated unresolved review threads.
 
 ## Packaging and publish
 

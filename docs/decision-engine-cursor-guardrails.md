@@ -12,12 +12,15 @@ This document is stricter than the general implementation plan. If there is a co
 **Current status:** This file is an execution record for completed
 decision-engine phases. Phase 7A merged in PR #100 and Phase 7B merged in PR
 #101 from approved tip `03c12d4`. Phase 7C1 documentation truth is merged; the
-Phase 7C2 local candidate contains all S1–S9 assets captured together from final
-corrected runtime source `af04ee906b71de77ee6e0eb5d866c0647d502410`; the
-focused screenshot PR still requires independent review, green remote CI, and
-merge. Phase 7D live Beast validation remains blocked. Completed-phase branch
-and model prompts below are historical and must not be used to reopen those
-phases.
+Phase 7C2 evidence is complete and merged in PR #108 from reviewed head
+`1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f` as evidence merge
+`93fb26617042ed46d8920a7b75a42e3ae9da4d62`. All S1–S9 assets retain capture
+source `af04ee906b71de77ee6e0eb5d866c0647d502410`; required checks were green,
+and the S4 recorded-severity `Incident` versus recorded-confidence `High`
+review was resolved. Public HACS synchronization and final artifact pairing
+remain pending, so Phase 7D live Beast validation remains blocked.
+Completed-phase branch and model prompts below are historical and must not be
+used to reopen those phases.
 
 ## Required starting prompt
 
@@ -619,8 +622,12 @@ complete while the runtime/document contradictions in
 ### Phase 7C2 — Screenshot and visual evidence
 
 All S1–S9 assets were captured together from final corrected runtime source
-`af04ee906b71de77ee6e0eb5d866c0647d502410`, without old/new mixing. Keep the
-focused screenshot PR gated on independent review, green remote CI, and merge.
+`af04ee906b71de77ee6e0eb5d866c0647d502410`, without old/new mixing. Phase 7C2
+is complete: PR #108 merged reviewed head
+`1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f` as evidence merge
+`93fb26617042ed46d8920a7b75a42e3ae9da4d62` with green required checks and the
+S4 severity/confidence review resolved. Public HACS synchronization and final
+artifact pairing remain pending; Phase 7D remains blocked.
 
 ### Phase 7D — Deployment validation
 

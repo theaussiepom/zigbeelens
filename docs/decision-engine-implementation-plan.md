@@ -6,12 +6,15 @@ It is written so Cursor can work through the remaining phases strategically with
 
 **Status:** This is now primarily an implementation record. Phases 1–6 are
 implemented, Phase 7A merged in PR #100, and Phase 7B merged in PR #101 from
-approved tip `03c12d4`. Phase 7C1 is merged. The Phase 7C2 local candidate
-contains all S1–S9 assets captured together from final corrected runtime source
-`af04ee906b71de77ee6e0eb5d866c0647d502410`; the focused screenshot PR still
-requires independent review, green remote CI, and merge. Phase 7D live Beast
-validation remains blocked. Older branch/model instructions below describe how
-completed phases were executed; they do not override this status.
+approved tip `03c12d4`. Phase 7C1 is merged. Phase 7C2 is complete: PR #108
+merged reviewed head `1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f` as evidence
+merge `93fb26617042ed46d8920a7b75a42e3ae9da4d62`. All S1–S9 assets retain
+capture source `af04ee906b71de77ee6e0eb5d866c0647d502410`; required checks were
+green, and the S4 recorded-severity `Incident` versus recorded-confidence
+`High` review was resolved. Public HACS synchronization and final artifact
+pairing remain pending, so Phase 7D live Beast validation remains blocked.
+Older branch/model instructions below describe how completed phases were
+executed; they do not override this status.
 
 Use it together with:
 
@@ -1980,9 +1983,12 @@ Capture current central workflows after Phase 7C1 prose is stable.
 ### Status
 
 All S1–S9 assets were captured together from final corrected runtime source
-`af04ee906b71de77ee6e0eb5d866c0647d502410`. The local candidate contains no
-old/new asset mixing; its focused screenshot PR still requires independent
-review, green remote CI, and merge.
+`af04ee906b71de77ee6e0eb5d866c0647d502410`, with no old/new asset mixing.
+Phase 7C2 is complete: PR #108 merged reviewed head
+`1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f` as evidence merge
+`93fb26617042ed46d8920a7b75a42e3ae9da4d62` with green required checks and the
+S4 severity/confidence review resolved. Public HACS synchronization and final
+artifact pairing remain pending; Phase 7D remains blocked.
 
 ### Composer model
 

@@ -1421,7 +1421,7 @@ RELEASE_BLOCKER_STATUS_GUARDS: tuple[tuple[str, str, str], ...] = (
     (
         "screenshots_s1_s9_current",
         "docs/test-architecture.md",
-        "The refreshed Phase 7C2 S1–S9 evidence is current for capture source "
+        "the current S1–S9 evidence retains capture source "
         "`af04ee906b71de77ee6e0eb5d866c0647d502410`",
     ),
     (
@@ -1440,34 +1440,88 @@ RELEASE_BLOCKER_STATUS_GUARDS: tuple[tuple[str, str, str], ...] = (
         "The add-on is deferred and is not part of the current HACS release",
     ),
     (
-        "review_inventory_unresolved",
+        "phase_7c2_complete",
+        "CHANGELOG.md",
+        "Phase 7C2 is complete: PR #108 merged the one-source synthetic S1–S9 "
+        "set captured from "
+        "`af04ee906b71de77ee6e0eb5d866c0647d502410`",
+    ),
+    (
+        "phase_7c2_pr_108_merged",
         "RELEASE_CHECKLIST.md",
-        "These findings remain unresolved until a future fixing PR is merged",
+        "PR #108's final reviewed head was "
+        "`1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f` and its evidence merge was "
+        "`93fb26617042ed46d8920a7b75a42e3ae9da4d62`",
+    ),
+    (
+        "phase_7c2_capture_source_exact",
+        "README.md",
+        "its evidence merge is "
+        "`93fb26617042ed46d8920a7b75a42e3ae9da4d62`, and every image retains "
+        "immutable runtime capture source "
+        "`af04ee906b71de77ee6e0eb5d866c0647d502410`",
+    ),
+    (
+        "review_inventory_resolved",
+        "RELEASE_CHECKLIST.md",
+        "The review inventory is resolved. Every listed item has merged fixing "
+        "evidence, an exact reply or closure record, and a resolved thread "
+        "where a thread exists",
+    ),
+    (
+        "pr_107_review_closures",
+        "RELEASE_CHECKLIST.md",
+        "PR #107 closed its inventory at reviewed head "
+        "`d4771860f155e8ecbe51d995ff729c8da6529c87`, merged as "
+        "`af04ee906b71de77ee6e0eb5d866c0647d502410`",
+    ),
+    (
+        "pr_108_s4_review_closed",
+        "RELEASE_CHECKLIST.md",
+        "| PR #108 `discussion_r3671437623` | Recorded severity `Incident` "
+        "versus recorded confidence `High` | PR #108 / "
+        "`93fb26617042ed46d8920a7b75a42e3ae9da4d62`; reply "
+        "`discussion_r3672142130`; resolved |",
     ),
     (
         "pr_106_p1",
         "RELEASE_CHECKLIST.md",
-        "PR #106 `discussion_r3654140180` (P1)",
+        "| PR #106 `discussion_r3654140180` (P1) | PNG decompression bounds | "
+        "PR #107 / `af04ee906b71de77ee6e0eb5d866c0647d502410`; reply "
+        "`discussion_r3669046766`; resolved |",
     ),
     (
         "pr_106_p2",
         "RELEASE_CHECKLIST.md",
-        "PR #106 `discussion_r3654140181` (P2)",
+        "| PR #106 `discussion_r3654140181` (P2) | Screenshot privacy/schema "
+        "parsing | PR #107 / "
+        "`af04ee906b71de77ee6e0eb5d866c0647d502410`; reply "
+        "`discussion_r3669047203`; resolved |",
     ),
     (
         "pr_100_mixed_case_ieee",
         "RELEASE_CHECKLIST.md",
-        "PR #100 `discussion_r3626646727`",
+        "| PR #100 `discussion_r3626646727` | Mixed-case IEEE topology lookup | "
+        "PR #107 / `af04ee906b71de77ee6e0eb5d866c0647d502410`; reply "
+        "`discussion_r3669047791`; resolved |",
     ),
     (
         "pr_97_coordinator_action",
         "RELEASE_CHECKLIST.md",
-        "PR #97 `discussion_r3618354267`",
+        "| PR #97 `discussion_r3618354267` | Coordinator action uses "
+        "device-neutral copy | PR #107 / "
+        "`af04ee906b71de77ee6e0eb5d866c0647d502410`; reply "
+        "`discussion_r3669048273`; resolved |",
     ),
     (
         "delayed_approved_host_bypass",
         "RELEASE_CHECKLIST.md",
-        "Delayed approved-host bypass review",
+        "| Delayed approved-host integer/userinfo bypass | Exact-origin and "
+        "bare-host parser bypass cases | PR #107 / "
+        "`af04ee906b71de77ee6e0eb5d866c0647d502410`; "
+        "[closure record]"
+        "(https://github.com/theaussiepom/zigbeelens/pull/106"
+        "#issuecomment-5109485498) |",
     ),
     (
         "changelog_exact_hacs_state",
@@ -1483,6 +1537,224 @@ RELEASE_BLOCKER_STATUS_GUARDS: tuple[tuple[str, str, str], ...] = (
         "resynchronization; public installation remains gated",
     ),
 )
+
+
+CURRENT_RELEASE_STATUS_SCOPES: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "changelog_unreleased",
+        "CHANGELOG.md",
+        "## [Unreleased]",
+        "## [0.1.14]",
+    ),
+    (
+        "readme_install_status",
+        "README.md",
+        "## Install",
+        "## Using the UI",
+    ),
+    (
+        "release_checklist_phase_status",
+        "RELEASE_CHECKLIST.md",
+        "## Phase 7 release status",
+        "## Security acknowledgement",
+    ),
+    (
+        "release_checklist_documentation_status",
+        "RELEASE_CHECKLIST.md",
+        "## Documentation",
+        "## Packaging and publish",
+    ),
+    (
+        "cursor_current_status",
+        "docs/decision-engine-cursor-guardrails.md",
+        "**Current status:**",
+        "## Required starting prompt",
+    ),
+    (
+        "cursor_phase_7c2_status",
+        "docs/decision-engine-cursor-guardrails.md",
+        "### Phase 7C2 — Screenshot and visual evidence",
+        "### Phase 7D — Deployment validation",
+    ),
+    (
+        "implementation_current_status",
+        "docs/decision-engine-implementation-plan.md",
+        "**Status:**",
+        "## Purpose",
+    ),
+    (
+        "implementation_phase_7c2_status",
+        "docs/decision-engine-implementation-plan.md",
+        "## Phase 7C2 — Screenshot and visual evidence",
+        "## Phase 7D — Deployment validation",
+    ),
+    (
+        "migration_current_status",
+        "docs/decision-engine-migration.md",
+        "**Current release status:**",
+        "## Programme statement",
+    ),
+    (
+        "migration_phase_7c2_status",
+        "docs/decision-engine-migration.md",
+        "### Phase 7C2 — Screenshot and visual evidence",
+        "### Phase 7D — Deployment validation",
+    ),
+    (
+        "migration_current_map",
+        "docs/decision-engine-migration.md",
+        "## Current migration map",
+        "## Per-PR checklist",
+    ),
+    (
+        "hacs_release_status",
+        "docs/hacs.md",
+        "## Release status — local/staged integration only",
+        "## Local staged integration testing",
+    ),
+    (
+        "lens_release_work_boundary",
+        "docs/lens-alignment-status.md",
+        "## Release-work boundary",
+        "See:",
+    ),
+    (
+        "release_infra_phase_status",
+        "docs/release-infra.md",
+        "## Release-quality phase status",
+        "## Add-on publication status",
+    ),
+    (
+        "release_test_phase_boundary",
+        "docs/release-test.md",
+        "## Phase 7 release boundary",
+        "## Pre-flight checklist",
+    ),
+    (
+        "release_prepare_branch",
+        "docs/release.md",
+        "### 1. Prepare branch",
+        "### 2. Update version",
+    ),
+    (
+        "release_review_inventory",
+        "docs/release.md",
+        "## Review-thread closure before release",
+        "## Safety verification",
+    ),
+    (
+        "reports_screenshot_status",
+        "docs/reports.md",
+        "# Reports",
+        "## Current contract: exact ReportDetailV3",
+    ),
+    (
+        "screenshots_current_evidence",
+        "docs/screenshots/README.md",
+        "# Canonical release-candidate screenshots",
+        "## Canonical inventory",
+    ),
+    (
+        "test_architecture_current_status",
+        "docs/test-architecture.md",
+        "# Test architecture (Phase 7B)",
+        "## Layers",
+    ),
+    (
+        "test_architecture_review_inventory",
+        "docs/test-architecture.md",
+        "## Pre-Phase-7D release-blocker ownership",
+        "## Adding a new Decision code",
+    ),
+    (
+        "topology_screenshot_status",
+        "docs/topology.md",
+        "## Current investigation surfaces",
+        "## Product surfaces",
+    ),
+)
+
+STALE_CURRENT_STATUS_PATTERNS: tuple[tuple[str, str], ...] = (
+    (
+        "focused_screenshot_pr_pending",
+        r"focused(?: phase 7c2)?(?: screenshot)? pr.{0,160}"
+        r"(?:still (?:requires|needs)|gated (?:on|pending)).{0,200}"
+        r"(?:independent review|remote ci|merge)",
+    ),
+    (
+        "ready_for_independent_review",
+        r"ready for independent review",
+    ),
+    (
+        "local_screenshot_candidate_until_merge",
+        r"local.{0,100}candidate.{0,240}"
+        r"(?:until|pending|awaiting|review|ci|merge)",
+    ),
+    (
+        "review_inventory_unresolved_future_pr",
+        r"remain(?:s)? (?:unresolved|open).{0,180}"
+        r"(?:future fixing pr|fixing pr|reply|resolve)",
+    ),
+    (
+        "final_candidate_review_evidence",
+        r"final-candidate review evidence",
+    ),
+    (
+        "phase_7c2_awaiting_remote_gate",
+        r"phase 7c2.{0,180}(?:awaiting|pending).{0,160}"
+        r"(?:independent review|remote ci|pr merge|merge)",
+    ),
+    (
+        "phase_7c2_incomplete",
+        r"phase 7c2.{0,100}(?:is|remains) incomplete",
+    ),
+    (
+        "phase_7c2_recapture_pending",
+        r"phase 7c2.{0,180}(?:still )?"
+        r"(?:requires|needs|requiring).{0,120}recaptur",
+    ),
+)
+
+STALE_TOPOLOGY_PARSED_JSON_CLAIMS: tuple[tuple[str, str], ...] = (
+    (
+        "legacy parsed_json reduced to counts",
+        r"reduces? (?:legacy )?`parsed_json` to normalized counts",
+    ),
+    (
+        "parsed_json limited to counts",
+        r"`parsed_json` is limited to (?:the )?normalized",
+    ),
+    (
+        "count-only parsed_json",
+        r"(?:bounded )?count-only `parsed_json`",
+    ),
+    (
+        "non-null parsed_json rebuild",
+        r"rebuilds? (?:non-null )?(?:snapshot )?`parsed_json`",
+    ),
+)
+
+
+def normalized_release_status_scope(
+    relative: str, start_marker: str, end_marker: str
+) -> str:
+    text = (ROOT / relative).read_text(encoding="utf-8")
+    start_count = text.count(start_marker)
+    end_count = text.count(end_marker)
+    if start_count != 1 or end_count != 1:
+        raise DocumentationError(
+            f"{relative}: current release-status scope marker count must be "
+            f"exactly one ({start_marker!r}: {start_count}; "
+            f"{end_marker!r}: {end_count})"
+        )
+    start = text.index(start_marker)
+    end = text.index(end_marker)
+    if end <= start:
+        raise DocumentationError(
+            f"{relative}: current release-status scope markers are out of "
+            f"order: {start_marker!r}..{end_marker!r}"
+        )
+    return " ".join(text[start:end].split())
 
 
 def validate_release_blocker_status_truth() -> int:
@@ -1501,29 +1773,39 @@ def validate_release_blocker_status_truth() -> int:
             + "\n- ".join(missing)
         )
 
-    stale_parsed_json_claims = {
-        "legacy parsed_json reduced to counts": (
-            r"reduces? (?:legacy )?`parsed_json` to normalized counts"
-        ),
-        "parsed_json limited to counts": (
-            r"`parsed_json` is limited to (?:the )?normalized"
-        ),
-        "count-only parsed_json": r"(?:bounded )?count-only `parsed_json`",
-        "non-null parsed_json rebuild": (
-            r"rebuilds? (?:non-null )?(?:snapshot )?`parsed_json`"
-        ),
-    }
     status_text = "\n".join(normalized_by_file.values())
     stale = [
         label
-        for label, pattern in stale_parsed_json_claims.items()
+        for label, pattern in STALE_TOPOLOGY_PARSED_JSON_CLAIMS
         if re.search(pattern, status_text, flags=re.IGNORECASE)
     ]
     if stale:
         raise DocumentationError(
             "stale topology parsed_json release claim(s): " + ", ".join(stale)
         )
-    return len(RELEASE_BLOCKER_STATUS_GUARDS) + len(stale_parsed_json_claims)
+
+    stale_current: list[str] = []
+    for scope, relative, start_marker, end_marker in CURRENT_RELEASE_STATUS_SCOPES:
+        scoped_text = normalized_release_status_scope(
+            relative, start_marker, end_marker
+        )
+        stale_current.extend(
+            f"{scope}: {label}"
+            for label, pattern in STALE_CURRENT_STATUS_PATTERNS
+            if re.search(pattern, scoped_text, flags=re.IGNORECASE)
+        )
+    if stale_current:
+        raise DocumentationError(
+            "stale current Phase 7C2 status claim(s): "
+            + ", ".join(stale_current)
+        )
+
+    return (
+        len(RELEASE_BLOCKER_STATUS_GUARDS)
+        + len(STALE_TOPOLOGY_PARSED_JSON_CLAIMS)
+        + len(CURRENT_RELEASE_STATUS_SCOPES)
+        * len(STALE_CURRENT_STATUS_PATTERNS)
+    )
 
 
 def option_section(text: str, label: str) -> str:

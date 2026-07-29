@@ -3,10 +3,14 @@
 Narrow ownership map for Decision, report, and public-contract confidence.
 Phase 7B merged in PR #101 from approved branch tip `03c12d4`. Broader
 contributor and product documentation was completed and merged in Phase 7C1.
-The refreshed Phase 7C2 S1–S9 evidence is current for capture source `af04ee906b71de77ee6e0eb5d866c0647d502410`;
-all nine assets were captured together from one final corrected runtime. The
-focused screenshot PR still requires independent review, green remote CI, and
-merge. Phase 7D live Beast validation remains blocked.
+Phase 7C2 is complete: PR #108 merged reviewed head
+`1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f` as evidence merge
+`93fb26617042ed46d8920a7b75a42e3ae9da4d62`. All nine assets were captured
+together from one final corrected runtime; the current S1–S9 evidence retains
+capture source `af04ee906b71de77ee6e0eb5d866c0647d502410`. Required checks were
+green, and the S4 recorded-severity `Incident` versus recorded-confidence
+`High` review was resolved. Public HACS synchronization and final artifact
+pairing remain pending, so Phase 7D live Beast validation remains blocked.
 
 ## Layers
 
@@ -235,11 +239,17 @@ gate; it never substitutes for the production test.
 | Model-pattern Decision parity | strict Core network-evidence regression with shared clocks |
 | Release truth/review inventory | docs validator/status assertions plus the manual thread re-query |
 
-The review inventory remains open until a future fixing PR is merged and exact
-reply/resolve steps are complete: PR #106
+PR #107 reviewed head `d4771860f155e8ecbe51d995ff729c8da6529c87`
+merged as `af04ee906b71de77ee6e0eb5d866c0647d502410` and closed PR #106
 `discussion_r3654140180`/`discussion_r3654140181`, PR #100
 `discussion_r3626646727`, PR #97 `discussion_r3618354267`, and the delayed
-approved-host bypass review.
+approved-host bypass review. PR #108 reviewed head
+`1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f` merged as
+`93fb26617042ed46d8920a7b75a42e3ae9da4d62` and closed S4
+`discussion_r3671437623` with reply `discussion_r3672142130`. Every listed
+finding has merged fixing evidence and a resolved thread where a thread exists;
+the owning PRs have zero non-outdated unresolved findings. Re-query PRs #106,
+#100, #97, and #108 immediately before tagging.
 
 ## Adding a new Decision code
 

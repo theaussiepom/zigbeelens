@@ -5,10 +5,14 @@ history and the current decision-led diagnostic state. A report records what
 Core observed and the limitations of that evidence; it does not prove a root
 cause or a live Zigbee route.
 
-> **Screenshot status:** The complete Phase 7C2 S1–S9 set was recaptured
-> together on `2026-07-29` from immutable source
-> `af04ee906b71de77ee6e0eb5d866c0647d502410`. It is final-candidate review
-> evidence; Phase 7D remains blocked.
+> **Screenshot status:** Phase 7C2 is complete and merged in PR #108. Reviewed
+> head `1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f` landed as evidence merge
+> `93fb26617042ed46d8920a7b75a42e3ae9da4d62`; all S1–S9 assets retain
+> immutable runtime capture source
+> `af04ee906b71de77ee6e0eb5d866c0647d502410`. Required checks were green and
+> the S4 recorded-severity `Incident` versus recorded-confidence `High` finding
+> was resolved. Public HACS synchronization and the final HACS/artifact pairing
+> remain pending, so Phase 7D remains blocked.
 
 ![Saved Reports collection showing a generated synthetic report's summary, generated time, scope, format, redaction profile, and Download, Copy Markdown, and Delete actions](screenshots/reports-page.png)
 

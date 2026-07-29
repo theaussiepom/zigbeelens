@@ -41,10 +41,17 @@ Before tagging, all release phases must be complete:
 - Phase 7A query/cardinality/runtime baseline (merged in PR #100)
 - Phase 7B test architecture and exact-v3 report reset (merged in PR #101)
 - Phase 7C1 documentation truth (merged)
-- Phase 7C2 screenshots (all S1–S9 captured together from final corrected
-  runtime source `af04ee906b71de77ee6e0eb5d866c0647d502410`; focused
-  screenshot PR still requires independent review, green remote CI, and merge)
+- Phase 7C2 screenshots (complete and merged in PR #108; reviewed head
+  `1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f`, evidence merge
+  `93fb26617042ed46d8920a7b75a42e3ae9da4d62`, with all S1–S9 assets retaining
+  runtime capture source `af04ee906b71de77ee6e0eb5d866c0647d502410`)
 - Phase 7D live Beast deployment validation (blocked)
+
+PR #108's required checks were green, and its S4 recorded-severity `Incident`
+versus recorded-confidence `High` review finding was resolved without changing
+the screenshot. Public HACS remains stale pending separately authorized
+synchronization, and the final HACS/artifact pairing remains pending; Phase 7D
+therefore remains blocked.
 
 The add-on is deferred and is not part of the current HACS release. Keep its
 non-regression checks green, but do not publish or advertise it as a supported
@@ -261,12 +268,19 @@ release:
 
 Use the exact inventory in
 [RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md#review-thread-closure-inventory).
-PR #106 discussions `discussion_r3654140180` and
-`discussion_r3654140181`, PR #100 discussion `discussion_r3626646727`, PR #97
-discussion `discussion_r3618354267`, and the delayed approved-host bypass
-review remain unresolved until a future fixing PR is merged and an exact fixing
-PR/commit reply is posted. Resolve only after that reply, then re-query each
-source PR for non-outdated unresolved threads.
+PR #107's reviewed head
+`d4771860f155e8ecbe51d995ff729c8da6529c87` merged as
+`af04ee906b71de77ee6e0eb5d866c0647d502410` and closed PR #106 discussions
+`discussion_r3654140180` and `discussion_r3654140181`, PR #100 discussion
+`discussion_r3626646727`, PR #97 discussion `discussion_r3618354267`, and the
+delayed approved-host bypass closure record. PR #108's reviewed head
+`1ea2949ab09038cdfe94d1c6d6b8e5fd45d8d87f` merged as
+`93fb26617042ed46d8920a7b75a42e3ae9da4d62` and closed S4
+`discussion_r3671437623` with reply `discussion_r3672142130`. Each listed
+finding has merged fixing evidence and a reply or closure record, every
+applicable thread is resolved, and the owning PRs had zero remaining
+non-outdated unresolved threads at status-closure preflight. Re-query every
+relevant PR immediately before tagging.
 
 ## Safety verification
 
