@@ -1,15 +1,17 @@
 # Pre-release smoke test — deployed GHCR image + staged HA integration
 
-Use this guide to validate the current local/staged integration path before
-tagging a release. The public HACS satellite contains the prior `0.1.14`
-candidate from source `906527063ad8bd594fbec51f69f6fc72205302dd`; it is not
-the corrected package and is not evidence for this branch.
+Use this guide to distinguish local/staged integration validation from the later
+authorized synchronized-satellite Phase 7D path before tagging a release. At
+the pre-synchronization review, the public HACS satellite held the prior
+`0.1.14` candidate from source
+`906527063ad8bd594fbec51f69f6fc72205302dd`; that historical tree is not the
+corrected package and is not evidence for this branch.
 
 | Item | Value |
 |------|-------|
 | GitHub owner | `theaussiepom` |
 | Main repo | https://github.com/theaussiepom/zigbeelens |
-| Public HACS satellite | `theaussiepom/zigbeelens-hacs` — prior candidate commit `21c24e3355369b94c9ab596cf9fc0591f1282297`, tree `9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`, no `v0.1.14` tag/release; stale pending separate resynchronization |
+| Public HACS satellite | `theaussiepom/zigbeelens-hacs` — pre-synchronization review recorded prior candidate commit `21c24e3355369b94c9ab596cf9fc0591f1282297`, tree `9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`, and no `v0.1.14` tag/release; re-check exact current state before action |
 | Add-on repo | Deferred; not part of this HACS release |
 | GHCR image | `ghcr.io/theaussiepom/zigbeelens` |
 | Pre-release tag | **`edge`** (rolling image from `main`) |
@@ -23,8 +25,11 @@ and merged. PR #108's reviewed head
 runtime capture source `af04ee906b71de77ee6e0eb5d866c0647d502410`. Required
 checks were green, and the S4 recorded-severity `Incident` versus
 recorded-confidence `High` review finding was resolved without changing the
-PNG. Public HACS remains stale pending separately authorized synchronization,
-the final HACS/artifact pairing remains pending, and Phase 7D remains blocked.
+PNG. Phase 7D remains blocked until the final docs-bearing HACS tree from merged
+main is synchronized and reviewed exactly under separate authorization, both
+exact HA lanes and official HACS/hassfest checks pass remotely, the final
+HACS/artifact pairing is frozen, and separate explicit Phase 7D installation
+authorization is recorded.
 
 Do not treat local results as remote CI results. Record exact skips, xfails, and
 warnings. The model-pattern Decision parity regression is strict; the full
@@ -392,10 +397,29 @@ Run against the release-test data volume (or a copy). Prefer Core stopped for `-
 4. Open **Settings → Devices & services → Add Integration → ZigbeeLens**.
 5. Enter the Core URL below and keep the companion panel enabled.
 
-Do not use the stale prior-candidate public HACS satellite to validate this branch.
-It contains the prior `0.1.14` source, has no `v0.1.14` tag/release, and becomes
-current only after a separately authorized resynchronization from the final
-correction.
+Do not use the historical prior-candidate HACS commit to validate this branch.
+The pre-synchronization review found the prior `0.1.14` source with no
+`v0.1.14` tag/release. Local branch evidence must use the exact generated
+manual stage above; it is not Phase 7D HACS-install evidence.
+
+### Authorized Phase 7D HACS installation after synchronization
+
+This later route is for maintainers performing release validation only. Use it
+only when a separately authorized synchronization has made the exact generated
+tree the reviewed `theaussiepom/zigbeelens-hacs` tree, `SOURCE_COMMIT` plus that
+Git tree identify the exact candidate, both exact HA lanes and generated
+official HACS/hassfest checks are green remotely, the monorepo/HACS/GHCR pairing
+is frozen, and separate explicit Phase 7D installation authorization exists.
+
+Add the satellite as a HACS Integration custom repository and select the exact
+reviewed commit. Use `main` only if its explicitly reviewed tip is that exact
+commit and tree immediately before installation. Do not accept a floating or
+unreviewed branch, and do not let HACS automatically select `v0.1.13` or
+another release. This install is not a release or publication, provides no
+general installation support, and does not authorize `v0.1.14` tagging. Remove
+or replace it if the reviewed tree changes, then renew exact review, remote
+checks, and Phase 7D authorization. General users must wait for final release
+authorization.
 
 ### Core URL examples
 
@@ -560,12 +584,15 @@ Regenerate the local HACS staging tree if integration source changed:
 
 `dist/zigbeelens-hacs` is a freshly generated staging directory, not a Git
 checkout or authorization to publish. Do not synchronize or push the public
-satellite from this guide. A separate explicitly authorized publication task
-must first prove that `SOURCE_COMMIT` plus the generated Git tree identify the
-exact reviewed satellite candidate, pass exact Home Assistant
-2025.1.0/Python 3.12 and 2026.7.3/Python 3.14 plus generated remote official
-HACS/hassfest validation, inspect the external repository diff, and authorize
-the `v0.1.14` tag and GitHub release to point to that exact tree.
+satellite from this guide. A separately authorized synchronization task must
+first prove that `SOURCE_COMMIT` plus the generated Git tree identify the exact
+reviewed satellite candidate, inspect the external repository diff, and make
+that tree exact. Both Home Assistant 2025.1.0/Python 3.12 and
+2026.7.3/Python 3.14 plus generated remote official HACS/hassfest validation
+must then pass before a separate explicit Phase 7D installation authorization
+can use the exact reviewed commit/main selection described above. Only after
+Phase 7D completes may final publication authorization permit the `v0.1.14`
+tag and GitHub release to point to that exact tree.
 
 ---
 

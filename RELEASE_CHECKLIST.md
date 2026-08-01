@@ -106,7 +106,8 @@ was reviewed and resolved without changing the screenshot binary.
 Phase 7D remains blocked until a final docs-bearing HACS tree is generated from
 merged main, the exact tree is synchronized under separate explicit
 authorization, the generated exact HA and official HACS/hassfest checks pass
-remotely, and the final monorepo/HACS/GHCR pairing is frozen.
+remotely, the final monorepo/HACS/GHCR pairing is frozen, and separate explicit
+Phase 7D installation authorization is recorded.
 
 The Home Assistant add-on is deferred and is not part of the current HACS
 release. Its future-only gate remains below; structural validation is
@@ -141,7 +142,7 @@ non-regression evidence, not current installation readiness.
 - [ ] `public_safe` redaction tested with real data (password / network_key scrubbed)
 - [ ] Docker logs secret-free
 
-## HACS publication readiness and live gates
+## HACS synchronization, authorized validation, and publication gates
 
 Required only when the HACS integration is included in the release. Structural
 package validation above is necessary but not sufficient.
@@ -149,21 +150,21 @@ package validation above is necessary but not sufficient.
 - [ ] The current branch is tested by manually installing
       `dist/zigbeelens-hacs/custom_components/zigbeelens` at
       `<home-assistant-config>/custom_components/zigbeelens`; the
-      stale prior-candidate public satellite is not used as branch evidence
+      historical prior-candidate satellite commit is not used as branch evidence
 - [ ] The complete staged tree matches the intended
       `theaussiepom/zigbeelens-hacs` satellite tree exactly
+- [ ] Separate explicit authorization to synchronize the HACS satellite is
+      recorded before any external repository is modified
 - [ ] The public satellite is resynchronized from the final corrected source in
-      a separately authorized task. Public `main` currently contains the prior
-      `0.1.14` candidate at commit
+      a separately authorized task. The pre-synchronization review recorded the
+      prior `0.1.14` candidate at commit
       `21c24e3355369b94c9ab596cf9fc0591f1282297` (tree
       `9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`, source
       `906527063ad8bd594fbec51f69f6fc72205302dd`) and has no `v0.1.14`
-      tag/release, so it is stale for this correction
+      tag/release; re-check exact current state before synchronization
 - [ ] Before release, `SOURCE_COMMIT` plus the generated Git tree identify the
       exact pre-release candidate; manifest version `0.1.14` remains aligned
       but is not sufficient identity by itself
-- [ ] At final publication, the `v0.1.14` tag and GitHub release point to the
-      exact reviewed, synchronized tree
 - [ ] Exact Home Assistant `2025.1.0` / Python `3.12` and Home Assistant
       `2026.7.3` / Python `3.14` both pass the same integration suite
 - [ ] The canonical monorepo live enrichment E2E is green remotely for the
@@ -171,8 +172,20 @@ package validation above is necessary but not sufficient.
       generated satellite CI is package-scoped and does not replace this gate
 - [ ] Synchronized HACS repository passes its structural validator plus the
       generated remote official HACS/hassfest checks
-- [ ] Explicit authorization to synchronize and publish the HACS satellite is
-      recorded before any external repository is modified
+- [ ] The exact monorepo/HACS/GHCR pairing is frozen before Phase 7D
+- [ ] Separate explicit Phase 7D installation authorization is recorded after
+      exact synchronization, review, pairing, and remote checks
+- [ ] The maintainer-only HACS install selects the exact reviewed satellite
+      commit, or uses `main` only when its explicitly reviewed tip is that same
+      exact commit and tree immediately before installation
+- [ ] No floating or unreviewed branch and no automatically selected
+      `v0.1.13` or other existing release is accepted as Phase 7D evidence
+- [ ] The authorized pre-release install is recorded as not a release or
+      publication, provides no general installation support, and does not
+      authorize the `v0.1.14` tag or GitHub release
+- [ ] If the reviewed commit or tree changes, the pre-release installation is
+      removed or replaced only after renewed exact-tree review, remote checks,
+      pairing, and separate Phase 7D authorization
 - [ ] Config flow accepts Core URL reachable from Home Assistant
 - [ ] Single-entry ownership is declared in manifest metadata as well as enforced by config flow
 - [ ] Native companion panel loads (cards, not raw JSON)
@@ -194,6 +207,11 @@ package validation above is necessary but not sufficient.
 - [ ] Start Core → panel recovers and repair clears
 - [ ] HACS diagnostics download is redacted (no secrets)
 - [ ] Behind TLS reverse proxy: `cors_allowed_origins` includes the browser-visible `https://…` Core origin for sessions; `frame_ancestor_origins` lists HA separately when embedding
+- [ ] Phase 7D HACS validation is complete before general-public installation
+      or publication guidance is enabled
+- [ ] At final publication, separate final release authorization requires the
+      `v0.1.14` tag and GitHub release to point to the exact reviewed,
+      synchronized tree
 
 ## Manual gates — mobile polish
 
@@ -315,7 +333,8 @@ again that each has zero non-outdated unresolved review threads.
       target are rechecked immediately before publication
 - [ ] If HACS is included, its staged artifact is pushed to
       `theaussiepom/zigbeelens-hacs` only in the separately authorized
-      publication task
+      synchronization task; that push alone does not authorize Phase 7D or
+      publication
 - [ ] GitHub release notes published
 - [ ] If an add-on is included, repository metadata is updated only after every
       generated-package publication blocker above is closed

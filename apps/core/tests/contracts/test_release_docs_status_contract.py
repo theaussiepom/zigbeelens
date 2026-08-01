@@ -277,8 +277,9 @@ def test_old_release_checklist_status_closure_wording_fails_closed(
         "Phase 7D remains blocked until a final docs-bearing HACS tree is "
         "generated from\nmerged main, the exact tree is synchronized under "
         "separate explicit\nauthorization, the generated exact HA and official "
-        "HACS/hassfest checks pass\nremotely, and the final monorepo/HACS/GHCR "
-        "pairing is frozen."
+        "HACS/hassfest checks pass\nremotely, the final monorepo/HACS/GHCR "
+        "pairing is frozen, and separate explicit\nPhase 7D installation "
+        "authorization is recorded."
     )
     assert durable in text
     checklist.write_text(

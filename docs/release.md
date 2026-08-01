@@ -49,9 +49,11 @@ Before tagging, all release phases must be complete:
 
 PR #108's required checks were green, and its S4 recorded-severity `Incident`
 versus recorded-confidence `High` review finding was resolved without changing
-the screenshot. Public HACS remains stale pending separately authorized
-synchronization, and the final HACS/artifact pairing remains pending; Phase 7D
-therefore remains blocked.
+the screenshot. Phase 7D remains blocked until the final docs-bearing HACS tree
+from merged main is synchronized and reviewed exactly under separate
+authorization, both exact HA lanes and official HACS/hassfest checks pass
+remotely, the final HACS/artifact pairing is frozen, and separate explicit
+Phase 7D installation authorization is recorded.
 
 The add-on is deferred and is not part of the current HACS release. Keep its
 non-regression checks green, but do not publish or advertise it as a supported
@@ -65,24 +67,31 @@ Keep their behavioral gates in
 [RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md); prose alone never closes a
 runtime contract.
 
-The HACS satellite is a separate publication gate. At the release-state
+The HACS satellite has separate synchronization, pre-release validation, and
+publication gates. At the release-state
 preflight, public `main` was commit
 `21c24e3355369b94c9ab596cf9fc0591f1282297`, tree
 `9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`, version `0.1.14`, with
 `SOURCE_COMMIT` `906527063ad8bd594fbec51f69f6fc72205302dd`; no `v0.1.14`
-tag or release exists. That is the prior candidate, not the corrected source,
-so the public tree is stale again until a separately authorized
-resynchronization. Use only a package generated from the final correction for
-branch testing. Public installation remains gated, and this task does not
-authorize satellite modification or publication.
+tag or release existed. That historical state is the prior candidate, not the
+corrected source. Use only a package generated from the final correction for
+unsynchronized branch testing. After separately authorized synchronization and
+exact remote validation, a maintainer may install the exact reviewed satellite
+commit—or explicitly reviewed `main` only when its tip is that exact commit and
+tree—solely under separate explicit Phase 7D authorization. General-public
+installation remains gated, and this task does not authorize satellite
+modification, Phase 7D, or publication.
 
 The monorepo and generated stage now own durable HACS options, fail-closed
 compatibility/repairs, exact enrichment lifecycle, declarative/runtime
 single-entry behavior, exact HA `2025.1.0`/Python `3.12` and
 `2026.7.3`/Python `3.14` lanes, and generated pinned official hassfest/HACS
-jobs. Generated release publication depends on generated CI. Public install is
-still unavailable until the satellite tree/version is synchronized and those
-official jobs pass remotely on that exact tree.
+jobs. Generated release publication depends on generated CI. A maintainer-only
+satellite install is eligible only after exact synchronization, those remote
+jobs, final artifact pairing, and separate Phase 7D authorization. It is not a
+release or publication and must be removed or replaced if the reviewed tree
+changes. General-public installation remains unavailable until Phase 7D is
+complete and final release authorization closes the tag/release gates.
 
 The monorepo PR/main packaging gate and `v*` release gate also depend on the
 dedicated `enrichment-live-e2e` job for the exact source commit. Generated HACS
@@ -172,16 +181,28 @@ the full Core suite must have no unexplained xfail.
 ```
 
 The generated HACS directory is a local stage, not a publication instruction.
-Before public HACS guidance or publication is restored:
+Before a maintainer uses the synchronized satellite for Phase 7D:
 
 - `SOURCE_COMMIT` plus the generated Git tree must identify the exact reviewed
   satellite candidate;
 - exact Home Assistant 2025.1.0/Python 3.12 and
   2026.7.3/Python 3.14 lanes must pass;
 - generated official HACS and hassfest validation must pass remotely on the
-  synchronized satellite; and
-- explicit publication authorization must record that the `v0.1.14` tag and
-  GitHub release will point to that exact tree before release.
+  synchronized satellite;
+- the final monorepo/HACS/GHCR pairing must be frozen; and
+- separate explicit Phase 7D installation authorization must be recorded.
+
+The maintainer must select the exact reviewed satellite commit or use `main`
+only when its explicitly reviewed tip is the same commit and tree. Never accept
+a floating/unreviewed branch or let HACS automatically select `v0.1.13` or
+another existing release. This route is not a release/publication, provides no
+general installation support, and does not authorize a tag. If the reviewed
+tree changes, remove or replace the installation and renew review, remote
+checks, and Phase 7D authorization.
+
+Before general-public HACS guidance or publication is enabled, Phase 7D must be
+complete and final publication authorization must record that the `v0.1.14`
+tag and GitHub release will point to that exact reviewed synchronized tree.
 
 The current schema target is `15`. Migration
 `015_topology_raw_data_scrub.sql` removes unsafe legacy topology source dictionaries

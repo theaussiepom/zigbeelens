@@ -42,30 +42,34 @@ Run ZigbeeLens Core using one of:
 The Home Assistant add-on is deferred and is not part of this HACS release. It
 does not define a portable HACS-to-add-on backend URL.
 
-## Release status — local/staged integration only
+## Release status — pre-release validation only
 
-**Public HACS installation remains unavailable.** At the pre-synchronization
-review, public `theaussiepom/zigbeelens-hacs` `main` was commit
+**General-public HACS installation remains unavailable.** At the
+pre-synchronization review, public `theaussiepom/zigbeelens-hacs` `main` was
+the prior candidate at commit
 `21c24e3355369b94c9ab596cf9fc0591f1282297`, tree
 `9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`, with `SOURCE_COMMIT`
 `906527063ad8bd594fbec51f69f6fc72205302dd`, manifest version `0.1.14`, and no
-`v0.1.14` tag or release. That prior candidate is stale for this correction.
-Synchronization requires a separate explicitly authorized task and does not by
-itself authorize installation or release. Docker/Compose remains the portable
-Core deployment route.
+`v0.1.14` tag or release. That historical tree is not the corrected candidate.
+Synchronization, Phase 7D installation, and final publication require separate
+explicit authorizations. Docker/Compose remains the portable Core deployment
+route.
 
 Phase 7C1 and Phase 7C2 are complete and merged. PR #108's evidence merge is
 `93fb26617042ed46d8920a7b75a42e3ae9da4d62`; all S1–S9 screenshots retain
 immutable runtime capture source
-`af04ee906b71de77ee6e0eb5d866c0647d502410`. Public HACS synchronization and
-the final HACS/artifact pairing remain pending, so Phase 7D remains blocked.
+`af04ee906b71de77ee6e0eb5d866c0647d502410`. Phase 7D remains blocked until a
+final docs-bearing tree from merged main is synchronized and reviewed exactly,
+both exact HA lanes and official HACS/hassfest checks pass remotely, the final
+artifact pairing is frozen, and separate explicit Phase 7D authorization is
+recorded.
 
 Before release, `SOURCE_COMMIT` plus the generated Git tree identify the exact
 candidate; manifest version `0.1.14` is aligned but does not distinguish
-candidate trees by itself. Public installation remains unavailable until that
-exact generated tree is reviewed on the satellite, both exact HA lanes and
-official HACS/hassfest jobs pass remotely, and the `v0.1.14` tag and GitHub
-release are explicitly authorized to point to that tree.
+candidate trees by itself. General-public installation remains unavailable
+until Phase 7D is complete and final release authorization requires the
+`v0.1.14` tag and GitHub release to point to that exact reviewed synchronized
+tree.
 
 ## Local staged integration testing
 
@@ -112,8 +116,9 @@ Monorepo staging for maintainers:
 ```
 
 Output: `dist/zigbeelens-hacs/`. It is a generated validation/install stage,
-not a repository to push. Satellite synchronization requires a separate
-authorized publication task.
+not a repository to push. Satellite synchronization requires its own separate
+authorization; Phase 7D installation and final publication remain later,
+separately authorized gates.
 
 ### Core URL and embedded view
 
@@ -125,16 +130,41 @@ The optional embedded dashboard view usually requires an **HTTPS Core URL** when
 
 See [docs/hacs-embedded-view.md](../../docs/hacs-embedded-view.md) for HTTPS reverse proxy options (Traefik on Beast, Caddy example, etc.).
 
-## Conditional public HACS installation
+## Authorized pre-release validation from the synchronized satellite
 
-Public custom-repository installation is a future route only. Before restoring
-it, `SOURCE_COMMIT` plus the generated Git tree must identify the exact reviewed
-satellite candidate, exact Home Assistant `2025.1.0` / Python `3.12` and Home
-Assistant `2026.7.3` / Python `3.14` coverage must pass, generated official
-HACS and hassfest validation must pass remotely on that tree, and the
-`v0.1.14` tag and GitHub release must be explicitly authorized to point to that
-tree.
-Only after those gates close may operators add the synchronized
+This route is for maintainers performing Phase 7D release validation only. Use
+it only after a separately authorized synchronization makes the exact generated
+tree the reviewed `theaussiepom/zigbeelens-hacs` tree, `SOURCE_COMMIT` plus that
+generated Git tree identify the exact candidate, both exact Home Assistant
+lanes and generated official HACS/hassfest validation pass remotely on that
+tree, the final artifact pairing is frozen, and separate explicit Phase 7D
+installation authorization is recorded.
+
+Then add `https://github.com/theaussiepom/zigbeelens-hacs` as a HACS Integration
+custom repository and select the exact reviewed satellite commit. Use `main`
+only if its explicitly reviewed tip is that exact commit and tree immediately
+before installation. Never accept a floating or unreviewed branch, and do not
+let HACS automatically select `v0.1.13` or another existing release.
+
+This maintainer-only install is not a release or publication, does not provide
+general installation support, and does not authorize the `v0.1.14` tag or
+GitHub release. If the reviewed commit or tree changes, remove the pre-release
+installation or replace it as one unit only after renewed exact-tree review,
+remote checks, and separate Phase 7D authorization. General users must wait
+for final release authorization.
+
+## Conditional general-public HACS installation
+
+Normal public custom-repository installation is a future route only. Phase 7D
+must be complete, `SOURCE_COMMIT` plus the generated Git tree must identify the
+exact reviewed satellite candidate, exact Home Assistant `2025.1.0` / Python
+`3.12` and Home Assistant `2026.7.3` / Python `3.14` coverage must pass,
+generated official HACS and hassfest validation must pass remotely on that
+tree, and final release authorization must require the `v0.1.14` tag and GitHub
+release to point to that tree. The maintainer-only route above does not satisfy
+these general-public gates.
+
+Only after those gates close may general users add the synchronized
 `https://github.com/theaussiepom/zigbeelens-hacs` repository in HACS.
 
 ## Configure
@@ -332,8 +362,12 @@ Tests live in `apps/ha_integration/tests/`.
   services**, stop Home Assistant, remove the manually installed
   `custom_components/zigbeelens` directory, and restart. Core and its SQLite
   data are unaffected.
-- HACS-managed upgrades apply only to a future synchronized, authorized public
-  artifact.
+- During authorized maintainer-only pre-release validation, do not upgrade to a
+  floating or automatically selected release. Remove or replace the exact
+  reviewed installation if its commit or tree changes, then renew exact-tree
+  review, remote checks, and Phase 7D authorization before reinstalling.
+- Normal HACS-managed upgrades apply only after the final synchronized artifact
+  is released and authorized for general users.
 
 ## Safety and security
 

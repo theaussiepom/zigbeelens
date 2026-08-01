@@ -9,13 +9,15 @@ Read-only Home Assistant bridge to
 
 Requires Home Assistant **2025.1.0 or newer**.
 
-## Release status — local/staged integration only
+## Release status — pre-release validation only
 
 This generated repository is a pre-release candidate, not a public release.
 Synchronization to public `@PRE_SYNC_HACS_REPOSITORY@` requires explicit
 authorization. Synchronization alone does not authorize installation or
-release. When this README is itself present in the public satellite, its
-presence does not imply that a public release has been authorized.
+release; a maintainer also needs separate explicit Phase 7D authorization
+before using the pre-release satellite-validation route below. When this
+README is itself present in the public satellite, its presence does not imply
+that a public release has been authorized.
 
 Pre-synchronization satellite historical evidence:
 
@@ -45,12 +47,12 @@ but does not distinguish pre-release candidate trees by itself. Final
 publication requires the `@CANDIDATE_RELEASE_TAG@` tag and GitHub release
 to point to the exact reviewed, synchronized tree.
 
-Public HACS installation remains unavailable until:
+General-public HACS installation remains unavailable until:
 
 - the exact generated tree is the reviewed satellite tree;
 - both exact Home Assistant lanes pass remotely;
 - hassfest and official HACS validation pass remotely; and
-- final release authorization is recorded.
+- Phase 7D is complete and final release authorization is recorded.
 
 Docker/Compose is the current portable Core deployment route. Local structural
 validation does not close the remote or publication gates.
@@ -107,18 +109,51 @@ Run `bash scripts/test-ha-integration-matrix.sh minimum` or
 `bash scripts/test-ha-integration-matrix.sh current` from this staged
 repository.
 
-## Conditional public HACS installation
+## Authorized pre-release validation from the synchronized satellite
 
-Public custom-repository installation is a future route only. Before restoring
-it, `SOURCE_COMMIT` plus the generated Git tree must identify the exact reviewed
-satellite candidate, exact Home Assistant `2025.1.0` / Python `3.12` and Home
-Assistant `2026.7.3` / Python `3.14` coverage must pass, generated official
-HACS and hassfest validation must pass remotely on that tree, and the
-`@CANDIDATE_RELEASE_TAG@` tag and GitHub release must be explicitly
-authorized to point to that exact reviewed tree.
-Only after those gates close may an operator add
-`https://github.com/@FUTURE_HACS_REPOSITORY@` as a HACS Integration
-custom repository.
+This route is for maintainers performing release validation only. Use it only
+after all of these gates close:
+
+- separate synchronization authorization has made the exact generated tree
+  the reviewed `@PRE_SYNC_HACS_REPOSITORY@` satellite tree;
+- `SOURCE_COMMIT` plus that generated Git tree identify the exact reviewed
+  satellite candidate;
+- both exact Home Assistant lanes pass remotely on that tree;
+- generated official HACS and hassfest validation pass remotely on that tree;
+  and
+- the maintainer has separate explicit authorization to perform Phase 7D.
+
+Synchronization and green checks do not by themselves authorize this install.
+When Phase 7D installation is explicitly authorized, add
+`https://github.com/@PRE_SYNC_HACS_REPOSITORY@` as a HACS Integration custom
+repository and select the exact reviewed satellite commit. Use `main` only
+when its explicitly reviewed tip is that exact commit and tree immediately
+before installation. Do not use a floating or unreviewed branch, and do not let
+HACS select `v0.1.13` or another existing release automatically.
+
+This maintainer-only installation is not a release or publication, does not
+provide general installation support, and does not authorize the
+`@CANDIDATE_RELEASE_TAG@` tag or GitHub release. If the reviewed commit or tree
+changes, remove the pre-release installation or replace it as one unit only
+after the new exact tree is reviewed, its remote checks are green, and separate
+Phase 7D authorization is renewed. General users must wait for final release
+authorization.
+
+## Conditional general-public HACS installation
+
+Normal public custom-repository installation is a future route only. Phase 7D
+must be complete, `SOURCE_COMMIT` plus the generated Git tree must identify the
+exact reviewed satellite candidate, exact Home Assistant `2025.1.0` / Python
+`3.12` and Home Assistant `2026.7.3` / Python `3.14` coverage must pass,
+generated official HACS and hassfest validation must pass remotely on that
+tree, and final release authorization must require the
+`@CANDIDATE_RELEASE_TAG@` tag and GitHub release to point to that exact reviewed
+tree. The maintainer-only pre-release route above does not satisfy these
+general-public gates.
+
+Only after those gates close may a general user add
+`https://github.com/@FUTURE_HACS_REPOSITORY@` as a HACS Integration custom
+repository.
 
 ## Core URL examples
 
@@ -245,7 +280,11 @@ For a local/staged update, stop Home Assistant, replace
 a full restart. To remove the staged integration, delete its ZigbeeLens config
 entry under **Settings → Devices & services**, stop Home Assistant, remove the
 manually installed custom-component directory, and restart. HACS-managed
-upgrade/removal applies only to a future synchronized, authorized public
-artifact. Core and its SQLite data are not removed.
+pre-release validation must remain pinned to the exact reviewed selection; do
+not upgrade to a floating or automatically selected release. If its commit or
+tree changes, remove or replace it as one unit only after renewed review,
+remote checks, and Phase 7D authorization. Normal HACS-managed upgrade/removal
+guidance applies only after the synchronized public artifact is released and
+authorized for general users. Core and its SQLite data are not removed.
 
 Issues: https://github.com/@SOURCE_REPOSITORY@/issues

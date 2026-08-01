@@ -1362,18 +1362,17 @@ RELEASE_BLOCKER_STATUS_GUARDS: tuple[tuple[str, str, str], ...] = (
     (
         "hacs_no_tag_or_release",
         "docs/release.md",
-        "no `v0.1.14` tag or release exists",
+        "no `v0.1.14` tag or release existed",
     ),
     (
         "hacs_stale_after_correction",
         "docs/release.md",
-        "the public tree is stale again until a separately authorized "
-        "resynchronization",
+        "Synchronization, pre-release validation, and publication gates",
     ),
     (
         "public_installation_gated",
         "docs/release.md",
-        "Public installation remains gated",
+        "General-public installation remains gated",
     ),
     (
         "rejected_digest_invalid",
@@ -1609,7 +1608,7 @@ CURRENT_RELEASE_STATUS_SCOPES: tuple[tuple[str, str, str, str], ...] = (
     (
         "hacs_release_status",
         "docs/hacs.md",
-        "## Release status — local/staged integration only",
+        "## Release status — pre-release validation only",
         "## Local staged integration testing",
     ),
     (
@@ -2269,9 +2268,17 @@ def validate_companion_publication_truth() -> int:
         "apps/ha_integration/README.md",
         "release/zigbeelens-hacs/README.md.in",
     )
-    status_heading = "## Release status — local/staged integration only"
+    status_heading = "## Release status — pre-release validation only"
     local_heading = "## Local staged integration testing"
-    future_heading = "## Conditional public HACS installation"
+    authorized_heading = (
+        "## Authorized pre-release validation from the synchronized satellite"
+    )
+    public_heading = "## Conditional general-public HACS installation"
+    lifecycle_end_headings = {
+        "docs/hacs.md": "## Upgrade or remove",
+        "apps/ha_integration/README.md": "## Configure",
+        "release/zigbeelens-hacs/README.md.in": "## Core URL examples",
+    }
     current_install_pattern = re.compile(
         r"(?:https://github\.com/[^\s`)\]]+/zigbeelens-hacs(?:[^\s`)\]]*)?|"
         r"HACS\s*→\s*Integrations\s*→\s*Custom repositories|"
@@ -2308,7 +2315,56 @@ def validate_companion_publication_truth() -> int:
             "blob/@SOURCE_COMMIT@/docs/hacs.md",
         ),
     }
-    future_install_contracts: dict[str, tuple[str, ...]] = {
+    authorized_install_contracts: dict[str, tuple[str, ...]] = {
+        "docs/hacs.md": (
+            "for maintainers performing Phase 7D release validation only",
+            "separate synchronization authorization makes the exact generated tree",
+            "both exact Home Assistant lanes pass remotely",
+            "official HACS and hassfest validation pass remotely on that tree",
+            "separate explicit Phase 7D installation authorization is recorded",
+            "select the exact reviewed satellite commit",
+            "Use `main` only if its explicitly reviewed tip is that exact commit and tree",
+            "floating or unreviewed branch",
+            "automatically select `v0.1.13` or another existing release",
+            "not a release or publication",
+            "does not provide general installation support",
+            "does not authorize the `v0.1.14` tag or GitHub release",
+            "remove the pre-release installation or replace it as one unit only",
+            "General users must wait for final release authorization",
+        ),
+        "apps/ha_integration/README.md": (
+            "for maintainers performing Phase 7D release validation only",
+            "separately authorized synchronization makes the exact generated tree",
+            "both exact Home Assistant lanes and generated official HACS/hassfest validation pass remotely",
+            "separate explicit Phase 7D installation authorization is recorded",
+            "select the exact reviewed satellite commit",
+            "Use `main` only if its explicitly reviewed tip is that exact commit and tree",
+            "floating or unreviewed branch",
+            "automatically select `v0.1.13` or another existing release",
+            "not a release or publication",
+            "does not provide general installation support",
+            "does not authorize the `v0.1.14` tag or GitHub release",
+            "remove the pre-release installation or replace it as one unit only",
+            "General users must wait for final release authorization",
+        ),
+        "release/zigbeelens-hacs/README.md.in": (
+            "for maintainers performing release validation only",
+            "separate synchronization authorization has made the exact generated tree",
+            "both exact Home Assistant lanes pass remotely on that tree",
+            "generated official HACS and hassfest validation pass remotely on that tree",
+            "separate explicit authorization to perform Phase 7D",
+            "select the exact reviewed satellite commit",
+            "Use `main` only when its explicitly reviewed tip is that exact commit and tree",
+            "floating or unreviewed branch",
+            "HACS select `v0.1.13` or another existing release automatically",
+            "not a release or publication",
+            "does not provide general installation support",
+            "does not authorize the `@CANDIDATE_RELEASE_TAG@` tag or GitHub release",
+            "remove the pre-release installation or replace it as one unit only",
+            "General users must wait for final release authorization",
+        ),
+    }
+    public_install_contracts: dict[str, tuple[str, ...]] = {
         "docs/hacs.md": (
             "`SOURCE_COMMIT` plus the generated Git tree identify the exact "
             "reviewed satellite candidate",
@@ -2316,6 +2372,8 @@ def validate_companion_publication_truth() -> int:
             "`2026.7.3` / Python `3.14` coverage passes",
             "official HACS and hassfest validation passes remotely",
             "`v0.1.14` tag and GitHub release",
+            "Phase 7D is complete",
+            "Only then may a general user add",
         ),
         "apps/ha_integration/README.md": (
             "`SOURCE_COMMIT` plus the generated Git tree must identify the "
@@ -2324,6 +2382,8 @@ def validate_companion_publication_truth() -> int:
             "`2026.7.3` / Python `3.14` coverage must pass",
             "official HACS and hassfest validation must pass remotely",
             "`v0.1.14` tag and GitHub release",
+            "Phase 7D must be complete",
+            "Only after those gates close may general users add",
         ),
         "release/zigbeelens-hacs/README.md.in": (
             "`SOURCE_COMMIT` plus the generated Git tree must identify the "
@@ -2333,24 +2393,45 @@ def validate_companion_publication_truth() -> int:
             "official HACS and hassfest validation must pass remotely",
             "`@CANDIDATE_RELEASE_TAG@` tag and GitHub release",
             "https://github.com/@FUTURE_HACS_REPOSITORY@",
+            "Phase 7D must be complete",
+            "Only after those gates close may a general user add",
         ),
     }
     for relative in hacs_documents:
         text = (ROOT / relative).read_text(encoding="utf-8")
-        indexes = tuple(
-            text.find(heading)
-            for heading in (status_heading, local_heading, future_heading)
+        lifecycle_headings = (
+            status_heading,
+            local_heading,
+            authorized_heading,
+            public_heading,
+            lifecycle_end_headings[relative],
         )
-        if any(index < 0 for index in indexes) or indexes != tuple(sorted(indexes)):
-            raise DocumentationError(
-                f"{relative}: release status, local staged testing, and future "
-                "public HACS sections must appear in that order"
+        indexes = []
+        for heading in lifecycle_headings:
+            matches = list(
+                re.finditer(rf"(?m)^{re.escape(heading)}[ \t]*$", text)
             )
-        current_guidance = text[: indexes[2]]
-        if current_install_pattern.search(current_guidance):
+            if len(matches) != 1:
+                raise DocumentationError(
+                    f"{relative}: lifecycle heading must appear exactly once: "
+                    f"{heading}"
+                )
+            indexes.append(matches[0].start())
+        if indexes != sorted(indexes):
             raise DocumentationError(
-                f"{relative}: current guidance directs users to the "
-                "unsynchronized public HACS satellite"
+                f"{relative}: release status, local staged testing, authorized "
+                "pre-release validation, and general-public HACS sections "
+                "must appear in that order"
+            )
+        status_guidance = text[indexes[0] : indexes[1]]
+        local_guidance = text[indexes[1] : indexes[2]]
+        authorized_guidance = text[indexes[2] : indexes[3]]
+        public_guidance = text[indexes[3] : indexes[4]]
+        status_and_local = status_guidance + local_guidance
+        if current_install_pattern.search(status_and_local):
+            raise DocumentationError(
+                f"{relative}: status/local guidance directs manual testing "
+                "through the public HACS satellite"
             )
         if relative == "release/zigbeelens-hacs/README.md.in":
             expected_operational_docs = {
@@ -2363,7 +2444,7 @@ def validate_companion_publication_truth() -> int:
                 re.findall(
                     r"https://github\.com/[^\s`)\]]+/blob/"
                     r"[^\s`)\]]+/docs/[^\s`)\]]+",
-                    current_guidance,
+                    status_and_local,
                 )
             )
             if operational_docs != expected_operational_docs:
@@ -2372,30 +2453,46 @@ def validate_companion_publication_truth() -> int:
                     "the exact SOURCE_REPOSITORY/SOURCE_COMMIT Docker and "
                     f"HACS URLs, found {sorted(operational_docs)}"
                 )
-            if "/blob/main/docs/" in current_guidance:
+            if "/blob/main/docs/" in status_and_local:
                 raise DocumentationError(
                     f"{relative}: current/local-stage guidance must not use "
                     "moving blob/main documentation"
                 )
-            if "@FUTURE_HACS_REPOSITORY@" in current_guidance:
+            if "@FUTURE_HACS_REPOSITORY@" in (
+                status_and_local + authorized_guidance
+            ):
                 raise DocumentationError(
-                    f"{relative}: future HACS repository identity must remain "
-                    "inside the conditional publication section"
+                    f"{relative}: configurable general-public repository "
+                    "identity must remain inside the conditional public section"
+                )
+            if (
+                "https://github.com/@PRE_SYNC_HACS_REPOSITORY@"
+                not in authorized_guidance
+            ):
+                raise DocumentationError(
+                    f"{relative}: authorized lane must use the exact fixed "
+                    "reviewed satellite identity"
                 )
             assertions += 3
-        local_guidance = text[indexes[1] : indexes[2]]
-        future_guidance = text[indexes[2] :]
+        normalized_local = " ".join(local_guidance.split())
+        normalized_authorized = " ".join(authorized_guidance.split())
+        normalized_public = " ".join(public_guidance.split())
         assertions += require_text_fragments(
             f"{relative} local staged integration section",
-            local_guidance,
+            normalized_local,
             local_install_contracts[relative],
         )
         assertions += require_text_fragments(
-            f"{relative} conditional public HACS section",
-            future_guidance,
-            future_install_contracts[relative],
+            f"{relative} authorized pre-release satellite section",
+            normalized_authorized,
+            authorized_install_contracts[relative],
         )
-        assertions += 4
+        assertions += require_text_fragments(
+            f"{relative} conditional general-public HACS section",
+            normalized_public,
+            public_install_contracts[relative],
+        )
+        assertions += 5
 
     addon_ordered_sections = (
         (
@@ -2421,7 +2518,6 @@ def validate_companion_publication_truth() -> int:
 
     current_guidance_owners = (
         "README.md",
-        "docs/release-test.md",
         "docs/troubleshooting.md",
     )
     offenders = [
@@ -2436,7 +2532,22 @@ def validate_companion_publication_truth() -> int:
             "current guidance points to the unsynchronized public HACS "
             "satellite in: " + ", ".join(offenders)
         )
-    assertions += len(current_guidance_owners)
+    release_test = (ROOT / "docs/release-test.md").read_text(encoding="utf-8")
+    release_test_local_start = release_test.index(
+        "## 4. Install the locally staged integration"
+    )
+    release_test_authorized_start = release_test.index(
+        "### Authorized Phase 7D HACS installation after synchronization"
+    )
+    release_test_local = release_test[
+        release_test_local_start:release_test_authorized_start
+    ]
+    if current_install_pattern.search(release_test_local):
+        raise DocumentationError(
+            "docs/release-test.md: local manual-install lane must not direct "
+            "testing through the public HACS satellite"
+        )
+    assertions += len(current_guidance_owners) + 1
 
     hacs_release_truth = (
         "OptionsFlow returns panel visibility and the selected 15–900-second",
@@ -2467,9 +2578,9 @@ def validate_companion_publication_truth() -> int:
         "README.md",
         (
             "Current portable deployment route",
-            "Local/staged source testing only",
-            "public install unavailable until satellite synchronization "
-            "and remote official checks pass",
+            "maintainer-only HACS validation only after exact synchronization",
+            "separate Phase 7D authorization",
+            "general-public install remains gated",
             "Deferred — not part of the current HACS release",
         ),
     )
@@ -2477,12 +2588,14 @@ def validate_companion_publication_truth() -> int:
         "RELEASE_CHECKLIST.md": (
             "`SOURCE_COMMIT` plus the generated Git tree identify the exact "
             "pre-release candidate",
-            "`v0.1.14` tag and GitHub release point to the exact reviewed, "
-            "synchronized tree",
             "Home Assistant `2025.1.0` / Python `3.12` and Home Assistant "
             "`2026.7.3` / Python `3.14`",
             "generated remote official HACS/hassfest checks",
-            "Explicit authorization to synchronize and publish",
+            "Separate explicit Phase 7D installation authorization",
+            "No floating or unreviewed branch",
+            "provides no general installation support",
+            "At final publication, separate final release authorization",
+            "`v0.1.14` tag and GitHub release",
         ),
         "docs/release-infra.md": (
             "`SOURCE_COMMIT` plus the generated Git tree identify the exact "
@@ -2491,7 +2604,11 @@ def validate_companion_publication_truth() -> int:
             "Home Assistant 2025.1.0/Python 3.12 and "
             "2026.7.3/Python 3.14 lanes remotely",
             "generated official HACS and hassfest validation remotely",
-            "explicit publication authorization",
+            "separate explicit Phase 7D installation authorization",
+            "floating or unreviewed branch",
+            "not a release or publication",
+            "General-public HACS guidance remains unavailable until Phase 7D",
+            "final publication authorization",
         ),
         "docs/release.md": (
             "`SOURCE_COMMIT` plus the generated Git tree must identify the "
@@ -2500,7 +2617,11 @@ def validate_companion_publication_truth() -> int:
             "Home Assistant 2025.1.0/Python 3.12 and "
             "2026.7.3/Python 3.14 lanes must pass",
             "generated official HACS and hassfest validation must pass remotely",
-            "explicit publication authorization",
+            "separate explicit Phase 7D installation authorization",
+            "floating/unreviewed branch",
+            "not a release/publication",
+            "Before general-public HACS guidance or publication is enabled",
+            "final publication authorization",
         ),
     }
     assertions += sum(
@@ -2720,11 +2841,18 @@ def validate_companion_publication_truth() -> int:
             "@CANDIDATE_RELEASE_STATE@",
         ),
     )
-    template_future_start = hacs_template.index(
-        "## Conditional public HACS installation"
+    template_authorized_start = hacs_template.index(
+        "## Authorized pre-release validation from the synchronized satellite"
     )
-    template_current = hacs_template[:template_future_start]
-    template_future = hacs_template[template_future_start:]
+    template_public_start = hacs_template.index(
+        "## Conditional general-public HACS installation"
+    )
+    template_public_end = hacs_template.index("## Core URL examples")
+    template_current = hacs_template[:template_authorized_start]
+    template_authorized = hacs_template[
+        template_authorized_start:template_public_start
+    ]
+    template_public = hacs_template[template_public_start:template_public_end]
     identity_classes = (
         (
             "Core repository link",
@@ -2761,10 +2889,18 @@ def validate_companion_publication_truth() -> int:
             ["https://github.com/@SOURCE_REPOSITORY@/issues"],
         ),
         (
-            "future HACS repository link",
+            "authorized fixed HACS repository link",
             re.findall(
                 r"`(https://github\.com/[^`\s]+)` as a HACS Integration",
-                template_future,
+                template_authorized,
+            ),
+            ["https://github.com/@PRE_SYNC_HACS_REPOSITORY@"],
+        ),
+        (
+            "general-public HACS repository link",
+            re.findall(
+                r"`(https://github\.com/[^`\s]+)` as a HACS Integration",
+                template_public,
             ),
             ["https://github.com/@FUTURE_HACS_REPOSITORY@"],
         ),
@@ -2795,6 +2931,15 @@ def validate_companion_publication_truth() -> int:
             "candidate release tag does not derive from candidate version",
             "pre-release candidate, not a public release",
             "SOURCE_COMMIT` plus the generated Git tree identify this candidate",
+            "README lifecycle heading must appear exactly once",
+            "README lifecycle sections must be ordered",
+            '"authorized pre-release satellite validation"',
+            '"conditional general-public installation"',
+            "is missing required scoped contract",
+            "authorized pre-release repository must be the exact fixed",
+            "must not use historical",
+            "pre-synchronization commit/tree evidence as its install target",
+            "status/local guidance must not direct manual testing through the public HACS satellite",
             "unresolved template placeholder",
         ),
     )
@@ -2822,6 +2967,11 @@ def validate_companion_publication_truth() -> int:
             "test_package_validator_rejects_duplicate_pre_sync_evidence_block",
             "test_package_validator_rejects_invalid_release_evidence_file",
             "test_package_validator_accepts_future_synchronized_tree_wording",
+            "test_package_validator_rejects_invalid_lifecycle_heading_contract",
+            "test_package_validator_rejects_weakened_authorized_install_contract",
+            "test_package_validator_rejects_authorized_clause_in_decoy_section",
+            "test_package_validator_rejects_weakened_general_public_contract",
+            "test_package_validator_rejects_invalid_authorized_install_identity",
         ),
     )
     assertions += require_document_fragments(
@@ -2920,7 +3070,7 @@ def validate_release_document_ownership() -> int:
         (
             "### Structural companion-package validation",
             "does **not** establish publication readiness",
-            "## HACS publication readiness and live gates",
+            "## HACS synchronization, authorized validation, and publication gates",
             "## Add-on publication readiness and live package gates",
             "If HACS was included and published",
             "If an add-on was included and published",

@@ -281,24 +281,123 @@ expected_docker_documentation = (
     f"https://github.com/{source_repository}/blob/"
     f"{source_commit}/docs/docker.md"
 )
-status_heading = "## Release status — local/staged integration only"
+status_heading = "## Release status — pre-release validation only"
 local_heading = "## Local staged integration testing"
-future_heading = "## Conditional public HACS installation"
-status_start = readme.find(status_heading)
-local_start = readme.find(local_heading)
-future_start = readme.find(future_heading)
-if (
-    status_start < 0
-    or local_start <= status_start
-    or future_start <= local_start
-):
-    sys.exit(
-        "README must contain ordered release-status, local-stage, and "
-        "conditional-public-HACS sections"
+authorized_heading = (
+    "## Authorized pre-release validation from the synchronized satellite"
+)
+public_heading = "## Conditional general-public HACS installation"
+lifecycle_end_heading = "## Core URL examples"
+lifecycle_headings = (
+    status_heading,
+    local_heading,
+    authorized_heading,
+    public_heading,
+    lifecycle_end_heading,
+)
+heading_starts = []
+for heading in lifecycle_headings:
+    matches = list(
+        re.finditer(rf"(?m)^{re.escape(heading)}[ \t]*$", readme)
     )
-current_readme = readme[:future_start]
-local_readme = readme[local_start:future_start]
-future_readme = readme[future_start:]
+    if len(matches) != 1:
+        sys.exit(
+            "README lifecycle heading must appear exactly once: " + heading
+        )
+    heading_starts.append(matches[0].start())
+if heading_starts != sorted(heading_starts):
+    sys.exit(
+        "README lifecycle sections must be ordered status, local stage, "
+        "authorized pre-release satellite validation, then general-public "
+        "installation"
+    )
+(
+    status_start,
+    local_start,
+    authorized_start,
+    public_start,
+    lifecycle_end,
+) = heading_starts
+status_readme = readme[status_start:local_start]
+local_readme = readme[local_start:authorized_start]
+authorized_readme = readme[authorized_start:public_start]
+public_readme = readme[public_start:lifecycle_end]
+current_readme = readme[:authorized_start]
+
+
+def require_section_fragments(label: str, section: str, fragments) -> None:
+    normalized_section = " ".join(section.split())
+    missing = [
+        fragment
+        for fragment in fragments
+        if " ".join(fragment.split()) not in normalized_section
+    ]
+    if missing:
+        sys.exit(
+            f"README {label} section is missing required scoped contract: "
+            + "; ".join(missing)
+        )
+
+
+require_section_fragments(
+    "release status",
+    status_readme,
+    (
+        "pre-release candidate, not a public release",
+        "Synchronization alone does not authorize installation or release",
+        "separate explicit Phase 7D authorization",
+        "its presence does not imply that a public release has been authorized",
+        "General-public HACS installation remains unavailable",
+        "Phase 7D is complete and final release authorization is recorded",
+    ),
+)
+require_section_fragments(
+    "local staged integration",
+    local_readme,
+    (
+        "### Package provenance",
+        "<home-assistant-config>/custom_components/zigbeelens/",
+        "full Home Assistant restart",
+        "Use this generated tree for the test",
+    ),
+)
+require_section_fragments(
+    "authorized pre-release satellite validation",
+    authorized_readme,
+    (
+        "for maintainers performing release validation only",
+        "separate synchronization authorization has made the exact generated tree",
+        "`SOURCE_COMMIT` plus that generated Git tree identify the exact reviewed",
+        "both exact Home Assistant lanes pass remotely on that tree",
+        "generated official HACS and hassfest validation pass remotely on that tree",
+        "separate explicit authorization to perform Phase 7D",
+        "Synchronization and green checks do not by themselves authorize this install",
+        "select the exact reviewed satellite commit",
+        "Use `main` only when its explicitly reviewed tip is that exact commit and tree",
+        "Do not use a floating or unreviewed branch",
+        "HACS select `v0.1.13` or another existing release automatically",
+        "not a release or publication",
+        "does not provide general installation support",
+        f"does not authorize the\n`{CANDIDATE_RELEASE_TAG}` tag or GitHub release",
+        "If the reviewed commit or tree changes",
+        "remove the pre-release installation or replace it as one unit only",
+        "General users must wait for final release authorization",
+    ),
+)
+require_section_fragments(
+    "conditional general-public installation",
+    public_readme,
+    (
+        "Normal public custom-repository installation is a future route only",
+        "Phase 7D must be complete",
+        "`SOURCE_COMMIT` plus the generated Git tree must identify the exact reviewed",
+        "generated official HACS and hassfest validation must pass remotely",
+        "final release authorization must require the",
+        "tag and GitHub release to point to that exact reviewed tree",
+        "maintainer-only pre-release route above does not satisfy these",
+        "Only after those gates close may a general user add",
+    ),
+)
 source_urls = re.findall(
     r"\[ZigbeeLens Core\]\((?P<url>[^)\s]+)\)",
     current_readme,
@@ -372,18 +471,37 @@ issues_targets = re.findall(
 )
 if issues_targets != [expected_issue_tracker]:
     sys.exit("README issue link does not match manifest/source repository")
-future_repository_matches = re.findall(
+authorized_repository_matches = re.findall(
     r"`https://github\.com/(?P<repository>"
     + REPOSITORY_PATTERN
     + r")` as a HACS Integration",
-    future_readme,
+    authorized_readme,
 )
+if authorized_repository_matches != [PRE_SYNC_HACS_REPOSITORY]:
+    sys.exit(
+        "README authorized pre-release repository must be the exact fixed "
+        "reviewed public satellite"
+    )
 if (
-    len(future_repository_matches) != 1
-    or not repository_is_valid(future_repository_matches[0])
+    PRE_SYNC_HACS_COMMIT in authorized_readme
+    or PRE_SYNC_HACS_TREE in authorized_readme
 ):
     sys.exit(
-        "README conditional future HACS repository must be one exact "
+        "README authorized pre-release selection must not use historical "
+        "pre-synchronization commit/tree evidence as its install target"
+    )
+public_repository_matches = re.findall(
+    r"`https://github\.com/(?P<repository>"
+    + REPOSITORY_PATTERN
+    + r")` as a HACS Integration",
+    public_readme,
+)
+if (
+    len(public_repository_matches) != 1
+    or not repository_is_valid(public_repository_matches[0])
+):
+    sys.exit(
+        "README conditional general-public HACS repository must be one exact "
         "owner/repository URL"
     )
 pre_sync_state_pattern = re.compile(
@@ -713,14 +831,15 @@ require_readme "try embedded view"
 require_readme "back to summary"
 require_readme "package provenance"
 require_readme 'the generated `source_commit` file records the same commit'
-require_readme "release status — local/staged integration only"
-require_readme "public hacs installation remains unavailable"
+require_readme "release status — pre-release validation only"
+require_readme "general-public hacs installation remains unavailable"
 require_readme "pre-release candidate, not a public release"
 require_readme "synchronization alone does not authorize installation or release"
 require_readme "its presence does not imply that a public release has been authorized"
 require_readme "local staged integration testing"
 require_readme "full home assistant restart"
-require_readme "conditional public hacs installation"
+require_readme "authorized pre-release validation from the synchronized satellite"
+require_readme "conditional general-public hacs installation"
 require_readme "pre-synchronization satellite historical evidence"
 require_readme "historical manifest version"
 require_readme "candidate release preflight"
@@ -734,7 +853,9 @@ require_readme "exact generated tree is the reviewed satellite tree"
 require_readme '| minimum | `2025.1.0` | `3.12` |'
 require_readme '| current | `2026.7.3` | `3.14` |'
 require_readme "official hacs and hassfest"
-require_readme "final release authorization is recorded"
+require_readme "separate explicit authorization to perform phase 7d"
+require_readme "not a release or publication"
+require_readme "general users must wait for final release authorization"
 
 if grep -Eqi 'does \*\*not\*\* create per-priority or per-device-story entities|does not create per-priority or per-device-story entities' <<<"${README}"; then
   ok "README distinguishes summary entities from per-priority/device-story entities"
@@ -767,14 +888,14 @@ then
 else
   ok "README omits stale synchronization and version-only identity claims"
 fi
-CURRENT_README="${README%%## conditional public hacs installation*}"
+LOCAL_ONLY_README="${README%%## authorized pre-release validation from the synchronized satellite*}"
 if grep -Eqi \
   'https://github\.com/[^[:space:]`]+/zigbeelens-hacs|hacs[[:space:]]*(→|->)[[:space:]]*integrations[[:space:]]*(→|->)[[:space:]]*custom repositories|pre-release install via hacs|hacs is required|requires[^.]{0,120}hacs|(^|[^[:alnum:]_])(install|add|use)([^[:alnum:]_]|$).{0,160}([^[:space:]]*/)?zigbeelens-hacs' \
-  <<<"${CURRENT_README}"
+  <<<"${LOCAL_ONLY_README}"
 then
-  fail "README current/local guidance must not direct testing through the public HACS satellite"
+  fail "README status/local guidance must not direct manual testing through the public HACS satellite"
 else
-  ok "README keeps public-HACS installation inside the conditional future section"
+  ok "README keeps satellite installation outside the status/local sections"
 fi
 
 if grep -RniE 'password\s*=\s*["\x27][^"\x27]{8,}|api_key\s*=\s*["\x27]|hunter2|secret-pass' "${ROOT}/custom_components" 2>/dev/null; then

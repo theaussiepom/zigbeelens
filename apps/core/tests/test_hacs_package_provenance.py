@@ -405,6 +405,13 @@ def _swap_once(text: str, first: str, second: str) -> str:
     )
 
 
+def _replace_normalized_once(text: str, owned: str, replacement: str) -> str:
+    pattern = re.compile(r"\s+".join(re.escape(part) for part in owned.split()))
+    matches = list(pattern.finditer(text))
+    assert len(matches) == 1, owned
+    return pattern.sub(lambda _: replacement, text, count=1)
+
+
 def _copy_file(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
@@ -639,9 +646,17 @@ def _assert_packaged_provenance(
 
     readme = (stage / "README.md").read_text(encoding="utf-8")
     local_heading = "## Local staged integration testing"
-    future_heading = "## Conditional public HACS installation"
-    current_section, future_section = readme.split(future_heading, 1)
-    local_section = current_section.split(local_heading, 1)[1]
+    authorized_heading = (
+        "## Authorized pre-release validation from the synchronized satellite"
+    )
+    public_heading = "## Conditional general-public HACS installation"
+    before_authorized, after_authorized = readme.split(authorized_heading, 1)
+    authorized_section, public_and_after = after_authorized.split(
+        public_heading,
+        1,
+    )
+    public_section = public_and_after.split("## Core URL examples", 1)[0]
+    local_section = before_authorized.split(local_heading, 1)[1]
     expected_commit_link = (
         f"[`{expected_commit}`](https://github.com/{source_repository}/"
         f"commit/{expected_commit})"
@@ -650,14 +665,18 @@ def _assert_packaged_provenance(
     assert readme.count(
         f"[ZigbeeLens Core](https://github.com/{source_repository})"
     ) == 1
-    assert f"ghcr.io/{source_repository}" in current_section
+    assert f"ghcr.io/{source_repository}" in before_authorized
     assert local_section.count(expected_commit_link) == 1
     assert local_section.count(hacs_documentation) == 1
-    assert current_section.count(docker_documentation) == 1
-    assert "/blob/main/docs/" not in current_section
+    assert before_authorized.count(docker_documentation) == 1
+    assert "/blob/main/docs/" not in before_authorized
+    assert (
+        f"https://github.com/{EXPECTED_PRE_SYNC_SATELLITE['repository']}"
+        in authorized_section
+    )
     assert (
         f"https://github.com/{future_hacs_repository}"
-        in future_section
+        in public_section
     )
     assert f"Issues: https://github.com/{source_repository}/issues" in readme
     assert _expected_pre_sync_readme_block() in readme
@@ -1393,7 +1412,7 @@ def test_generated_operational_documentation_is_pinned(tmp_path: Path):
         repository / "dist" / "zigbeelens-hacs" / "README.md"
     ).read_text(encoding="utf-8")
     current_section = readme.split(
-        "## Conditional public HACS installation",
+        "## Authorized pre-release validation from the synchronized satellite",
         1,
     )[0]
 
@@ -1944,13 +1963,15 @@ def test_package_validator_rejects_conflicting_source_identity_decoy(
     decoy = decoys[surface]
     readme_path = repository / "dist" / "zigbeelens-hacs" / "README.md"
     readme = readme_path.read_text(encoding="utf-8")
-    future_heading = "## Conditional public HACS installation"
-    assert future_heading in readme
+    authorized_heading = (
+        "## Authorized pre-release validation from the synchronized satellite"
+    )
+    assert authorized_heading in readme
     readme_path.write_text(
         readme.replace(
-            future_heading,
+            authorized_heading,
             "Conflicting source identity decoy:\n\n"
-            f"{decoy}\n\n{future_heading}",
+            f"{decoy}\n\n{authorized_heading}",
             1,
         ),
         encoding="utf-8",
@@ -2282,6 +2303,260 @@ def test_package_validator_accepts_future_synchronized_tree_wording(
     assert validation.returncode == 0, validation.stderr
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    ("missing", "duplicate", "reordered"),
+)
+def test_package_validator_rejects_invalid_lifecycle_heading_contract(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    readme_path = repository / "dist" / "zigbeelens-hacs" / "README.md"
+    readme = readme_path.read_text(encoding="utf-8")
+    authorized_heading = (
+        "## Authorized pre-release validation from the synchronized satellite"
+    )
+    public_heading = "## Conditional general-public HACS installation"
+    if mutation == "missing":
+        readme = readme.replace(
+            authorized_heading,
+            "## Satellite validation",
+            1,
+        )
+    elif mutation == "duplicate":
+        readme += f"\n{authorized_heading}\n"
+    else:
+        readme = _swap_once(readme, authorized_heading, public_heading)
+    readme_path.write_text(readme, encoding="utf-8")
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+    assert "README lifecycle" in _combined_output(validation)
+
+
+@pytest.mark.parametrize(
+    ("owned_fragment", "weakened_fragment"),
+    (
+        (
+            "for maintainers performing release validation only",
+            "for release testing",
+        ),
+        (
+            "separate synchronization authorization has made the exact "
+            "generated tree",
+            "synchronization has produced a generated tree",
+        ),
+        (
+            "`SOURCE_COMMIT` plus that generated Git tree identify the exact "
+            "reviewed",
+            "the package version identifies the candidate",
+        ),
+        (
+            "both exact Home Assistant lanes pass remotely on that tree",
+            "Home Assistant tests pass",
+        ),
+        (
+            "generated official HACS and hassfest validation pass remotely "
+            "on that tree",
+            "validation passes",
+        ),
+        (
+            "separate explicit authorization to perform Phase 7D",
+            "Phase 7D is planned",
+        ),
+        (
+            "Synchronization and green checks do not by themselves authorize "
+            "this install",
+            "Synchronization and green checks are sufficient",
+        ),
+        (
+            "select the exact reviewed satellite commit",
+            "select a satellite version",
+        ),
+        (
+            "Use `main` only when its explicitly reviewed tip is that exact "
+            "commit and tree",
+            "Use `main`",
+        ),
+        (
+            "Do not use a floating or unreviewed branch",
+            "Use the latest branch",
+        ),
+        (
+            "HACS select `v0.1.13` or another existing release automatically",
+            "HACS select a release automatically",
+        ),
+        (
+            "not a release or publication",
+            "a release candidate",
+        ),
+        (
+            "does not provide general installation support",
+            "provides installation support",
+        ),
+        (
+            "does not authorize the\n"
+            f"`{EXPECTED_CANDIDATE_TAG}` tag or GitHub release",
+            "prepares the candidate tag",
+        ),
+        (
+            "If the reviewed commit or tree changes",
+            "If an update is available",
+        ),
+        (
+            "remove the pre-release installation or replace it as one unit only",
+            "upgrade the pre-release installation",
+        ),
+        (
+            "General users must wait for final release authorization",
+            "Users may install after synchronization",
+        ),
+    ),
+)
+def test_package_validator_rejects_weakened_authorized_install_contract(
+    tmp_path: Path,
+    owned_fragment: str,
+    weakened_fragment: str,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    readme_path = repository / "dist" / "zigbeelens-hacs" / "README.md"
+    readme = readme_path.read_text(encoding="utf-8")
+    readme_path.write_text(
+        _replace_normalized_once(
+            readme,
+            owned_fragment,
+            weakened_fragment,
+        ),
+        encoding="utf-8",
+    )
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+    assert (
+        "authorized pre-release satellite validation section"
+        in _combined_output(validation)
+    )
+
+
+def test_package_validator_rejects_authorized_clause_in_decoy_section(
+    tmp_path: Path,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    readme_path = repository / "dist" / "zigbeelens-hacs" / "README.md"
+    readme = readme_path.read_text(encoding="utf-8")
+    owned = "for maintainers performing release validation only"
+    public_heading = "## Conditional general-public HACS installation"
+    readme = _replace_normalized_once(readme, owned, "for release testing")
+    readme = readme.replace(
+        public_heading,
+        f"{public_heading}\n\nThis route is {owned}.",
+        1,
+    )
+    readme_path.write_text(readme, encoding="utf-8")
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+    assert (
+        "authorized pre-release satellite validation section"
+        in _combined_output(validation)
+    )
+
+
+@pytest.mark.parametrize(
+    "owned_fragment",
+    (
+        "Phase 7D must be complete",
+        "final release authorization must require the",
+        "tag and GitHub release to point to that exact reviewed tree",
+    ),
+)
+def test_package_validator_rejects_weakened_general_public_contract(
+    tmp_path: Path,
+    owned_fragment: str,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    readme_path = repository / "dist" / "zigbeelens-hacs" / "README.md"
+    readme = readme_path.read_text(encoding="utf-8")
+    readme_path.write_text(
+        _replace_normalized_once(
+            readme,
+            owned_fragment,
+            "a future gate applies",
+        ),
+        encoding="utf-8",
+    )
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+    assert "conditional general-public installation section" in _combined_output(
+        validation
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("wrong_repository", "historical_target", "route_in_local_section"),
+)
+def test_package_validator_rejects_invalid_authorized_install_identity(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    readme_path = repository / "dist" / "zigbeelens-hacs" / "README.md"
+    readme = readme_path.read_text(encoding="utf-8")
+    authorized_heading = (
+        "## Authorized pre-release validation from the synchronized satellite"
+    )
+    if mutation == "wrong_repository":
+        authorized_start = readme.index(authorized_heading)
+        before = readme[:authorized_start]
+        authorized_and_after = readme[authorized_start:].replace(
+            "https://github.com/theaussiepom/zigbeelens-hacs",
+            "https://github.com/impostor/zigbeelens-hacs",
+            1,
+        )
+        readme = before + authorized_and_after
+    elif mutation == "historical_target":
+        readme = readme.replace(
+            "select the exact reviewed satellite commit",
+            "select the exact reviewed satellite commit "
+            f"`{EXPECTED_PRE_SYNC_SATELLITE['commit']}`",
+            1,
+        )
+    else:
+        readme = readme.replace(
+            authorized_heading,
+            "Install https://github.com/theaussiepom/zigbeelens-hacs "
+            f"through HACS.\n\n{authorized_heading}",
+            1,
+        )
+    readme_path.write_text(readme, encoding="utf-8")
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+
+
 def test_packager_separates_nondefault_repository_identities(
     tmp_path: Path,
 ):
@@ -2312,13 +2587,20 @@ def test_packager_separates_nondefault_repository_identities(
     readme = (
         repository / "dist" / "zigbeelens-hacs" / "README.md"
     ).read_text(encoding="utf-8")
-    current_section, future_section = readme.split(
-        "## Conditional public HACS installation",
+    local_and_status, authorized_and_public = readme.split(
+        "## Authorized pre-release validation from the synchronized satellite",
         1,
     )
-    assert f"https://github.com/{future_hacs_repository}" not in current_section
-    assert f"https://github.com/{future_hacs_repository}" in future_section
-    assert EXPECTED_PRE_SYNC_SATELLITE["repository"] in current_section
+    authorized_section, public_section = authorized_and_public.split(
+        "## Conditional general-public HACS installation",
+        1,
+    )
+    assert (
+        f"https://github.com/{future_hacs_repository}"
+        not in local_and_status + authorized_section
+    )
+    assert f"https://github.com/{future_hacs_repository}" in public_section
+    assert EXPECTED_PRE_SYNC_SATELLITE["repository"] in authorized_section
 
     validation = _run_package_validator(repository)
     assert validation.returncode == 0, validation.stderr

@@ -8,7 +8,7 @@ GitHub owner: **theaussiepom**
 |------|--------|
 | Version source | Package and manifest versions; validate with `./scripts/check-version-alignment.sh` |
 | Main repo | https://github.com/theaussiepom/zigbeelens |
-| Public HACS satellite | https://github.com/theaussiepom/zigbeelens-hacs — prior `0.1.14` candidate from source `906527063ad8bd594fbec51f69f6fc72205302dd`; stale for the correction |
+| Public HACS satellite | https://github.com/theaussiepom/zigbeelens-hacs — pre-synchronization review recorded the prior `0.1.14` candidate from source `906527063ad8bd594fbec51f69f6fc72205302dd`; re-check exact current state before action |
 | Add-on repo | https://github.com/theaussiepom/zigbeelens-addons |
 | GHCR image | `ghcr.io/theaussiepom/zigbeelens` |
 | Pre-release tag | **`edge`** (also `main`, `sha-*`) |
@@ -37,9 +37,11 @@ ghcr.io/theaussiepom/zigbeelens:latest    # release tag only
 
 PR #108's required checks were green, and its S4 recorded-severity `Incident`
 versus recorded-confidence `High` review finding was resolved without changing
-the screenshot. The public HACS satellite remains stale pending separately
-authorized synchronization; the final HACS/artifact pairing remains pending,
-so Phase 7D remains blocked.
+the screenshot. Phase 7D remains blocked until the final docs-bearing HACS tree
+from merged main is synchronized and reviewed exactly under separate
+authorization, both exact HA lanes and official HACS/hassfest checks pass
+remotely, the final HACS/artifact pairing is frozen, and separate explicit
+Phase 7D installation authorization is recorded.
 
 ## Add-on publication status
 
@@ -59,13 +61,15 @@ uses `reporting.default_profile` when a request omits its profile, and rejects
 removed reporting fields. Run the packaged HAOS Ingress, bearer, and
 non-Supervisor spoofing smokes before publishing the add-on repository.
 
-## HACS integration publication boundary
+## HACS integration validation and publication boundary
 
-The public HACS satellite contains the prior `0.1.14` candidate, not the
-corrected monorepo stage. It is stale again until a separately authorized
-resynchronization. Validate the current branch only with the locally generated
-package from `./scripts/package-hacs-repo.sh`; public installation remains
-gated.
+The pre-synchronization review recorded the prior `0.1.14` satellite candidate,
+not the corrected monorepo stage. Validate an unsynchronized branch with the
+locally generated package from `./scripts/package-hacs-repo.sh`. After an exact
+tree is synchronized, only maintainers with separate explicit Phase 7D
+authorization may install that exact reviewed commit or explicitly reviewed
+`main` tip through HACS. General-public installation remains gated until Phase
+7D is complete and final publication is authorized.
 
 Pre-synchronization satellite historical evidence:
 
@@ -160,18 +164,32 @@ enrichment snapshot, with optional exact clear during explicit config-entry
 removal. The manager owns initial/event/retry/15-minute reconciliation and
 retains the prior accepted snapshot on unavailable or transient failure.
 
-Before restoring public HACS installation guidance or publishing the satellite:
+The maintainer-only synchronized-satellite route becomes eligible only after:
 
 - prove `SOURCE_COMMIT` plus the generated Git tree identify the exact reviewed
   satellite candidate;
 - pass the generated exact Home Assistant 2025.1.0/Python 3.12 and
   2026.7.3/Python 3.14 lanes remotely;
-- pass generated official HACS and hassfest validation remotely; and
-- record explicit publication authorization for the `v0.1.14` tag and GitHub
-  release to point to that exact reviewed tree.
+- pass generated official HACS and hassfest validation remotely;
+- freeze the exact monorepo/HACS/GHCR pairing; and
+- record separate explicit Phase 7D installation authorization.
+
+That maintainer must select the exact reviewed satellite commit, or use `main`
+only when its explicitly reviewed tip is the same exact commit and tree. A
+floating or unreviewed branch and automatic selection of `v0.1.13` or another
+release are invalid. This installation is not a release or publication, does
+not provide general installation support, and does not authorize a tag or
+GitHub release. Remove or replace it if the reviewed tree changes, then renew
+review, remote checks, and Phase 7D authorization.
+
+General-public HACS guidance remains unavailable until Phase 7D is complete and
+final publication authorization requires the candidate-derived `v0.1.14` tag
+and GitHub release to point to that exact reviewed synchronized tree.
 
 ## Local pre-release test
 
 See [release-test.md](release-test.md) and `./scripts/local-release-test.sh`.
-The integration portion uses a manual install from
-`dist/zigbeelens-hacs/custom_components/zigbeelens`, not the public satellite.
+The local integration lane uses a manual install from
+`dist/zigbeelens-hacs/custom_components/zigbeelens`, not the satellite. Phase
+7D instead uses the separately authorized exact synchronized-satellite lane
+above; the two evidence paths are not interchangeable.

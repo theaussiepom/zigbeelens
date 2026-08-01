@@ -8,7 +8,7 @@ staged package: it contains the stale prior `0.1.14` candidate and must not be
 used for this branch test. A future public HACS artifact may use these
 instructions only after the synchronization, version, validation, and
 explicit-publication gates close. See
-[HACS integration release status](hacs.md#release-status--localstaged-integration-only)
+[HACS integration release status](hacs.md#release-status--pre-release-validation-only)
 for the authoritative blocker list.
 
 ## Lens family — embedded view decision tree

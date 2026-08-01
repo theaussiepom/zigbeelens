@@ -34,8 +34,9 @@ ZigbeeLens does **not** repair, reset, remove, re-pair, or mutate Zigbee devices
 - Local SQLite history and stored reports
 - Redacted JSON, YAML, and Markdown exports
 - Docker/Compose as the current portable deployment route; the HACS integration
-  is available for local staged testing while public satellite publication
-  remains gated, and the Home Assistant OS add-on is deferred
+  supports local staged testing plus separately authorized maintainer-only
+  validation from an exact synchronized satellite tree, while general-public
+  release remains gated, and the Home Assistant OS add-on is deferred
 - Optional MQTT Discovery decision summary entities
 - Optional topology snapshots and Home Assistant enrichment
 
@@ -69,7 +70,7 @@ See [docs/safety-audit.md](docs/safety-audit.md) for the full safety audit.
 | Path | Current status | Artifact |
 |------|----------------|----------|
 | [Docker / Compose](docs/docker.md) | **Current portable deployment route**; choose released `latest`/`X.Y.Z` or explicit pre-release `edge`/`sha-*` | `ghcr.io/theaussiepom/zigbeelens` |
-| [Home Assistant integration](docs/hacs.md) | **Local/staged source testing only — public install unavailable until satellite synchronization and remote official checks pass** | Generated `dist/zigbeelens-hacs/custom_components/zigbeelens` package |
+| [Home Assistant integration](docs/hacs.md) | **Local/staged testing now; maintainer-only HACS validation only after exact synchronization, remote checks, and separate Phase 7D authorization; general-public install remains gated** | Generated `dist/zigbeelens-hacs/custom_components/zigbeelens` package |
 | [Home Assistant OS add-on](apps/addon/zigbeelens/README.md) | **Deferred — not part of the current HACS release** | Source remains for non-regression validation only |
 | [MQTT Discovery](docs/mqtt-discovery.md) | Optional summary HA entities without HACS | Core configuration |
 | [Topology](docs/topology.md) | Optional mesh enrichment — enabled by default with one startup scan | Core configuration |
@@ -80,9 +81,10 @@ its final reviewed head was
 `93fb26617042ed46d8920a7b75a42e3ae9da4d62`, and every image retains immutable
 runtime capture source `af04ee906b71de77ee6e0eb5d866c0647d502410`.
 Required checks were green and the S4 severity/confidence finding was resolved.
-This does not release `0.1.14`: the public HACS satellite remains stale, the
-add-on remains deferred, and Phase 7D remains blocked pending final HACS
-synchronization and artifact freeze.
+This does not release `0.1.14`: the pre-synchronization HACS review is
+historical, the add-on remains deferred, and Phase 7D remains blocked pending
+an exact authorized synchronization, remote satellite checks, artifact freeze,
+and separate Phase 7D authorization.
 
 ## Using the UI
 
@@ -134,13 +136,14 @@ workflow-built images, choose the channel explicitly in
 
 ### Home Assistant integration
 
-**Local/staged source testing only.** The public HACS satellite contains the
-stale prior `0.1.14` candidate, not this corrected package, and must not be used
-to validate this branch. Generate and manually install the integration from
-this checkout as described in [docs/hacs.md](docs/hacs.md). Synchronizing or
-publishing the satellite requires a separate explicitly authorized task after
-its runtime, version-identity, compatibility, and official-validation gates
-close.
+**Use the local/staged path for unsynchronized branch testing.** The historical
+pre-synchronization satellite commit contains the prior `0.1.14` candidate and
+must not be used as corrected-branch evidence. Generate and manually install
+the integration from this checkout as described in
+[docs/hacs.md](docs/hacs.md). After exact synchronization and green remote
+checks, only a maintainer with separate explicit Phase 7D authorization may use
+the exact reviewed satellite selection; general-public release remains a later,
+separately authorized gate.
 
 The optional integration gives Home Assistant:
 

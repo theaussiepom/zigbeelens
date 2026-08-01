@@ -19,16 +19,17 @@ Full Dashboard** href. Standalone browser login exists only when Core has both
 `security.api_token` and `security.session_secret`; bearer-only Core leaves the
 bundled browser UI locked.
 
-## Release status — local/staged integration only
+## Release status — pre-release validation only
 
-**Public HACS installation is unavailable for this reviewed branch.** The
-public `theaussiepom/zigbeelens-hacs` satellite contains the prior `0.1.14`
-candidate at commit `21c24e3355369b94c9ab596cf9fc0591f1282297`, tree
+**General-public HACS installation is not yet authorized.** At the
+pre-synchronization review, public `theaussiepom/zigbeelens-hacs` `main` was
+the prior `0.1.14` candidate at commit
+`21c24e3355369b94c9ab596cf9fc0591f1282297`, tree
 `9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`, with `SOURCE_COMMIT`
 `906527063ad8bd594fbec51f69f6fc72205302dd`. No `v0.1.14` tag or release
-exists. Runtime/UI corrections make that tree stale for the next candidate, so
-it must not be used to validate this branch. Synchronizing or publishing
-requires a separate explicitly authorized task. Docker/Compose is the current
+existed. That historical tree must not be used to validate the corrected
+candidate. Synchronization, Phase 7D installation, and final publication each
+require their own explicit authorization. Docker/Compose is the current
 portable Core deployment route.
 
 Phase 7C1 and Phase 7C2 are complete and merged. PR #108's reviewed head
@@ -38,20 +39,15 @@ on `2026-07-29` from immutable runtime source
 `af04ee906b71de77ee6e0eb5d866c0647d502410`; the evidence merge is not their
 capture source. Required checks were green, and the S4 recorded-severity
 `Incident` versus recorded-confidence `High` review finding was resolved
-without changing its PNG. Public HACS remains stale pending separately
-authorized synchronization, the final HACS/artifact pairing remains pending,
-and Phase 7D remains blocked.
+without changing its PNG. Phase 7D remains blocked until a final docs-bearing
+HACS tree is generated from merged main, synchronized under separate explicit
+authorization, reviewed at an exact commit and tree, green in both exact HA
+lanes and official HACS/hassfest checks, paired with the final artifacts, and
+covered by separate explicit Phase 7D authorization.
 
-Public installation remains unavailable until a separately authorized
-publication task:
-
-- makes the exact generated tree the reviewed satellite tree;
-- verifies that `SOURCE_COMMIT` plus the generated Git tree identify the exact
-  pre-release candidate;
-- runs the generated exact Home Assistant matrix and official HACS/hassfest
-  checks on the synchronized satellite; and
-- authorizes the `v0.1.14` tag and GitHub release to point to that exact tree
-  after recording and inspecting the remote results.
+General-public installation remains unavailable until Phase 7D is complete
+and final release authorization requires the `v0.1.14` tag and GitHub release
+to point to the exact reviewed synchronized tree.
 
 Local structural packaging and local matrix results are not substitutes for
 those remote satellite checks.
@@ -492,7 +488,7 @@ for them.
 
 | | HACS integration | MQTT Discovery |
 |---|------------------|----------------|
-| Current availability | Local/staged corrected-package testing; public satellite contains the stale prior candidate | Optional Core feature |
+| Current availability | Local/staged testing; authorized maintainer-only satellite validation after exact synchronization and remote checks; general-public install still gated | Optional Core feature |
 | Enablement | Manual custom-component install from the generated stage | Config flag in Core |
 | Config flow / repairs | Yes | No |
 | Native companion panel | Yes | No |
@@ -530,10 +526,37 @@ Superseded health-derived entities (`overall_health`, recently-unstable / weak-l
 stale / low-battery / unknown counts, per-network `_health`) are no longer registered.
 Remove leftover unavailable entities from the Home Assistant entity registry manually.
 
-## Conditional public HACS installation
+## Authorized pre-release validation from the synchronized satellite
 
-These are future instructions, not a current branch-validation route. Restore
-public custom-repository installation only after all of these gates close:
+This route is for maintainers performing Phase 7D release validation only. It
+is available only after separate synchronization authorization makes the exact
+generated tree the reviewed `theaussiepom/zigbeelens-hacs` satellite tree,
+`SOURCE_COMMIT` plus the generated Git tree identify that exact candidate, both
+exact Home Assistant lanes pass remotely, generated official HACS and hassfest
+validation pass remotely on that tree, the final monorepo/HACS/GHCR pairing is
+frozen, and separate explicit Phase 7D installation authorization is recorded.
+Synchronization and green checks alone do not authorize installation.
+
+When those gates and that separate authorization are recorded, add
+`https://github.com/theaussiepom/zigbeelens-hacs` as a HACS Integration custom
+repository and select the exact reviewed satellite commit. Use `main` only if
+its explicitly reviewed tip is that exact commit and tree immediately before
+installation. Do not accept a floating or unreviewed branch, and do not let
+HACS automatically select `v0.1.13` or another existing release.
+
+This maintainer-only installation is not a release or publication, does not
+provide general installation support, and does not authorize the `v0.1.14` tag
+or GitHub release. If the reviewed commit or tree changes, remove the
+pre-release installation or replace it as one unit only after the new exact
+tree is reviewed, all remote checks are green, and separate Phase 7D
+authorization is renewed. General users must wait for final release
+authorization.
+
+## Conditional general-public HACS installation
+
+These instructions are for normal general-public installation after Phase 7D,
+not for local branch testing or the maintainer-only validation route. Enable
+them only after all of these gates close:
 
 - `SOURCE_COMMIT` plus the generated Git tree identify the exact reviewed
   satellite candidate;
@@ -543,14 +566,15 @@ public custom-repository installation only after all of these gates close:
   exact source commit before synchronization or tagging;
 - generated official HACS and hassfest validation passes remotely on the
   synchronized satellite; and
-- explicit publication authorization records that the `v0.1.14` tag and
+- Phase 7D is complete and final publication authorization records that the
+  `v0.1.14` tag and
   GitHub release will point to that exact reviewed tree.
 
 Generated satellite CI is package-scoped: it does not contain Core, the UI, or
 the cross-runtime live harness and therefore does not replace the monorepo
 live-enrichment gate.
 
-Only then may an operator add
+Only then may a general user add
 `https://github.com/theaussiepom/zigbeelens-hacs` as a HACS Integration custom
 repository, install ZigbeeLens, restart Home Assistant, and add the integration
 under **Settings → Devices & services**.
@@ -564,8 +588,12 @@ under **Settings → Devices & services**.
   **Settings → Devices & services**, stop Home Assistant, remove the manually
   installed `custom_components/zigbeelens` directory, and restart. This does
   not stop Core or delete ZigbeeLens's SQLite data.
-- HACS-managed upgrade/uninstall applies only to a future synchronized,
-  authorized public artifact.
+- During authorized maintainer-only pre-release validation, do not upgrade to
+  a floating or automatically selected release. Remove or replace the exact
+  reviewed installation if its commit or tree changes, and renew its review,
+  checks, and Phase 7D authorization before reinstalling.
+- Normal HACS-managed upgrade/uninstall guidance applies only after the final
+  synchronized artifact is released and authorized for general users.
 
 ## Monorepo / packaging
 
@@ -577,9 +605,10 @@ Source: `apps/ha_integration/`. Generate the local staging tree with:
 
 Output: `dist/zigbeelens-hacs/`. This is a generated staging directory, not a
 Git checkout or publication authorization. Do not push it from this workflow.
-A separate authorized publication task must compare the complete staged and
-satellite trees, preserve the candidate's unique version identity, and pass the
-synchronization gates above.
+A separately authorized synchronization task must compare the complete staged
+and satellite trees and preserve exact `SOURCE_COMMIT` plus generated-tree
+identity. Satellite installation and final publication remain separately
+authorized gates described above.
 
 ## Validation
 
