@@ -21,7 +21,7 @@ PACKAGE_INPUTS=(
   LICENSE
   CHANGELOG.md
   release/zigbeelens-hacs/README.md.in
-  release/zigbeelens-hacs/pre-sync-evidence.json
+  release/zigbeelens-hacs/release-evidence.json
   release/zigbeelens-hacs/.github/workflows
   release/zigbeelens-hacs/scripts/validate-hacs-repo.sh
   scripts/package-hacs-repo.sh
@@ -123,13 +123,13 @@ fi
 
 SRC="${SOURCE_SNAPSHOT}/apps/ha_integration"
 README_IN="${SOURCE_SNAPSHOT}/release/zigbeelens-hacs/README.md.in"
-PRE_SYNC_EVIDENCE="${SOURCE_SNAPSHOT}/release/zigbeelens-hacs/pre-sync-evidence.json"
+RELEASE_EVIDENCE="${SOURCE_SNAPSHOT}/release/zigbeelens-hacs/release-evidence.json"
 VALIDATOR_IN="${SOURCE_SNAPSHOT}/release/zigbeelens-hacs/scripts/validate-hacs-repo.sh"
 if [[ ! -f "${README_IN}" ]]; then
   fail "SOURCE_COMMIT is missing release/zigbeelens-hacs/README.md.in"
 fi
-if [[ ! -f "${PRE_SYNC_EVIDENCE}" ]]; then
-  fail "SOURCE_COMMIT is missing pre-sync-evidence.json"
+if [[ ! -f "${RELEASE_EVIDENCE}" ]]; then
+  fail "SOURCE_COMMIT is missing release-evidence.json"
 fi
 if [[ ! -f "${VALIDATOR_IN}" ]]; then
   fail "SOURCE_COMMIT is missing validate-hacs-repo.sh"
@@ -153,7 +153,7 @@ cp "${SRC}/requirements-test-minimum.txt" "${DIST}/"
 cp "${SRC}/requirements-test-current.txt" "${DIST}/"
 cp "${SOURCE_SNAPSHOT}/LICENSE" "${DIST}/"
 cp "${SOURCE_SNAPSHOT}/CHANGELOG.md" "${DIST}/"
-cp "${PRE_SYNC_EVIDENCE}" "${DIST}/pre-sync-evidence.json"
+cp "${RELEASE_EVIDENCE}" "${DIST}/release-evidence.json"
 
 cat > "${DIST}/hacs.json" <<EOF
 {
@@ -165,7 +165,7 @@ cat > "${DIST}/hacs.json" <<EOF
 EOF
 
 python3 - \
-  "${PRE_SYNC_EVIDENCE}" \
+  "${RELEASE_EVIDENCE}" \
   "${SRC}/custom_components/zigbeelens/manifest.json" \
   "${README_IN}" \
   "${VALIDATOR_IN}" \
@@ -181,6 +181,12 @@ import sys
 from collections import Counter
 from datetime import date
 from pathlib import Path
+
+VERSION_PATTERN = (
+    r"(?:0|[1-9][0-9]*)\."
+    r"(?:0|[1-9][0-9]*)\."
+    r"(?:0|[1-9][0-9]*)"
+)
 
 (
     evidence_path,
@@ -211,62 +217,91 @@ try:
         object_pairs_hook=unique_object,
     )
 except (OSError, json.JSONDecodeError, ValueError) as exc:
-    raise SystemExit(f"invalid pre-sync HACS evidence: {exc}") from exc
+    raise SystemExit(f"invalid HACS release evidence: {exc}") from exc
 
-expected_keys = {
+expected_top_level_keys = {
+    "pre_sync_satellite",
+    "candidate_release_preflight",
+}
+if not isinstance(evidence, dict) or set(evidence) != expected_top_level_keys:
+    raise SystemExit(
+        "HACS release evidence must contain exactly: "
+        + ", ".join(sorted(expected_top_level_keys))
+    )
+pre_sync = evidence["pre_sync_satellite"]
+candidate_preflight = evidence["candidate_release_preflight"]
+expected_pre_sync_keys = {
     "repository",
     "commit",
     "tree",
     "source_commit",
     "manifest_version",
     "reviewed_on",
-    "release_tag",
+}
+expected_candidate_preflight_keys = {
+    "reviewed_on",
     "tag_present",
     "release_present",
 }
-if not isinstance(evidence, dict) or set(evidence) != expected_keys:
+if not isinstance(pre_sync, dict) or set(pre_sync) != expected_pre_sync_keys:
     raise SystemExit(
-        "pre-sync HACS evidence must contain exactly: "
-        + ", ".join(sorted(expected_keys))
+        "pre_sync_satellite evidence must contain exactly: "
+        + ", ".join(sorted(expected_pre_sync_keys))
     )
-if evidence["repository"] != locked_pre_sync_repository:
+if (
+    not isinstance(candidate_preflight, dict)
+    or set(candidate_preflight) != expected_candidate_preflight_keys
+):
+    raise SystemExit(
+        "candidate_release_preflight evidence must contain exactly: "
+        + ", ".join(sorted(expected_candidate_preflight_keys))
+    )
+if pre_sync["repository"] != locked_pre_sync_repository:
     raise SystemExit(
         "pre-sync HACS evidence repository must remain "
         f"{locked_pre_sync_repository}"
     )
 for field in ("commit", "tree", "source_commit"):
     if (
-        not isinstance(evidence[field], str)
-        or re.fullmatch(r"[0-9a-f]{40}", evidence[field]) is None
+        not isinstance(pre_sync[field], str)
+        or re.fullmatch(r"[0-9a-f]{40}", pre_sync[field]) is None
     ):
         raise SystemExit(
             f"pre-sync HACS evidence {field} must be 40 lowercase hex characters"
         )
 if (
-    not isinstance(evidence["manifest_version"], str)
-    or re.fullmatch(
-        r"[0-9]+\.[0-9]+\.[0-9]+",
-        evidence["manifest_version"],
-    )
-    is None
+    not isinstance(pre_sync["manifest_version"], str)
+    or re.fullmatch(VERSION_PATTERN, pre_sync["manifest_version"]) is None
 ):
-    raise SystemExit("pre-sync HACS manifest_version must be canonical semver")
+    raise SystemExit(
+        "pre_sync_satellite manifest_version must be canonical semver"
+    )
 try:
-    reviewed_on = date.fromisoformat(evidence["reviewed_on"])
+    pre_sync_reviewed_on = date.fromisoformat(pre_sync["reviewed_on"])
 except (TypeError, ValueError) as exc:
     raise SystemExit(
-        "pre-sync HACS reviewed_on must be a valid ISO date"
+        "pre_sync_satellite reviewed_on must be a valid ISO date"
     ) from exc
-if reviewed_on.isoformat() != evidence["reviewed_on"]:
-    raise SystemExit("pre-sync HACS reviewed_on must be a canonical ISO date")
-if evidence["release_tag"] != f"v{evidence['manifest_version']}":
+if pre_sync_reviewed_on.isoformat() != pre_sync["reviewed_on"]:
     raise SystemExit(
-        "pre-sync HACS release_tag must match manifest_version"
+        "pre_sync_satellite reviewed_on must be a canonical ISO date"
     )
-if evidence["tag_present"] is not False:
-    raise SystemExit("pre-sync HACS tag_present must be false")
-if evidence["release_present"] is not False:
-    raise SystemExit("pre-sync HACS release_present must be false")
+try:
+    candidate_reviewed_on = date.fromisoformat(
+        candidate_preflight["reviewed_on"]
+    )
+except (TypeError, ValueError) as exc:
+    raise SystemExit(
+        "candidate_release_preflight reviewed_on must be a valid ISO date"
+    ) from exc
+if candidate_reviewed_on.isoformat() != candidate_preflight["reviewed_on"]:
+    raise SystemExit(
+        "candidate_release_preflight reviewed_on must be a canonical ISO date"
+    )
+if candidate_preflight["tag_present"] is not False:
+    raise SystemExit("candidate_release_preflight tag_present must be false")
+if candidate_preflight["release_present"] is not False:
+    raise SystemExit("candidate_release_preflight release_present must be false")
 
 try:
     source_manifest = json.loads(
@@ -275,30 +310,36 @@ try:
     )
 except (OSError, json.JSONDecodeError, ValueError) as exc:
     raise SystemExit(f"invalid source integration manifest: {exc}") from exc
+candidate_version = (
+    source_manifest.get("version") if isinstance(source_manifest, dict) else None
+)
 if (
-    not isinstance(source_manifest, dict)
-    or source_manifest.get("version") != evidence["manifest_version"]
+    not isinstance(candidate_version, str)
+    or re.fullmatch(VERSION_PATTERN, candidate_version) is None
 ):
     raise SystemExit(
-        "pre-sync HACS manifest_version must match the package manifest"
+        "candidate source manifest version must be canonical semver"
     )
+candidate_release_tag = f"v{candidate_version}"
 
 substitutions = {
     "@SOURCE_REPOSITORY@": source_repository,
     "@FUTURE_HACS_REPOSITORY@": future_hacs_repository,
     "@SOURCE_COMMIT@": source_commit,
-    "@PRE_SYNC_HACS_REPOSITORY@": evidence["repository"],
-    "@PRE_SYNC_HACS_COMMIT@": evidence["commit"],
-    "@PRE_SYNC_HACS_TREE@": evidence["tree"],
-    "@PRE_SYNC_HACS_SOURCE_COMMIT@": evidence["source_commit"],
-    "@PRE_SYNC_HACS_VERSION@": evidence["manifest_version"],
-    "@PRE_SYNC_HACS_REVIEW_DATE@": evidence["reviewed_on"],
-    "@PRE_SYNC_HACS_RELEASE_TAG@": evidence["release_tag"],
-    "@PRE_SYNC_HACS_TAG_STATE@": (
-        "present" if evidence["tag_present"] else "absent"
+    "@PRE_SYNC_HACS_REPOSITORY@": pre_sync["repository"],
+    "@PRE_SYNC_HACS_COMMIT@": pre_sync["commit"],
+    "@PRE_SYNC_HACS_TREE@": pre_sync["tree"],
+    "@PRE_SYNC_HACS_SOURCE_COMMIT@": pre_sync["source_commit"],
+    "@PRE_SYNC_HACS_MANIFEST_VERSION@": pre_sync["manifest_version"],
+    "@PRE_SYNC_HACS_REVIEW_DATE@": pre_sync["reviewed_on"],
+    "@CANDIDATE_VERSION@": candidate_version,
+    "@CANDIDATE_RELEASE_TAG@": candidate_release_tag,
+    "@CANDIDATE_PREFLIGHT_REVIEW_DATE@": candidate_preflight["reviewed_on"],
+    "@CANDIDATE_TAG_STATE@": (
+        "present" if candidate_preflight["tag_present"] else "absent"
     ),
-    "@PRE_SYNC_HACS_RELEASE_STATE@": (
-        "present" if evidence["release_present"] else "absent"
+    "@CANDIDATE_RELEASE_STATE@": (
+        "present" if candidate_preflight["release_present"] else "absent"
     ),
 }
 placeholder_pattern = re.compile(r"@[A-Z][A-Z0-9_]*@")
@@ -357,11 +398,13 @@ readme_placeholder_counts = {
     "@PRE_SYNC_HACS_COMMIT@": 1,
     "@PRE_SYNC_HACS_TREE@": 1,
     "@PRE_SYNC_HACS_SOURCE_COMMIT@": 1,
-    "@PRE_SYNC_HACS_VERSION@": 2,
+    "@PRE_SYNC_HACS_MANIFEST_VERSION@": 1,
     "@PRE_SYNC_HACS_REVIEW_DATE@": 1,
-    "@PRE_SYNC_HACS_RELEASE_TAG@": 4,
-    "@PRE_SYNC_HACS_TAG_STATE@": 1,
-    "@PRE_SYNC_HACS_RELEASE_STATE@": 1,
+    "@CANDIDATE_VERSION@": 2,
+    "@CANDIDATE_RELEASE_TAG@": 3,
+    "@CANDIDATE_PREFLIGHT_REVIEW_DATE@": 1,
+    "@CANDIDATE_TAG_STATE@": 1,
+    "@CANDIDATE_RELEASE_STATE@": 1,
 }
 render(
     readme_template_path,
@@ -374,7 +417,7 @@ render(
     {
         placeholder: 1
         for placeholder in substitutions
-        if placeholder.startswith("@PRE_SYNC_HACS_")
+        if placeholder.startswith(("@PRE_SYNC_HACS_", "@CANDIDATE_"))
     },
 )
 PY

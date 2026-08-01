@@ -17,26 +17,32 @@ authorization. Synchronization alone does not authorize installation or
 release. When this README is itself present in the public satellite, its
 presence does not imply that a public release has been authorized.
 
-Pre-synchronization historical evidence:
+Pre-synchronization satellite historical evidence:
 
 - repository: `@PRE_SYNC_HACS_REPOSITORY@`
 - commit: `@PRE_SYNC_HACS_COMMIT@`
 - tree: `@PRE_SYNC_HACS_TREE@`
 - `SOURCE_COMMIT`: `@PRE_SYNC_HACS_SOURCE_COMMIT@`
-- manifest version: `@PRE_SYNC_HACS_VERSION@`
+- historical manifest version: `@PRE_SYNC_HACS_MANIFEST_VERSION@`
 - reviewed: `@PRE_SYNC_HACS_REVIEW_DATE@`
-- `@PRE_SYNC_HACS_RELEASE_TAG@` tag: @PRE_SYNC_HACS_TAG_STATE@
-- `@PRE_SYNC_HACS_RELEASE_TAG@` release: @PRE_SYNC_HACS_RELEASE_STATE@
 
 This record identifies what the final generated tree is intended to replace.
 It is not a claim about the satellite state after synchronization. Re-check
 the public commit, tree, source provenance, tag, and release immediately before
 any synchronization or publication decision.
 
+Candidate release preflight:
+
+- candidate manifest version: `@CANDIDATE_VERSION@`
+- candidate target tag: `@CANDIDATE_RELEASE_TAG@`
+- reviewed: `@CANDIDATE_PREFLIGHT_REVIEW_DATE@`
+- target tag state: @CANDIDATE_TAG_STATE@
+- target-tag GitHub release state: @CANDIDATE_RELEASE_STATE@
+
 Before release, `SOURCE_COMMIT` plus the generated Git tree identify this
-candidate. Manifest version `@PRE_SYNC_HACS_VERSION@` keeps package alignment
+candidate. Manifest version `@CANDIDATE_VERSION@` keeps package alignment
 but does not distinguish pre-release candidate trees by itself. Final
-publication requires the `@PRE_SYNC_HACS_RELEASE_TAG@` tag and GitHub release
+publication requires the `@CANDIDATE_RELEASE_TAG@` tag and GitHub release
 to point to the exact reviewed, synchronized tree.
 
 Public HACS installation remains unavailable until:
@@ -108,7 +114,7 @@ it, `SOURCE_COMMIT` plus the generated Git tree must identify the exact reviewed
 satellite candidate, exact Home Assistant `2025.1.0` / Python `3.12` and Home
 Assistant `2026.7.3` / Python `3.14` coverage must pass, generated official
 HACS and hassfest validation must pass remotely on that tree, and the
-`@PRE_SYNC_HACS_RELEASE_TAG@` tag and GitHub release must be explicitly
+`@CANDIDATE_RELEASE_TAG@` tag and GitHub release must be explicitly
 authorized to point to that exact reviewed tree.
 Only after those gates close may an operator add
 `https://github.com/@FUTURE_HACS_REPOSITORY@` as a HACS Integration

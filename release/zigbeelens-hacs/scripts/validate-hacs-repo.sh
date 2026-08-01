@@ -14,7 +14,7 @@ REQUIRED=(
   SOURCE_COMMIT
   hacs.json
   README.md
-  pre-sync-evidence.json
+  release-evidence.json
   LICENSE
   CHANGELOG.md
   .github/workflows/ci.yml
@@ -79,25 +79,36 @@ REPOSITORY_PATTERN = (
     r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?"
     r"/[A-Za-z0-9_.-]{1,100}"
 )
+VERSION_PATTERN = (
+    r"(?:0|[1-9][0-9]*)\."
+    r"(?:0|[1-9][0-9]*)\."
+    r"(?:0|[1-9][0-9]*)"
+)
 PRE_SYNC_HACS_REPOSITORY = "@PRE_SYNC_HACS_REPOSITORY@"
 PRE_SYNC_HACS_COMMIT = "@PRE_SYNC_HACS_COMMIT@"
 PRE_SYNC_HACS_TREE = "@PRE_SYNC_HACS_TREE@"
 PRE_SYNC_HACS_SOURCE_COMMIT = "@PRE_SYNC_HACS_SOURCE_COMMIT@"
-PRE_SYNC_HACS_VERSION = "@PRE_SYNC_HACS_VERSION@"
+PRE_SYNC_HACS_MANIFEST_VERSION = "@PRE_SYNC_HACS_MANIFEST_VERSION@"
 PRE_SYNC_HACS_REVIEW_DATE = "@PRE_SYNC_HACS_REVIEW_DATE@"
-PRE_SYNC_HACS_RELEASE_TAG = "@PRE_SYNC_HACS_RELEASE_TAG@"
-PRE_SYNC_HACS_TAG_STATE = "@PRE_SYNC_HACS_TAG_STATE@"
-PRE_SYNC_HACS_RELEASE_STATE = "@PRE_SYNC_HACS_RELEASE_STATE@"
-EXPECTED_PRE_SYNC_HACS_EVIDENCE = {
-    "repository": PRE_SYNC_HACS_REPOSITORY,
-    "commit": PRE_SYNC_HACS_COMMIT,
-    "tree": PRE_SYNC_HACS_TREE,
-    "source_commit": PRE_SYNC_HACS_SOURCE_COMMIT,
-    "manifest_version": PRE_SYNC_HACS_VERSION,
-    "reviewed_on": PRE_SYNC_HACS_REVIEW_DATE,
-    "release_tag": PRE_SYNC_HACS_RELEASE_TAG,
-    "tag_present": PRE_SYNC_HACS_TAG_STATE == "present",
-    "release_present": PRE_SYNC_HACS_RELEASE_STATE == "present",
+CANDIDATE_VERSION = "@CANDIDATE_VERSION@"
+CANDIDATE_RELEASE_TAG = "@CANDIDATE_RELEASE_TAG@"
+CANDIDATE_PREFLIGHT_REVIEW_DATE = "@CANDIDATE_PREFLIGHT_REVIEW_DATE@"
+CANDIDATE_TAG_STATE = "@CANDIDATE_TAG_STATE@"
+CANDIDATE_RELEASE_STATE = "@CANDIDATE_RELEASE_STATE@"
+EXPECTED_HACS_RELEASE_EVIDENCE = {
+    "pre_sync_satellite": {
+        "repository": PRE_SYNC_HACS_REPOSITORY,
+        "commit": PRE_SYNC_HACS_COMMIT,
+        "tree": PRE_SYNC_HACS_TREE,
+        "source_commit": PRE_SYNC_HACS_SOURCE_COMMIT,
+        "manifest_version": PRE_SYNC_HACS_MANIFEST_VERSION,
+        "reviewed_on": PRE_SYNC_HACS_REVIEW_DATE,
+    },
+    "candidate_release_preflight": {
+        "reviewed_on": CANDIDATE_PREFLIGHT_REVIEW_DATE,
+        "tag_present": CANDIDATE_TAG_STATE == "present",
+        "release_present": CANDIDATE_RELEASE_STATE == "present",
+    },
 }
 
 
@@ -143,37 +154,50 @@ if validator_placeholders:
         + ", ".join(validator_placeholders)
     )
 evidence = load_unique_json(
-    root / "pre-sync-evidence.json",
-    "pre-sync-evidence.json",
+    root / "release-evidence.json",
+    "release-evidence.json",
 )
-if evidence != EXPECTED_PRE_SYNC_HACS_EVIDENCE:
+if evidence != EXPECTED_HACS_RELEASE_EVIDENCE:
     sys.exit(
-        "pre-sync-evidence.json does not match the generated exact "
-        "pre-synchronization contract"
+        "release-evidence.json does not match the generated exact historical "
+        "and candidate-preflight contract"
     )
 if PRE_SYNC_HACS_REPOSITORY != "theaussiepom/zigbeelens-hacs":
     sys.exit(
         "pre-synchronization public satellite repository identity is not exact"
     )
-if PRE_SYNC_HACS_RELEASE_TAG != f"v{PRE_SYNC_HACS_VERSION}":
-    sys.exit("pre-synchronization release tag does not match manifest version")
-if PRE_SYNC_HACS_TAG_STATE != "absent":
-    sys.exit("pre-synchronization tag state must be absent")
-if PRE_SYNC_HACS_RELEASE_STATE != "absent":
-    sys.exit("pre-synchronization release state must be absent")
+if CANDIDATE_RELEASE_TAG != f"v{CANDIDATE_VERSION}":
+    sys.exit("candidate release tag does not derive from candidate version")
+if CANDIDATE_TAG_STATE != "absent":
+    sys.exit("candidate target tag state must be absent")
+if CANDIDATE_RELEASE_STATE != "absent":
+    sys.exit("candidate target-tag GitHub release state must be absent")
 for field in ("commit", "tree", "source_commit"):
-    if re.fullmatch(r"[0-9a-f]{40}", evidence[field]) is None:
+    if re.fullmatch(
+        r"[0-9a-f]{40}", evidence["pre_sync_satellite"][field]
+    ) is None:
         sys.exit(
-            f"pre-sync-evidence.json {field} must be 40 lowercase hex characters"
+            "release-evidence.json pre_sync_satellite "
+            f"{field} must be 40 lowercase hex characters"
         )
 try:
-    reviewed_on = date.fromisoformat(PRE_SYNC_HACS_REVIEW_DATE)
+    pre_sync_reviewed_on = date.fromisoformat(PRE_SYNC_HACS_REVIEW_DATE)
 except ValueError as exc:
     raise SystemExit(
         "pre-synchronization review date must be a valid ISO date"
     ) from exc
-if reviewed_on.isoformat() != PRE_SYNC_HACS_REVIEW_DATE:
+if pre_sync_reviewed_on.isoformat() != PRE_SYNC_HACS_REVIEW_DATE:
     sys.exit("pre-synchronization review date must be canonical")
+try:
+    candidate_reviewed_on = date.fromisoformat(
+        CANDIDATE_PREFLIGHT_REVIEW_DATE
+    )
+except ValueError as exc:
+    raise SystemExit(
+        "candidate release preflight review date must be a valid ISO date"
+    ) from exc
+if candidate_reviewed_on.isoformat() != CANDIDATE_PREFLIGHT_REVIEW_DATE:
+    sys.exit("candidate release preflight review date must be canonical")
 
 source_commit_path = root / "SOURCE_COMMIT"
 if not source_commit_path.is_file():
@@ -196,9 +220,9 @@ if manifest.get("domain") != "zigbeelens":
     sys.exit("manifest domain must be zigbeelens")
 if not manifest.get("version"):
     sys.exit("manifest version required")
-if manifest.get("version") != PRE_SYNC_HACS_VERSION:
+if manifest.get("version") != CANDIDATE_VERSION:
     sys.exit(
-        "manifest version does not match pre-synchronization evidence"
+        "manifest version does not match generated candidate version"
     )
 if manifest.get("config_flow") is not True:
     sys.exit("manifest config_flow must be true")
@@ -363,19 +387,17 @@ if (
         "owner/repository URL"
     )
 pre_sync_state_pattern = re.compile(
-    r"Pre-synchronization historical evidence:\s*"
+    r"Pre-synchronization satellite historical evidence:\s*"
     r"- repository: `(?P<repository>"
     + REPOSITORY_PATTERN
     + r")`\s*"
     r"- commit: `(?P<commit>[0-9a-f]{40})`\s*"
     r"- tree: `(?P<tree>[0-9a-f]{40})`\s*"
     r"- `SOURCE_COMMIT`: `(?P<source_commit>[0-9a-f]{40})`\s*"
-    r"- manifest version: `(?P<manifest_version>[0-9]+\.[0-9]+\.[0-9]+)`\s*"
-    r"- reviewed: `(?P<reviewed_on>[0-9]{4}-[0-9]{2}-[0-9]{2})`\s*"
-    r"- `(?P<release_tag>v[0-9]+\.[0-9]+\.[0-9]+)` tag: "
-    r"(?P<tag_state>present|absent)\s*"
-    r"- `(?P=release_tag)` release: "
-    r"(?P<release_state>present|absent)",
+    r"- historical manifest version: `(?P<manifest_version>"
+    + VERSION_PATTERN
+    + r")`\s*"
+    r"- reviewed: `(?P<reviewed_on>[0-9]{4}-[0-9]{2}-[0-9]{2})`",
 )
 pre_sync_states = list(pre_sync_state_pattern.finditer(readme))
 if len(pre_sync_states) != 1:
@@ -396,11 +418,8 @@ readme_evidence = {
     "source_commit": pre_sync_state.group("source_commit"),
     "manifest_version": pre_sync_state.group("manifest_version"),
     "reviewed_on": pre_sync_state.group("reviewed_on"),
-    "release_tag": pre_sync_state.group("release_tag"),
-    "tag_present": pre_sync_state.group("tag_state") == "present",
-    "release_present": pre_sync_state.group("release_state") == "present",
 }
-if readme_evidence != EXPECTED_PRE_SYNC_HACS_EVIDENCE:
+if readme_evidence != EXPECTED_HACS_RELEASE_EVIDENCE["pre_sync_satellite"]:
     sys.exit(
         "README pre-synchronization evidence does not match the canonical "
         "generated contract"
@@ -410,6 +429,51 @@ try:
 except ValueError as exc:
     raise SystemExit(
         "README pre-synchronization review date must be a valid ISO date"
+    ) from exc
+candidate_state_pattern = re.compile(
+    r"Candidate release preflight:\s*"
+    r"- candidate manifest version: `(?P<manifest_version>"
+    + VERSION_PATTERN
+    + r")`\s*"
+    r"- candidate target tag: `(?P<release_tag>v"
+    + VERSION_PATTERN
+    + r")`\s*"
+    r"- reviewed: `(?P<reviewed_on>[0-9]{4}-[0-9]{2}-[0-9]{2})`\s*"
+    r"- target tag state: (?P<tag_state>present|absent)\s*"
+    r"- target-tag GitHub release state: "
+    r"(?P<release_state>present|absent)",
+)
+candidate_states = list(candidate_state_pattern.finditer(readme))
+if len(candidate_states) != 1:
+    sys.exit(
+        "README must contain exactly one complete candidate release preflight "
+        "block"
+    )
+candidate_state = candidate_states[0]
+candidate_readme_evidence = {
+    "manifest_version": candidate_state.group("manifest_version"),
+    "release_tag": candidate_state.group("release_tag"),
+    "reviewed_on": candidate_state.group("reviewed_on"),
+    "tag_present": candidate_state.group("tag_state") == "present",
+    "release_present": candidate_state.group("release_state") == "present",
+}
+expected_candidate_readme_evidence = {
+    "manifest_version": CANDIDATE_VERSION,
+    "release_tag": CANDIDATE_RELEASE_TAG,
+    "reviewed_on": CANDIDATE_PREFLIGHT_REVIEW_DATE,
+    "tag_present": CANDIDATE_TAG_STATE == "present",
+    "release_present": CANDIDATE_RELEASE_STATE == "present",
+}
+if candidate_readme_evidence != expected_candidate_readme_evidence:
+    sys.exit(
+        "README candidate identity does not match the generated manifest and "
+        "candidate release preflight"
+    )
+try:
+    date.fromisoformat(candidate_state.group("reviewed_on"))
+except ValueError as exc:
+    raise SystemExit(
+        "README candidate preflight review date must be a valid ISO date"
     ) from exc
 if re.search(
     r"re-check\s+the\s+public\s+commit,\s+tree,\s+source\s+provenance,"
@@ -657,7 +721,11 @@ require_readme "its presence does not imply that a public release has been autho
 require_readme "local staged integration testing"
 require_readme "full home assistant restart"
 require_readme "conditional public hacs installation"
-require_readme "pre-synchronization historical evidence"
+require_readme "pre-synchronization satellite historical evidence"
+require_readme "historical manifest version"
+require_readme "candidate release preflight"
+require_readme "candidate manifest version"
+require_readme "candidate target tag"
 require_readme "not a claim about the satellite state after synchronization"
 require_readme '`source_commit` plus the generated git tree identify this candidate'
 require_readme "does not distinguish pre-release candidate trees by itself"

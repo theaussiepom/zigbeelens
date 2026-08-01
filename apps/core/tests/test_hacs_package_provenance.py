@@ -14,8 +14,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGER = ROOT / "scripts" / "package-hacs-repo.sh"
 README_TEMPLATE = ROOT / "release" / "zigbeelens-hacs" / "README.md.in"
-PRE_SYNC_EVIDENCE_SOURCE = (
-    ROOT / "release" / "zigbeelens-hacs" / "pre-sync-evidence.json"
+RELEASE_EVIDENCE_SOURCE = (
+    ROOT / "release" / "zigbeelens-hacs" / "release-evidence.json"
 )
 PACKAGE_VALIDATOR = (
     ROOT / "release" / "zigbeelens-hacs" / "scripts" / "validate-hacs-repo.sh"
@@ -59,17 +59,25 @@ LOCAL_SOURCE_HA_MATRIX_COMMAND = (
 
 DEFAULT_SOURCE_REPOSITORY = "theaussiepom/zigbeelens"
 DEFAULT_FUTURE_HACS_REPOSITORY = "theaussiepom/zigbeelens-hacs"
-EXPECTED_PRE_SYNC_EVIDENCE = {
+EXPECTED_PRE_SYNC_SATELLITE = {
     "repository": "theaussiepom/zigbeelens-hacs",
     "commit": "21c24e3355369b94c9ab596cf9fc0591f1282297",
     "tree": "9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9",
     "source_commit": "906527063ad8bd594fbec51f69f6fc72205302dd",
     "manifest_version": "0.1.14",
     "reviewed_on": "2026-07-29",
-    "release_tag": "v0.1.14",
+}
+EXPECTED_CANDIDATE_PREFLIGHT = {
+    "reviewed_on": "2026-07-29",
     "tag_present": False,
     "release_present": False,
 }
+EXPECTED_RELEASE_EVIDENCE = {
+    "pre_sync_satellite": EXPECTED_PRE_SYNC_SATELLITE,
+    "candidate_release_preflight": EXPECTED_CANDIDATE_PREFLIGHT,
+}
+EXPECTED_CANDIDATE_VERSION = "0.1.14"
+EXPECTED_CANDIDATE_TAG = f"v{EXPECTED_CANDIDATE_VERSION}"
 HASSFEST_COMMIT = "e3fb68ebda13d88a0d695082f471ba2c83d025fb"
 HACS_ACTION_COMMIT = "1ebf01c408f29afcb6406bd431bc98fd8cbb15aa"
 EXPECTED_HA_MATRIX = {
@@ -91,22 +99,33 @@ EXPECTED_HA_MATRIX = {
 }
 
 
-def _pre_sync_placeholders(
-    evidence: dict[str, object] = EXPECTED_PRE_SYNC_EVIDENCE,
+def _release_placeholders(
+    evidence: dict[str, object] = EXPECTED_RELEASE_EVIDENCE,
+    candidate_version: str = EXPECTED_CANDIDATE_VERSION,
 ) -> dict[str, str]:
+    pre_sync = evidence["pre_sync_satellite"]
+    candidate_preflight = evidence["candidate_release_preflight"]
+    assert isinstance(pre_sync, dict)
+    assert isinstance(candidate_preflight, dict)
     return {
-        "@PRE_SYNC_HACS_REPOSITORY@": str(evidence["repository"]),
-        "@PRE_SYNC_HACS_COMMIT@": str(evidence["commit"]),
-        "@PRE_SYNC_HACS_TREE@": str(evidence["tree"]),
-        "@PRE_SYNC_HACS_SOURCE_COMMIT@": str(evidence["source_commit"]),
-        "@PRE_SYNC_HACS_VERSION@": str(evidence["manifest_version"]),
-        "@PRE_SYNC_HACS_REVIEW_DATE@": str(evidence["reviewed_on"]),
-        "@PRE_SYNC_HACS_RELEASE_TAG@": str(evidence["release_tag"]),
-        "@PRE_SYNC_HACS_TAG_STATE@": (
-            "present" if evidence["tag_present"] else "absent"
+        "@PRE_SYNC_HACS_REPOSITORY@": str(pre_sync["repository"]),
+        "@PRE_SYNC_HACS_COMMIT@": str(pre_sync["commit"]),
+        "@PRE_SYNC_HACS_TREE@": str(pre_sync["tree"]),
+        "@PRE_SYNC_HACS_SOURCE_COMMIT@": str(pre_sync["source_commit"]),
+        "@PRE_SYNC_HACS_MANIFEST_VERSION@": str(
+            pre_sync["manifest_version"]
         ),
-        "@PRE_SYNC_HACS_RELEASE_STATE@": (
-            "present" if evidence["release_present"] else "absent"
+        "@PRE_SYNC_HACS_REVIEW_DATE@": str(pre_sync["reviewed_on"]),
+        "@CANDIDATE_VERSION@": candidate_version,
+        "@CANDIDATE_RELEASE_TAG@": f"v{candidate_version}",
+        "@CANDIDATE_PREFLIGHT_REVIEW_DATE@": str(
+            candidate_preflight["reviewed_on"]
+        ),
+        "@CANDIDATE_TAG_STATE@": (
+            "present" if candidate_preflight["tag_present"] else "absent"
+        ),
+        "@CANDIDATE_RELEASE_STATE@": (
+            "present" if candidate_preflight["release_present"] else "absent"
         ),
     }
 
@@ -119,17 +138,28 @@ def _render_template(text: str, substitutions: dict[str, str]) -> str:
 
 
 def _expected_pre_sync_readme_block() -> str:
-    evidence = EXPECTED_PRE_SYNC_EVIDENCE
+    evidence = EXPECTED_PRE_SYNC_SATELLITE
     return (
-        "Pre-synchronization historical evidence:\n\n"
+        "Pre-synchronization satellite historical evidence:\n\n"
         f"- repository: `{evidence['repository']}`\n"
         f"- commit: `{evidence['commit']}`\n"
         f"- tree: `{evidence['tree']}`\n"
         f"- `SOURCE_COMMIT`: `{evidence['source_commit']}`\n"
-        f"- manifest version: `{evidence['manifest_version']}`\n"
-        f"- reviewed: `{evidence['reviewed_on']}`\n"
-        f"- `{evidence['release_tag']}` tag: absent\n"
-        f"- `{evidence['release_tag']}` release: absent"
+        f"- historical manifest version: `{evidence['manifest_version']}`\n"
+        f"- reviewed: `{evidence['reviewed_on']}`"
+    )
+
+
+def _expected_candidate_readme_block(
+    candidate_version: str = EXPECTED_CANDIDATE_VERSION,
+) -> str:
+    return (
+        "Candidate release preflight:\n\n"
+        f"- candidate manifest version: `{candidate_version}`\n"
+        f"- candidate target tag: `v{candidate_version}`\n"
+        f"- reviewed: `{EXPECTED_CANDIDATE_PREFLIGHT['reviewed_on']}`\n"
+        "- target tag state: absent\n"
+        "- target-tag GitHub release state: absent"
     )
 
 
@@ -391,11 +421,11 @@ def _copy_fixture_files(repository: Path) -> None:
         repository / "release" / "zigbeelens-hacs" / "README.md.in",
     )
     _copy_file(
-        PRE_SYNC_EVIDENCE_SOURCE,
+        RELEASE_EVIDENCE_SOURCE,
         repository
         / "release"
         / "zigbeelens-hacs"
-        / "pre-sync-evidence.json",
+        / "release-evidence.json",
     )
     _copy_file(
         PACKAGE_VALIDATOR,
@@ -581,6 +611,7 @@ def _assert_packaged_provenance(
     *,
     source_repository: str = DEFAULT_SOURCE_REPOSITORY,
     future_hacs_repository: str = DEFAULT_FUTURE_HACS_REPOSITORY,
+    candidate_version: str = EXPECTED_CANDIDATE_VERSION,
 ) -> None:
     stage = repository / "dist" / "zigbeelens-hacs"
     assert (stage / "SOURCE_COMMIT").read_bytes() == (
@@ -604,6 +635,7 @@ def _assert_packaged_provenance(
         f"https://github.com/{source_repository}/issues"
     )
     assert manifest["single_config_entry"] is True
+    assert manifest["version"] == candidate_version
 
     readme = (stage / "README.md").read_text(encoding="utf-8")
     local_heading = "## Local staged integration testing"
@@ -629,9 +661,10 @@ def _assert_packaged_provenance(
     )
     assert f"Issues: https://github.com/{source_repository}/issues" in readme
     assert _expected_pre_sync_readme_block() in readme
+    assert _expected_candidate_readme_block(candidate_version) in readme
     assert json.loads(
-        (stage / "pre-sync-evidence.json").read_text(encoding="utf-8")
-    ) == EXPECTED_PRE_SYNC_EVIDENCE
+        (stage / "release-evidence.json").read_text(encoding="utf-8")
+    ) == EXPECTED_RELEASE_EVIDENCE
     normalized_readme = " ".join(readme.split())
     assert (
         "Synchronization alone does not authorize installation or release"
@@ -647,7 +680,7 @@ def _assert_packaged_provenance(
         "@SOURCE_COMMIT@",
         "@SOURCE_REPOSITORY@",
         "@FUTURE_HACS_REPOSITORY@",
-        *_pre_sync_placeholders(),
+        *_release_placeholders(candidate_version=candidate_version),
         "@GITHUB_OWNER@",
     }:
         assert placeholder not in readme
@@ -796,7 +829,7 @@ def _assert_package_tree_matches_commit(
     expected_stage_files.update(
         {
             "SOURCE_COMMIT",
-            "pre-sync-evidence.json",
+            "release-evidence.json",
             "hacs.json",
             "README.md",
             "LICENSE",
@@ -884,8 +917,8 @@ def _assert_package_tree_matches_commit(
             "scripts/test-ha-integration-matrix.sh"
         ): "scripts/test-ha-integration-matrix.sh",
         (
-            "release/zigbeelens-hacs/pre-sync-evidence.json"
-        ): "pre-sync-evidence.json",
+            "release/zigbeelens-hacs/release-evidence.json"
+        ): "release-evidence.json",
         "apps/ha_integration/ha-test-matrix.json": "ha-test-matrix.json",
         "apps/ha_integration/pytest.ini": "pytest.ini",
         "apps/ha_integration/requirements-test.txt": "requirements-test.txt",
@@ -915,11 +948,12 @@ def _assert_package_tree_matches_commit(
         ),
     ).decode()
     expected_readme = template
+    candidate_version = str(expected_manifest["version"])
     for placeholder, value in (
         ("@SOURCE_REPOSITORY@", source_repository),
         ("@FUTURE_HACS_REPOSITORY@", future_hacs_repository),
         ("@SOURCE_COMMIT@", expected_commit),
-        *_pre_sync_placeholders().items(),
+        *_release_placeholders(candidate_version=candidate_version).items(),
     ):
         expected_readme = expected_readme.replace(placeholder, value)
     assert (stage / "README.md").read_text(encoding="utf-8") == expected_readme
@@ -933,7 +967,7 @@ def _assert_package_tree_matches_commit(
     ).decode()
     expected_validator = _render_template(
         validator_template,
-        _pre_sync_placeholders(),
+        _release_placeholders(candidate_version=candidate_version),
     )
     assert (
         stage / "scripts" / "validate-hacs-repo.sh"
@@ -979,10 +1013,10 @@ def test_package_validator_accepts_matching_provenance(tmp_path: Path):
     assert "SOURCE_COMMIT" in validation.stdout
 
 
-def test_canonical_pre_sync_hacs_evidence_is_exact() -> None:
+def test_canonical_hacs_release_evidence_is_exact() -> None:
     assert json.loads(
-        PRE_SYNC_EVIDENCE_SOURCE.read_text(encoding="utf-8")
-    ) == EXPECTED_PRE_SYNC_EVIDENCE
+        RELEASE_EVIDENCE_SOURCE.read_text(encoding="utf-8")
+    ) == EXPECTED_RELEASE_EVIDENCE
 
 
 def test_generated_hacs_tree_is_deterministic(tmp_path: Path):
@@ -1465,37 +1499,68 @@ def test_packager_rejects_dirty_readme_template(tmp_path: Path):
 
 @pytest.mark.parametrize(
     "mutation",
-    ("missing", "malformed", "duplicate", "extra", "wrong_version"),
+    (
+        "missing_file",
+        "malformed_json",
+        "duplicate_historical_field",
+        "duplicate_preflight_field",
+        "extra_top_level",
+        "missing_historical_version",
+        "malformed_historical_version",
+        "missing_candidate_tag_state",
+        "candidate_tag_non_boolean",
+        "candidate_release_non_boolean",
+        "candidate_tag_present",
+        "candidate_release_present",
+    ),
 )
-def test_packager_rejects_invalid_canonical_pre_sync_evidence(
+def test_packager_rejects_invalid_canonical_release_evidence(
     tmp_path: Path,
     mutation: str,
 ) -> None:
     repository = _fixture_repository(tmp_path)
     evidence_path = (
         repository / "release" / "zigbeelens-hacs"
-        / "pre-sync-evidence.json"
+        / "release-evidence.json"
     )
-    if mutation == "missing":
+    if mutation == "missing_file":
         evidence_path.unlink()
-    elif mutation == "malformed":
+    elif mutation == "malformed_json":
         evidence_path.write_text("{", encoding="utf-8")
-    elif mutation == "duplicate":
+    elif mutation.startswith("duplicate_"):
+        duplicate_key = (
+            "manifest_version"
+            if mutation == "duplicate_historical_field"
+            else "tag_present"
+        )
         evidence_path.write_text(
             evidence_path.read_text(encoding="utf-8").replace(
-                "{\n",
-                '{\n  "repository": "duplicate/identity",\n',
+                f'    "{duplicate_key}":',
+                f'    "{duplicate_key}": null,\n    "{duplicate_key}":',
                 1,
             ),
             encoding="utf-8",
         )
     else:
         evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
-        if mutation == "extra":
+        historical = evidence["pre_sync_satellite"]
+        preflight = evidence["candidate_release_preflight"]
+        if mutation == "extra_top_level":
             evidence["extra"] = "forbidden"
-        else:
-            evidence["manifest_version"] = "0.1.15"
-            evidence["release_tag"] = "v0.1.15"
+        elif mutation == "missing_historical_version":
+            del historical["manifest_version"]
+        elif mutation == "malformed_historical_version":
+            historical["manifest_version"] = "release-14"
+        elif mutation == "missing_candidate_tag_state":
+            del preflight["tag_present"]
+        elif mutation == "candidate_tag_non_boolean":
+            preflight["tag_present"] = "false"
+        elif mutation == "candidate_release_non_boolean":
+            preflight["release_present"] = 0
+        elif mutation == "candidate_tag_present":
+            preflight["tag_present"] = True
+        elif mutation == "candidate_release_present":
+            preflight["release_present"] = True
         evidence_path.write_text(
             json.dumps(evidence, indent=2) + "\n",
             encoding="utf-8",
@@ -1506,6 +1571,127 @@ def test_packager_rejects_invalid_canonical_pre_sync_evidence(
 
     assert result.returncode != 0
     assert not (repository / "dist" / "zigbeelens-hacs").exists()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "value"),
+    (
+        ("missing", None),
+        ("malformed", "release-15"),
+        ("non_string", 15),
+    ),
+)
+def test_packager_rejects_invalid_candidate_manifest_version(
+    tmp_path: Path,
+    mutation: str,
+    value: object,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    manifest_path = (
+        repository / "apps" / "ha_integration" / "custom_components"
+        / "zigbeelens" / "manifest.json"
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if mutation == "missing":
+        del manifest["version"]
+    else:
+        manifest["version"] = value
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    _commit_all(repository, f"invalid candidate version: {mutation}")
+
+    result = _run_packager(repository)
+
+    assert result.returncode != 0
+    assert "candidate source manifest version" in _combined_output(result)
+    assert not (repository / "dist" / "zigbeelens-hacs").exists()
+
+
+@pytest.mark.parametrize(
+    "candidate_version",
+    ("0.1.14", "0.1.15"),
+    ids=("same_version", "future_different_version"),
+)
+def test_packager_separates_historical_and_candidate_versions(
+    tmp_path: Path,
+    candidate_version: str,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    if candidate_version != EXPECTED_CANDIDATE_VERSION:
+        manifest_path = (
+            repository / "apps" / "ha_integration" / "custom_components"
+            / "zigbeelens" / "manifest.json"
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["version"] = candidate_version
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        _commit_all(repository, f"candidate {candidate_version}")
+
+    head = _head(repository)
+    package_result = _run_packager(repository)
+
+    assert package_result.returncode == 0, package_result.stderr
+    _assert_packaged_provenance(
+        repository,
+        head,
+        candidate_version=candidate_version,
+    )
+    _assert_package_tree_matches_commit(repository, head)
+    readme = (
+        repository / "dist" / "zigbeelens-hacs" / "README.md"
+    ).read_text(encoding="utf-8")
+    assert (
+        "- historical manifest version: "
+        f"`{EXPECTED_PRE_SYNC_SATELLITE['manifest_version']}`"
+    ) in readme
+    assert f"- candidate manifest version: `{candidate_version}`" in readme
+    assert f"- candidate target tag: `v{candidate_version}`" in readme
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode == 0, validation.stderr
+
+
+def test_generated_validator_rejects_historical_version_derived_candidate_tag(
+    tmp_path: Path,
+) -> None:
+    repository = _fixture_repository(tmp_path)
+    manifest_path = (
+        repository / "apps" / "ha_integration" / "custom_components"
+        / "zigbeelens" / "manifest.json"
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["version"] = "0.1.15"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    packager_path = repository / "scripts" / "package-hacs-repo.sh"
+    packager = packager_path.read_text(encoding="utf-8")
+    correct = 'candidate_release_tag = f"v{candidate_version}"'
+    wrong = 'candidate_release_tag = f"v{pre_sync[\'manifest_version\']}"'
+    assert correct in packager
+    packager_path.write_text(
+        packager.replace(correct, wrong, 1),
+        encoding="utf-8",
+    )
+    _commit_all(repository, "derive candidate tag from historical version")
+
+    package_result = _run_packager(repository)
+    assert package_result.returncode == 0, package_result.stderr
+
+    validation = _run_package_validator(repository)
+
+    assert validation.returncode != 0
+    assert (
+        "candidate release tag does not derive from candidate version"
+        in _combined_output(validation)
+    )
 
 
 def test_packager_rejects_unresolved_template_placeholder(
@@ -1562,7 +1748,7 @@ def test_packager_rejects_duplicate_evidence_placeholder(
         "CHANGELOG.md",
         "release/zigbeelens-hacs/.github/workflows/ci.yml",
         "release/zigbeelens-hacs/.github/workflows/release.yml",
-        "release/zigbeelens-hacs/pre-sync-evidence.json",
+        "release/zigbeelens-hacs/release-evidence.json",
         "release/zigbeelens-hacs/scripts/validate-hacs-repo.sh",
         "apps/ha_integration/ha-test-matrix.json",
         "apps/ha_integration/docs/zigbeelens-icon.svg",
@@ -1744,17 +1930,15 @@ def test_package_validator_rejects_conflicting_source_identity_decoy(
             f"commit/{head})"
         ),
         "pre_sync_evidence": (
-            "Pre-synchronization historical evidence:\n\n"
+            "Pre-synchronization satellite historical evidence:\n\n"
             "- repository: `impostor/zigbeelens-hacs`\n"
-            f"- commit: `{EXPECTED_PRE_SYNC_EVIDENCE['commit']}`\n"
-            f"- tree: `{EXPECTED_PRE_SYNC_EVIDENCE['tree']}`\n"
+            f"- commit: `{EXPECTED_PRE_SYNC_SATELLITE['commit']}`\n"
+            f"- tree: `{EXPECTED_PRE_SYNC_SATELLITE['tree']}`\n"
             "- `SOURCE_COMMIT`: "
-            f"`{EXPECTED_PRE_SYNC_EVIDENCE['source_commit']}`\n"
-            "- manifest version: "
-            f"`{EXPECTED_PRE_SYNC_EVIDENCE['manifest_version']}`\n"
-            f"- reviewed: `{EXPECTED_PRE_SYNC_EVIDENCE['reviewed_on']}`\n"
-            f"- `{EXPECTED_PRE_SYNC_EVIDENCE['release_tag']}` tag: absent\n"
-            f"- `{EXPECTED_PRE_SYNC_EVIDENCE['release_tag']}` release: absent"
+            f"`{EXPECTED_PRE_SYNC_SATELLITE['source_commit']}`\n"
+            "- historical manifest version: "
+            f"`{EXPECTED_PRE_SYNC_SATELLITE['manifest_version']}`\n"
+            f"- reviewed: `{EXPECTED_PRE_SYNC_SATELLITE['reviewed_on']}`"
         ),
     }
     decoy = decoys[surface]
@@ -1845,7 +2029,7 @@ def test_package_validator_rejects_pre_sync_satellite_identity_mismatch(
     readme = readme_path.read_text(encoding="utf-8")
     readme_path.write_text(
         readme.replace(
-            f"- repository: `{EXPECTED_PRE_SYNC_EVIDENCE['repository']}`",
+            f"- repository: `{EXPECTED_PRE_SYNC_SATELLITE['repository']}`",
             "- repository: `different-owner/different-satellite`",
             1,
         ),
@@ -1862,52 +2046,62 @@ def test_package_validator_rejects_pre_sync_satellite_identity_mismatch(
     ("owned_line", "replacement"),
     (
         (
-            f"- commit: `{EXPECTED_PRE_SYNC_EVIDENCE['commit']}`",
+            f"- commit: `{EXPECTED_PRE_SYNC_SATELLITE['commit']}`",
             f"- commit: `{'c' * 40}`",
         ),
         (
-            f"- tree: `{EXPECTED_PRE_SYNC_EVIDENCE['tree']}`",
+            f"- tree: `{EXPECTED_PRE_SYNC_SATELLITE['tree']}`",
             f"- tree: `{'a' * 40}`",
         ),
         (
             "- `SOURCE_COMMIT`: "
-            f"`{EXPECTED_PRE_SYNC_EVIDENCE['source_commit']}`",
+            f"`{EXPECTED_PRE_SYNC_SATELLITE['source_commit']}`",
             f"- `SOURCE_COMMIT`: `{'b' * 40}`",
         ),
         (
-            "- manifest version: "
-            f"`{EXPECTED_PRE_SYNC_EVIDENCE['manifest_version']}`",
-            "- manifest version: `0.1.15`",
+            "- historical manifest version: "
+            f"`{EXPECTED_PRE_SYNC_SATELLITE['manifest_version']}`",
+            "- historical manifest version: `0.1.15`",
         ),
         (
-            f"- `{EXPECTED_PRE_SYNC_EVIDENCE['release_tag']}` tag: absent\n",
+            f"- candidate manifest version: `{EXPECTED_CANDIDATE_VERSION}`",
+            "- candidate manifest version: `0.1.15`",
+        ),
+        (
+            f"- candidate target tag: `{EXPECTED_CANDIDATE_TAG}`",
+            "- candidate target tag: `v0.1.15`",
+        ),
+        (
+            "- target tag state: absent\n",
             "",
         ),
         (
-            f"- `{EXPECTED_PRE_SYNC_EVIDENCE['release_tag']}` release: absent",
+            "- target-tag GitHub release state: absent",
             "",
         ),
         (
-            f"- `{EXPECTED_PRE_SYNC_EVIDENCE['release_tag']}` tag: absent",
-            f"- `{EXPECTED_PRE_SYNC_EVIDENCE['release_tag']}` tag: present",
+            "- target tag state: absent",
+            "- target tag state: present",
         ),
         (
-            f"- `{EXPECTED_PRE_SYNC_EVIDENCE['release_tag']}` release: absent",
-            f"- `{EXPECTED_PRE_SYNC_EVIDENCE['release_tag']}` release: present",
+            "- target-tag GitHub release state: absent",
+            "- target-tag GitHub release state: present",
         ),
     ),
     ids=(
         "wrong_commit",
         "wrong_tree",
         "wrong_source_commit",
-        "wrong_manifest_version",
+        "wrong_historical_manifest_version",
+        "wrong_candidate_manifest_version",
+        "wrong_candidate_target_tag",
         "missing_tag_state",
         "missing_release_state",
         "tag_present",
         "release_present",
     ),
 )
-def test_package_validator_rejects_pre_sync_evidence_mismatch(
+def test_package_validator_rejects_release_identity_mismatch(
     tmp_path: Path,
     owned_line: str,
     replacement: str,
@@ -1927,7 +2121,7 @@ def test_package_validator_rejects_pre_sync_evidence_mismatch(
     validation = _run_package_validator(repository)
 
     assert validation.returncode != 0
-    assert "pre-synchronization" in _combined_output(validation)
+    assert _combined_output(validation).strip()
 
 
 @pytest.mark.parametrize(
@@ -2027,7 +2221,7 @@ def test_package_validator_rejects_unresolved_readme_placeholder(
     "mutation",
     ("missing", "malformed", "duplicate", "extra", "inconsistent"),
 )
-def test_package_validator_rejects_invalid_pre_sync_evidence_file(
+def test_package_validator_rejects_invalid_release_evidence_file(
     tmp_path: Path,
     mutation: str,
 ) -> None:
@@ -2037,7 +2231,7 @@ def test_package_validator_rejects_invalid_pre_sync_evidence_file(
 
     evidence_path = (
         repository / "dist" / "zigbeelens-hacs"
-        / "pre-sync-evidence.json"
+        / "release-evidence.json"
     )
     if mutation == "missing":
         evidence_path.unlink()
@@ -2046,8 +2240,8 @@ def test_package_validator_rejects_invalid_pre_sync_evidence_file(
     elif mutation == "duplicate":
         evidence_path.write_text(
             evidence_path.read_text(encoding="utf-8").replace(
-                "{\n",
-                '{\n  "repository": "duplicate/identity",\n',
+                '    "tree":',
+                '    "tree": null,\n    "tree":',
                 1,
             ),
             encoding="utf-8",
@@ -2057,7 +2251,7 @@ def test_package_validator_rejects_invalid_pre_sync_evidence_file(
         if mutation == "extra":
             evidence["extra"] = "forbidden"
         else:
-            evidence["tree"] = "c" * 40
+            evidence["pre_sync_satellite"]["tree"] = "c" * 40
         evidence_path.write_text(
             json.dumps(evidence, indent=2) + "\n",
             encoding="utf-8",
@@ -2124,7 +2318,7 @@ def test_packager_separates_nondefault_repository_identities(
     )
     assert f"https://github.com/{future_hacs_repository}" not in current_section
     assert f"https://github.com/{future_hacs_repository}" in future_section
-    assert EXPECTED_PRE_SYNC_EVIDENCE["repository"] in current_section
+    assert EXPECTED_PRE_SYNC_SATELLITE["repository"] in current_section
 
     validation = _run_package_validator(repository)
     assert validation.returncode == 0, validation.stderr

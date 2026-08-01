@@ -67,21 +67,32 @@ resynchronization. Validate the current branch only with the locally generated
 package from `./scripts/package-hacs-repo.sh`; public installation remains
 gated.
 
-Pre-synchronization historical evidence:
+Pre-synchronization satellite historical evidence:
 
 - repository: `theaussiepom/zigbeelens-hacs`
 - commit: `21c24e3355369b94c9ab596cf9fc0591f1282297`
 - tree: `9e33bcbf919cdc90eee37e6c3f635f6b6292fbc9`
 - `SOURCE_COMMIT`: `906527063ad8bd594fbec51f69f6fc72205302dd`
-- manifest version: `0.1.14`
+- historical manifest version: `0.1.14`
 - reviewed: `2026-07-29`
-- `v0.1.14` tag: absent
-- `v0.1.14` release: absent
 
 This record identifies what the final generated tree is intended to replace.
 It is not a claim about the satellite state after synchronization. Re-check
 commit, tree, source provenance, tags, and releases immediately before any
 synchronization or publication decision.
+
+Candidate release preflight:
+
+- candidate manifest version: `0.1.14`
+- candidate target tag: `v0.1.14`
+- reviewed: `2026-07-29`
+- target tag state: absent
+- target-tag GitHub release state: absent
+
+The candidate version comes from the source integration manifest, and the
+candidate target tag is derived from that version. The historical satellite
+manifest version records what the generated tree is intended to replace; it
+does not have to equal a later candidate version.
 
 Earlier public-satellite historical evidence:
 
@@ -113,11 +124,13 @@ immutable links and defaults to `theaussiepom/zigbeelens`.
 future publication destination and defaults to
 `theaussiepom/zigbeelens-hacs`. Neither setting rewrites the fixed public
 satellite identity. The canonical
-`release/zigbeelens-hacs/pre-sync-evidence.json` record supplies the generated
-README and validator with the exact pre-synchronization repository, commit,
-tree, source commit, manifest version, review date, and absent tag/release
-state. The selected tree, evidence record, provenance file, README, validator,
-and manifest must agree.
+`release/zigbeelens-hacs/release-evidence.json` record keeps exact historical
+`pre_sync_satellite` identity separate from the current
+`candidate_release_preflight` state. The candidate version is owned by the
+source integration manifest and its target tag is derived from that version;
+neither is inferred from the historical satellite version. The selected tree,
+evidence record, provenance file, README, validator, and manifest must agree
+within those separate identity classes.
 
 The reviewed monorepo/stage now owns:
 
